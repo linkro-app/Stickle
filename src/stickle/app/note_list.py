@@ -102,7 +102,7 @@ class NoteList(QWidget):
         self.find_shortcut.activated.connect(self.start_search)
         self.list = QListWidget(self)
         self.label.setBuddy(self.list)
-        self.list.itemActivated.connect(self._activate)  # double-click or Enter
+        self.list.itemActivated.connect(self._activate)  # double-click (Enter: eventFilter)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._menu_at)
         self.list.installEventFilter(self)
@@ -335,6 +335,12 @@ class NoteList(QWidget):
             note_id = self.selected_id()
             if note_id is not None:
                 self._remove(note_id)
+            return True
+        if watched is self.list and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Here rather than through itemActivated: list views on macOS take
+            # Cmd+O for that, not Enter.
+            if self.list.currentRow() >= 0:
+                self._activate(self.list.currentItem())
             return True
         return super().eventFilter(watched, event)
 
