@@ -94,23 +94,30 @@ def test_icons_are_quiet_until_pointed_at(qtbot: QtBot) -> None:
     assert darkest(QIcon.Mode.Normal) > darkest(QIcon.Mode.Active)
 
 
-def test_the_pin_stands_when_on_top_and_lies_when_not(qtbot: QtBot) -> None:
+def test_the_tape_is_stuck_down_when_on_top_and_peeled_up_when_not(qtbot: QtBot) -> None:
     window = NoteWindow()
     qtbot.addWidget(window)
     size = QSize(ICON_SIZE, ICON_SIZE)
-    upright = window.title_bar.pin_button.icon().pixmap(size, 2.0).toImage()
+    stuck = window.title_bar.pin_button.icon().pixmap(size, 2.0).toImage()
 
     window.set_always_on_top(False)
-    lying = window.title_bar.pin_button.icon().pixmap(size, 2.0).toImage()
+    peeled = window.title_bar.pin_button.icon().pixmap(size, 2.0).toImage()
 
-    def column_of_point(image: QImage) -> set[int]:
-        """Columns inked in the bottom row: the pin's point."""
-        y = image.height() - 2
-        return {x for x in range(image.width()) if image.pixelColor(x, y).alpha() > 60}
+    def inked(image: QImage) -> int:
+        return sum(
+            image.pixelColor(x, y).alpha() > 60
+            for x in range(image.width())
+            for y in range(image.height())
+        )
 
-    middle = upright.width() // 2
-    assert any(abs(x - middle) <= 1 for x in column_of_point(upright))  # straight down
-    assert not any(abs(x - middle) <= 1 for x in column_of_point(lying))  # off to a side
+    def centre_inked(image: QImage) -> bool:
+        middle = image.width() // 2
+        return image.pixelColor(middle, middle).alpha() > 60
+
+    # The state shows in the shape, not only the colour: filled, or an outline.
+    assert centre_inked(stuck)
+    assert not centre_inked(peeled)
+    assert inked(stuck) > inked(peeled) * 1.3
     window.release()
 
 

@@ -43,6 +43,7 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPen,
     QPixmap,
+    QPolygonF,
     QResizeEvent,
     QScreen,
     QShowEvent,
@@ -213,21 +214,28 @@ def _warning(painter: QPainter, size: float) -> None:
     painter.drawPoint(QPointF(size * 0.5, size * 0.72))
 
 
-def _pin(painter: QPainter, size: float, pinned: bool) -> None:
-    """A push pin: a head, a collar and a point. Pushed in (upright, head
-    filled) while the note stays on top; lying on its side and hollow when not,
-    so the state shows in its shape, not only its colour."""
-    if not pinned:
-        painter.translate(size / 2, size / 2)
-        painter.rotate(45)
-        painter.translate(-size / 2, -size / 2)
-    if pinned:
-        painter.setBrush(painter.pen().color())
-    painter.drawRoundedRect(
-        QRectF(size * 0.34, size * 0.08, size * 0.32, size * 0.34), size * 0.08, size * 0.08
+def _tape(painter: QPainter, size: float, stuck: bool) -> None:
+    """A strip of tape, as on the app's icon, with torn ends. Stuck down
+    (filled, lying across) while the note stays on top; peeled up (hollow,
+    lifted and turned further) when not, so the state shows in its shape, not
+    only its colour."""
+    painter.translate(size / 2, size / 2 if stuck else size * 0.42)
+    painter.rotate(-30 if stuck else -55)
+    half_length, half_width, tear = size * 0.44, size * 0.17, size * 0.07
+    left, right = -half_length, half_length
+    strip = QPolygonF(
+        [
+            QPointF(left, -half_width),
+            QPointF(right, -half_width),
+            QPointF(right - tear, 0),  # torn ends: a notch in each
+            QPointF(right, half_width),
+            QPointF(left, half_width),
+            QPointF(left + tear, 0),
+        ]
     )
-    painter.drawLine(QPointF(size * 0.24, size * 0.48), QPointF(size * 0.76, size * 0.48))
-    painter.drawLine(QPointF(size * 0.5, size * 0.48), QPointF(size * 0.5, size * 0.92))
+    if stuck:
+        painter.setBrush(painter.pen().color())
+    painter.drawPolygon(strip)
 
 
 def _lock(painter: QPainter, size: float) -> None:
@@ -246,7 +254,7 @@ def make_lock_icon(color: QColor, quiet: QColor | None = None) -> QIcon:
 
 
 def make_pin_icon(color: QColor, pinned: bool, quiet: QColor | None = None) -> QIcon:
-    return drawn_icon(lambda painter, size: _pin(painter, size, pinned), color, quiet)
+    return drawn_icon(lambda painter, size: _tape(painter, size, pinned), color, quiet)
 
 
 def make_close_icon(color: QColor, quiet: QColor | None = None) -> QIcon:
@@ -287,7 +295,7 @@ class TitleBar(QWidget):
         self.title.hide()
         self._full_title = ""
 
-        # Always on top: a pin that shows at a glance whether the note stays on top.
+        # Always on top: a strip of tape that shows at a glance whether the note stays on top.
         self.pin_button = self._button()
         self.pin_button.setCheckable(True)
         self.pin_button.setChecked(True)
