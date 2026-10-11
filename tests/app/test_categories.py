@@ -10,7 +10,7 @@ from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QWidget
 from pytestqt.qtbot import QtBot
 
-from stickle.app import label_manager
+from stickle.app import category_dialog, label_manager
 from stickle.app.i18n import Translations
 from stickle.app.label_manager import CategoryPage, LabelManager, Removal
 from stickle.app.note_list import ANY, NONE
@@ -169,6 +169,37 @@ def test_colour_and_order_change(app: App, manager_window: CategoryPage) -> None
     assert app.window.note_list.category_box.itemData(2) == app.home.id  # the list follows
     manager_window._recolor("coral")  # pyright: ignore[reportPrivateUsage]
     assert app.labels.categories()[0].color == "coral"
+
+
+def test_another_icon_shows_at_once_on_its_notes(
+    app: App, manager_window: CategoryPage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[tuple[str, str]] = []
+
+    def choose(_parent: QWidget, current: str, color: str) -> str:
+        asked.append((current, color))
+        return "briefcase"
+
+    monkeypatch.setattr(category_dialog, "choose_icon", choose)
+    select(manager_window, app.work)
+    manager_window.icon_button.click()
+
+    assert asked == [("tag", app.work.color)]
+    assert app.labels.categories()[0].icon == "briefcase"
+    tagged = [w for w in app.manager.windows if w.category and w.category.id == app.work.id]
+    assert tagged and all(w.title_bar.category_tag.category.icon == "briefcase" for w in tagged)  # pyright: ignore[reportOptionalMemberAccess]
+
+
+def test_a_cancelled_icon_changes_nothing(
+    app: App, manager_window: CategoryPage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def cancel(_parent: QWidget, _current: str, _color: str) -> None:
+        return None
+
+    monkeypatch.setattr(category_dialog, "choose_icon", cancel)
+    select(manager_window, app.work)
+    manager_window.icon_button.click()
+    assert app.labels.categories()[0].icon == "tag"
 
 
 class Answers:

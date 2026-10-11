@@ -11,14 +11,95 @@ are changed from the note's menu and the pin.
 from functools import cache
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QByteArray, QCoreApplication, QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 from stickle.core.labels import CATEGORY_ICONS, DEFAULT_CATEGORY_ICON
 
 ICONS = Path(__file__).resolve().parent / "icons" / "lucide"
 TAPE_OPACITY = 0.7
+LIST_ICON_SIZE = 16
+
+
+def icon_label(name: str) -> str:
+    """What the icon shows, in the interface language: its tooltip and its name
+    for screen readers where it is chosen."""
+    labels = {
+        "tag": QCoreApplication.translate("CategoryIcon", "Tag"),
+        "folder": QCoreApplication.translate("CategoryIcon", "Folder"),
+        "briefcase": QCoreApplication.translate("CategoryIcon", "Briefcase"),
+        "building-2": QCoreApplication.translate("CategoryIcon", "Office"),
+        "house": QCoreApplication.translate("CategoryIcon", "Home"),
+        "users": QCoreApplication.translate("CategoryIcon", "People"),
+        "user": QCoreApplication.translate("CategoryIcon", "Person"),
+        "baby": QCoreApplication.translate("CategoryIcon", "Baby"),
+        "heart": QCoreApplication.translate("CategoryIcon", "Heart"),
+        "heart-pulse": QCoreApplication.translate("CategoryIcon", "Health"),
+        "stethoscope": QCoreApplication.translate("CategoryIcon", "Doctor"),
+        "pill": QCoreApplication.translate("CategoryIcon", "Medicine"),
+        "dumbbell": QCoreApplication.translate("CategoryIcon", "Exercise"),
+        "utensils": QCoreApplication.translate("CategoryIcon", "Food"),
+        "coffee": QCoreApplication.translate("CategoryIcon", "Coffee"),
+        "shopping-cart": QCoreApplication.translate("CategoryIcon", "Shopping"),
+        "wallet": QCoreApplication.translate("CategoryIcon", "Wallet"),
+        "piggy-bank": QCoreApplication.translate("CategoryIcon", "Savings"),
+        "credit-card": QCoreApplication.translate("CategoryIcon", "Card"),
+        "receipt": QCoreApplication.translate("CategoryIcon", "Receipt"),
+        "book-open": QCoreApplication.translate("CategoryIcon", "Reading"),
+        "graduation-cap": QCoreApplication.translate("CategoryIcon", "Study"),
+        "pencil": QCoreApplication.translate("CategoryIcon", "Writing"),
+        "file-text": QCoreApplication.translate("CategoryIcon", "Document"),
+        "list-checks": QCoreApplication.translate("CategoryIcon", "Checklist"),
+        "calendar": QCoreApplication.translate("CategoryIcon", "Calendar"),
+        "clock": QCoreApplication.translate("CategoryIcon", "Time"),
+        "alarm-clock": QCoreApplication.translate("CategoryIcon", "Alarm"),
+        "mail": QCoreApplication.translate("CategoryIcon", "Mail"),
+        "message-circle": QCoreApplication.translate("CategoryIcon", "Message"),
+        "phone": QCoreApplication.translate("CategoryIcon", "Phone"),
+        "smartphone": QCoreApplication.translate("CategoryIcon", "Mobile"),
+        "laptop": QCoreApplication.translate("CategoryIcon", "Computer"),
+        "code": QCoreApplication.translate("CategoryIcon", "Code"),
+        "terminal": QCoreApplication.translate("CategoryIcon", "Terminal"),
+        "flask-conical": QCoreApplication.translate("CategoryIcon", "Science"),
+        "wrench": QCoreApplication.translate("CategoryIcon", "Repairs"),
+        "hammer": QCoreApplication.translate("CategoryIcon", "Tools"),
+        "plane": QCoreApplication.translate("CategoryIcon", "Travel"),
+        "car": QCoreApplication.translate("CategoryIcon", "Car"),
+        "bus": QCoreApplication.translate("CategoryIcon", "Transit"),
+        "map-pin": QCoreApplication.translate("CategoryIcon", "Place"),
+        "gift": QCoreApplication.translate("CategoryIcon", "Gift"),
+        "music": QCoreApplication.translate("CategoryIcon", "Music"),
+        "camera": QCoreApplication.translate("CategoryIcon", "Photos"),
+        "film": QCoreApplication.translate("CategoryIcon", "Films"),
+        "gamepad-2": QCoreApplication.translate("CategoryIcon", "Games"),
+        "palette": QCoreApplication.translate("CategoryIcon", "Art"),
+        "lightbulb": QCoreApplication.translate("CategoryIcon", "Ideas"),
+        "sparkles": QCoreApplication.translate("CategoryIcon", "Sparkles"),
+        "star": QCoreApplication.translate("CategoryIcon", "Star"),
+        "flag": QCoreApplication.translate("CategoryIcon", "Flag"),
+        "target": QCoreApplication.translate("CategoryIcon", "Goals"),
+        "trophy": QCoreApplication.translate("CategoryIcon", "Trophy"),
+        "rocket": QCoreApplication.translate("CategoryIcon", "Projects"),
+        "bookmark": QCoreApplication.translate("CategoryIcon", "Bookmark"),
+        "archive": QCoreApplication.translate("CategoryIcon", "Archive"),
+        "lock": QCoreApplication.translate("CategoryIcon", "Private"),
+        "key": QCoreApplication.translate("CategoryIcon", "Key"),
+        "leaf": QCoreApplication.translate("CategoryIcon", "Nature"),
+        "sun": QCoreApplication.translate("CategoryIcon", "Sun"),
+        "cloud": QCoreApplication.translate("CategoryIcon", "Cloud"),
+        "dog": QCoreApplication.translate("CategoryIcon", "Dog"),
+        "cat": QCoreApplication.translate("CategoryIcon", "Cat"),
+    }
+    return labels.get(name, labels[DEFAULT_CATEGORY_ICON])
+
+
+def category_icon(name: str, color: QColor) -> QIcon:
+    """The icon in color, for lists and menus, at 1x and 2x."""
+    icon = QIcon()
+    for scale in (1.0, 2.0):
+        icon.addPixmap(state_pixmap(name, color, None, LIST_ICON_SIZE, scale))
+    return icon
 
 
 @cache

@@ -138,7 +138,9 @@ def test_the_dialogs_name_all_they_offer(qtbot: QtBot, tmp_path: Path) -> None:
         for kind in KINDS
     ]
     dialogs += [
-        NewCategoryDialog(None, lambda name, color: Category("id", name, color, 1), "blue"),
+        NewCategoryDialog(
+            None, lambda name, color, icon: Category("id", name, color, 1, icon), "blue"
+        ),
         LabelManager(NoteManager()),
     ]
     found = {type(dialog).__name__: unnamed(dialog) for dialog in dialogs}
@@ -268,7 +270,9 @@ def test_tab_goes_round_the_dialogs_as_they_read(qtbot: QtBot, tmp_path: Path) -
         for kind in KINDS
     ]
     dialogs += [
-        NewCategoryDialog(None, lambda name, color: Category("id", name, color, 1), "blue"),
+        NewCategoryDialog(
+            None, lambda name, color, icon: Category("id", name, color, 1, icon), "blue"
+        ),
         LabelManager(NoteManager()),
     ]
     wrong: dict[str, list[str]] = {}

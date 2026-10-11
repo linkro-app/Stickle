@@ -43,24 +43,6 @@ def dot_color(key: str) -> QColor:
     return qcolor(colors_for(PALETTE.get(key, PALETTE["blue"])).border)
 
 
-def dot_icon(key: str) -> QIcon:
-    """A category's dot for lists and menus, at 1x and 2x."""
-    icon = QIcon()
-    for scale in (1, 2):
-        size = 14 * scale
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(dot_color(key).darker(130), scale))
-        painter.setBrush(dot_color(key))
-        inset = 3 * scale
-        painter.drawEllipse(QRectF(inset, inset, size - 2 * inset, size - 2 * inset))
-        painter.end()
-        icon.addPixmap(pixmap)
-    return icon
-
-
 def mark_name(mark: Mark) -> str:
     """The name the user gave the mark, or a built-in mark's own, translated."""
     if mark.name is not None:

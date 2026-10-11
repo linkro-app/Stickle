@@ -1,5 +1,5 @@
-"""Managing categories and marks: making, renaming, recolouring (or giving another
-icon), reordering and deleting them.
+"""Managing categories and marks: making, renaming, recolouring, giving another
+icon, reordering and deleting them.
 
 Deleting asks first. With notes in a category, the user chooses between taking the
 category off them, which cannot be undone and is said so, and moving them to
@@ -31,9 +31,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app import category_dialog
 from stickle.app import notes as notes_module
 from stickle.app.category_dialog import next_dot_color
-from stickle.app.labels import dot_icon, icon_name, mark_icon, mark_name
+from stickle.app.category_icons import category_icon
+from stickle.app.labels import dot_color, icon_name, mark_icon, mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.palette import color_name, swatch_icon
 from stickle.core.colors import PALETTE
@@ -103,6 +105,8 @@ class CategoryPage(QWidget):
             action.setData(key)
             action.triggered.connect(lambda _=False, key=key: self._recolor(key))
         self.color_button.setMenu(self.color_menu)
+        self.icon_button = QPushButton(self)
+        self.icon_button.clicked.connect(self._choose_icon)
         self.up_button = QPushButton(self)
         self.up_button.clicked.connect(lambda: self.move_selected(-1))
         self.down_button = QPushButton(self)
@@ -119,6 +123,7 @@ class CategoryPage(QWidget):
             self.new_button,
             self.rename_button,
             self.color_button,
+            self.icon_button,
             self.up_button,
             self.down_button,
             self.delete_button,
@@ -145,6 +150,7 @@ class CategoryPage(QWidget):
         self.new_button.setText(self.tr("&New…"))
         self.rename_button.setText(self.tr("&Rename"))
         self.color_button.setText(self.tr("C&olor"))
+        self.icon_button.setText(self.tr("&Icon…"))
         self.up_button.setText(self.tr("Move &up"))
         self.down_button.setText(self.tr("Move do&wn"))
         self.delete_button.setText(self.tr("&Delete…"))
@@ -173,7 +179,9 @@ class CategoryPage(QWidget):
         self.list.blockSignals(True)
         self.list.clear()
         for category in self.categories():
-            item = QListWidgetItem(dot_icon(category.color), category.name)
+            item = QListWidgetItem(
+                category_icon(category.icon, dot_color(category.color)), category.name
+            )
             item.setData(LABEL_ID, category.id)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             self.list.addItem(item)
@@ -187,7 +195,7 @@ class CategoryPage(QWidget):
     def _enable(self) -> None:
         chosen = self.selected() is not None
         row = self.list.currentRow()
-        for button in (self.rename_button, self.color_button, self.delete_button):
+        for button in (self.rename_button, self.color_button, self.icon_button, self.delete_button):
             button.setEnabled(chosen)
         self.up_button.setEnabled(chosen and row > 0)
         self.down_button.setEnabled(chosen and row < self.list.count() - 1)
@@ -224,6 +232,15 @@ class CategoryPage(QWidget):
         category = self.selected()
         if category is not None:
             self._notes.set_category_color(category.id, color)
+
+    def _choose_icon(self) -> None:
+        category = self.selected()
+        if category is None:
+            return
+        icon = category_dialog.choose_icon(self, category.icon, category.color)
+        if icon is not None:
+            self._notes.set_category_icon(category.id, icon)
+        self.list.setFocus(Qt.FocusReason.OtherFocusReason)  # on with the keyboard
 
     def move_selected(self, step: int) -> None:
         category = self.selected()

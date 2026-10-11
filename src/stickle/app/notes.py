@@ -31,11 +31,11 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QPropertyAnimation, QRect, Q
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QWidget
 
-from stickle.app.category_dialog import NewCategoryDialog, next_dot_color
+from stickle.app.category_dialog import CreateCategory, NewCategoryDialog, next_dot_color
 from stickle.app.labels import mark_name
 from stickle.app.note_window import NoteWindow
 from stickle.app.placement import MonitorWatch, can_place_windows, monitors, qrect, rect
-from stickle.core.labels import Category, Mark
+from stickle.core.labels import DEFAULT_CATEGORY_ICON, Category, Mark
 from stickle.core.layout import MAIN, Place, fit, monitor_at, remember, restore
 from stickle.core.note import DEFAULT_COLOR, Note
 from stickle.core.snap import snapped, together
@@ -117,16 +117,14 @@ class AutoSave(QObject):
         return any(timer.isActive() for timer in (self._idle, self._max, self._retry))
 
 
-def _ask_for_category(
-    parent: QWidget, create: Callable[[str, str], Category], color: str
-) -> NewCategoryDialog:
+def _ask_for_category(parent: QWidget, create: CreateCategory, color: str) -> NewCategoryDialog:
     dialog = NewCategoryDialog(parent, create, color)
     dialog.exec()
     return dialog
 
 
 # Asks, and returns once answered: the dialog's created is the new category, if any.
-new_category_dialog: Callable[[QWidget, Callable[[str, str], Category], str], NewCategoryDialog] = (
+new_category_dialog: Callable[[QWidget, CreateCategory, str], NewCategoryDialog] = (
     _ask_for_category  # replaced in tests
 )
 
@@ -846,11 +844,11 @@ class NoteManager(QObject):
                 self._show_labels(window, category_id, (mark.id for mark in window.marks))
         self.changed.emit()
 
-    def create_category(self, name: str, color: str) -> Category:
+    def create_category(self, name: str, color: str, icon: str = DEFAULT_CATEGORY_ICON) -> Category:
         """Raises CategoryNameError for a name empty or taken."""
         if self._labels is None:
             raise RuntimeError("no notes database")
-        category = self._labels.create_category(name, color)
+        category = self._labels.create_category(name, color, icon)
         self.changed.emit()
         return category
 
@@ -868,6 +866,16 @@ class NoteManager(QObject):
             self._labels.set_category_color(category_id, color)
         except apsw.Error as error:
             log.error("could not store a category's colour: %s", type(error).__name__)
+            return
+        self.refresh_labels()
+
+    def set_category_icon(self, category_id: str, icon: str) -> None:
+        if self._labels is None:
+            return
+        try:
+            self._labels.set_category_icon(category_id, icon)
+        except apsw.Error as error:
+            log.error("could not store a category's icon: %s", type(error).__name__)
             return
         self.refresh_labels()
 

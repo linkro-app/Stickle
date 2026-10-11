@@ -1,23 +1,23 @@
 """A note's category and marks: chosen from its menu, shown in its title bar."""
 
 import secrets
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 
 import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QMenu
 from pytestqt.qtbot import QtBot
 
 from stickle.app import notes as notes_module
-from stickle.app.category_dialog import NewCategoryDialog
+from stickle.app.category_dialog import CreateCategory, NewCategoryDialog
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.app.palette import rgb
 from stickle.core.colors import ICON_CONTRAST, PALETTE, contrast
-from stickle.core.labels import Category
 from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -79,9 +79,7 @@ def test_a_category_is_made_from_the_note_menu_and_shown(
 ) -> None:
     window = app.note("Plan")
 
-    def answer(
-        parent: NoteWindow, create: Callable[[str, str], Category], color: str
-    ) -> NewCategoryDialog:
+    def answer(parent: NoteWindow, create: CreateCategory, color: str) -> NewCategoryDialog:
         dialog = NewCategoryDialog(parent, create, color)
         dialog.name.setText("회사")
         dialog.color.setCurrentIndex(dialog.color.findData("blue"))
@@ -105,9 +103,7 @@ def test_cancelling_the_new_category_changes_nothing(
 ) -> None:
     window = app.note("Plan")
 
-    def cancel(
-        parent: NoteWindow, create: Callable[[str, str], Category], color: str
-    ) -> NewCategoryDialog:
+    def cancel(parent: NoteWindow, create: CreateCategory, color: str) -> NewCategoryDialog:
         dialog = NewCategoryDialog(parent, create, color)
         dialog.name.setText("회사")
         dialog.reject()
@@ -281,6 +277,33 @@ def test_the_new_category_dialog_refuses_a_name_taken(
     dialog.name.setText("Home")
     dialog.accept()
     assert dialog.created is not None and dialog.created.color == "green"
+
+
+def test_a_new_category_gets_the_icon_chosen_from_the_grid(
+    qtbot: QtBot, connection: apsw.Connection
+) -> None:
+    labels = LabelRepository(connection)
+    dialog = NewCategoryDialog(None, labels.create_category, "green")
+    qtbot.addWidget(dialog)
+    assert dialog.icon.chosen() == "tag"  # until another is chosen
+
+    dialog.name.setText("Home")
+    dialog.icon.setFocus()
+    dialog.icon.choose("house")
+    QTest.keyClick(dialog.icon, Qt.Key.Key_Right)  # the arrows move in the grid
+    chosen = dialog.icon.chosen()
+    assert chosen not in ("tag", "house")
+    dialog.accept()
+    assert dialog.created is not None and dialog.created.icon == chosen
+
+
+def test_every_icon_in_the_grid_is_named(qtbot: QtBot, connection: apsw.Connection) -> None:
+    dialog = NewCategoryDialog(None, LabelRepository(connection).create_category, "green")
+    qtbot.addWidget(dialog)
+    grid = dialog.icon
+    names = {grid.item(row).toolTip() for row in range(grid.count())}
+    assert len(names) == grid.count()  # every one its own name
+    assert grid.item(0).data(Qt.ItemDataRole.AccessibleTextRole) == "Tag"
 
 
 def test_built_in_marks_follow_the_language(app: App, translations: Translations) -> None:
