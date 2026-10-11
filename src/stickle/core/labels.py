@@ -22,6 +22,76 @@ MARK_ICONS = (
     "question",
 )
 
+# The icons a category can have (from Lucide, kept with the app), by name. A
+# category made before icons, or with an icon this version lacks, shows the first.
+CATEGORY_ICONS = (
+    "tag",
+    "folder",
+    "briefcase",
+    "building-2",
+    "house",
+    "users",
+    "user",
+    "baby",
+    "heart",
+    "heart-pulse",
+    "stethoscope",
+    "pill",
+    "dumbbell",
+    "utensils",
+    "coffee",
+    "shopping-cart",
+    "wallet",
+    "piggy-bank",
+    "credit-card",
+    "receipt",
+    "book-open",
+    "graduation-cap",
+    "pencil",
+    "file-text",
+    "list-checks",
+    "calendar",
+    "clock",
+    "alarm-clock",
+    "mail",
+    "message-circle",
+    "phone",
+    "smartphone",
+    "laptop",
+    "code",
+    "terminal",
+    "flask-conical",
+    "wrench",
+    "hammer",
+    "plane",
+    "car",
+    "bus",
+    "map-pin",
+    "gift",
+    "music",
+    "camera",
+    "film",
+    "gamepad-2",
+    "palette",
+    "lightbulb",
+    "sparkles",
+    "star",
+    "flag",
+    "target",
+    "trophy",
+    "rocket",
+    "bookmark",
+    "archive",
+    "lock",
+    "key",
+    "leaf",
+    "sun",
+    "cloud",
+    "dog",
+    "cat",
+)
+DEFAULT_CATEGORY_ICON = CATEGORY_ICONS[0]
+
 NAME_LENGTH = 40
 
 
@@ -29,8 +99,9 @@ NAME_LENGTH = 40
 class Category:
     id: str  # random UUID v4
     name: str
-    color: str  # a palette key, for the dot beside the name
+    color: str  # a palette key, for its icon
     position: int
+    icon: str = DEFAULT_CATEGORY_ICON  # one of CATEGORY_ICONS, or one a later version added
     deleted_at: str | None = None
 
     @property

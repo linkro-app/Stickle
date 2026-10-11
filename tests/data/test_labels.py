@@ -1,5 +1,6 @@
 import secrets
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import apsw
@@ -171,6 +172,26 @@ def test_a_category_colour_changes(labels: LabelRepository) -> None:
     assert labels.set_category_color(work.id, "coral").color == "coral"
     with pytest.raises(ValueError):
         labels.set_category_color(work.id, "red")
+
+
+def test_a_category_has_an_icon_of_its_own(labels: LabelRepository) -> None:
+    work = labels.create_category("Work", "blue")
+    assert work.icon == "tag"  # until one is chosen
+    home = labels.create_category("Home", "mint", "house")
+    assert home.icon == "house"
+    assert labels.set_category_icon(work.id, "briefcase").icon == "briefcase"
+    assert [c.icon for c in labels.categories()] == ["briefcase", "house"]
+    with pytest.raises(ValueError):
+        labels.set_category_icon(work.id, "no-such-icon")
+    with pytest.raises(ValueError):
+        labels.create_category("Other", "blue", "no-such-icon")
+
+
+def test_an_icon_from_a_later_version_is_kept(labels: LabelRepository, db: apsw.Connection) -> None:
+    """As synced from a newer copy of Stickle: shown as the tag, never overwritten."""
+    work = labels.create_category("Work", "blue")
+    db.execute("UPDATE categories SET icon = 'hologram' WHERE id = ?", (work.id,))
+    assert labels.category(work.id) == replace(work, icon="hologram")
 
 
 def test_categories_move_in_the_order_but_not_past_its_ends(labels: LabelRepository) -> None:

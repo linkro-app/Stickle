@@ -137,8 +137,15 @@ CREATE TABLE note_marks (
 );
 """
 
+V4 = """
+-- Each category shows as an icon of its own. Categories made before have the
+-- plain tag; an icon a later version added is kept as it is, and shown as the
+-- tag by a version that lacks it.
+ALTER TABLE categories ADD COLUMN icon TEXT NOT NULL DEFAULT 'tag';
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3]
+MIGRATIONS: list[str] = [V1, V2, V3, V4]
 BACKUPS_KEPT = 3
 
 

@@ -94,6 +94,8 @@ def test_categories_and_marks_stay_as_the_user_left_them(copy: Path) -> None:
     try:
         labels = LabelRepository(connection)
         assert [c.name for c in labels.categories()] == LIVE_CATEGORIES
+        # Made before categories had icons: the plain tag.
+        assert {c.icon for c in labels.categories()} == {"tag"}
         marks = {m.id: m for m in labels.marks()}
         assert marks["important"].name == IMPORTANT_NAME
         assert marks["urgent"].icon == URGENT_ICON
