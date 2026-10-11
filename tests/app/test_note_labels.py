@@ -6,7 +6,7 @@ from pathlib import Path
 
 import apsw
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtWidgets import QMenu
 from pytestqt.qtbot import QtBot
 
@@ -15,6 +15,8 @@ from stickle.app.category_dialog import NewCategoryDialog
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
+from stickle.app.palette import rgb
+from stickle.core.colors import ICON_CONTRAST, PALETTE, contrast
 from stickle.core.labels import Category
 from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
@@ -93,7 +95,7 @@ def test_a_category_is_made_from_the_note_menu_and_shown(
     stored = app.notes.get(window.note_id or "")
     assert stored is not None and stored.label == app.labels.categories()[0].id
     assert window.title_bar.category_tag.isVisibleTo(window)
-    assert window.title_bar.category_tag.accessibleName() == "Category: 회사"
+    assert window.title_bar.category_tag.accessibleName() == "Category: 회사, stays on top"
     open_menus(app.note("Other"))
     assert texts(app.manager.windows[-1].category_menu) == ["None", "회사", "New category…"]
 
@@ -114,7 +116,7 @@ def test_cancelling_the_new_category_changes_nothing(
     monkeypatch.setattr(notes_module, "new_category_dialog", cancel)
     window.new_category_requested.emit()
     assert app.labels.categories() == []
-    assert not window.title_bar.category_tag.isVisibleTo(window)
+    assert window.title_bar.category_tag.category is None
 
 
 def test_a_category_is_chosen_and_taken_off(app: App) -> None:
@@ -130,7 +132,7 @@ def test_a_category_is_chosen_and_taken_off(app: App) -> None:
 
     stored = app.notes.get(window.note_id or "")
     assert stored is not None and stored.label is None
-    assert not window.title_bar.category_tag.isVisibleTo(window)
+    assert window.title_bar.category_tag.category is None
 
 
 def test_marks_are_put_on_from_the_menu_in_their_order(app: App) -> None:
@@ -204,15 +206,51 @@ def test_the_colour_and_the_category_do_not_touch(app: App) -> None:
     assert stored.body == "Plan"
 
 
-def test_a_narrow_note_shows_the_first_letter(app: App) -> None:
+def test_the_category_shows_as_its_icon_however_long_its_name(app: App) -> None:
     window = app.note("Plan")
-    app.manager.set_category(window, app.labels.create_category("회사 일", "blue").id)
     tag = window.title_bar.category_tag
+    plain = tag.sizeHint()
+    app.manager.set_category(
+        window, app.labels.create_category("아주 긴 이름의 카테고리 하나", "blue").id
+    )
+    assert tag.sizeHint() == plain  # an icon as tall as the letters, not the name
+    assert tag.sizeHint().width() < tag.fontMetrics().horizontalAdvance("아주 긴")
 
-    tag.resize(tag.sizeHint())
-    assert tag.shown_text() == "회사 일"
-    tag.resize(tag.minimumSizeHint())
-    assert tag.shown_text() == "회"
+
+def test_the_left_icon_says_what_the_note_is_about_and_whether_it_stays_on_top(
+    app: App,
+) -> None:
+    window = app.note("Plan")
+    tag = window.title_bar.category_tag
+    assert tag.isVisibleTo(window)  # the app's own icon, for no category
+    assert tag.accessibleName() == "No category, stays on top"
+    window.set_always_on_top(False)
+    assert tag.accessibleName() == "No category"
+    assert not tag.on_top
+
+    home = app.labels.create_category("Home", "mint", "house")
+    app.manager.set_category(window, home.id)
+    assert tag.accessibleName() == "Category: Home"
+    window.set_always_on_top(True)
+    assert tag.on_top
+
+
+def test_the_left_icon_only_shows_the_state(app: App) -> None:
+    """Changed from the menu and the pin; a press there moves the note instead."""
+    window = app.note("Plan")
+    tag = window.title_bar.category_tag
+    assert tag.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    assert tag.focusPolicy() == Qt.FocusPolicy.NoFocus
+
+
+def test_a_category_icon_shows_on_every_note_colour(app: App) -> None:
+    """Its colour deepened (or lightened) until it stands out as an icon should."""
+    window = app.note("Plan")
+    tag = window.title_bar.category_tag
+    app.manager.set_category(window, app.labels.create_category("Home", "yellow").id)
+    for color in PALETTE:
+        app.manager.set_color(window, color)
+        assert contrast(rgb(tag.icon_color()), rgb(tag.background)) >= ICON_CONTRAST, color
 
 
 def test_marks_that_do_not_fit_are_counted(app: App) -> None:

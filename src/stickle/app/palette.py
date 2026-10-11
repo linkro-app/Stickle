@@ -14,6 +14,10 @@ def qcolor(color: Rgb) -> QColor:
     return QColor(color.red, color.green, color.blue)
 
 
+def rgb(color: QColor) -> Rgb:
+    return Rgb(color.red(), color.green(), color.blue())
+
+
 def color_name(key: str) -> str:
     """The palette colour's name in the interface language (the key if unknown)."""
     names = {

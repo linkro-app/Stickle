@@ -147,7 +147,9 @@ def test_renaming_changes_the_tag_of_open_notes(app: App, manager_window: Catego
         w for w in app.manager.windows if w.category is not None and w.category.id == app.work.id
     ]
     assert len(tagged) == 2
-    assert all(w.title_bar.category_tag.accessibleName() == "Category: 업무" for w in tagged)
+    assert all(
+        w.title_bar.category_tag.accessibleName() == "Category: 업무, stays on top" for w in tagged
+    )
 
 
 def test_a_name_taken_is_refused_and_the_old_one_stays(

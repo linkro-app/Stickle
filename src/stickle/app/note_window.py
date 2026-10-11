@@ -309,16 +309,16 @@ class TitleBar(QWidget):
             )
         )
         self.movable = True  # False while the note is locked
-        # What the note is about, and how it is to be dealt with; clicking either
-        # opens the menu, where they are changed.
+        # What the note is about and whether it stays on top, shown only (changed
+        # from the menu and the pin); how it is to be dealt with, where clicking
+        # opens the menu.
         self.category_tag = CategoryTag(self)
         self.marks_badge = MarksBadge(self)
-        for part in (self.category_tag, self.marks_badge):
-            part.clicked.connect(
-                lambda _=False, part=part: self.menu_requested.emit(
-                    part.mapToGlobal(QPoint(0, part.height()))
-                )
+        self.marks_badge.clicked.connect(
+            lambda: self.menu_requested.emit(
+                self.marks_badge.mapToGlobal(QPoint(0, self.marks_badge.height()))
             )
+        )
         self.set_icon_color(qcolor(DARK_TEXT))
 
         layout = QHBoxLayout(self)
@@ -358,6 +358,7 @@ class TitleBar(QWidget):
 
     def _show_pin(self, pinned: bool) -> None:
         self.pin_button.setIcon(make_pin_icon(self._icon_color, pinned, self._quiet_color))
+        self.category_tag.set_on_top(pinned)
 
     def set_title(self, title: str) -> None:
         """Shown while the note is folded, shortened to the width it has."""
@@ -1083,6 +1084,7 @@ class NoteWindow(QWidget):
             "TitleBar QToolButton::menu-indicator { image: none; width: 0; }"
         )
         self.title_bar.set_icon_color(qcolor(title), qcolor(self.colors.title_icon))
+        self.title_bar.category_tag.set_background(qcolor(self.colors.title_bar))
         self.view.set_colors(self.colors)
         self.highlighter.set_colors(self.colors)
         for key, action in self.color_actions.items():

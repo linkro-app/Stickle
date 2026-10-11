@@ -132,6 +132,17 @@ def quiet(color: Rgb, background: Rgb) -> Rgb:
     return color.over(background, alpha)
 
 
+def clear_on(color: Rgb, background: Rgb) -> Rgb:
+    """color, deepened (or lightened on a dark background) just until it shows
+    as an icon does (3:1), keeping its hue."""
+    step = -0.04 if luminance(background) > 0.18 else 0.04
+    for _ in range(40):
+        if contrast(color, background) >= ICON_CONTRAST:
+            break
+        color = color.lighter(step)
+    return color
+
+
 def _lab(color: Rgb) -> tuple[float, float, float]:
     """CIE L*a*b* (D65), to judge how different two colours look."""
     red, green, blue = (_linear(c) for c in (color.red, color.green, color.blue))

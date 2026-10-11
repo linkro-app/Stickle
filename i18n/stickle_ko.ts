@@ -134,8 +134,16 @@
 <context>
     <name>CategoryTag</name>
     <message>
+        <source>No category</source>
+        <translation>카테고리 없음</translation>
+    </message>
+    <message>
         <source>Category: %1</source>
         <translation>카테고리: %1</translation>
+    </message>
+    <message>
+        <source>%1, stays on top</source>
+        <translation>%1, 항상 위</translation>
     </message>
 </context>
 <context>

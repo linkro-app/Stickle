@@ -1,10 +1,10 @@
 """Categories and marks on screen: names, drawn icons, and their place in a
 note's title bar.
 
-A note's category shows at the left of its title bar as a coloured dot and
-its name, or only the name's first letter where the note is narrow. Its marks
-show at the right as small drawn icons, as many as fit, then a count of the
-rest. Clicking either opens the note menu.
+A note's category shows at the left of its title bar as its icon (drawn by
+category_icons), which only shows it. Its marks show at the right as small
+drawn icons, as many as fit, then a count of the rest; clicking them opens
+the note menu.
 """
 
 import math
@@ -25,8 +25,9 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QSizePolicy, QToolButton, QWidget
 
-from stickle.app.palette import qcolor
-from stickle.core.colors import PALETTE, colors_for
+from stickle.app.category_icons import state_pixmap
+from stickle.app.palette import qcolor, rgb
+from stickle.core.colors import PALETTE, clear_on, colors_for
 from stickle.core.labels import Category, Mark
 
 ICON = 12  # as the title bar's other icons
@@ -271,61 +272,79 @@ class _TitleBarPart(QToolButton):
 
 
 class CategoryTag(_TitleBarPart):
-    """The note's category: a dot of its colour and its name, or the name's first
-    letter where there is no room for all of it."""
+    """The note's state at the left of its title bar: its category's icon (the
+    app's own for none), with a strip of tape across it while the note stays
+    on top. As large as the title's letters. It only shows the state: the
+    category is changed from the note menu, staying on top with the pin."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.category: Category | None = None
+        self.on_top = False
+        self.background = QColor(Qt.GlobalColor.white)
+        # Not a button: a press here starts moving the note, as on the bar.
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.show()
 
     def set_category(self, category: Category | None) -> None:
         self.category = category
-        self.setVisible(category is not None)
         self.retranslate()
-        self.updateGeometry()
+        self.update()
+
+    def set_on_top(self, on_top: bool) -> None:
+        self.on_top = on_top
+        self.retranslate()
+        self.update()
+
+    def set_background(self, background: QColor) -> None:
+        self.background = background
         self.update()
 
     def retranslate(self) -> None:
-        name = self.category.name if self.category is not None else ""
-        text = QCoreApplication.translate("CategoryTag", "Category: %1").replace("%1", name)
+        if self.category is None:
+            text = QCoreApplication.translate("CategoryTag", "No category")
+        else:
+            text = QCoreApplication.translate("CategoryTag", "Category: %1").replace(
+                "%1", self.category.name
+            )
+        if self.on_top:
+            text = QCoreApplication.translate("CategoryTag", "%1, stays on top").replace("%1", text)
         self.setAccessibleName(text)
         self.setToolTip(text)
 
-    def _width_for(self, text: str) -> int:
-        return PADDING + DOT + GAP + QFontMetrics(self.font()).horizontalAdvance(text) + PADDING
+    def icon_size(self) -> int:
+        """As tall as the title's letters, with room for the tape at its corner."""
+        return QFontMetrics(self.font()).height()
 
-    def shown_text(self) -> str:
-        """All of the name if it fits, else its first letter."""
-        name = self.category.name if self.category is not None else ""
-        return name if self.width() >= self._width_for(name) else name[:1]
+    def icon_color(self) -> QColor:
+        """The category's colour, deepened until it shows on the note; the
+        title's colour for the app's own icon."""
+        if self.category is None:
+            return self.color
+        shown = clear_on(rgb(dot_color(self.category.color)), rgb(self.background))
+        return qcolor(shown)
 
     @override
     def sizeHint(self) -> QSize:
-        name = self.category.name if self.category is not None else ""
-        return QSize(self._width_for(name), self.height())
+        return QSize(self.icon_size() + 2 * PADDING, self.height())
 
     @override
     def minimumSizeHint(self) -> QSize:
-        name = self.category.name if self.category is not None else ""
-        return QSize(self._width_for(name[:1]), self.height())
+        return self.sizeHint()
 
     @override
     def paintEvent(self, event: QPaintEvent) -> None:
-        if self.category is None:
-            return
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(dot_color(self.category.color).darker(130), 1))
-        painter.setBrush(dot_color(self.category.color))
-        top = (self.height() - DOT) / 2
-        painter.drawEllipse(QRectF(PADDING + 0.5, top + 0.5, DOT - 1, DOT - 1))
-        painter.setPen(self.color)
-        left = PADDING + DOT + GAP
-        painter.drawText(
-            QRectF(left, 0, self.width() - left, self.height()),
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-            self.shown_text(),
+        size = self.icon_size()
+        icon = state_pixmap(
+            self.category.icon if self.category is not None else None,
+            self.icon_color(),
+            self.color if self.on_top else None,
+            size,
+            self.devicePixelRatioF(),
         )
+        painter = QPainter(self)
+        painter.drawPixmap(QPointF(PADDING, (self.height() - size) / 2), icon)
         painter.end()
 
 
