@@ -18,7 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ROOT / "src" / "stickle"
 TS_DIR = ROOT / "i18n"
 QM_DIR = SOURCES / "translations"
-LANGUAGES = ("ko",)
+LANGUAGES = ("en", "ko")
+# English is the source language: its file only holds the plural forms
+# ("%n note(s)" -> "1 note", "2 notes"), and Qt's own strings are already English.
+SOURCE_LANGUAGE = "en"
 QT_TRANSLATIONS = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath))
 
 
@@ -29,12 +32,13 @@ def tool(name: str) -> str:
     return path
 
 
-def extract(ts_file: Path) -> None:
+def extract(ts_file: Path, plurals_only: bool = False) -> None:
     sources = sorted(str(path) for path in SOURCES.rglob("*.py"))
     subprocess.run(
         [
             tool("pyside6-lupdate"),
             *sources,
+            *(["-pluralonly"] if plurals_only else []),
             "-no-obsolete",
             "-locations",
             "none",
@@ -58,10 +62,12 @@ def compile_to(ts_file: Path, qm_file: Path) -> None:
 def main(argv: list[str]) -> int:
     for language in LANGUAGES:
         ts_file = TS_DIR / f"stickle_{language}.ts"
+        source = language == SOURCE_LANGUAGE
         if "--compile" not in argv:
-            extract(ts_file)
+            extract(ts_file, plurals_only=source)
         compile_to(ts_file, QM_DIR / f"stickle_{language}.qm")
-        shutil.copy2(QT_TRANSLATIONS / f"qtbase_{language}.qm", QM_DIR)
+        if not source:
+            shutil.copy2(QT_TRANSLATIONS / f"qtbase_{language}.qm", QM_DIR)
     return 0
 
 

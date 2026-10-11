@@ -38,7 +38,7 @@ class Translations(QObject):
         locale = QLocale.system() if language is None else QLocale(language)
         QLocale.setDefault(locale)
         # Qt's own strings (context menus, dialogs) first, then ours; English is
-        # the source language, so no file is needed for it.
+        # the source language, and its file only holds the plural forms.
         for name in ("qtbase", "stickle"):
             translator = QTranslator(self)
             if translator.load(locale, name, "_", str(self._directory)):
