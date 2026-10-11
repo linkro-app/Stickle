@@ -116,6 +116,7 @@ def connect_stickle_window(
         tray.activated.connect(tray_clicked)
         tray.open_window_action.triggered.connect(lambda: window.open())
         tray.guide_action.triggered.connect(window.guide.open)
+        tray.about_action.triggered.connect(window.about.present)
         tray.find_action.triggered.connect(window.finder.open)
         # Switched from the tray while the window is open: it shows the change.
         tray.autostart_action.triggered.connect(lambda: window.refresh())

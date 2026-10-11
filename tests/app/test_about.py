@@ -1,0 +1,113 @@
+"""About Stickle, and where "Support Stickle" leads."""
+
+import pytest
+from PySide6.QtCore import Qt, QUrl
+from pytestqt.qtbot import QtBot
+
+from stickle import __version__
+from stickle.app import note_window, support
+from stickle.app.about_dialog import AboutDialog
+from stickle.app.i18n import Translations
+from stickle.app.tray import Tray
+
+STORE_ID = "9NTESTSUPPORT"
+
+
+@pytest.fixture
+def opened(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """What the app asked the system to open, instead of opening it."""
+    urls: list[str] = []
+
+    def open_url(url: QUrl) -> bool:
+        urls.append(url.toString())
+        return True
+
+    monkeypatch.setattr(note_window, "open_url", open_url)
+    return urls
+
+
+def test_it_shows_the_running_version(qtbot: QtBot, translations: Translations) -> None:
+    about = AboutDialog()
+    qtbot.addWidget(about)
+    assert __version__ in about.version.text()
+
+
+def test_support_opens_the_websites_page_in_the_apps_language(
+    qtbot: QtBot, translations: Translations, opened: list[str]
+) -> None:
+    about = AboutDialog()
+    qtbot.addWidget(about)
+    about.support_button.click()
+    translations.apply("ko")
+    about.support_button.click()
+    assert opened == [
+        "https://stickle.linkro.co/en/support",
+        "https://stickle.linkro.co/ko/support",
+    ]
+
+
+def test_a_language_the_website_lacks_gets_english(
+    qtbot: QtBot, translations: Translations, opened: list[str]
+) -> None:
+    translations.apply("fr")
+    support.open_support()
+    assert opened == ["https://stickle.linkro.co/en/support"]
+
+
+def test_the_store_copy_opens_the_stores_support_item(
+    monkeypatch: pytest.MonkeyPatch, translations: Translations, opened: list[str]
+) -> None:
+    monkeypatch.setattr(support, "STORE_SUPPORT_ID", STORE_ID)
+    monkeypatch.setattr(support, "in_store_package", lambda: True)
+    support.open_support()
+    assert opened == [f"ms-windows-store://pdp/?productid={STORE_ID}"]
+
+
+def test_the_store_copy_opens_the_website_until_the_item_exists(
+    monkeypatch: pytest.MonkeyPatch, translations: Translations, opened: list[str]
+) -> None:
+    monkeypatch.setattr(support, "STORE_SUPPORT_ID", None)
+    monkeypatch.setattr(support, "in_store_package", lambda: True)
+    support.open_support()
+    assert opened == ["https://stickle.linkro.co/en/support"]
+
+
+def test_other_copies_never_open_the_store(
+    monkeypatch: pytest.MonkeyPatch, translations: Translations, opened: list[str]
+) -> None:
+    monkeypatch.setattr(support, "STORE_SUPPORT_ID", STORE_ID)
+    monkeypatch.setattr(support, "in_store_package", lambda: False)
+    support.open_support()
+    assert opened == ["https://stickle.linkro.co/en/support"]
+
+
+def test_the_tray_offers_support_and_about(
+    qtbot: QtBot, translations: Translations, opened: list[str]
+) -> None:
+    tray = Tray(lambda: None, lambda: None, translations)
+    actions = [a.text() for a in tray.contextMenu().actions() if a.text()]
+    # Just above Quit, the last item.
+    assert actions[-3:] == ["Support Stickle…", "About Stickle", "Quit Stickle"]
+    tray.support_action.trigger()
+    assert opened == ["https://stickle.linkro.co/en/support"]
+
+
+def test_links_open_only_web_pages(
+    qtbot: QtBot, translations: Translations, opened: list[str]
+) -> None:
+    about = AboutDialog()
+    qtbot.addWidget(about)
+    about.links.linkActivated.emit("https://github.com/linkro-app/Stickle")
+    about.links.linkActivated.emit("file:///C:/Windows/System32/calc.exe")
+    assert opened == ["https://github.com/linkro-app/Stickle"]
+
+
+def test_the_keyboard_starts_on_close_and_reaches_support(
+    qtbot: QtBot, translations: Translations
+) -> None:
+    about = AboutDialog()
+    qtbot.addWidget(about)
+    about.present()
+    qtbot.waitExposed(about)
+    assert about.focusWidget() is about.close_button
+    assert about.support_button.focusPolicy() & Qt.FocusPolicy.TabFocus

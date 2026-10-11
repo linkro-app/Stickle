@@ -10,6 +10,7 @@ from stickle.app.app_icon import make_icon
 from stickle.app.app_list import switch_app_list
 from stickle.app.i18n import LANGUAGES, Translations
 from stickle.app.notes import HIDDEN_LISTED, NoteManager, clipboard_text
+from stickle.app.support import open_support
 from stickle.core.markdown import note_title
 from stickle.core.note import Note
 from stickle.platform.autostart import Autostart
@@ -113,6 +114,11 @@ class Tray(QSystemTrayIcon):
         # The file may have been removed in the system's own settings meanwhile.
         self._menu.aboutToShow.connect(self.refresh_switches)
 
+        self._menu.addSeparator()
+        # One of the two places that mention support (the other is About Stickle).
+        self.support_action = self._menu.addAction("")
+        self.support_action.triggered.connect(open_support)
+        self.about_action = self._menu.addAction("")
         self._menu.addSeparator()
         self.quit_action = self._menu.addAction("")
         self.quit_action.triggered.connect(on_quit)
@@ -223,5 +229,7 @@ class Tray(QSystemTrayIcon):
         if chosen := self.language_actions.get(self._translations.language):
             chosen.setChecked(True)
         self.quit_action.setText(self.tr("Quit Stickle"))
+        self.support_action.setText(self.tr("Support Stickle…"))
+        self.about_action.setText(self.tr("About Stickle"))
         self.autostart_action.setText(self.tr("Start Stickle when I log in"))
         self.app_list_action.setText(self.tr("Show Stickle in the app list"))

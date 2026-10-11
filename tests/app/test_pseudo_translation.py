@@ -85,7 +85,7 @@ def test_every_visible_text_is_translated(qtbot: QtBot, tmp_path: Path) -> None:
         assert menu is not None
         texts = visible_texts(note) + visible_texts(note.menu) + visible_texts(menu)
         texts += visible_texts(tray.language_menu) + visible_texts(tray.hidden_menu)
-        texts += visible_texts(stickle_window)
+        texts += visible_texts(stickle_window) + visible_texts(stickle_window.about)
         box = stickle_window.language_box
         texts += [box.itemText(index) for index in range(box.count())]
 

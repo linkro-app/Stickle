@@ -2,6 +2,57 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="ko_KR">
 <context>
+    <name>AboutDialog</name>
+    <message>
+        <source>About Stickle</source>
+        <translation>Stickle 정보</translation>
+    </message>
+    <message>
+        <source>Version %1</source>
+        <translation>버전 %1</translation>
+    </message>
+    <message>
+        <source>Notes that stay on your desktop, saved as you type and kept encrypted on your computer. No account, no server.</source>
+        <translation>바탕화면에 붙여 두는 메모. 입력하는 대로 저장되고 내 컴퓨터에 암호화해 둡니다. 계정도 서버도 없습니다.</translation>
+    </message>
+    <message>
+        <source>Website</source>
+        <translation>홈페이지</translation>
+    </message>
+    <message>
+        <source>Source code</source>
+        <translation>소스 코드</translation>
+    </message>
+    <message>
+        <source>Privacy</source>
+        <translation>개인정보 처리방침</translation>
+    </message>
+    <message>
+        <source>Links</source>
+        <translation>링크</translation>
+    </message>
+    <message>
+        <source>Free software under the GNU General Public License, version 3 or later.</source>
+        <translation>GNU 일반 공중 사용 허가서 3판 이상을 따르는 자유 소프트웨어입니다.</translation>
+    </message>
+    <message>
+        <source>License</source>
+        <translation>라이선스</translation>
+    </message>
+    <message>
+        <source>If Stickle is useful to you, your support keeps it going. It adds nothing to the app: Stickle is the same either way.</source>
+        <translation>Stickle이 도움이 되었다면 후원으로 개발을 이어 갈 수 있습니다. 후원해도 Stickle은 똑같습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Support Stickle…</source>
+        <translation>후원하기(&amp;S)…</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>닫기</translation>
+    </message>
+</context>
+<context>
     <name>AppList</name>
     <message>
         <source>Add Stickle to your list of applications, so you can start it like any other program? You can change this later in the Stickle menu.</source>
@@ -1382,6 +1433,10 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>F1</translation>
     </message>
     <message>
+        <source>About Stickle</source>
+        <translation>Stickle 정보</translation>
+    </message>
+    <message>
         <source>&amp;Start Stickle when I log in</source>
         <translation>로그인할 때 Stickle 시작(&amp;S)</translation>
     </message>
@@ -1507,6 +1562,14 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     <message>
         <source>Quit Stickle</source>
         <translation>Stickle 종료</translation>
+    </message>
+    <message>
+        <source>Support Stickle…</source>
+        <translation>후원하기…</translation>
+    </message>
+    <message>
+        <source>About Stickle</source>
+        <translation>Stickle 정보</translation>
     </message>
     <message>
         <source>Start Stickle when I log in</source>

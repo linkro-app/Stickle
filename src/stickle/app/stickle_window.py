@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.about_dialog import AboutDialog
 from stickle.app.app_list import switch_app_list
 from stickle.app.finder import DesktopFinder
 from stickle.app.first_run import LoginNote
@@ -197,6 +198,9 @@ class StickleWindow(QWidget):
         self.guide_button = QPushButton(self)
         self.guide_button.clicked.connect(self.guide.toggle)
         notes.guide_requested.connect(self.guide.toggle)
+        self.about = AboutDialog()
+        self.about_button = QPushButton(self)
+        self.about_button.clicked.connect(self.about.present)
         # Finding notes on the desktop; what it also finds hidden or deleted is here.
         self.finder = DesktopFinder(notes, self.search_for)
         for keys in GUIDE_KEYS:
@@ -247,6 +251,7 @@ class StickleWindow(QWidget):
         tools = QHBoxLayout()
         tools.addWidget(self.labels_button, 1)
         tools.addWidget(self.guide_button)
+        tools.addWidget(self.about_button)
         layout.addLayout(tools)
         layout.addLayout(language)
         layout.addWidget(self.autostart_box)
@@ -296,6 +301,7 @@ class StickleWindow(QWidget):
             self.restore_button,
             self.labels_button,
             self.guide_button,
+            self.about_button,
             self.language_box,
             self.autostart_box,
             self.app_list_box,
@@ -339,6 +345,7 @@ class StickleWindow(QWidget):
         self.labels_button.setText(self.tr("Manage &categories and marks…"))
         self.guide_button.setText(self.tr("Keyboard shortcuts"))
         self.guide_button.setToolTip(self.tr("F1", "the key that opens the shortcuts"))
+        self.about_button.setText(self.tr("About Stickle"))
         self.language_label.setText(self.tr("&Language"))
         self.language_box.setAccessibleName(self.tr("Language"))
         self.language_box.setItemText(0, self.tr("System language"))
