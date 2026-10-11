@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 
 SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256, 512)
 UNITS = 512  # the drawing's own grid; every size is this, scaled
+FADED = 0.4  # how much of the icon shows while the notes are hidden for now
 
 NOTE = QColor("#ffd43b")
 NOTE_SHADE = QColor(245, 184, 0, 140)  # the note's lower edge, a little deeper
@@ -56,18 +57,20 @@ def _turn(painter: QPainter, degrees: float, around: QPointF) -> None:
     painter.translate(-around)
 
 
-def icon_pixmap(size: int) -> QPixmap:
+def icon_pixmap(size: int, opacity: float = 1.0) -> QPixmap:
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
+    painter.setOpacity(opacity)
     paint_icon(painter, size)
     painter.end()
     return pixmap
 
 
-def make_icon() -> QIcon:
-    """The app's icon, drawn at every size it is shown at."""
+def make_icon(faded: bool = False) -> QIcon:
+    """The app's icon, drawn at every size it is shown at; faded while the
+    notes are hidden for now (in the tray)."""
     icon = QIcon()
     for size in SIZES:
-        icon.addPixmap(icon_pixmap(size))
+        icon.addPixmap(icon_pixmap(size, FADED if faded else 1.0))
     return icon

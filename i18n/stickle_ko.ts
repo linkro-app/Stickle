@@ -1548,6 +1548,10 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>바탕화면에서 찾기</translation>
     </message>
     <message>
+        <source>Stickle: notes hidden for now</source>
+        <translation>Stickle: 메모를 잠시 숨김</translation>
+    </message>
+    <message>
         <source>Stickle: only “%1” on the desktop</source>
         <translation>Stickle: 바탕화면에 ‘%1’만 보는 중</translation>
     </message>

@@ -52,6 +52,7 @@ class Tray(QSystemTrayIcon):
         app_list: AppMenuEntry | None = None,
     ) -> None:
         super().__init__(make_icon())
+        self._faded = False
         self.setToolTip("Stickle")
         self._translations = translations
         self._notes = notes
@@ -216,7 +217,15 @@ class Tray(QSystemTrayIcon):
         self.view_menu.setTitle(self.tr("Show on the desktop"))
         self.guide_action.setText(self.tr("Keyboard shortcuts"))
         self.find_action.setText(self.tr("Find on the desktop"))
-        if self._notes is not None and self._notes.view is not None:
+        set_aside = self._notes is not None and self._notes.set_aside
+        # Faded while the notes are out of sight, so the icon says why none show;
+        # set only on a change, as some desktops redraw the whole tray for it.
+        if set_aside != self._faded:
+            self._faded = set_aside
+            self.setIcon(make_icon(faded=set_aside))
+        if set_aside:
+            self.setToolTip(self.tr("Stickle: notes hidden for now"))
+        elif self._notes is not None and self._notes.view is not None:
             # Always in sight, so that notes out of view are not thought lost.
             self.setToolTip(
                 self.tr("Stickle: only “%1” on the desktop").replace("%1", self._notes.view_name())

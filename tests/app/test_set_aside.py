@@ -127,6 +127,28 @@ def test_the_window_and_the_tray_say_so_while_it_holds(app: App) -> None:
     assert not app.window.set_aside_label.isVisibleTo(app.window)
 
 
+def test_the_tray_icon_fades_while_the_notes_are_out_of_sight(app: App) -> None:
+    note(app, "A")
+
+    def ink() -> int:
+        """How solid the tray icon is: the sum of its pixels' alpha."""
+        image = app.tray.icon().pixmap(32, 32).toImage()
+        return sum(
+            image.pixelColor(x, y).alpha()
+            for x in range(image.width())
+            for y in range(image.height())
+        )
+
+    shown = ink()
+    assert app.tray.toolTip() == "Stickle"
+    app.window.set_aside_button.click()
+    assert ink() < shown * 0.6
+    assert app.tray.toolTip() == "Stickle: notes hidden for now"
+    app.window.set_aside_button.click()
+    assert ink() == shown
+    assert app.tray.toolTip() == "Stickle"
+
+
 def test_the_next_start_shows_them_again(app: App, connection: apsw.Connection) -> None:
     note(app, "A")
     app.manager.set_all_aside()
