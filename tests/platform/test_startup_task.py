@@ -15,7 +15,9 @@ from stickle.platform.autostart import (
     this_computers_autostart,
 )
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows")
+if sys.platform != "win32":
+    pytest.skip("Windows", allow_module_level=True)
+assert sys.platform == "win32"  # type checking on other systems passes over the rest
 
 
 class Operation:

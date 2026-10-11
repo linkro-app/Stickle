@@ -62,6 +62,7 @@ def test_x11_keys_and_modifiers() -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows")
 def test_windows_keys_and_modifiers() -> None:
+    assert sys.platform == "win32"  # type checking on other systems passes over the rest
     from stickle.platform.windows.hotkeys import (
         MOD_ALT,
         MOD_CONTROL,
@@ -81,6 +82,7 @@ def test_windows_keys_and_modifiers() -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows")
 def test_a_windows_shortcut_is_registered_heard_and_let_go(qtbot: QtBot) -> None:
+    assert sys.platform == "win32"  # type checking on other systems passes over the rest
     from stickle.platform.windows.hotkeys import WM_HOTKEY, WindowsHotkeys
 
     heard: list[int] = []

@@ -24,6 +24,14 @@ repos:
         language: system
         pass_filenames: false
         types_or: [python, pyi]
+      # CI checks types on Linux and macOS too: code for one system must not
+      # fail there (the two read the same, so Linux stands for both).
+      - id: pyright-linux
+        name: pyright (as on Linux)
+        entry: uv run --locked pyright --pythonplatform Linux
+        language: system
+        pass_filenames: false
+        types_or: [python, pyi]
       - id: pytest
         name: pytest
         entry: uv run --locked pytest -q
