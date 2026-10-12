@@ -137,3 +137,6 @@ uv run python -m stickle
 ## 라이선스
 
 [GPL-3.0-or-later](LICENSE)
+
+카테고리와 표시의 아이콘은 [Lucide](https://lucide.dev)의 것이며
+[ISC 라이선스](src/stickle/app/icons/lucide/LICENSE)를 따릅니다.

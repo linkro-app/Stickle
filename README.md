@@ -147,3 +147,6 @@ Stickle collects nothing and has no server: see the [privacy policy](PRIVACY.md)
 ## License
 
 [GPL-3.0-or-later](LICENSE).
+
+The icons for categories and marks come from [Lucide](https://lucide.dev),
+under the [ISC License](src/stickle/app/icons/lucide/LICENSE).
