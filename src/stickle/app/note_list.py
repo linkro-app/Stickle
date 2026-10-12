@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import override
 
 from PySide6.QtCore import QDateTime, QEvent, QLocale, QObject, QPoint, Qt, QTimer
-from PySide6.QtGui import QAction, QKeyEvent, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QIcon, QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stickle.app.labels import mark_name
+from stickle.app.labels import category_item_icon, mark_item_icon, mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.palette import swatch_icon
 from stickle.core.colors import DEFAULT_COLOR, PALETTE
@@ -171,23 +171,27 @@ class NoteList(QWidget):
         """The categories and marks there are now, keeping what was chosen if it
         still exists."""
         self._categories, self._marks = self._notes.label_choices()
+        background = self.category_box.palette().base().color()
+        ink = self.mark_box.palette().text().color()
+        none = QIcon()
         boxes = (
             (
                 self.category_box,
-                [(ANY, self.tr("All categories")), (NONE, self.tr("No category"))]
-                + [(c.id, c.name) for c in self._categories],
+                [(ANY, self.tr("All categories"), none), (NONE, self.tr("No category"), none)]
+                + [(c.id, c.name, category_item_icon(c, background)) for c in self._categories],
             ),
             (
                 self.mark_box,
-                [(ANY, self.tr("All marks"))] + [(m.id, mark_name(m)) for m in self._marks],
+                [(ANY, self.tr("All marks"), none)]
+                + [(m.id, mark_name(m), mark_item_icon(m, ink)) for m in self._marks],
             ),
         )
         for box, choices in boxes:
             chosen = box.currentData()
             box.blockSignals(True)
             box.clear()
-            for key, text in choices:
-                box.addItem(text, key)
+            for key, text, icon in choices:
+                box.addItem(icon, text, key)
             box.setCurrentIndex(max(0, box.findData(chosen)))
             box.blockSignals(False)
 

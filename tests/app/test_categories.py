@@ -192,6 +192,16 @@ def test_another_icon_shows_at_once_on_its_notes(
     assert tagged and all(w.title_bar.category_tag.category.icon == "briefcase" for w in tagged)  # pyright: ignore[reportOptionalMemberAccess]
 
 
+def test_the_stickle_windows_lists_show_each_category_with_its_icon(app: App) -> None:
+    boxes = (app.window.note_list.category_box, app.window.view_box)
+    for box in boxes:
+        work = box.findData(app.work.id)
+        assert work > 0 and not box.itemIcon(work).isNull()
+        assert box.itemIcon(0).isNull()  # every note: no icon of its own
+    marks = app.window.note_list.mark_box
+    assert not marks.itemIcon(marks.findData("urgent")).isNull()
+
+
 def test_a_cancelled_icon_changes_nothing(
     app: App, manager_window: CategoryPage, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -55,6 +55,18 @@ def mark_icon(icon: str, color: QColor | None = None) -> QIcon:
     return label_icon(icon, color or QColor(32, 32, 32))
 
 
+def category_item_icon(category: Category, background: QColor) -> QIcon:
+    """A category's icon beside its name in a list or menu: its colour,
+    deepened (or lightened, on a dark theme) to show on background."""
+    shown = clear_on(rgb(dot_color(category.color)), rgb(background))
+    return label_icon(category.icon, qcolor(shown))
+
+
+def mark_item_icon(mark: Mark, ink: QColor) -> QIcon:
+    """A mark's icon beside its name in a list or menu, in the text's colour."""
+    return mark_icon(mark.icon, ink)
+
+
 def draw_mark(painter: QPainter, icon: str, x: float, y: float, color: QColor) -> None:
     """The mark's icon, ICON across, with its top left at (x, y): its lines a
     little heavier than a category's, so that it stands out at this size."""

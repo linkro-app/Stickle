@@ -33,8 +33,7 @@ from PySide6.QtWidgets import (
 from stickle.app import category_dialog
 from stickle.app import notes as notes_module
 from stickle.app.category_dialog import IconGrid, next_dot_color
-from stickle.app.label_icons import label_icon
-from stickle.app.labels import dot_color, mark_icon, mark_name
+from stickle.app.labels import category_item_icon, dot_color, mark_item_icon, mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.palette import color_name, qcolor, swatch_icon
 from stickle.core.colors import DARK_TEXT, PALETTE
@@ -178,9 +177,8 @@ class CategoryPage(QWidget):
         self.list.blockSignals(True)
         self.list.clear()
         for category in self.categories():
-            item = QListWidgetItem(
-                label_icon(category.icon, dot_color(category.color)), category.name
-            )
+            background = self.list.palette().base().color()
+            item = QListWidgetItem(category_item_icon(category, background), category.name)
             item.setData(LABEL_ID, category.id)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             self.list.addItem(item)
@@ -402,7 +400,8 @@ class MarkPage(QWidget):
         self.list.blockSignals(True)
         self.list.clear()
         for mark in self.marks():
-            item = QListWidgetItem(mark_icon(mark.icon), mark_name(mark))
+            ink = self.list.palette().text().color()
+            item = QListWidgetItem(mark_item_icon(mark, ink), mark_name(mark))
             item.setData(LABEL_ID, mark.id)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             self.list.addItem(item)

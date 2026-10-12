@@ -19,6 +19,7 @@ from PySide6.QtGui import (
     QFont,
     QGuiApplication,
     QHideEvent,
+    QIcon,
     QKeySequence,
     QPainter,
     QPaintEvent,
@@ -45,6 +46,7 @@ from stickle.app.finder import DesktopFinder
 from stickle.app.first_run import LoginNote
 from stickle.app.i18n import LANGUAGES, Translations
 from stickle.app.label_manager import LabelManager
+from stickle.app.labels import category_item_icon
 from stickle.app.note_list import NoteList
 from stickle.app.notes import NoteManager, clipboard_text
 from stickle.app.recovery_key_dialog import RecoveryKeyDialog
@@ -385,8 +387,12 @@ class StickleWindow(QWidget):
     def refresh_view(self) -> None:
         """The views there are, the one on the desktop chosen and said."""
         self.view_box.clear()
+        categories = {c.id: c for c in self._notes.label_choices()[0]}
+        background = self.view_box.palette().base().color()
         for view, name in self._notes.view_choices():
-            self.view_box.addItem(name, view)
+            category = categories.get(view) if view is not None else None
+            icon = category_item_icon(category, background) if category else QIcon()
+            self.view_box.addItem(icon, name, view)
         self.view_box.setCurrentIndex(max(0, self.view_box.findData(self._notes.view)))
         one = self._notes.view is not None
         self.all_notes_button.setVisible(one)
