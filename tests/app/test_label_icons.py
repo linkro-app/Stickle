@@ -3,9 +3,9 @@
 from PySide6.QtGui import QColor, QImage
 from pytestqt.qtbot import QtBot
 
-from stickle.app.category_icons import ICONS, state_pixmap
+from stickle.app.label_icons import ICONS, state_pixmap
 from stickle.core.colors import ICON_CONTRAST, Rgb, clear_on, contrast
-from stickle.core.labels import CATEGORY_ICONS
+from stickle.core.labels import LABEL_ICONS
 
 INK = QColor("#202020")
 
@@ -20,7 +20,7 @@ def inked(image: QImage) -> int:
 
 def test_every_category_icon_is_kept_with_the_app_and_draws(qtbot: QtBot) -> None:
     assert (ICONS / "LICENSE").is_file()  # Lucide's, kept with its icons
-    for name in CATEGORY_ICONS:
+    for name in LABEL_ICONS:
         assert (ICONS / f"{name}.svg").is_file(), name
         assert inked(state_pixmap(name, INK, None, 16, 2.0).toImage()) > 20, name
 

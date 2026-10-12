@@ -1,9 +1,11 @@
-"""Asking for a new category (its name, colour and icon), and for another icon."""
+"""Asking for a new category (its name, colour and icon), and for another icon
+for a category or a mark."""
 
 from collections.abc import Callable
 from typing import override
 
 from PySide6.QtCore import QEvent, QSize, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -19,11 +21,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stickle.app.category_icons import category_icon, icon_label
+from stickle.app.label_icons import icon_label, label_icon
 from stickle.app.labels import dot_color
 from stickle.app.palette import color_name, qcolor, rgb, swatch_icon
 from stickle.core.colors import PALETTE, clear_on
-from stickle.core.labels import CATEGORY_ICONS, DEFAULT_CATEGORY_ICON, NAME_LENGTH, Category
+from stickle.core.labels import (
+    BUILT_IN_MARK_ICONS,
+    DEFAULT_ICON,
+    LABEL_ICONS,
+    NAME_LENGTH,
+    Category,
+)
 from stickle.data.labels import CategoryNameError
 
 MIN_WIDTH = 320
@@ -31,6 +39,8 @@ GRID_COLUMNS = 8
 GRID_CELL = 32
 GRID_ICON = 20
 ICON_NAME = Qt.ItemDataRole.UserRole
+# A mark's icons start with the built-in marks' own.
+MARK_FIRST = tuple(BUILT_IN_MARK_ICONS.values())
 
 # Makes a category from its name, colour and icon.
 type CreateCategory = Callable[[str, str, str], Category]
@@ -45,10 +55,11 @@ def next_dot_color(taken: int) -> str:
 
 
 class IconGrid(QListWidget):
-    """The icons a category can have, in a grid: the arrow keys move, Enter or
-    a double-click chooses. Each has its name for the tooltip and screen readers."""
+    """The icons a category or a mark can have, in a grid, those in first
+    first: the arrow keys move, Enter or a double-click chooses. Each has its
+    name for the tooltip and screen readers."""
 
-    def __init__(self, parent: QWidget | None, color: str) -> None:
+    def __init__(self, parent: QWidget | None, color: QColor, first: tuple[str, ...] = ()) -> None:
         super().__init__(parent)
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setMovement(QListView.Movement.Static)
@@ -65,23 +76,24 @@ class IconGrid(QListWidget):
         )
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        for name in CATEGORY_ICONS:
+        self._names = [*first, *(name for name in LABEL_ICONS if name not in first)]
+        for name in self._names:
             item = QListWidgetItem("")
             item.setData(ICON_NAME, name)
             self.addItem(item)
-        rows = -(-len(CATEGORY_ICONS) // GRID_COLUMNS)
+        rows = -(-len(LABEL_ICONS) // GRID_COLUMNS)
         frame = 2 * self.frameWidth() + 4
         self.setFixedSize(GRID_COLUMNS * GRID_CELL + frame, rows * GRID_CELL + frame)
         self.set_color(color)
         self.setCurrentRow(0)
         self.retranslate()
 
-    def set_color(self, color: str) -> None:
-        """The icons in the category's colour, deepened to show here as on a note."""
-        shown = qcolor(clear_on(rgb(dot_color(color)), rgb(self.palette().base().color())))
+    def set_color(self, color: QColor) -> None:
+        """The icons in color, deepened to show here as on a note."""
+        shown = qcolor(clear_on(rgb(color), rgb(self.palette().base().color())))
         for row in range(self.count()):
             item = self.item(row)
-            item.setIcon(category_icon(str(item.data(ICON_NAME)), shown))
+            item.setIcon(label_icon(str(item.data(ICON_NAME)), shown))
 
     def retranslate(self) -> None:
         self.setAccessibleName(self.tr("Icons"))
@@ -93,19 +105,21 @@ class IconGrid(QListWidget):
 
     def chosen(self) -> str:
         row = self.currentRow()
-        return str(self.item(row).data(ICON_NAME)) if row >= 0 else DEFAULT_CATEGORY_ICON
+        return str(self.item(row).data(ICON_NAME)) if row >= 0 else DEFAULT_ICON
 
     def choose(self, name: str) -> None:
-        names = list(CATEGORY_ICONS)
-        self.setCurrentRow(names.index(name) if name in names else 0)
+        self.setCurrentRow(self._names.index(name) if name in self._names else 0)
 
 
 class IconDialog(QDialog):
-    """Another icon for a category, from the grid."""
+    """Another icon for a category or a mark (for_mark), from the grid."""
 
-    def __init__(self, parent: QWidget | None, current: str, color: str) -> None:
+    def __init__(
+        self, parent: QWidget | None, current: str, color: QColor, for_mark: bool = False
+    ) -> None:
         super().__init__(parent)
-        self.grid = IconGrid(self, color)
+        self._for_mark = for_mark
+        self.grid = IconGrid(self, color, MARK_FIRST if for_mark else ())
         self.grid.choose(current)
         self.grid.itemActivated.connect(self.accept)
         self.label = QLabel(self)
@@ -123,7 +137,7 @@ class IconDialog(QDialog):
         self.grid.setFocus()
 
     def retranslate(self) -> None:
-        self.setWindowTitle(self.tr("Category icon"))
+        self.setWindowTitle(self.tr("Mark icon") if self._for_mark else self.tr("Category icon"))
         self.label.setText(self.tr("&Icon:"))
         self.grid.retranslate()
 
@@ -134,13 +148,13 @@ class IconDialog(QDialog):
         super().changeEvent(event)
 
 
-def _ask_for_icon(parent: QWidget, current: str, color: str) -> str | None:
-    dialog = IconDialog(parent, current, color)
+def _ask_for_icon(parent: QWidget, current: str, color: QColor, for_mark: bool) -> str | None:
+    dialog = IconDialog(parent, current, color, for_mark)
     return dialog.grid.chosen() if dialog.exec() == QDialog.DialogCode.Accepted else None
 
 
 # Asks, and returns once answered: the icon chosen, or None. Replaced in tests.
-choose_icon: Callable[[QWidget, str, str], str | None] = _ask_for_icon
+choose_icon: Callable[[QWidget, str, QColor, bool], str | None] = _ask_for_icon
 
 
 class NewCategoryDialog(QDialog):
@@ -160,7 +174,7 @@ class NewCategoryDialog(QDialog):
         for key in PALETTE:
             self.color.addItem(swatch_icon(key), "", key)
         self.color.setCurrentIndex(max(0, self.color.findData(color)))
-        self.icon = IconGrid(self, color)
+        self.icon = IconGrid(self, dot_color(color))
         self.color.currentIndexChanged.connect(self._recolor_icons)
         self.problem = QLabel(self)
         self.problem.setWordWrap(True)
@@ -213,7 +227,7 @@ class NewCategoryDialog(QDialog):
         super().changeEvent(event)
 
     def _recolor_icons(self) -> None:
-        self.icon.set_color(str(self.color.currentData()))
+        self.icon.set_color(dot_color(str(self.color.currentData())))
 
     def _name_changed(self, text: str) -> None:
         self.ok_button.setEnabled(bool(text.strip()))

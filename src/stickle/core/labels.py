@@ -9,22 +9,18 @@ from dataclasses import dataclass
 # The marks every database starts with, in their order. Their names are
 # translated where they are shown, until the user renames one.
 BUILT_IN_MARKS = ("todo", "urgent", "important", "waiting")
-# The icons a mark can have (each drawn by the app), the built-in marks' first.
-MARK_ICONS = (
-    *BUILT_IN_MARKS,
-    "flag",
-    "heart",
-    "bulb",
-    "person",
-    "calendar",
-    "home",
-    "bookmark",
-    "question",
-)
+# The icons they start with; the user may give them others.
+BUILT_IN_MARK_ICONS = {
+    "todo": "square-check",
+    "urgent": "triangle-alert",
+    "important": "star",
+    "waiting": "clock",
+}
 
-# The icons a category can have (from Lucide, kept with the app), by name. A
-# category made before icons, or with an icon this version lacks, shows the first.
-CATEGORY_ICONS = (
+# The icons a category or a mark can have, chosen by the user (from Lucide,
+# kept with the app), by name. One made before icons, or with an icon this
+# version lacks, shows the first.
+LABEL_ICONS = (
     "tag",
     "folder",
     "briefcase",
@@ -89,8 +85,11 @@ CATEGORY_ICONS = (
     "cloud",
     "dog",
     "cat",
+    "square-check",
+    "triangle-alert",
+    "circle-help",
 )
-DEFAULT_CATEGORY_ICON = CATEGORY_ICONS[0]
+DEFAULT_ICON = LABEL_ICONS[0]
 
 NAME_LENGTH = 40
 
@@ -101,7 +100,7 @@ class Category:
     name: str
     color: str  # a palette key, for its icon
     position: int
-    icon: str = DEFAULT_CATEGORY_ICON  # one of CATEGORY_ICONS, or one a later version added
+    icon: str = DEFAULT_ICON  # one of LABEL_ICONS, or one a later version added
     deleted_at: str | None = None
 
     @property

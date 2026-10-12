@@ -98,9 +98,12 @@ def test_categories_and_marks_stay_as_the_user_left_them(copy: Path) -> None:
         assert {c.icon for c in labels.categories()} == {"tag"}
         marks = {m.id: m for m in labels.marks()}
         assert marks["important"].name == IMPORTANT_NAME
-        assert marks["urgent"].icon == URGENT_ICON
+        # Icons as the user left them, under their names in today's set.
+        assert URGENT_ICON == "flag" and marks["urgent"].icon == "flag"
+        assert marks["todo"].icon == "square-check"  # a built-in mark's own
+        assert IDEA_ICON == "bulb"
         assert [(m.name, m.icon) for m in marks.values() if m.id not in BUILT_IN_MARKS] == [
-            (IDEA, IDEA_ICON)
+            (IDEA, "lightbulb")
         ]
         assert DROPPED not in {m.name for m in marks.values()}
     finally:

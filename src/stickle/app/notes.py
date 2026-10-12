@@ -35,7 +35,7 @@ from stickle.app.category_dialog import CreateCategory, NewCategoryDialog, next_
 from stickle.app.labels import mark_name
 from stickle.app.note_window import NoteWindow
 from stickle.app.placement import MonitorWatch, can_place_windows, monitors, qrect, rect
-from stickle.core.labels import DEFAULT_CATEGORY_ICON, Category, Mark
+from stickle.core.labels import DEFAULT_ICON, Category, Mark
 from stickle.core.layout import MAIN, Place, fit, monitor_at, remember, restore
 from stickle.core.note import DEFAULT_COLOR, Note
 from stickle.core.snap import snapped, together
@@ -844,7 +844,7 @@ class NoteManager(QObject):
                 self._show_labels(window, category_id, (mark.id for mark in window.marks))
         self.changed.emit()
 
-    def create_category(self, name: str, color: str, icon: str = DEFAULT_CATEGORY_ICON) -> Category:
+    def create_category(self, name: str, color: str, icon: str = DEFAULT_ICON) -> Category:
         """Raises CategoryNameError for a name empty or taken."""
         if self._labels is None:
             raise RuntimeError("no notes database")

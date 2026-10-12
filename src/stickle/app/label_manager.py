@@ -14,7 +14,6 @@ from typing import Literal, override
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -33,13 +32,13 @@ from PySide6.QtWidgets import (
 
 from stickle.app import category_dialog
 from stickle.app import notes as notes_module
-from stickle.app.category_dialog import next_dot_color
-from stickle.app.category_icons import category_icon
-from stickle.app.labels import dot_color, icon_name, mark_icon, mark_name
+from stickle.app.category_dialog import IconGrid, next_dot_color
+from stickle.app.label_icons import label_icon
+from stickle.app.labels import dot_color, mark_icon, mark_name
 from stickle.app.notes import NoteManager
-from stickle.app.palette import color_name, swatch_icon
-from stickle.core.colors import PALETTE
-from stickle.core.labels import BUILT_IN_MARKS, MARK_ICONS, NAME_LENGTH, Category, Mark
+from stickle.app.palette import color_name, qcolor, swatch_icon
+from stickle.core.colors import DARK_TEXT, PALETTE
+from stickle.core.labels import NAME_LENGTH, Category, Mark
 from stickle.data.labels import CategoryNameError, MarkNameError
 
 LABEL_ID = Qt.ItemDataRole.UserRole
@@ -180,7 +179,7 @@ class CategoryPage(QWidget):
         self.list.clear()
         for category in self.categories():
             item = QListWidgetItem(
-                category_icon(category.icon, dot_color(category.color)), category.name
+                label_icon(category.icon, dot_color(category.color)), category.name
             )
             item.setData(LABEL_ID, category.id)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
@@ -237,7 +236,7 @@ class CategoryPage(QWidget):
         category = self.selected()
         if category is None:
             return
-        icon = category_dialog.choose_icon(self, category.icon, category.color)
+        icon = category_dialog.choose_icon(self, category.icon, dot_color(category.color), False)
         if icon is not None:
             self._notes.set_category_icon(category.id, icon)
         self.list.setFocus(Qt.FocusReason.OtherFocusReason)  # on with the keyboard
@@ -332,12 +331,7 @@ class MarkPage(QWidget):
         self.rename_button = QPushButton(self)
         self.rename_button.clicked.connect(self._rename)
         self.icon_button = QPushButton(self)
-        self.icon_menu = QMenu(self.icon_button)
-        for icon in MARK_ICONS:
-            action = self.icon_menu.addAction(mark_icon(icon), "")
-            action.setData(icon)
-            action.triggered.connect(lambda _=False, icon=icon: self.set_icon(icon))
-        self.icon_button.setMenu(self.icon_menu)
+        self.icon_button.clicked.connect(self._choose_icon)
         self.up_button = QPushButton(self)
         self.up_button.clicked.connect(lambda: self.move_selected(-1))
         self.down_button = QPushButton(self)
@@ -382,12 +376,10 @@ class MarkPage(QWidget):
         )
         self.new_button.setText(self.tr("&New…"))
         self.rename_button.setText(self.tr("&Rename"))
-        self.icon_button.setText(self.tr("&Icon"))
+        self.icon_button.setText(self.tr("&Icon…"))
         self.up_button.setText(self.tr("Move &up"))
         self.down_button.setText(self.tr("Move do&wn"))
         self.delete_button.setText(self.tr("&Delete…"))
-        for action in self.icon_menu.actions():
-            action.setText(icon_name(str(action.data())))
         self.refresh()
 
     @override
@@ -457,11 +449,15 @@ class MarkPage(QWidget):
         self._show_problem("")
         self.refresh(keep=mark_id)
 
-    def set_icon(self, icon: str) -> None:
+    def _choose_icon(self) -> None:
         mark = self.selected()
-        if mark is not None:
+        if mark is None:
+            return
+        icon = category_dialog.choose_icon(self, mark.icon, qcolor(DARK_TEXT), True)
+        if icon is not None:
             self._notes.set_mark_icon(mark.id, icon)
             self.refresh(keep=mark.id)
+        self.list.setFocus(Qt.FocusReason.OtherFocusReason)  # on with the keyboard
 
     def move_selected(self, step: int) -> None:
         mark = self.selected()
@@ -513,11 +509,8 @@ class NewMarkDialog(QDialog):
         self.setMinimumWidth(320)
         self.name = QLineEdit(self)
         self.name.setMaxLength(NAME_LENGTH)
-        self.icon = QComboBox(self)
         # The built-in marks' icons last: a new mark is most likely something else.
-        built_in = len(BUILT_IN_MARKS)
-        for icon in (*MARK_ICONS[built_in:], *MARK_ICONS[:built_in]):
-            self.icon.addItem(mark_icon(icon), "", icon)
+        self.icon = IconGrid(self, qcolor(DARK_TEXT))
         self.problem = QLabel(self)
         self.problem.setWordWrap(True)
         self.problem.hide()
@@ -551,8 +544,7 @@ class NewMarkDialog(QDialog):
         self.setWindowTitle(self.tr("New mark"))
         self.name_label.setText(self.tr("&Name:"))
         self.icon_label.setText(self.tr("&Icon:"))
-        for index in range(self.icon.count()):
-            self.icon.setItemText(index, icon_name(str(self.icon.itemData(index))))
+        self.icon.retranslate()
 
     @override
     def changeEvent(self, event: QEvent) -> None:
@@ -567,7 +559,7 @@ class NewMarkDialog(QDialog):
     @override
     def accept(self) -> None:
         try:
-            self.created = self._create(self.name.text(), str(self.icon.currentData()))
+            self.created = self._create(self.name.text(), self.icon.chosen())
         except MarkNameError:
             self.problem.setText(self.tr("There is already a mark with this name."))
             self.problem.show()

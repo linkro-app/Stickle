@@ -13,9 +13,8 @@ from stickle.core.clock import Clock, utc_now
 from stickle.core.colors import PALETTE
 from stickle.core.labels import (
     BUILT_IN_MARKS,
-    CATEGORY_ICONS,
-    DEFAULT_CATEGORY_ICON,
-    MARK_ICONS,
+    DEFAULT_ICON,
+    LABEL_ICONS,
     Category,
     Mark,
     clean_name,
@@ -97,12 +96,12 @@ class LabelRepository:
             raise KeyError(category_id)
         return category
 
-    def create_category(self, name: str, color: str, icon: str = DEFAULT_CATEGORY_ICON) -> Category:
+    def create_category(self, name: str, color: str, icon: str = DEFAULT_ICON) -> Category:
         """A new category, last in the order."""
         name = self._free_name(name)
         if color not in PALETTE:
             raise ValueError(f"colour {color}")
-        if icon not in CATEGORY_ICONS:
+        if icon not in LABEL_ICONS:
             raise ValueError(f"icon {icon}")
         category_id = str(uuid.uuid4())
         now = self._clock()
@@ -140,7 +139,7 @@ class LabelRepository:
 
     def set_category_icon(self, category_id: str, icon: str) -> Category:
         self._require(category_id)
-        if icon not in CATEGORY_ICONS:
+        if icon not in LABEL_ICONS:
             raise ValueError(f"icon {icon}")
         with self._db:
             self._db.execute(
@@ -208,7 +207,7 @@ class LabelRepository:
         name = clean_name(name)
         if not name:
             raise MarkNameError("empty")
-        if icon not in MARK_ICONS:
+        if icon not in LABEL_ICONS:
             raise ValueError(f"icon {icon}")
         self._check_mark_name(name, shown, None)
         mark_id = str(uuid.uuid4())
@@ -240,7 +239,7 @@ class LabelRepository:
 
     def set_mark_icon(self, mark_id: str, icon: str) -> Mark:
         self._require_mark(mark_id)
-        if icon not in MARK_ICONS:
+        if icon not in LABEL_ICONS:
             raise ValueError(f"icon {icon}")
         with self._db:
             self._db.execute(

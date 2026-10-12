@@ -144,8 +144,24 @@ V4 = """
 ALTER TABLE categories ADD COLUMN icon TEXT NOT NULL DEFAULT 'tag';
 """
 
+V5 = """
+-- Marks' icons come from the same set as categories'. The built-in marks get
+-- theirs, and every icon a mark had takes the name of its like in the set.
+UPDATE marks SET icon = CASE icon
+    WHEN 'todo' THEN 'square-check'
+    WHEN 'urgent' THEN 'triangle-alert'
+    WHEN 'important' THEN 'star'
+    WHEN 'waiting' THEN 'clock'
+    WHEN 'bulb' THEN 'lightbulb'
+    WHEN 'person' THEN 'user'
+    WHEN 'home' THEN 'house'
+    WHEN 'question' THEN 'circle-help'
+    ELSE icon
+END;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5]
 BACKUPS_KEPT = 3
 
 

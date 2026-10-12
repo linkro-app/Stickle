@@ -279,8 +279,8 @@ def test_a_category_cannot_be_removed_twice(labels: LabelRepository, notes: Note
 
 
 def test_a_mark_is_made_with_a_name_and_an_icon(labels: LabelRepository) -> None:
-    call = labels.create_mark(" 전화 ", "person")
-    assert (call.name, call.icon) == ("전화", "person")
+    call = labels.create_mark(" 전화 ", "user")
+    assert (call.name, call.icon) == ("전화", "user")
     assert labels.marks()[-1] == call
     with pytest.raises(ValueError):
         labels.create_mark("Other", "no-such-icon")
@@ -292,7 +292,7 @@ def test_a_mark_name_is_free_of_stored_and_shown_names(labels: LabelRepository) 
     def shown(mark: Mark) -> str:
         return mark.name or {"urgent": "긴급"}.get(mark.id, mark.id)
 
-    labels.create_mark("Call", "person")
+    labels.create_mark("Call", "user")
     for taken in ("call", "긴급", "TODO"):
         with pytest.raises(MarkNameError):
             labels.create_mark(taken, "flag", shown)
@@ -301,7 +301,7 @@ def test_a_mark_name_is_free_of_stored_and_shown_names(labels: LabelRepository) 
 def test_a_built_in_mark_is_renamed_and_back(labels: LabelRepository) -> None:
     assert labels.rename_mark("urgent", "급함").name == "급함"
     assert labels.rename_mark("urgent", "").name is None  # its own, translated name again
-    own = labels.create_mark("Call", "person")
+    own = labels.create_mark("Call", "user")
     with pytest.raises(MarkNameError):
         labels.rename_mark(own.id, "")
     assert labels.rename_mark(own.id, "CALL").name == "CALL"  # its own name, recased
