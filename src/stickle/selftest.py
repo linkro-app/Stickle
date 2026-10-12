@@ -74,6 +74,7 @@ def run_checks() -> list[tuple[str, str]]:
     results.append(password_check())
     results += credential_checks()
     results += font_checks()
+    results.append(icon_check())
     results += input_method_checks()
     results.append(start_at_login_check())
     results += store_package_check()
@@ -172,6 +173,28 @@ def font_checks() -> list[tuple[str, str]]:
             f"code has a fixed-pitch font ({family})",  # builds bring one
         ),
     ]
+
+
+def icon_check() -> tuple[str, str]:
+    """The icons users choose are SVG files kept with the app: they must be there,
+    and Qt's SVG support with them, or categories and marks show as nothing."""
+    try:
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QApplication
+
+        from stickle.app.label_icons import state_pixmap
+        from stickle.core.labels import LABEL_ICONS
+
+        _app = QApplication.instance() or QApplication([])
+        image = state_pixmap(LABEL_ICONS[-1], QColor(32, 32, 32), None, 24).toImage()
+        inked = sum(
+            image.pixelColor(x, y).alpha() > 60
+            for x in range(image.width())
+            for y in range(image.height())
+        )
+    except Exception as error:
+        return ("FAIL", f"icon check could not run ({type(error).__name__}: {error})")
+    return ("PASS" if inked > 20 else "FAIL", "category and mark icons are drawn")
 
 
 def credential_checks() -> list[tuple[str, str]]:

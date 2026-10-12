@@ -11,12 +11,23 @@ from stickle.platform.credentials import (
     CredentialStore,
     CredentialStoreUnavailableError,
 )
-from stickle.selftest import run_checks
+from stickle.selftest import icon_check, run_checks
 
 
 def test_no_check_fails() -> None:
     results = run_checks()
     assert not [name for status, name in results if status == "FAIL"], results
+
+
+def test_a_build_without_its_icons_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from stickle.app import label_icons
+
+    label_icons._svg.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(label_icons, "ICONS", tmp_path)  # an empty folder
+    try:
+        assert icon_check()[0] == "FAIL"
+    finally:
+        label_icons._svg.cache_clear()  # pyright: ignore[reportPrivateUsage]
 
 
 def test_self_test_option_exits_cleanly_without_starting_the_ui() -> None:
