@@ -24,7 +24,11 @@ def set_stays_on_top(widget: QWidget, on_top: bool) -> None:
     if on_top:
         flags |= Qt.WindowType.WindowStaysOnTopHint
     else:
-        flags &= ~Qt.WindowType.WindowStaysOnTopHint
+        # Not with ~: Python's inverse of a Qt flag leaves out the bits it holds
+        # for aliases, the close button hint among them. Windows makes the window
+        # again from these flags once it is closed, and it came back with no
+        # working close button.
+        flags = Qt.WindowType(flags.value & ~Qt.WindowType.WindowStaysOnTopHint.value)
     widget.overrideWindowFlags(flags)
     # sys.platform first, spelled out: type checkers on other systems then skip
     # the Windows-only module.

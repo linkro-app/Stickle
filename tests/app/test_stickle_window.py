@@ -223,6 +223,19 @@ def test_it_stays_above_other_windows_only_until_it_is_used(app: App) -> None:
     assert app.window.windowType() == Qt.WindowType.Window
 
 
+def test_it_keeps_its_close_button_once_no_longer_on_top(app: App) -> None:
+    # Windows makes the window again after it is closed, from these flags: one
+    # without the close button hint came back with its X greyed out.
+    app.window.open()
+    on_top = app.window.windowFlags()
+    QCoreApplication.sendEvent(app.window, QEvent(QEvent.Type.WindowDeactivate))
+
+    assert not stays_on_top(app.window)
+    assert app.window.windowFlags() & Qt.WindowType.WindowCloseButtonHint
+    # Only the on-top hint went.
+    assert app.window.windowFlags() | Qt.WindowType.WindowStaysOnTopHint == on_top
+
+
 def test_without_a_tray_hiding_the_last_note_opens_it_with_a_notice(trayless: App) -> None:
     note = open_note(trayless, "마지막")
 
