@@ -140,6 +140,12 @@ uv run python -m stickle
 
 Tests: `uv run pytest`.
 
+## Support Stickle
+
+Every feature is free, whether or not you support Stickle. If it is useful to you, you can
+support its development through [GitHub Sponsors](https://github.com/sponsors/tkitbiz).
+Translating, reporting bugs and telling others help too.
+
 ## Privacy
 
 Stickle collects nothing and has no server: see the [privacy policy](PRIVACY.md).
