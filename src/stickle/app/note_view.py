@@ -352,7 +352,10 @@ class NoteView(QTextEdit):
         self.stop: int | None = None  # which of stops the keyboard is on
         self._press: QPoint | None = None
         self.colors = note_colors(DEFAULT_COLOR)
-        self.viewport().setMouseTracking(True)  # a hand over links
+        # An arrow, not the text cursor: the note is read here, not typed in.
+        # A hand over what a click acts on, links and checkboxes.
+        self.viewport().setMouseTracking(True)
+        self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         # Over a code block, a button to copy its code (the keyboard: Tab, then Enter).
         self.copy_button = QToolButton(self.viewport())
         self.copy_button.setAutoRaise(False)
@@ -536,8 +539,9 @@ class NoteView(QTextEdit):
     @override
     def mouseMoveEvent(self, e: QMouseEvent) -> None:
         super().mouseMoveEvent(e)
-        on_link = bool(self.anchorAt(e.position().toPoint()))
-        shape = Qt.CursorShape.PointingHandCursor if on_link else Qt.CursorShape.IBeamCursor
+        point = e.position().toPoint()
+        clickable = bool(self.anchorAt(point)) or self.checkbox_at(point) is not None
+        shape = Qt.CursorShape.PointingHandCursor if clickable else Qt.CursorShape.ArrowCursor
         self.viewport().setCursor(shape)
         self._place_copy_button(e.position().toPoint())
 

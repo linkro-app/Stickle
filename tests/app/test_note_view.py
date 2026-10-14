@@ -5,11 +5,12 @@ from collections.abc import Iterator
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import (
     QFont,
     QImage,
     QInputMethodEvent,
+    QMouseEvent,
     QTextBlockFormat,
     QTextCharFormat,
     QTextCursor,
@@ -442,6 +443,37 @@ def test_the_box_shows_its_new_state(tasks: NoteWindow) -> None:
 
     block = tasks.view.document().find("🍎 사과").block()
     assert block.blockFormat().marker() == QTextBlockFormat.MarkerType.Checked
+
+
+def test_the_pointer_is_an_arrow_and_a_hand_over_what_a_click_acts_on(qtbot: QtBot) -> None:
+    # The text cursor over a formatted note looked as if it could be typed in.
+    window = NoteWindow(text="- [ ] 우유 [문서](https://x.org)")
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+    viewport = window.view.viewport()
+
+    def pointer_over(point: QPoint) -> Qt.CursorShape:
+        move = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(point),
+            QPointF(viewport.mapToGlobal(point)),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(viewport, move)
+        return viewport.cursor().shape()
+
+    assert viewport.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert pointer_over(point_of(window, "우유", 1)) == Qt.CursorShape.ArrowCursor
+    assert pointer_over(box_of(window, "우유")) == Qt.CursorShape.PointingHandCursor
+    assert pointer_over(point_of(window, "문서", 1)) == Qt.CursorShape.PointingHandCursor
+    assert pointer_over(point_of(window, "우유", 1)) == Qt.CursorShape.ArrowCursor
+
+    window.edit()
+    assert window.editor.viewport().cursor().shape() == Qt.CursorShape.IBeamCursor
+    window.release()
 
 
 def test_double_clicking_a_box_neither_edits_nor_toggles_twice(tasks: NoteWindow) -> None:
