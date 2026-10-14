@@ -135,8 +135,19 @@ def store_package_check() -> list[tuple[str, str]]:
             startup_task,  # noqa: F401  # pyright: ignore[reportUnusedImport]
         )
     except ImportError:
-        return [("FAIL", "the Store package's start at login is in the build")]
-    return [("PASS", "the Store package's start at login is in the build")]
+        results = [("FAIL", "the Store package's start at login is in the build")]
+    else:
+        results = [("PASS", "the Store package's start at login is in the build")]
+    # Imported only when Support Stickle is chosen, which bundling may not follow.
+    try:
+        from stickle.platform.windows import (
+            store_purchase,  # noqa: F401  # pyright: ignore[reportUnusedImport]
+        )
+    except ImportError:
+        results.append(("FAIL", "the Store package's support purchase is in the build"))
+    else:
+        results.append(("PASS", "the Store package's support purchase is in the build"))
+    return results
 
 
 def font_checks() -> list[tuple[str, str]]:

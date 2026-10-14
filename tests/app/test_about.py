@@ -10,8 +10,6 @@ from stickle.app.about_dialog import AboutDialog
 from stickle.app.i18n import Translations
 from stickle.app.tray import Tray
 
-STORE_ID = "9NTESTSUPPORT"
-
 
 @pytest.fixture
 def opened(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -54,31 +52,34 @@ def test_a_language_the_website_lacks_gets_english(
     assert opened == ["https://stickle.linkro.co/en/support"]
 
 
-def test_the_store_copy_opens_the_stores_support_item(
-    monkeypatch: pytest.MonkeyPatch, translations: Translations, opened: list[str]
+def test_the_store_copy_chooses_an_amount_for_the_store(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch, translations: Translations, opened: list[str]
 ) -> None:
-    monkeypatch.setattr(support, "STORE_SUPPORT_ID", STORE_ID)
     monkeypatch.setattr(support, "in_store_package", lambda: True)
-    support.open_support()
-    assert opened == [f"ms-windows-store://pdp/?productid={STORE_ID}"]
 
+    def never_called(window: int, store_id: str) -> None:
+        raise AssertionError("no amount was chosen")
 
-def test_the_store_copy_opens_the_website_until_the_item_exists(
-    monkeypatch: pytest.MonkeyPatch, translations: Translations, opened: list[str]
-) -> None:
-    monkeypatch.setattr(support, "STORE_SUPPORT_ID", None)
-    monkeypatch.setattr(support, "in_store_package", lambda: True)
+    monkeypatch.setattr(support, "store_purchaser", lambda: never_called)
+    monkeypatch.setattr(support, "_dialog", [])
     support.open_support()
-    assert opened == ["https://stickle.linkro.co/en/support"]
+    support.open_support()  # the same window again, not a second one
+
+    assert len(support._dialog) == 1  # pyright: ignore[reportPrivateUsage]
+    dialog = support._dialog[0]  # pyright: ignore[reportPrivateUsage]
+    qtbot.addWidget(dialog)
+    assert dialog.isVisible()
+    assert opened == []
 
 
 def test_other_copies_never_open_the_store(
     monkeypatch: pytest.MonkeyPatch, translations: Translations, opened: list[str]
 ) -> None:
-    monkeypatch.setattr(support, "STORE_SUPPORT_ID", STORE_ID)
     monkeypatch.setattr(support, "in_store_package", lambda: False)
+    monkeypatch.setattr(support, "_dialog", [])
     support.open_support()
     assert opened == ["https://stickle.linkro.co/en/support"]
+    assert support._dialog == []  # pyright: ignore[reportPrivateUsage]
 
 
 def test_the_tray_offers_support_and_about(

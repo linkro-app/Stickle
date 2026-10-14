@@ -1752,6 +1752,45 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     </message>
 </context>
 <context>
+    <name>SupportDialog</name>
+    <message>
+        <source>Support Stickle</source>
+        <translation>Stickle 후원</translation>
+    </message>
+    <message>
+        <source>Choose an amount. The Microsoft Store shows the price and takes the payment. It adds nothing to the app: Stickle is the same either way.</source>
+        <translation>금액을 고르세요. 가격 안내와 결제는 Microsoft Store가 합니다. 후원해도 Stickle은 똑같습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Small</source>
+        <translation>작게(&amp;S)</translation>
+    </message>
+    <message>
+        <source>&amp;Medium</source>
+        <translation>보통(&amp;M)</translation>
+    </message>
+    <message>
+        <source>&amp;Large</source>
+        <translation>크게(&amp;L)</translation>
+    </message>
+    <message>
+        <source>Support on the &amp;website…</source>
+        <translation>웹에서 후원하기(&amp;W)…</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>닫기</translation>
+    </message>
+    <message>
+        <source>Thank you for supporting Stickle.</source>
+        <translation>Stickle을 후원해 주셔서 고맙습니다.</translation>
+    </message>
+    <message>
+        <source>The Microsoft Store could not take the payment just now.</source>
+        <translation>지금은 Microsoft Store에서 결제할 수 없습니다.</translation>
+    </message>
+</context>
+<context>
     <name>Tray</name>
     <message>
         <source>(empty note)</source>
