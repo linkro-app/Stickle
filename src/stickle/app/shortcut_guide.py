@@ -120,6 +120,7 @@ def guide() -> list[tuple[str, list[tuple[str, str]]]]:
                     ),
                     "Alt+Up, Alt+Down",
                 ),
+                (QCoreApplication.translate("ShortcutGuide", "Close the window"), "Esc"),
             ],
         ),
     ]

@@ -1539,6 +1539,10 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>카테고리·표시 순서 바꾸기</translation>
     </message>
     <message>
+        <source>Close the window</source>
+        <translation>창 닫기</translation>
+    </message>
+    <message>
         <source>Keyboard shortcuts</source>
         <translation>단축키</translation>
     </message>

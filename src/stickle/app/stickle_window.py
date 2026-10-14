@@ -20,6 +20,7 @@ from PySide6.QtGui import (
     QGuiApplication,
     QHideEvent,
     QIcon,
+    QKeyEvent,
     QKeySequence,
     QPainter,
     QPaintEvent,
@@ -552,6 +553,16 @@ class StickleWindow(QWidget):
                     self._settings.set(LIST_WINDOW_SIZE, size)
                 except apsw.Error as error:  # a size not kept is not worth more than a log line
                     log.warning("could not keep the window size: %s", type(error).__name__)
+
+    @override
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        # Esc closes it, as the close button does. It only gets here when nothing
+        # inside took it first: a search being cleared, a list being folded, or
+        # a shortcut field recording the key.
+        if event.key() == Qt.Key.Key_Escape and event.modifiers() == Qt.KeyboardModifier.NoModifier:
+            self.close()
+            return
+        super().keyPressEvent(event)
 
     @override
     def closeEvent(self, event: QCloseEvent) -> None:

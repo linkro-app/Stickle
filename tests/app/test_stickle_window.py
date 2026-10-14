@@ -7,7 +7,8 @@ from pathlib import Path
 import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QSystemTrayIcon
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QSystemTrayIcon, QWidget
 from pytestqt.qtbot import QtBot
 
 from stickle.app.application import connect_stickle_window, open_at_start
@@ -310,6 +311,59 @@ def test_without_a_tray_a_note_brought_back_keeps_stickle_running(trayless: App)
 
     assert trayless.quits == []
     assert len(trayless.manager.windows) == 1
+
+
+def press_escape(widget: QWidget) -> None:
+    QTest.keyClick(widget, Qt.Key.Key_Escape)
+
+
+def test_escape_closes_it(qtbot: QtBot, app: App) -> None:
+    app.window.open()
+    qtbot.waitExposed(app.window)
+
+    press_escape(app.window.note_list.list)
+
+    assert not app.window.isVisible()
+
+
+def test_escape_clears_a_search_before_closing_it(qtbot: QtBot, app: App) -> None:
+    app.window.open()
+    qtbot.waitExposed(app.window)
+    search = app.window.note_list.search_box
+    search.setFocus()
+    search.setText("장보기")
+
+    press_escape(search)
+    assert search.text() == ""
+    assert app.window.isVisible()
+
+    press_escape(search)
+    assert not app.window.isVisible()
+
+
+def test_escape_with_ctrl_does_not_close_it(qtbot: QtBot, app: App) -> None:
+    app.window.open()
+    qtbot.waitExposed(app.window)
+
+    rows = app.window.note_list.list
+    QTest.keyClick(rows, Qt.Key.Key_Escape, Qt.KeyboardModifier.ControlModifier)
+
+    assert app.window.isVisible()
+
+
+def test_without_a_tray_escape_brings_back_the_notes_set_aside(qtbot: QtBot, trayless: App) -> None:
+    note = open_note(trayless, "치워 둔 메모")
+    note.show()
+    trayless.manager.set_all_aside()
+    trayless.window.open()
+    qtbot.waitExposed(trayless.window)
+
+    press_escape(trayless.window.note_list.list)
+
+    assert not trayless.window.isVisible()
+    assert not trayless.manager.set_aside
+    assert note.isVisible()
+    assert trayless.quits == []
 
 
 # Starting at login
