@@ -8,6 +8,7 @@ from hypothesis import strategies as st
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import (
     QFont,
+    QImage,
     QInputMethodEvent,
     QTextBlockFormat,
     QTextCharFormat,
@@ -225,8 +226,6 @@ def test_empty_note_opens_ready_to_type(qtbot: QtBot) -> None:
 def test_the_formatted_note_shows_no_caret_but_still_copies(
     qtbot: QtBot, window: NoteWindow
 ) -> None:
-    # A blinking caret made it look as if the note were being edited.
-    assert window.view.cursorWidth() == 0
     window.view.setFocus()
     window.view.selectAll()
 
@@ -234,6 +233,34 @@ def test_the_formatted_note_shows_no_caret_but_still_copies(
 
     assert QApplication.clipboard().text() == "hello world\n\nsecond"
     assert not window.editing
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.25, 1.5])
+def test_no_caret_is_left_where_the_note_was_clicked(
+    qtbot: QtBot, window: NoteWindow, scale: float
+) -> None:
+    # A caret made the note look as if it were being edited. At scales such as
+    # 150% a caret 0 pixels wide was still drawn as a line.
+    view = window.view
+    window.activateWindow()
+    view.setFocus()
+    qtbot.waitUntil(view.hasFocus)
+
+    def drawn() -> QImage:
+        size = view.viewport().size() * scale
+        image = QImage(size, QImage.Format.Format_ARGB32)
+        image.setDevicePixelRatio(scale)
+        # Opaque: Qt draws a caret by inverting what is under it, and the view
+        # itself has no background.
+        image.fill(Qt.GlobalColor.white)
+        view.viewport().render(image)
+        return image
+
+    before = drawn()
+    click(window, point_of(window, "world", 2))
+    assert drawn() == before
+    QTest.keyClick(view, Qt.Key.Key_Right)  # the keyboard moves it, still unseen
+    assert drawn() == before
 
 
 def test_a_single_click_does_not_edit(window: NoteWindow) -> None:

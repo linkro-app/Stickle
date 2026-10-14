@@ -14,12 +14,16 @@ from dataclasses import dataclass, replace
 from typing import override
 
 from markdown_it.tree import SyntaxTreeNode
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import (
+    QAbstractTextDocumentLayout,
     QFont,
     QGuiApplication,
     QKeyEvent,
     QMouseEvent,
+    QPainter,
+    QPaintEvent,
+    QPalette,
     QTextBlock,
     QTextBlockFormat,
     QTextCharFormat,
@@ -342,8 +346,6 @@ class NoteView(QTextEdit):
             Qt.TextInteractionFlag.TextSelectableByMouse
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
-        # No blinking caret: it made the formatted note look as if it were being edited.
-        self.setCursorWidth(0)
         self._source = ""
         self._blocks: list[BlockSource] = []
         self.stops: list[Stop] = []
@@ -495,6 +497,35 @@ class NoteView(QTextEdit):
             self._source, source.first_line, source.last_line, shown[:split], shown[split:]
         )
         return utf16_length(self._source[:index])
+
+    @override
+    def paintEvent(self, e: QPaintEvent) -> None:
+        # Drawn as QTextEdit draws it, but with no caret: one made the formatted note
+        # look as if it were being edited. (A caret width of 0 is not enough: at
+        # display scales such as 150% Qt still draws a one-pixel line.)
+        dx = self.horizontalScrollBar().value()
+        dy = self.verticalScrollBar().value()
+        clip = QRectF(e.rect().translated(dx, dy))
+        context = QAbstractTextDocumentLayout.PaintContext()
+        context.palette = self.palette()
+        context.cursorPosition = -1
+        context.clip = clip
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            group = QPalette.ColorGroup.Active if self.hasFocus() else QPalette.ColorGroup.Inactive
+            selection = QAbstractTextDocumentLayout.Selection()
+            selection.cursor = cursor
+            selection.format.setBackground(
+                self.palette().brush(group, QPalette.ColorRole.Highlight)
+            )
+            selection.format.setForeground(
+                self.palette().brush(group, QPalette.ColorRole.HighlightedText)
+            )
+            context.selections = [selection]
+        painter = QPainter(self.viewport())
+        painter.translate(-dx, -dy)
+        painter.setClipRect(clip)
+        self.document().documentLayout().draw(painter, context)
 
     @override
     def mousePressEvent(self, e: QMouseEvent) -> None:
