@@ -107,7 +107,7 @@ class AboutDialog(QDialog):
         self.support_text.setText(
             self.tr(
                 "If Stickle is useful to you, your support keeps it going. "
-                "It adds nothing to the app: Stickle is the same either way."
+                "Every feature is free, whether or not you support Stickle."
             )
         )
         self.support_button.setText(self.tr("&Support Stickle…"))

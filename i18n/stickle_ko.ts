@@ -40,8 +40,8 @@
         <translation>라이선스</translation>
     </message>
     <message>
-        <source>If Stickle is useful to you, your support keeps it going. It adds nothing to the app: Stickle is the same either way.</source>
-        <translation>Stickle이 도움이 되었다면 후원으로 개발을 이어 갈 수 있습니다. 후원해도 Stickle은 똑같습니다.</translation>
+        <source>If Stickle is useful to you, your support keeps it going. Every feature is free, whether or not you support Stickle.</source>
+        <translation>Stickle이 도움이 되었다면 후원으로 개발을 이어 갈 수 있습니다. 후원 여부와 관계없이 모든 기능을 무료로 쓸 수 있습니다.</translation>
     </message>
     <message>
         <source>&amp;Support Stickle…</source>
@@ -1758,8 +1758,8 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>Stickle 후원</translation>
     </message>
     <message>
-        <source>Choose an amount. The Microsoft Store shows the price and takes the payment. It adds nothing to the app: Stickle is the same either way.</source>
-        <translation>금액을 고르세요. 가격 안내와 결제는 Microsoft Store가 합니다. 후원해도 Stickle은 똑같습니다.</translation>
+        <source>Choose an amount. The Microsoft Store shows the price and takes the payment. Every feature is free, whether or not you support Stickle.</source>
+        <translation>금액을 고르세요. 가격 안내와 결제는 Microsoft Store가 합니다. 후원 여부와 관계없이 모든 기능을 무료로 쓸 수 있습니다.</translation>
     </message>
     <message>
         <source>&amp;Small</source>

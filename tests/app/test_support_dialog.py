@@ -68,8 +68,9 @@ def answer(qtbot: QtBot, dialog: SupportDialog, store: FakeStore, outcome: Outco
 def test_it_offers_three_amounts_and_starts_on_the_middle_one(dialog: SupportDialog) -> None:
     assert [b.text() for b in dialog.size_buttons] == ["&Small", "&Medium", "&Large"]
     assert dialog.focusWidget() is dialog.size_buttons[1]
-    # Says it adds nothing, and leaves the price to the Store (each in its currency).
-    assert "adds nothing" in dialog.text.text()
+    # Says every feature is free anyway, and leaves the price to the Store (each in
+    # its currency).
+    assert "Every feature is free" in dialog.text.text()
     assert "₩" not in dialog.text.text()
 
 

@@ -4,7 +4,7 @@ Three sizes of support, each a Store add-on that adds nothing to the app. A
 choice opens the Store's own purchase dialog over this window; the Store
 shows the price in the user's currency and takes the payment. The answer is
 only used to say thanks or that the Store could not be reached, there and
-then: nothing about it is kept, and Stickle is the same either way.
+then: nothing about it is kept, and every feature stays free either way.
 """
 
 import logging
@@ -92,7 +92,7 @@ class SupportDialog(QDialog):
         self.text.setText(
             self.tr(
                 "Choose an amount. The Microsoft Store shows the price and takes the "
-                "payment. It adds nothing to the app: Stickle is the same either way."
+                "payment. Every feature is free, whether or not you support Stickle."
             )
         )
         names = (self.tr("&Small"), self.tr("&Medium"), self.tr("&Large"))
