@@ -143,7 +143,8 @@ Tests: `uv run pytest`.
 ## Support Stickle
 
 Every feature is free, whether or not you support Stickle. If it is useful to you, you can
-support its development through [GitHub Sponsors](https://github.com/sponsors/tkitbiz).
+support its development through [Ko-fi](https://ko-fi.com/linkro), by card or PayPal, or
+[GitHub Sponsors](https://github.com/sponsors/tkitbiz).
 Translating, reporting bugs and telling others help too.
 
 ## Privacy
