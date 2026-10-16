@@ -43,8 +43,12 @@
 | 0.2 *(preview out)* | Search, a trash that keeps notes for a year, shortcuts from anywhere, see-through and locked notes, full keyboard use, portable mode; on the [Microsoft Store](https://apps.microsoft.com/detail/9MZ6BHN3JKFR) |
 | 0.3 *(preview out)* | Categories and marks, one category on the desktop, find on the desktop, notes that line up (Shift moves them together), easier lists and code blocks, the shortcuts at a glance, a new icon |
 | 0.4 *(preview out)* | Category and mark icons, About Stickle and ways to support it, a faded tray icon while notes are hidden |
-| 1.0 | Sync between your computers through a synced folder; packages for Linux (Flathub, AppImage, deb) and macOS (Homebrew) |
+| 0.5 *(next)* | Automatic backups you can restore, export of every note (Markdown and JSON), bringing notes over from Windows Sticky Notes and other sticky-note apps, a daily update check you can turn off, sending feedback from the app |
+| On the way to 1.0 | Reminders, including times written in a note; secret notes behind a password of their own; then syncing through a folder you already sync, first as an option to try, followed by end-to-end encryption and locking out a lost computer |
+| 1.0 | Sync between your computers, ready for everyday use; macOS; packages for Linux (Flathub, AppImage, deb) and macOS (Homebrew) |
 | Later | WebDAV and S3 storage, what-you-see-is-what-you-get editing, tags, shared notes and a browser extension, a read-only viewer for phones |
+
+There are no dates, and plans and their order may change.
 
 ## Try the preview
 
