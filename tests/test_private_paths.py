@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -5,6 +6,10 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_private_paths.py"
+
+# Run from a hook (as with `git commit -a`), git sets GIT_INDEX_FILE and the like
+# for the real repository; left in, they point the test repositories at it.
+ENV = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
 
 PRIVATE_PATHS = [
     "CLAUDE.md",
@@ -18,13 +23,14 @@ PRIVATE_PATHS = [
 
 
 def git(repo: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", *args], cwd=repo, env=ENV, check=True, capture_output=True)
 
 
 def check(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
         cwd=repo,
+        env=ENV,
         capture_output=True,
         text=True,
         check=False,
