@@ -5,9 +5,10 @@
 [한국어](README.ko.md) · [Website](https://stickle.linkro.co) ·
 [Microsoft Store](https://apps.microsoft.com/detail/9MZ6BHN3JKFR)
 
-> **Status: preview.** The 0.3 preview is out: notes on one computer, for Windows and Linux,
-> now with categories and marks, notes that line up, find on the desktop, and easier lists and
-> code. Syncing between computers is not there yet — see [Try the preview](#try-the-preview).
+> **Status: preview.** The 0.4 preview is out: notes on one computer, for Windows and Linux,
+> with categories and marks, now shown as icons, notes that line up, find on the desktop, and
+> easier lists and code. Syncing between computers is not there yet — see
+> [Try the preview](#try-the-preview).
 > To hear about new versions, click **Watch → Custom → Releases** at the top of this page.
 > A star tells us you are interested, but does not notify you.
 
@@ -41,6 +42,7 @@
 | 0.1 *(preview out)* | Everyday sticky notes on a single computer: colours, formatting, notes that remember where they were, always on top, tray icon, start with your computer |
 | 0.2 *(preview out)* | Search, a trash that keeps notes for a year, shortcuts from anywhere, see-through and locked notes, full keyboard use, portable mode; on the [Microsoft Store](https://apps.microsoft.com/detail/9MZ6BHN3JKFR) |
 | 0.3 *(preview out)* | Categories and marks, one category on the desktop, find on the desktop, notes that line up (Shift moves them together), easier lists and code blocks, the shortcuts at a glance, a new icon |
+| 0.4 *(preview out)* | Category and mark icons, About Stickle and ways to support it, a faded tray icon while notes are hidden |
 | 1.0 | Sync between your computers through a synced folder; packages for Linux (Flathub, AppImage, deb) and macOS (Homebrew) |
 | Later | WebDAV and S3 storage, what-you-see-is-what-you-get editing, tags, shared notes and a browser extension, a read-only viewer for phones |
 
@@ -73,22 +75,27 @@ Previews are under [Releases](https://github.com/linkro-app/Stickle/releases), m
   away from this computer: it opens your notes if the key stored on this computer is ever lost.
 - Downloads can be checked against `SHA256SUMS.txt` in the same release.
 
-New in 0.3:
+New in 0.4:
 
-- **Categories and marks**: give a note one category (at the left of its title bar) and marks
-  such as *To do*, *Urgent*, *Important* or *Waiting* (at the right), from its `⋯` menu.
-  Manage and filter them in the Stickle window (`Ctrl+1`…`Ctrl+9`, `Ctrl+0` for all).
-- **One category on the desktop**, from the Stickle window or the tray, or a shortcut you set.
-- **Find on the desktop**: a shortcut you set opens a search box; only the matching notes stay.
-- **Notes that line up**: drop a note near another, or near the edge of the screen, and it
-  settles beside it. Hold `Alt` as you let go to leave it where it is; drag with `Shift` to
-  move the notes beside it along.
-- **Easier lists** (`Enter` continues, `Tab` nests) and **code blocks** with a copy button.
-- **The shortcuts at a glance**: `F1` or `Ctrl+/`.
-- Notes made with the 0.2 or 0.1.2 preview open as they were: just replace the program. A copy
-  of the notes from before is kept in the `backups` folder where the notes are
+- **Category icons**: give each category an icon when you make it, or change it later. A
+  note's title bar shows its category's icon instead of the name, so a long name no longer
+  fills the bar; a note without a category shows Stickle's own icon, and a strip of tape
+  across its corner means the note stays on top. Marks use the same set of icons, and the
+  Stickle window shows them beside their names.
+- **About Stickle**, from the Stickle window or the tray: the version, links and the license.
+- **Support Stickle…** in the tray and in About Stickle. The Microsoft Store copy opens the
+  Store's own purchase window; the other copies open the [website](https://stickle.linkro.co).
+  Every feature stays free either way, and the app keeps nothing about it.
+- While every note is hidden for a moment (`Ctrl+Alt+H`), the **tray icon fades**, so an empty
+  desktop is not taken for lost notes.
+- `Esc` closes the Stickle window. Over a note the pointer is an arrow, and a hand over boxes
+  and links.
+- Notes made with the 0.3, 0.2 or 0.1.2 preview open as they were: just replace the program. A
+  copy of the notes from before is kept in the `backups` folder where the notes are
   (`%APPDATA%\Stickle\backups` on Windows, `~/.local/share/stickle/backups` on Linux).
 
+0.3 brought categories and marks, one category on the desktop, find on the desktop, notes that
+line up, easier lists and code blocks, and the shortcuts at a glance (`F1` or `Ctrl+/`).
 0.2 brought search, a trash, shortcuts from anywhere (`Ctrl+Alt+N`, `Ctrl+Alt+S`,
 `Ctrl+Alt+H`), see-through and locked notes, full keyboard use and the portable mode below.
 
