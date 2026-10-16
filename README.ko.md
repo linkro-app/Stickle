@@ -60,10 +60,11 @@
   또는 내 컴퓨터에 맞는 zip(`x64`, ARM 노트북이면 `arm64`)을 받아 아무 곳에나
   압축을 풀고 `stickle.exe`를 실행합니다. zip판은 아직 코드 서명이 없어서 윈도우가 "PC 보호" 창을
   띄울 수 있습니다. **추가 정보 → 실행**을 누르세요. **로그인할 때
-  Stickle 시작**을 켜 두면 Microsoft Defender가 `Trojan:Win32/Bearfoos.A!ml`로 막는 경우를
-  확인했습니다. 서명 없는 프로그램이 로그인 때 스스로 켜지도록 등록하면 기계학습이 트로이 목마로
-  추정하는 것으로, 잘못된 탐지이며 Microsoft에 신고하고 있습니다. 코드 서명한 빌드를 준비하고
-  있으며, 그때까지 Windows에서는 이 항목이 꺼진 채로 시작합니다. Defender가 Stickle을 막았다면
+  Stickle 시작**을 켜 두면 0.3에서는 Microsoft Defender가 `Trojan:Win32/Bearfoos.A!ml`로 막는
+  경우가 있었습니다. 서명 없는 프로그램이 로그인 때 스스로 켜지는 것을 기계학습이 트로이 목마로
+  잘못 추정한 것입니다. 0.4는 최신 Defender에서 막히지 않는 것을 확인했지만, 빌드마다 달라질 수
+  있어 코드 서명한 빌드가 나올 때까지 Windows에서는 이 항목이 꺼진 채로 시작합니다. Defender가
+  Stickle을 막았다면
   [이슈](https://github.com/linkro-app/Stickle/issues/new)로 알려 주세요.
 - **리눅스**: AppImage를 받아 실행 권한을 준 뒤(`chmod +x Stickle-x86_64.AppImage` 또는 파일
   속성에서) 실행합니다. Stickle이 앱 목록에 자신을 추가할지 묻습니다.
