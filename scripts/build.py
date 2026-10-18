@@ -121,7 +121,8 @@ def nuitka_command() -> list[str]:
         sys.executable,
         "-m",
         "nuitka",
-        "--mode=standalone",
+        # A folder (standalone), or on macOS the app bundle Qt runs from there.
+        "--mode=app" if sys.platform == "darwin" else "--mode=standalone",
         "--enable-plugin=pyside6",
         # Needs Qt6Pdf, which is not shipped; notes never show PDFs.
         "--noinclude-dlls=PySide6/qt-plugins/imageformats/qpdf*",
@@ -177,9 +178,8 @@ def nuitka_command() -> list[str]:
         ]
     elif sys.platform == "darwin":
         command += [
-            # Qt on macOS runs from an app bundle; built for the runner's own
-            # processor (arm64 and x64 are built apart, so neither needs Rosetta).
-            "--macos-create-app-bundle",
+            # Built for the runner's own processor (arm64 and x64 are built
+            # apart, so neither needs Rosetta).
             f"--macos-target-arch={platform.machine()}",  # arm64 or x86_64
             "--macos-app-name=Stickle",
             "--macos-app-mode=ui-element",  # a menu bar app, as on the other systems
