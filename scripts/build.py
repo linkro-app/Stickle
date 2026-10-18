@@ -80,8 +80,19 @@ size = int(sys.argv[3])
 if not icon.pixmap(size, size).save(sys.argv[1], sys.argv[2]):
     raise SystemExit("could not write the icon")
 """
-MAC_ICON_FILE = BUILD_DIR / "stickle.png"
+MAC_ICON_FILE = BUILD_DIR / "stickle.icns"
 MAC_APP = BUILD_DIR / "stickle.app"
+
+
+def write_mac_icon() -> None:
+    """The app's icon as macOS's .icns, made by its own iconutil from each size."""
+    iconset = BUILD_DIR / "stickle.iconset"
+    iconset.mkdir(parents=True, exist_ok=True)
+    for size in (16, 32, 128, 256, 512):
+        write_icon(iconset / f"icon_{size}x{size}.png", "PNG", size)
+        write_icon(iconset / f"icon_{size}x{size}@2x.png", "PNG", size * 2)
+    subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(MAC_ICON_FILE)], check=True)
+    shutil.rmtree(iconset)
 
 
 DPI_MANIFEST = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -202,8 +213,7 @@ def main() -> int:
         BUILD_DIR.mkdir(exist_ok=True)
         write_icon(ICON_FILE, "ICO", 256)
     if sys.platform == "darwin":
-        BUILD_DIR.mkdir(exist_ok=True)
-        write_icon(MAC_ICON_FILE, "PNG", 1024)
+        write_mac_icon()
     subprocess.run(nuitka_command(), check=True, cwd=ROOT)
     if sys.platform == "win32":
         declare_dpi_awareness()
