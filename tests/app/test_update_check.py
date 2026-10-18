@@ -1,0 +1,215 @@
+"""The daily check for a newer Stickle, and how a newer one is shown."""
+
+import json
+import secrets
+import urllib.request
+from collections.abc import Iterator
+from pathlib import Path
+
+import apsw
+import pytest
+from PySide6.QtCore import QUrl
+from pytestqt.qtbot import QtBot
+
+from stickle.app import note_window, update_check
+from stickle.app.about_dialog import AboutDialog
+from stickle.app.i18n import Translations
+from stickle.app.notes import NoteManager
+from stickle.app.stickle_window import StickleWindow
+from stickle.app.tray import Tray
+from stickle.app.update_check import UpdateCheck, fetch_feed
+from stickle.core.updates import FEED_URL
+from stickle.data.notes import NoteRepository
+from stickle.data.schema import open_store
+from stickle.data.settings import UPDATE_CHECK, UPDATE_CHECKED_AT, Settings
+
+KEY = secrets.token_bytes(32)
+PAGE = "https://github.com/linkro-app/Stickle/releases/tag/v0.5.0-preview.1"
+NEWER = json.dumps({"format": 1, "latest": "0.5.0", "page": PAGE}).encode()
+SAME = json.dumps({"format": 1, "latest": "0.4.0", "page": PAGE}).encode()
+
+
+class FakeClock:
+    def __init__(self, now: str = "2026-10-18T12:00:00.000Z") -> None:
+        self.now = now
+
+    def __call__(self) -> str:
+        return self.now
+
+
+class Server:
+    """Answers the check, counting how often it was asked."""
+
+    def __init__(self, answer: bytes | None) -> None:
+        self.answer = answer
+        self.asked = 0
+
+    def __call__(self) -> bytes | None:
+        self.asked += 1
+        return self.answer
+
+
+@pytest.fixture
+def settings(tmp_path: Path) -> Iterator[Settings]:
+    connection = open_store(tmp_path / "notes.db", KEY)
+    yield Settings(connection)
+    connection.close()
+
+
+def checker(settings: Settings, server: Server, clock: FakeClock) -> UpdateCheck:
+    return UpdateCheck(settings, current="0.4.0", clock=clock, fetch=server)
+
+
+def test_a_newer_version_is_found(qtbot: QtBot, settings: Settings) -> None:
+    server = Server(NEWER)
+    check = checker(settings, server, FakeClock())
+
+    with qtbot.waitSignal(check.found, timeout=3000):
+        assert check.check_if_due()
+
+    assert check.release is not None and check.release.version == "0.5.0"
+    assert server.asked == 1
+
+
+def test_it_asks_once_a_day_also_across_restarts(qtbot: QtBot, settings: Settings) -> None:
+    server = Server(SAME)
+    clock = FakeClock("2026-10-18T12:00:00.000Z")
+
+    assert checker(settings, server, clock).check_if_due()
+    qtbot.waitUntil(lambda: server.asked == 1)
+    clock.now = "2026-10-19T11:59:00.000Z"
+    assert not checker(settings, server, clock).check_if_due()  # a restart, same day
+    clock.now = "2026-10-19T12:00:00.000Z"
+    assert checker(settings, server, clock).check_if_due()
+    qtbot.waitUntil(lambda: server.asked == 2)
+
+
+def test_a_failure_waits_for_the_next_day_too(qtbot: QtBot, settings: Settings) -> None:
+    server = Server(None)
+    clock = FakeClock()
+    check = checker(settings, server, clock)
+
+    assert check.check_if_due()
+    qtbot.waitUntil(lambda: server.asked == 1)
+    qtbot.wait(50)
+
+    assert check.release is None
+    assert settings.get(UPDATE_CHECKED_AT) == clock.now
+    assert not check.check_if_due()
+
+
+def test_turned_off_it_never_asks(qtbot: QtBot, settings: Settings) -> None:
+    del qtbot
+    server = Server(NEWER)
+    check = checker(settings, server, FakeClock())
+
+    check.set_enabled(False)
+
+    assert not check.check_if_due()
+    assert server.asked == 0
+    assert settings.get(UPDATE_CHECK) is False
+
+
+def test_turning_it_off_stops_showing_the_new_version(qtbot: QtBot, settings: Settings) -> None:
+    check = checker(settings, Server(NEWER), FakeClock())
+    with qtbot.waitSignal(check.found, timeout=3000):
+        check.check_if_due()
+
+    check.set_enabled(False)
+
+    assert check.release is None
+
+
+def test_the_request_carries_nothing_that_tells_users_apart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[urllib.request.Request] = []
+
+    class Opener:
+        def open(self, request: urllib.request.Request, timeout: float) -> None:
+            del timeout
+            sent.append(request)
+            raise OSError("offline")
+
+    def build_opener(*_handlers: object) -> Opener:
+        return Opener()
+
+    monkeypatch.setattr(update_check.urllib.request, "build_opener", build_opener)
+
+    assert fetch_feed() is None
+
+    (request,) = sent
+    assert request.full_url == FEED_URL
+    assert request.get_method() == "GET"
+    assert request.data is None
+    assert {k.lower(): v for k, v in request.header_items()} == {
+        "user-agent": "Stickle",
+        "accept": "application/json",
+    }
+
+
+def test_the_tray_and_window_say_a_new_version_is_out(
+    qtbot: QtBot, settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opened: list[QUrl] = []
+
+    def open_url(url: QUrl) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(note_window, "open_url", open_url)
+    connection = open_store(tmp_path / "other.db", KEY)
+    manager = NoteManager(NoteRepository(connection))
+    check = checker(settings, Server(NEWER), FakeClock())
+    tray = Tray(lambda: None, lambda: None, Translations(), manager, updates=check)
+    window = StickleWindow(manager, Translations(), lambda: None, updates=check)
+    try:
+        assert not tray.new_version_action.isVisible()
+        assert window.new_version_label.isHidden()
+        assert tray.update_check_action.isChecked() and window.update_box.isChecked()
+
+        with qtbot.waitSignal(check.found, timeout=3000):
+            check.check_if_due()
+
+        assert tray.new_version_action.isVisible()
+        assert "0.5.0" in tray.new_version_action.text()
+        assert not window.new_version_label.isHidden()
+        assert "0.5.0" in window.new_version_label.text()
+        window.new_version_button.click()
+        tray.new_version_action.trigger()
+        assert opened == [QUrl(PAGE), QUrl(PAGE)]
+
+        window.update_box.click()  # off
+        assert not tray.new_version_action.isVisible()
+        assert window.new_version_label.isHidden()
+        assert not tray.update_check_action.isChecked()
+    finally:
+        tray.hide()
+        window.deleteLater()
+        connection.close()
+
+
+def test_about_says_what_stickle_connects_to(qtbot: QtBot) -> None:
+    checking = AboutDialog(checks_updates=True)
+    not_checking = AboutDialog()
+    qtbot.addWidget(checking)
+    qtbot.addWidget(not_checking)
+
+    assert "stickle.linkro.co" in checking.connections.text()
+    assert "nothing" in not_checking.connections.text()
+
+
+def test_without_a_check_nothing_about_updates_shows(qtbot: QtBot, tmp_path: Path) -> None:
+    del qtbot
+    connection: apsw.Connection = open_store(tmp_path / "notes.db", KEY)
+    manager = NoteManager(NoteRepository(connection))
+    tray = Tray(lambda: None, lambda: None, Translations(), manager)
+    window = StickleWindow(manager, Translations(), lambda: None)
+    try:
+        assert not tray.update_check_action.isVisible()
+        assert window.update_box.isHidden()
+        assert window.new_version_button.isHidden()
+    finally:
+        tray.hide()
+        window.deleteLater()
+        connection.close()

@@ -14,6 +14,7 @@ from stickle import __version__
 from stickle.app import note_window
 from stickle.app.app_icon import icon_pixmap
 from stickle.app.support import LICENSE, PRIVACY, SOURCE, open_support, site_page
+from stickle.core.updates import FEED_HOST
 
 ICON_SIZE = 64
 
@@ -29,8 +30,11 @@ def _link_label(parent: QWidget) -> QLabel:
 
 
 class AboutDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, checks_updates: bool = False) -> None:
         super().__init__(parent)
+        self._checks_updates = checks_updates
+        self.connections = QLabel(self)
+        self.connections.setWordWrap(True)
         self.icon = QLabel(self)
         self.icon.setPixmap(icon_pixmap(ICON_SIZE))
         self.name = QLabel("Stickle", self)
@@ -71,6 +75,7 @@ class AboutDialog(QDialog):
         layout.addWidget(self.summary)
         layout.addWidget(self.links)
         layout.addWidget(self.license)
+        layout.addWidget(self.connections)
         layout.addSpacing(12)
         layout.addLayout(support)
         layout.addSpacing(8)
@@ -104,6 +109,17 @@ class AboutDialog(QDialog):
             + "</a>"
         )
         self.license.setAccessibleName(self.tr("License"))
+        # Every address the app itself connects to, said where it can be read.
+        if self._checks_updates:
+            self.connections.setText(
+                self.tr(
+                    "Stickle connects only to %1, once a day, to see whether a new version "
+                    "is out. It sends nothing about you or your notes, and the check can be "
+                    "turned off."
+                ).replace("%1", FEED_HOST)
+            )
+        else:
+            self.connections.setText(self.tr("Stickle connects to nothing on the internet."))
         self.support_text.setText(
             self.tr(
                 "If Stickle is useful to you, your support keeps it going. "

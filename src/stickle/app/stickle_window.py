@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import override
 
 import apsw
-from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QCloseEvent,
     QFont,
@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app import note_window
 from stickle.app.about_dialog import AboutDialog
 from stickle.app.app_list import switch_app_list
 from stickle.app.backups import RestoreDialog
@@ -60,6 +61,7 @@ from stickle.app.shortcut_rows import ShortcutRows
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
 from stickle.app.tray import switch_autostart
+from stickle.app.update_check import UpdateCheck
 from stickle.app.window_flags import keep_stays_on_top, set_stays_on_top, stays_on_top
 from stickle.core.markdown import note_title
 from stickle.data.settings import LIST_WINDOW_SIZE, Settings
@@ -105,6 +107,7 @@ class StickleWindow(QWidget):
         shortcuts: GlobalShortcuts | None = None,
         portable_folder: Path | None = None,
         data: DataAccess | None = None,
+        updates: UpdateCheck | None = None,
     ) -> None:
         super().__init__()
         self._notes = notes
@@ -127,6 +130,19 @@ class StickleWindow(QWidget):
         self.app_list_box = QCheckBox(self)
         self.app_list_box.setVisible(app_list is not None)
         self.app_list_box.clicked.connect(self._switch_app_list)
+        # The daily check for a newer Stickle (not where a store keeps it up to date),
+        # and, while one is out, a line saying so at the top.
+        self._updates = updates
+        self.update_box = QCheckBox(self)
+        self.update_box.setVisible(updates is not None)
+        self.new_version_label = QLabel(self)
+        self.new_version_label.setWordWrap(True)
+        self.new_version_button = QPushButton(self)
+        self.new_version_button.clicked.connect(self._get_new_version)
+        if updates is not None:
+            self.update_box.clicked.connect(updates.set_enabled)
+            updates.found.connect(self._update_news)
+            updates.switched.connect(self._update_news)
         self.recovery_button = QPushButton(self)
         self.recovery_button.setVisible(recovery is not None)
         self.recovery_button.clicked.connect(self.new_recovery_key)
@@ -205,7 +221,7 @@ class StickleWindow(QWidget):
         self.guide_button = QPushButton(self)
         self.guide_button.clicked.connect(self.guide.toggle)
         notes.guide_requested.connect(self.guide.toggle)
-        self.about = AboutDialog()
+        self.about = AboutDialog(checks_updates=updates is not None)
         self.about_button = QPushButton(self)
         self.about_button.clicked.connect(self.about.present)
         # Backups (and later exporting and importing), from a menu on one button.
@@ -258,6 +274,10 @@ class StickleWindow(QWidget):
             layout.addWidget(part)
         self._after_notice = QSpacerItem(0, 0)  # room below the frame, while shown
         layout.addItem(self._after_notice)
+        new_version = QHBoxLayout()
+        new_version.addWidget(self.new_version_label, 1)
+        new_version.addWidget(self.new_version_button)
+        layout.addLayout(new_version)
         layout.addWidget(self.portable_label)
         layout.addWidget(self.set_aside_label)
         layout.addWidget(self.view_status)
@@ -277,6 +297,7 @@ class StickleWindow(QWidget):
         layout.addWidget(self.autostart_box)
         layout.addWidget(self.login_note)
         layout.addWidget(self.app_list_box)
+        layout.addWidget(self.update_box)
         layout.addWidget(self.recovery_button)
         if self.shortcut_rows is not None:
             layout.addWidget(self.shortcut_rows)
@@ -326,6 +347,7 @@ class StickleWindow(QWidget):
         order: list[QWidget] = [
             self.notice_show_button,
             self.notice_quit_button,
+            self.new_version_button,
             self.new_note_button,
             self.raise_button,
             self.clipboard_button,
@@ -342,6 +364,7 @@ class StickleWindow(QWidget):
             self.language_box,
             self.autostart_box,
             self.app_list_box,
+            self.update_box,
             self.recovery_button,
             *(self.shortcut_rows.tab_order() if self.shortcut_rows is not None else []),
             self.quit_button,
@@ -392,6 +415,9 @@ class StickleWindow(QWidget):
         self.quit_button.setText(self.tr("Quit Stickle"))
         self.autostart_box.setText(self.tr("&Start Stickle when I log in"))
         self.app_list_box.setText(self.tr("Show Stickle in the &app list"))
+        self.update_box.setText(self.tr("Check for a new &version daily"))
+        self.new_version_button.setText(self.tr("&Get it…"))
+        self.refresh_new_version()
         self.recovery_button.setText(self.tr("Make a new &recovery key…"))
         self.refresh()
 
@@ -463,6 +489,26 @@ class StickleWindow(QWidget):
             self.autostart_box.setChecked(self._autostart.enabled)
         if self._app_list is not None:
             self.app_list_box.setChecked(self._app_list.added)
+        if self._updates is not None:
+            self.update_box.setChecked(self._updates.enabled)
+
+    def _update_news(self, _news: object) -> None:
+        self.refresh_new_version()
+
+    def refresh_new_version(self) -> None:
+        """Said at the top for as long as a newer Stickle is out (no pop-up)."""
+        release = self._updates.release if self._updates is not None else None
+        self.new_version_label.setVisible(release is not None)
+        self.new_version_button.setVisible(release is not None)
+        if release is not None:
+            text = self.tr("Stickle %1 is out.").replace("%1", release.version)
+            self.new_version_label.setText(text)
+            self.new_version_button.setAccessibleDescription(text)
+        self.refresh_switches()
+
+    def _get_new_version(self) -> None:
+        if self._updates is not None and self._updates.release is not None:
+            note_window.open_url(QUrl(self._updates.release.page))
 
     def new_recovery_key(self) -> None:
         """Make a new recovery key and show it; the previous one stops working."""

@@ -40,6 +40,14 @@
         <translation>라이선스</translation>
     </message>
     <message>
+        <source>Stickle connects only to %1, once a day, to see whether a new version is out. It sends nothing about you or your notes, and the check can be turned off.</source>
+        <translation>Stickle은 새 버전이 나왔는지 보려고 하루에 한 번 %1에만 접속합니다. 사용자나 메모에 관해서는 아무것도 보내지 않으며, 이 확인은 끌 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>Stickle connects to nothing on the internet.</source>
+        <translation>Stickle은 인터넷의 어디에도 접속하지 않습니다.</translation>
+    </message>
+    <message>
         <source>If Stickle is useful to you, your support keeps it going. Every feature is free, whether or not you support Stickle.</source>
         <translation>Stickle이 도움이 되었다면 후원으로 개발을 이어 갈 수 있습니다. 후원 여부와 관계없이 모든 기능을 무료로 쓸 수 있습니다.</translation>
     </message>
@@ -1807,6 +1815,14 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>앱 목록에 Stickle 표시(&amp;A)</translation>
     </message>
     <message>
+        <source>Check for a new &amp;version daily</source>
+        <translation>하루에 한 번 새 버전 확인(&amp;V)</translation>
+    </message>
+    <message>
+        <source>&amp;Get it…</source>
+        <translation>받기(&amp;G)…</translation>
+    </message>
+    <message>
         <source>Make a new &amp;recovery key…</source>
         <translation>새 복구 키 만들기(&amp;R)…</translation>
     </message>
@@ -1837,6 +1853,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Hide all notes for now</source>
         <translation>모든 메모 잠시 숨기기</translation>
+    </message>
+    <message>
+        <source>Stickle %1 is out.</source>
+        <translation>Stickle %1이 나왔습니다.</translation>
     </message>
     <message>
         <source>Make a new recovery key? The one you have now will no longer open your notes.</source>
@@ -1907,6 +1927,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Restore the note just deleted: %1</source>
         <translation>방금 지운 메모 되살리기: %1</translation>
+    </message>
+    <message>
+        <source>Get Stickle %1…</source>
+        <translation>Stickle %1 받기…</translation>
     </message>
     <message>
         <source>Open Stickle</source>
@@ -1995,6 +2019,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Show Stickle in the app list</source>
         <translation>앱 목록에 Stickle 표시</translation>
+    </message>
+    <message>
+        <source>Check for a new version daily</source>
+        <translation>하루에 한 번 새 버전 확인</translation>
     </message>
 </context>
 </TS>

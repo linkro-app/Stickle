@@ -34,6 +34,7 @@ from stickle.app.signals import SignalWatcher
 from stickle.app.startup import open_notes
 from stickle.app.stickle_window import RecoveryKeys, StickleWindow
 from stickle.app.tray import Tray
+from stickle.app.update_check import UpdateCheck
 from stickle.core.clock import Clock, utc_now
 from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
 from stickle.data.export import ExportResult, export_all
@@ -55,6 +56,7 @@ from stickle.platform.linux.appimage import (
 )
 from stickle.platform.linux.display import preferred_qt_platform
 from stickle.platform.power import watch_sleep
+from stickle.platform.updates import updated_by_its_store
 from stickle.unlock import Unlock
 
 APP_ID = "co.linkro.stickle"
@@ -437,7 +439,13 @@ def run(
         log.info("sleep %s", "watched" if sleep_watch is not None else "not watched")
         tray_available = QSystemTrayIcon.isSystemTrayAvailable()
         autostart, app_list, make_portal = on_this_computer(perf is not None, portable)
-        tray = Tray(manager.new_note, app.quit, translations, manager, autostart, app_list)
+        # Not when measuring, nor where the Store or Flatpak keep Stickle up to date.
+        updates = (
+            UpdateCheck(Settings(connection))
+            if connection is not None and perf is None and not updated_by_its_store()
+            else None
+        )
+        tray = Tray(manager.new_note, app.quit, translations, manager, autostart, app_list, updates)
         tray.show()
         recovery = recovery_keys(unlock, Settings(connection) if connection else None)
         # Measuring must not take the user's shortcuts from their own Stickle.
@@ -462,6 +470,7 @@ def run(
             shortcuts=shortcuts,
             portable_folder=instance if portable else None,
             data=access,
+            updates=updates,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
 
@@ -528,6 +537,8 @@ def run(
         QTimer.singleShot(0, read_appimage_files)
         if daily_backups is not None:
             daily_backups.start()
+        if updates is not None:
+            updates.start()
         try:
             return app.exec()
         finally:

@@ -3,14 +3,17 @@
 import logging
 from collections.abc import Callable
 
+from PySide6.QtCore import QUrl
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
+from stickle.app import note_window
 from stickle.app.app_icon import make_icon
 from stickle.app.app_list import switch_app_list
 from stickle.app.i18n import LANGUAGES, Translations
 from stickle.app.notes import HIDDEN_LISTED, NoteManager, clipboard_text
 from stickle.app.support import open_support
+from stickle.app.update_check import UpdateCheck
 from stickle.core.markdown import note_title
 from stickle.core.note import Note
 from stickle.platform.autostart import Autostart
@@ -50,6 +53,7 @@ class Tray(QSystemTrayIcon):
         notes: NoteManager | None = None,
         autostart: Autostart | None = None,
         app_list: AppMenuEntry | None = None,
+        updates: UpdateCheck | None = None,
     ) -> None:
         super().__init__(make_icon())
         self._faded = False
@@ -58,12 +62,17 @@ class Tray(QSystemTrayIcon):
         self._notes = notes
         self._autostart = autostart
         self._app_list = app_list
+        self._updates = updates
 
         # QSystemTrayIcon does not own its menu, so keep a reference.
         self._menu = QMenu()
         # Some desktops (GNOME's AppIndicator) open this menu on any click, so the
         # Stickle window must be reachable from it, not only from a click on the icon.
         self.open_window_action = self._menu.addAction("")
+        # Shown while a newer Stickle is out, for as long as that holds.
+        self.new_version_action = self._menu.addAction("")
+        self.new_version_action.setVisible(False)
+        self.new_version_action.triggered.connect(self._get_new_version)
         self._menu.addSeparator()
         self.new_note_action = self._menu.addAction("")
         self.new_note_action.triggered.connect(on_new_note)
@@ -118,6 +127,14 @@ class Tray(QSystemTrayIcon):
         self.app_list_action.setCheckable(True)
         self.app_list_action.setVisible(app_list is not None)
         self.app_list_action.triggered.connect(self._switch_app_list)
+        # Not where the Store or Flatpak keep Stickle up to date.
+        self.update_check_action = self._menu.addAction("")
+        self.update_check_action.setCheckable(True)
+        self.update_check_action.setVisible(updates is not None)
+        if updates is not None:
+            self.update_check_action.triggered.connect(updates.set_enabled)
+            updates.found.connect(self._update_news)
+            updates.switched.connect(self._update_news)
         # The file may have been removed in the system's own settings meanwhile.
         self._menu.aboutToShow.connect(self.refresh_switches)
 
@@ -179,6 +196,24 @@ class Tray(QSystemTrayIcon):
             self.autostart_action.setChecked(self._autostart.enabled)
         if self._app_list is not None:
             self.app_list_action.setChecked(self._app_list.added)
+        if self._updates is not None:
+            self.update_check_action.setChecked(self._updates.enabled)
+
+    def _update_news(self, _news: object) -> None:
+        self.refresh_new_version()
+
+    def refresh_new_version(self) -> None:
+        release = self._updates.release if self._updates is not None else None
+        self.new_version_action.setVisible(release is not None)
+        if release is not None:
+            self.new_version_action.setText(
+                self.tr("Get Stickle %1…").replace("%1", release.version)
+            )
+        self.refresh_switches()
+
+    def _get_new_version(self) -> None:
+        if self._updates is not None and self._updates.release is not None:
+            note_window.open_url(QUrl(self._updates.release.page))
 
     def _switch_app_list(self, on: bool) -> None:
         if self._app_list is not None:
@@ -251,3 +286,5 @@ class Tray(QSystemTrayIcon):
         self.about_action.setText(self.tr("About Stickle"))
         self.autostart_action.setText(self.tr("Start Stickle when I log in"))
         self.app_list_action.setText(self.tr("Show Stickle in the app list"))
+        self.update_check_action.setText(self.tr("Check for a new version daily"))
+        self.refresh_new_version()

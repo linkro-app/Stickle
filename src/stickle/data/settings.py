@@ -103,6 +103,19 @@ LIST_WINDOW_SIZE = Setting[list[int] | None]("list_window_size", "device", None,
 # Shortcuts the user changed on this computer (keyboards and other apps differ).
 SHORTCUTS = Setting[dict[str, str]]("shortcuts", "device", {}, _shortcuts)
 
+
+def _stamp_or_none(value: object) -> TypeGuard[str | None]:
+    """A time as stickle.core.clock writes it, or None."""
+    return value is None or (
+        isinstance(value, str) and len(value) == 24 and value[10] == "T" and value[-1] == "Z"
+    )
+
+
+# The daily check for a newer Stickle, on by default; off, nothing is ever sent.
+UPDATE_CHECK = Setting[bool]("update_check", "device", True, _flag)
+# When it last asked, so that a restart does not ask again the same day.
+UPDATE_CHECKED_AT = Setting[str | None]("update_checked_at", "device", None, _stamp_or_none)
+
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -114,6 +127,8 @@ SETTINGS: dict[str, Setting[object]] = {
         RECOVERY_KEY_OFFERED_AGAIN,
         LIST_WINDOW_SIZE,
         SHORTCUTS,
+        UPDATE_CHECK,
+        UPDATE_CHECKED_AT,
     )
 }
 
