@@ -100,7 +100,7 @@ jobs:
       - run: uv run python scripts/build.py
       - name: Smoke test
         run: |
-          app=build/stickle.app/Contents/MacOS/stickle
+          app=build/stickle.app/Contents/MacOS/stickle.bin
           test "$(uname -m)" = "$( [ "${{ matrix.arch }}" = x64 ] && echo x86_64 || echo arm64 )"
           file "$app" | grep -q "$(uname -m)"
           expected="Stickle $(uv run python -c 'import stickle; print(stickle.__version__)')"

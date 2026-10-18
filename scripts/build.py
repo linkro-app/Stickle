@@ -192,6 +192,9 @@ def nuitka_command() -> list[str]:
             # Built for the runner's own processor (arm64 and x64 are built
             # apart, so neither needs Rosetta).
             f"--macos-target-arch={platform.machine()}",  # arm64 or x86_64
+            # Not "stickle": the stickle/ data folder sits next to it (as on
+            # Linux), and the file system does not tell "Stickle" apart either.
+            "--output-filename=stickle.bin",
             "--macos-app-name=Stickle",
             "--macos-app-mode=ui-element",  # a menu bar app, as on the other systems
             f"--macos-app-version={__version__}",
