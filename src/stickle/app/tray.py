@@ -140,6 +140,8 @@ class Tray(QSystemTrayIcon):
 
         self._menu.addSeparator()
         # One of the two places that mention support (the other is About Stickle).
+        # A draft issue in the browser (see the app: About Stickle drafts it).
+        self.feedback_action = self._menu.addAction("")
         self.support_action = self._menu.addAction("")
         self.support_action.triggered.connect(open_support)
         self.about_action = self._menu.addAction("")
@@ -282,6 +284,7 @@ class Tray(QSystemTrayIcon):
         if chosen := self.language_actions.get(self._translations.language):
             chosen.setChecked(True)
         self.quit_action.setText(self.tr("Quit Stickle"))
+        self.feedback_action.setText(self.tr("Report a problem or idea…"))
         self.support_action.setText(self.tr("Support Stickle…"))
         self.about_action.setText(self.tr("About Stickle"))
         self.autostart_action.setText(self.tr("Start Stickle when I log in"))

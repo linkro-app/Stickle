@@ -182,6 +182,7 @@ def connect_stickle_window(
         tray.open_window_action.triggered.connect(lambda: window.open())
         tray.guide_action.triggered.connect(window.guide.open)
         tray.about_action.triggered.connect(window.about.present)
+        tray.feedback_action.triggered.connect(window.about.report)
         tray.find_action.triggered.connect(window.finder.open)
         tray.data_menu.menuAction().setVisible(not window.data_button.isHidden())
         tray.export_action.triggered.connect(window.export_all)

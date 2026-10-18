@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLa
 from stickle import __version__
 from stickle.app import note_window
 from stickle.app.app_icon import icon_pixmap
+from stickle.app.feedback import open_feedback
 from stickle.app.support import LICENSE, PRIVACY, SOURCE, open_support, site_page
 from stickle.core.updates import FEED_HOST
 
@@ -30,11 +31,17 @@ def _link_label(parent: QWidget) -> QLabel:
 
 
 class AboutDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None, checks_updates: bool = False) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, checks_updates: bool = False, portable: bool = False
+    ) -> None:
         super().__init__(parent)
         self._checks_updates = checks_updates
+        self._portable = portable
         self.connections = QLabel(self)
         self.connections.setWordWrap(True)
+        # A draft issue in the browser; Stickle sends nothing itself.
+        self.feedback_button = QPushButton(self)
+        self.feedback_button.clicked.connect(self.report)
         self.icon = QLabel(self)
         self.icon.setPixmap(icon_pixmap(ICON_SIZE))
         self.name = QLabel("Stickle", self)
@@ -76,6 +83,10 @@ class AboutDialog(QDialog):
         layout.addWidget(self.links)
         layout.addWidget(self.license)
         layout.addWidget(self.connections)
+        feedback = QHBoxLayout()
+        feedback.addWidget(self.feedback_button)
+        feedback.addStretch(1)
+        layout.addLayout(feedback)
         layout.addSpacing(12)
         layout.addLayout(support)
         layout.addSpacing(8)
@@ -126,8 +137,15 @@ class AboutDialog(QDialog):
                 "Every feature is free, whether or not you support Stickle."
             )
         )
+        self.feedback_button.setText(self.tr("&Report a problem or idea…"))
+        self.feedback_button.setToolTip(
+            self.tr("Opens a draft on GitHub in your browser. Nothing is sent until you submit it.")
+        )
         self.support_button.setText(self.tr("&Support Stickle…"))
         self.close_button.setText(self.tr("Close"))
+
+    def report(self) -> None:
+        open_feedback(self._portable)
 
     def present(self) -> None:
         """Shown, or brought forward if it already is, with the keyboard on Close."""

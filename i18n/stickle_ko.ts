@@ -52,6 +52,14 @@
         <translation>Stickle이 도움이 되었다면 후원으로 개발을 이어 갈 수 있습니다. 후원 여부와 관계없이 모든 기능을 무료로 쓸 수 있습니다.</translation>
     </message>
     <message>
+        <source>&amp;Report a problem or idea…</source>
+        <translation>문제·제안 보내기(&amp;R)…</translation>
+    </message>
+    <message>
+        <source>Opens a draft on GitHub in your browser. Nothing is sent until you submit it.</source>
+        <translation>브라우저에서 GitHub에 초안을 엽니다. 직접 제출하기 전에는 아무것도 보내지지 않습니다.</translation>
+    </message>
+    <message>
         <source>&amp;Support Stickle…</source>
         <translation>후원하기(&amp;S)…</translation>
     </message>
@@ -2003,6 +2011,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Quit Stickle</source>
         <translation>Stickle 종료</translation>
+    </message>
+    <message>
+        <source>Report a problem or idea…</source>
+        <translation>문제·제안 보내기…</translation>
     </message>
     <message>
         <source>Support Stickle…</source>

@@ -221,7 +221,9 @@ class StickleWindow(QWidget):
         self.guide_button = QPushButton(self)
         self.guide_button.clicked.connect(self.guide.toggle)
         notes.guide_requested.connect(self.guide.toggle)
-        self.about = AboutDialog(checks_updates=updates is not None)
+        self.about = AboutDialog(
+            checks_updates=updates is not None, portable=portable_folder is not None
+        )
         self.about_button = QPushButton(self)
         self.about_button.clicked.connect(self.about.present)
         # Backups (and later exporting and importing), from a menu on one button.
