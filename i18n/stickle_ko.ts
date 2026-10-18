@@ -421,6 +421,14 @@ The **X** hides a note: bring it back from the Stickle icon. **Ctrl+N** makes a 
         <translation>가져올 메모</translation>
     </message>
     <message>
+        <source>&amp;Add where each note came from, at its end</source>
+        <translation>메모 끝에 출처 적기(&amp;A)</translation>
+    </message>
+    <message>
+        <source>A highlighted line such as “%1”.</source>
+        <translation>“%1” 같은 형광펜 한 줄을 붙입니다.</translation>
+    </message>
+    <message>
         <source>Close</source>
         <translation>닫기</translation>
     </message>
@@ -487,6 +495,10 @@ The **X** hides a note: bring it back from the Stickle icon. **Ctrl+N** makes a 
     <message>
         <source>text colours</source>
         <translation>글자색</translation>
+    </message>
+    <message>
+        <source>Brought in from %1 · %2</source>
+        <translation>%1에서 가져옴 · %2</translation>
     </message>
     <message>
         <source>Stickle does not know that file&apos;s notes.</source>

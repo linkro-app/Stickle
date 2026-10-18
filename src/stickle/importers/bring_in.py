@@ -26,15 +26,26 @@ def new_notes(source: str, result: ImportResult, connection: apsw.Connection) ->
     return sum(not records.brought_in(source, n.source_id, n.body) for n in result.notes)
 
 
+def with_source_line(body: str, line: str) -> str:
+    """The note's text with where it came from at its end, highlighted."""
+    return f"{body.rstrip()}\n\n=={line}==" if body.strip() else f"=={line}=="
+
+
 def bring_in(
     source: str,
     result: ImportResult,
     connection: apsw.Connection,
     place_for: Callable[[Rect], Place | None] = lambda _: None,
     clock: Clock = utc_now,
+    source_line: str | None = None,
 ) -> BroughtIn:
     """Make a note of each that has not come in before, keeping its colour,
-    category (made if missing, by name), place, and hidden and locked state."""
+    category (made if missing, by name), place, and hidden and locked state.
+
+    source_line: said at the end of each note, if the user asked. The record
+    keeps the text as it came, so bringing in again still knows the note, and
+    where it came from stays known even if the line is edited away.
+    """
     notes = NoteRepository(connection, clock)
     labels = LabelRepository(connection, clock)
     layouts = LayoutRepository(connection)
@@ -46,7 +57,10 @@ def bring_in(
             if records.brought_in(source, imported.source_id, imported.body):
                 brought.already_here += 1
                 continue
-            note = notes.create(imported.body, imported.color)
+            body = imported.body
+            if source_line:
+                body = with_source_line(body, source_line)
+            note = notes.create(body, imported.color)
             if imported.category:
                 key = imported.category.casefold()
                 if key not in categories:

@@ -62,7 +62,9 @@ def recognise_nothing(_path: Path) -> None:
 
 
 def no_imports() -> ImportAccess:
-    return ImportAccess(lambda: [], recognise_nothing, lambda _s, _r: 0, lambda _s, _r: BroughtIn())
+    return ImportAccess(
+        lambda: [], recognise_nothing, lambda _s, _r: 0, lambda _s, _r, _l: BroughtIn()
+    )
 
 
 def import_dialog() -> ImportDialog:
@@ -77,7 +79,7 @@ def import_dialog() -> ImportDialog:
             lambda: [(source, Found(source.name, Path("x")))],
             recognise_nothing,
             lambda _s, _r: 1,
-            lambda _s, _r: BroughtIn(),
+            lambda _s, _r, _l: BroughtIn(),
         )
     )
     dialog.refresh()

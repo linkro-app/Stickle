@@ -139,9 +139,9 @@ def data_access(
             return None  # placed as a new note is
         return place_of(rect, screens)
 
-    def bring(source: Source, result: ImportResult) -> BroughtIn:
+    def bring(source: Source, result: ImportResult, line: str | None) -> BroughtIn:
         manager.save_all()
-        brought = bring_in(source.name, result, connection, place_for)
+        brought = bring_in(source.name, result, connection, place_for, source_line=line)
         manager.open_brought_in(brought.note_ids)
         return brought
 

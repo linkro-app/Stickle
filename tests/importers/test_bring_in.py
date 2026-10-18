@@ -76,6 +76,21 @@ def test_the_same_id_from_another_app_is_another_note(connection: apsw.Connectio
     )
 
 
+def test_where_a_note_came_from_ends_it_when_asked(connection: apsw.Connection) -> None:
+    imported = result(ImportedNote("a", "장보기\n", "yellow"), ImportedNote("b", "", "yellow"))
+
+    brought = bring_in("xpad", imported, connection, source_line="xpad에서 가져옴 · 2026-10-18")
+
+    repo = NoteRepository(connection)
+    bodies = [note.body for note_id in brought.note_ids if (note := repo.get(note_id))]
+    assert bodies == [
+        "장보기\n\n==xpad에서 가져옴 · 2026-10-18==",
+        "==xpad에서 가져옴 · 2026-10-18==",
+    ]
+    # Recorded as it came: bringing in again knows them, line or not.
+    assert new_notes("xpad", imported, connection) == 0
+
+
 def test_all_or_nothing(connection: apsw.Connection) -> None:
     def broken(_: Rect) -> Place | None:
         raise OSError("screens gone")

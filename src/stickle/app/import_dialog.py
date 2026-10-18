@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import override
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QDate, QEvent, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -42,7 +43,8 @@ class ImportAccess:
     found: Callable[[], list[tuple[Source, Found]]]
     recognise: Callable[[Path], tuple[Source, Found] | None]
     new_notes: Callable[[Source, ImportResult], int]  # not brought in before
-    bring_in: Callable[[Source, ImportResult], BroughtIn]  # and show them
+    # And show them; the line, if given, ends each note (where it came from).
+    bring_in: Callable[[Source, ImportResult, str | None], BroughtIn]
 
 
 def _choose_file(parent: QWidget, title: str) -> Path | None:
@@ -77,6 +79,9 @@ class ImportDialog(QDialog):
         self.summary = QLabel(self)
         self.summary.setWordWrap(True)
         self.preview = QListWidget(self)
+        # Off unless asked: it adds to the notes' own text. Where each note came
+        # from is recorded either way.
+        self.source_box = QCheckBox(self)
         self.outcome = QLabel(self)
         self.outcome.setWordWrap(True)
         self.outcome.hide()
@@ -98,6 +103,7 @@ class ImportDialog(QDialog):
         layout.addLayout(choose)
         layout.addWidget(self.summary)
         layout.addWidget(self.preview, 1)
+        layout.addWidget(self.source_box)
         layout.addWidget(self.outcome)
         layout.addLayout(buttons)
         self.setMinimumSize(460, 480)
@@ -115,6 +121,10 @@ class ImportDialog(QDialog):
         self.none_found.setText(self.tr("No other app's notes were found on this computer."))
         self.choose_button.setText(self.tr("Choose a &file…"))
         self.preview.setAccessibleName(self.tr("Notes that would come"))
+        self.source_box.setText(self.tr("&Add where each note came from, at its end"))
+        self.source_box.setToolTip(
+            self.tr("A highlighted line such as “%1”.").replace("%1", self.source_line("xpad"))
+        )
         self.close_button.setText(self.tr("Close"))
         self._refresh_rows()
         self._show_chosen()
@@ -214,6 +224,11 @@ class ImportDialog(QDialog):
         }
         return names.get(what, what)
 
+    def source_line(self, title: str) -> str:
+        """Where a note came from, as written at its end: the app and today's date."""
+        today = QDate.currentDate().toString(Qt.DateFormat.ISODate)
+        return self.tr("Brought in from %1 · %2").replace("%1", title).replace("%2", today)
+
     def choose(self) -> None:
         """Read notes from a file or folder the user picks (copied from elsewhere)."""
         path = choose_file(self, self.tr("Bring notes in"))
@@ -233,7 +248,8 @@ class ImportDialog(QDialog):
         if read is None or read.result is None or read.new == 0:
             return
         try:
-            brought = self._access.bring_in(read.source, read.result)
+            line = self.source_line(read.source.title) if self.source_box.isChecked() else None
+            brought = self._access.bring_in(read.source, read.result, line)
         except Exception as error:  # nothing was brought in: it is all or nothing
             log.error("could not bring notes in: %s", type(error).__name__)
             self.outcome.setText(self.tr("The notes could not be brought in. Nothing was changed."))

@@ -109,6 +109,26 @@ def test_bringing_in_shows_the_notes_and_only_once(
     assert len(NoteRepository(connection).all()) == 2
 
 
+def test_the_source_line_is_added_only_when_asked(
+    qtbot: QtBot,
+    connection: apsw.Connection,
+    manager: NoteManager,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    xpad_home(tmp_path)
+    dialog = window_for(connection, manager, tmp_path, monkeypatch)
+    qtbot.addWidget(dialog)
+    assert not dialog.source_box.isChecked()
+
+    dialog.source_box.setChecked(True)
+    dialog.bring_in()
+
+    bodies = sorted(n.body for n in NoteRepository(connection).all())
+    assert all(body.endswith("==") and "Brought in from xpad · " in body for body in bodies)
+    assert bodies[0].startswith("**장보기**\n\n==")
+
+
 def test_nothing_found_says_so_and_offers_a_file(
     qtbot: QtBot,
     connection: apsw.Connection,
