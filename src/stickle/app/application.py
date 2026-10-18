@@ -44,7 +44,7 @@ from stickle.data.notes import NoteRepository
 from stickle.data.schema import latest_version
 from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.data.startup import StartupSettings
-from stickle.platform.autostart import Autostart, this_computers_autostart
+from stickle.platform.autostart import AUTOSTART_FLAG, Autostart, this_computers_autostart
 from stickle.platform.hotkeys import Portal, desktop_portal
 from stickle.platform.instance import FIND, NEW_NOTE, NEXT_VIEW, SET_ASIDE
 from stickle.platform.linux.appimage import (
@@ -436,6 +436,22 @@ def run(
             manager.save_all()
 
         app.commitDataRequest.connect(before_session_end)
+        close_filter = None
+        if sys.platform == "win32" and perf is None:
+            from stickle.platform.windows.restart_manager import CloseForUpdate, register_restart
+
+            # Updated while running (the Store does that): saved and closed when
+            # asked, then started again by Windows, quietly as at login.
+            if not register_restart(AUTOSTART_FLAG):
+                log.warning("could not ask to be started again after an update")
+
+            def close_for_update() -> None:
+                log.info("closing for an update")
+                manager.save_all()
+                app.quit()
+
+            close_filter = CloseForUpdate(close_for_update)
+            app.installNativeEventFilter(close_filter)
         sleep_watch = watch_sleep(before_sleep)
         log.info("sleep %s", "watched" if sleep_watch is not None else "not watched")
         tray_available = QSystemTrayIcon.isSystemTrayAvailable()
@@ -543,7 +559,7 @@ def run(
         try:
             return app.exec()
         finally:
-            del sleep_watch
+            del sleep_watch, close_filter
     finally:
         watcher.close()
         if connection is not None:
