@@ -20,6 +20,10 @@
         <translation>홈페이지</translation>
     </message>
     <message>
+        <source>Guide</source>
+        <translation>기능 안내</translation>
+    </message>
+    <message>
         <source>Source code</source>
         <translation>소스 코드</translation>
     </message>
@@ -1653,6 +1657,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Esc closes this.</source>
         <translation>Esc를 누르면 닫힙니다.</translation>
+    </message>
+    <message>
+        <source>Every feature, explained</source>
+        <translation>모든 기능 안내</translation>
     </message>
     <message>
         <source>none</source>

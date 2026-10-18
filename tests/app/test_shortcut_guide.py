@@ -12,6 +12,7 @@ from PySide6.QtTest import QTest
 from pytestqt.qtbot import QtBot
 from test_shortcuts import System
 
+from stickle.app.about_dialog import AboutDialog
 from stickle.app.i18n import Translations
 from stickle.app.note_list import NoteList
 from stickle.app.note_window import NoteWindow
@@ -125,6 +126,35 @@ def test_the_same_key_closes_it(qtbot: QtBot) -> None:
     guide_window.open()
     QTest.keyClick(guide_window.list, Qt.Key.Key_Slash, Qt.KeyboardModifier.ControlModifier)
     assert not guide_window.isVisible()
+
+
+@pytest.mark.parametrize("language", ["en", "ko"])
+def test_the_longest_row_keeps_clear_of_its_keys(
+    qtbot: QtBot, translations: Translations, language: str
+) -> None:
+    del qtbot
+    translations.apply(language)
+    guide_window = ShortcutGuide(None)
+    guide_window.open()
+    metrics = guide_window.list.fontMetrics()
+    widest = max(metrics.horizontalAdvance(what) for what, _ in guide_window.rows())
+
+    # The keys start at the second column: clear of the widest text by the gap.
+    assert guide_window.list.columnWidth(0) >= widest + guide_window.key_gap()
+    guide_window.close()
+
+
+def test_it_leads_to_the_guide_on_the_website(qtbot: QtBot, translations: Translations) -> None:
+    del qtbot
+    guide_window = ShortcutGuide(None)
+    about = AboutDialog()
+
+    assert 'href="https://stickle.linkro.co/en/guide"' in guide_window.more.text()
+    assert 'href="https://stickle.linkro.co/en/guide"' in about.links.text()
+    translations.apply("ko")
+    assert 'href="https://stickle.linkro.co/ko/guide"' in guide_window.more.text()
+    guide_window.deleteLater()
+    about.deleteLater()
 
 
 def test_it_follows_the_language(qtbot: QtBot, translations: Translations) -> None:

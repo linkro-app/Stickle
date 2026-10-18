@@ -106,10 +106,12 @@ class AboutDialog(QDialog):
         )
         # Translated outside the f-string: lupdate does not read calls inside one.
         website = self.tr("Website")
+        guide = self.tr("Guide")
         source = self.tr("Source code")
         privacy = self.tr("Privacy")
         self.links.setText(
             f'<a href="{site_page()}">{website}</a> · '
+            f'<a href="{site_page("guide")}">{guide}</a> · '
             f'<a href="{SOURCE}">{source}</a> · '
             f'<a href="{PRIVACY}">{privacy}</a>'
         )

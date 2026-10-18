@@ -23,6 +23,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QHBoxLayout,
     QLabel,
     QTreeWidget,
     QTreeWidgetItem,
@@ -126,6 +127,13 @@ def guide() -> list[tuple[str, list[tuple[str, str]]]]:
     ]
 
 
+def _open_link(href: str) -> None:
+    # Here, not at the top: the note window imports this module's keys.
+    from stickle.app import note_window
+
+    note_window.open_link(href)
+
+
 class ShortcutGuide(QWidget):
     def __init__(self, shortcuts: GlobalShortcuts | None) -> None:
         super().__init__(
@@ -151,11 +159,19 @@ class ShortcutGuide(QWidget):
         self.list.setStyleSheet("QTreeWidget { background: transparent; }")
         self.list.installEventFilter(self)
         self.hint = QLabel(self)
+        # Everything else Stickle does, on the website (opened in the browser).
+        self.more = QLabel(self)
+        self.more.setTextFormat(Qt.TextFormat.RichText)
+        self.more.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.more.linkActivated.connect(_open_link)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.hint, 1)
+        bottom.addWidget(self.more)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
         layout.addWidget(self.title)
         layout.addWidget(self.list, 1)
-        layout.addWidget(self.hint)
+        layout.addLayout(bottom)
         self.retranslate()
 
     def retranslate(self) -> None:
@@ -163,6 +179,14 @@ class ShortcutGuide(QWidget):
         self.setWindowTitle(self.tr("Keyboard shortcuts"))
         self.list.setAccessibleName(self.tr("Keyboard shortcuts"))
         self.hint.setText(self.tr("Esc closes this."))
+        # Here, not at the top: stickle.app.support leads back to the note window,
+        # which imports this module's keys.
+        from stickle.app.support import site_page
+
+        # Translated outside the f-string: lupdate does not read calls inside one.
+        every_feature = self.tr("Every feature, explained")
+        self.more.setText(f'<a href="{site_page("guide")}">{every_feature}</a>')
+        self.more.setAccessibleName(every_feature)
         if self.isVisible():
             self.fill()  # otherwise filled as it opens
 
@@ -199,7 +223,13 @@ class ShortcutGuide(QWidget):
                 row = QTreeWidgetItem(self.list, [what, keys])
                 row.setData(0, Qt.ItemDataRole.AccessibleTextRole, f"{what}, {keys}")
         self.list.resizeColumnToContents(0)
+        # Room between what a row does and its keys: sized to the longest text
+        # alone, the longest rows ran into their keys.
+        self.list.setColumnWidth(0, self.list.columnWidth(0) + self.key_gap())
         self.list.resizeColumnToContents(1)
+
+    def key_gap(self) -> int:
+        return 2 * self.list.fontMetrics().horizontalAdvance("M")
 
     def rows(self) -> list[tuple[str, str]]:
         """What it lists, as (what, keys); headings have no keys."""
