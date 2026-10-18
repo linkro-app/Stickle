@@ -9,6 +9,7 @@ Python applications.
 """
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -179,7 +180,7 @@ def nuitka_command() -> list[str]:
             # Qt on macOS runs from an app bundle; built for the runner's own
             # processor (arm64 and x64 are built apart, so neither needs Rosetta).
             "--macos-create-app-bundle",
-            "--macos-target-arch=native",
+            f"--macos-target-arch={platform.machine()}",  # arm64 or x86_64
             "--macos-app-name=Stickle",
             "--macos-app-mode=ui-element",  # a menu bar app, as on the other systems
             f"--macos-app-version={__version__}",
