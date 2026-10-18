@@ -28,6 +28,7 @@ from test_shortcuts import System
 
 from stickle.app.backups import BackupAccess, RestoreDialog
 from stickle.app.category_dialog import NewCategoryDialog
+from stickle.app.data_menu import DataAccess
 from stickle.app.first_run import FirstRunDialog
 from stickle.app.i18n import Translations
 from stickle.app.label_manager import LabelManager
@@ -40,6 +41,7 @@ from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.stickle_window import RecoveryKeys, StickleWindow
 from stickle.core.labels import Category, Mark
 from stickle.data.backups import Backup, Contents
+from stickle.data.export import ExportResult
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import NotesDiff, open_store
 from stickle.data.settings import Settings
@@ -261,7 +263,10 @@ def test_tab_goes_round_the_stickle_window_as_it_reads(
         recovery=RecoveryKeys(exists=lambda: True, make=lambda: RECOVERY_KEY, kept=lambda: None),
         settings=Settings(connection),
         shortcuts=shortcuts,
-        backups=BackupAccess(lambda: [], lambda _: None, lambda _: False),
+        data=DataAccess(
+            BackupAccess(lambda: [], lambda _: None, lambda _: False),
+            lambda folder: ExportResult(folder, 0, 0),
+        ),
     )
     window.show_notice(True)  # the notice's two buttons, at the top
 

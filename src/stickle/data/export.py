@@ -1,13 +1,23 @@
-"""Copy notes out as Markdown files, from a database of any version.
+"""Copy notes out of the database, as Markdown files and as JSON.
 
-This is the way out when the app cannot use a database (an update failed, or
-it was saved by a newer version): it reads only the note id and text, which
-every version has, and never changes the database. Each note becomes one
-file named after its first line; deleted notes go into a "deleted" folder.
+export_markdown is the way out when the app cannot use a database (an update
+failed, or it was saved by a newer version): it reads only the note id and
+text, which every version has, and never changes the database. Each note
+becomes one file named after its first line; deleted notes go into a
+"deleted" folder.
+
+export_all is the export the user asks for from the app: the same Markdown
+files (the trash's in "trash"), and stickle-export.json with every row of
+every table the user's data is kept in, so that nothing stays behind, data
+added by later versions included. Only what is derived from other data (the
+search index) is left out. Nothing is encrypted: the user is told so.
 """
 
+import base64
+import json
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import apsw
@@ -78,4 +88,85 @@ def export_markdown(
         with path.open("x", encoding="utf-8", newline="") as file:
             file.write(body)
         deleted_count += deleted
+    return ExportResult(folder, len(rows) - deleted_count, deleted_count)
+
+
+EXPORT_FORMAT = 1
+JSON_NAME = "stickle-export.json"
+TRASH_FOLDER = "trash"
+
+
+def _derived(table: str) -> bool:
+    """Tables rebuilt from others (the search index and its parts) or SQLite's own."""
+    return table.startswith(("notes_fts", "sqlite_"))
+
+
+def _value(value: object) -> object:
+    if isinstance(value, bytes):
+        return {"base64": base64.b64encode(value).decode("ascii")}
+    return value
+
+
+def _tables(connection: apsw.Connection) -> dict[str, list[dict[str, object]]]:
+    names = [
+        str(row[0])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"
+        )
+    ]
+    tables: dict[str, list[dict[str, object]]] = {}
+    for name in names:
+        if _derived(name):
+            continue
+        # The names come from the schema itself, not from outside.
+        columns = [str(row[1]) for row in connection.execute(f'PRAGMA table_info("{name}")')]
+        listed = ", ".join(f'"{column}"' for column in columns)
+        tables[name] = [
+            dict(zip(columns, (_value(value) for value in row), strict=True))
+            for row in connection.execute(f'SELECT {listed} FROM "{name}"')
+        ]
+    return tables
+
+
+def _read_all(
+    connection: apsw.Connection,
+) -> tuple[int, dict[str, list[dict[str, object]]], list[tuple[str, str, bool]]]:
+    """One consistent reading, even if a note is saved meanwhile."""
+    connection.execute("BEGIN")
+    try:
+        return int(str(connection.pragma("user_version"))), _tables(connection), _rows(connection)
+    finally:
+        connection.execute("COMMIT")
+
+
+def export_all(
+    connection: apsw.Connection,
+    target: Path,
+    app_version: str,
+    clock: Clock = utc_now,
+) -> ExportResult:
+    """Write everything into a new folder inside target; nothing is overwritten."""
+    version, tables, rows = _read_all(connection)
+    moment = datetime.fromisoformat(clock().replace("Z", "+00:00")).astimezone()
+    folder = _free(target / f"Stickle export {moment:%Y-%m-%d %H%M}")
+    folder.mkdir(parents=True)
+    deleted_count = 0
+    for note_id, body, deleted in rows:
+        place = folder / TRASH_FOLDER if deleted else folder
+        place.mkdir(exist_ok=True)
+        path = _free(place / f"{file_stem(body, note_id)}.md")
+        with path.open("x", encoding="utf-8", newline="") as file:
+            file.write(body)
+        deleted_count += deleted
+    document = {
+        "format": EXPORT_FORMAT,
+        "app": "Stickle",
+        "app_version": app_version,
+        "schema_version": version,
+        "exported_at": clock(),
+        "tables": tables,
+    }
+    with (folder / JSON_NAME).open("x", encoding="utf-8", newline="\n") as file:
+        json.dump(document, file, ensure_ascii=False, indent=1)
+        file.write("\n")
     return ExportResult(folder, len(rows) - deleted_count, deleted_count)

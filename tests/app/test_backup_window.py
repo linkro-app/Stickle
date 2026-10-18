@@ -15,7 +15,7 @@ from update_translations import TS_DIR, compile_to
 
 from stickle.app import application
 from stickle.app import backups as app_backups
-from stickle.app.application import backup_access, go_back_to
+from stickle.app.application import data_access, go_back_to
 from stickle.app.backups import BackupAccess, DailyBackups, RestoreDialog
 from stickle.app.i18n import Translations
 from stickle.app.notes import NoteManager
@@ -248,8 +248,8 @@ def test_the_stickle_window_offers_backups_only_with_them(
     del qtbot
     manager = NoteManager(NoteRepository(connection))
     without = StickleWindow(manager, Translations(), lambda: None)
-    access = backup_access(manager, connection, database, KEY, lambda: None)
-    with_them = StickleWindow(manager, Translations(), lambda: None, backups=access)
+    access = data_access(manager, connection, database, KEY, lambda: None)
+    with_them = StickleWindow(manager, Translations(), lambda: None, data=access)
     try:
         assert without.data_button.isHidden()
         assert not with_them.data_button.isHidden()

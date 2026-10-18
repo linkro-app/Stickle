@@ -18,8 +18,10 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
+from stickle import __version__
 from stickle.app.app_list import icon_png, offer_app_list
 from stickle.app.backups import BackupAccess, DailyBackups
+from stickle.app.data_menu import DataAccess
 from stickle.app.first_run import welcome
 from stickle.app.fonts import ensure_korean_font
 from stickle.app.i18n import Translations
@@ -34,6 +36,7 @@ from stickle.app.stickle_window import RecoveryKeys, StickleWindow
 from stickle.app.tray import Tray
 from stickle.core.clock import Clock, utc_now
 from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
+from stickle.data.export import ExportResult, export_all
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
@@ -107,17 +110,26 @@ def go_back_to(
     return True
 
 
-def backup_access(
+def data_access(
     manager: NoteManager,
     connection: apsw.Connection,
     database: Path,
     key: bytes,
     quit_app: Callable[[], object],
-) -> BackupAccess:
-    return BackupAccess(
-        available=lambda: backups(database),
-        contents=lambda path: contents(path, key, latest_version()),
-        restore=lambda path: go_back_to(path, manager, connection, database, quit_app),
+) -> DataAccess:
+    """What the Data menu does with the notes database."""
+
+    def export(folder: Path) -> ExportResult:
+        manager.save_all()  # what is being typed goes out too
+        return export_all(connection, folder, __version__)
+
+    return DataAccess(
+        backups=BackupAccess(
+            available=lambda: backups(database),
+            contents=lambda path: contents(path, key, latest_version()),
+            restore=lambda path: go_back_to(path, manager, connection, database, quit_app),
+        ),
+        export=export,
     )
 
 
@@ -170,6 +182,7 @@ def connect_stickle_window(
         tray.about_action.triggered.connect(window.about.present)
         tray.find_action.triggered.connect(window.finder.open)
         tray.data_menu.menuAction().setVisible(not window.data_button.isHidden())
+        tray.export_action.triggered.connect(window.export_all)
         tray.restore_backup_action.triggered.connect(window.restore_backup)
         # Switched from the tray while the window is open: it shows the change.
         tray.autostart_action.triggered.connect(lambda: window.refresh())
@@ -434,12 +447,10 @@ def run(
             else None
         )
         daily_backups: DailyBackups | None = None
-        access: BackupAccess | None = None
+        access: DataAccess | None = None
         if unlock is not None and connection is not None and unlock.opened_key is not None:
             daily_backups = DailyBackups(connection, unlock.database)
-            access = backup_access(
-                manager, connection, unlock.database, unlock.opened_key, app.quit
-            )
+            access = data_access(manager, connection, unlock.database, unlock.opened_key, app.quit)
         stickle_window = StickleWindow(
             manager,
             translations,
@@ -450,7 +461,7 @@ def run(
             Settings(connection) if connection else None,
             shortcuts=shortcuts,
             portable_folder=instance if portable else None,
-            backups=access,
+            data=access,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
 

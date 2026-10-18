@@ -44,7 +44,8 @@ from PySide6.QtWidgets import (
 
 from stickle.app.about_dialog import AboutDialog
 from stickle.app.app_list import switch_app_list
-from stickle.app.backups import BackupAccess, RestoreDialog
+from stickle.app.backups import RestoreDialog
+from stickle.app.data_menu import DataAccess, export_everything
 from stickle.app.finder import DesktopFinder
 from stickle.app.first_run import LoginNote
 from stickle.app.i18n import LANGUAGES, Translations
@@ -103,7 +104,7 @@ class StickleWindow(QWidget):
         login_may_be_blocked: bool | None = None,
         shortcuts: GlobalShortcuts | None = None,
         portable_folder: Path | None = None,
-        backups: BackupAccess | None = None,
+        data: DataAccess | None = None,
     ) -> None:
         super().__init__()
         self._notes = notes
@@ -208,14 +209,17 @@ class StickleWindow(QWidget):
         self.about_button = QPushButton(self)
         self.about_button.clicked.connect(self.about.present)
         # Backups (and later exporting and importing), from a menu on one button.
-        self._backups = backups
+        self._data = data
         self.restore_dialog: RestoreDialog | None = None
         self.data_button = QPushButton(self)
         self.data_menu = QMenu(self.data_button)
+        self.export_action = self.data_menu.addAction("")
+        self.export_action.triggered.connect(self.export_all)
+        self.data_menu.addSeparator()
         self.restore_backup_action = self.data_menu.addAction("")
         self.restore_backup_action.triggered.connect(self.restore_backup)
         self.data_button.setMenu(self.data_menu)
-        self.data_button.setVisible(backups is not None)
+        self.data_button.setVisible(data is not None)
         # Finding notes on the desktop; what it also finds hidden or deleted is here.
         self.finder = DesktopFinder(notes, self.search_for)
         for keys in GUIDE_KEYS:
@@ -292,12 +296,17 @@ class StickleWindow(QWidget):
         note_list.refresh()
         note_list.search_box.setFocus()
 
+    def export_all(self) -> None:
+        """Every note as Markdown and everything as JSON, into a folder the user picks."""
+        if self._data is not None:
+            export_everything(self, self._data)
+
     def restore_backup(self) -> None:
         """The window for going back to a backup, one at a time, its list fresh."""
-        if self._backups is None:
+        if self._data is None:
             return
         if self.restore_dialog is None:
-            self.restore_dialog = RestoreDialog(self._backups, self)
+            self.restore_dialog = RestoreDialog(self._data.backups, self)
         self.restore_dialog.refresh()
         self.restore_dialog.show()
         self.restore_dialog.raise_()
@@ -372,6 +381,7 @@ class StickleWindow(QWidget):
         self.show_all_button.setText(self.tr("Show all hidden notes"))
         self.labels_button.setText(self.tr("Manage &categories and marks…"))
         self.data_button.setText(self.tr("&Data"))
+        self.export_action.setText(self.tr("Export all notes…"))
         self.restore_backup_action.setText(self.tr("Restore from a backup…"))
         self.guide_button.setText(self.tr("Keyboard shortcuts"))
         self.guide_button.setToolTip(self.tr("F1", "the key that opens the shortcuts"))

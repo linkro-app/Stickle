@@ -19,6 +19,22 @@
     </message>
 </context>
 <context>
+    <name>DataMenu</name>
+    <message numerus="yes">
+        <source>%n note(s) exported to %1, each as a Markdown file, with everything in stickle-export.json. Notes in the trash are in its trash folder.
+
+These files are not encrypted: keep them somewhere safe.</source>
+        <translation>
+            <numerusform>%n note exported to %1, as a Markdown file, with everything in stickle-export.json. Notes in the trash are in its trash folder.
+
+These files are not encrypted: keep them somewhere safe.</numerusform>
+            <numerusform>%n notes exported to %1, each as a Markdown file, with everything in stickle-export.json. Notes in the trash are in its trash folder.
+
+These files are not encrypted: keep them somewhere safe.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>DesktopFinder</name>
     <message numerus="yes">
         <source>%n note(s)</source>

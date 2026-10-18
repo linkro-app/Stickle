@@ -151,6 +151,31 @@
     </message>
 </context>
 <context>
+    <name>DataMenu</name>
+    <message>
+        <source>&amp;Open the folder</source>
+        <translation>폴더 열기(&amp;O)</translation>
+    </message>
+    <message>
+        <source>Export all notes</source>
+        <translation>모든 메모 내보내기</translation>
+    </message>
+    <message>
+        <source>The notes could not be exported. Check that the folder can be written to.</source>
+        <translation>메모를 내보내지 못했습니다. 그 폴더에 쓸 수 있는지 확인하세요.</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) exported to %1, each as a Markdown file, with everything in stickle-export.json. Notes in the trash are in its trash folder.
+
+These files are not encrypted: keep them somewhere safe.</source>
+        <translation>
+            <numerusform>메모 %n개를 %1에 내보냈습니다. 메모마다 마크다운 파일 하나씩이고, 모든 데이터는 stickle-export.json에 있습니다. 휴지통의 메모는 trash 폴더에 있습니다.
+
+이 파일들은 암호화되어 있지 않으니 안전한 곳에 보관하세요.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>DesktopFinder</name>
     <message>
         <source>Find on the desktop</source>
@@ -1753,6 +1778,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>데이터(&amp;D)</translation>
     </message>
     <message>
+        <source>Export all notes…</source>
+        <translation>모든 메모 내보내기…</translation>
+    </message>
+    <message>
         <source>Restore from a backup…</source>
         <translation>백업에서 되돌리기…</translation>
     </message>
@@ -1922,6 +1951,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Data</source>
         <translation>데이터</translation>
+    </message>
+    <message>
+        <source>Export all notes…</source>
+        <translation>모든 메모 내보내기…</translation>
     </message>
     <message>
         <source>Restore from a backup…</source>
