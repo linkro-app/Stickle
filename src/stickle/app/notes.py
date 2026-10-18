@@ -24,10 +24,19 @@ not stored.
 import logging
 from collections.abc import Callable, Iterable
 from dataclasses import replace
-from typing import override
+from typing import cast, override
 
 import apsw
-from PySide6.QtCore import QEvent, QObject, QPoint, QPropertyAnimation, QRect, QTimer, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QMimeData,
+    QObject,
+    QPoint,
+    QPropertyAnimation,
+    QRect,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -38,6 +47,7 @@ from stickle.app.placement import MonitorWatch, can_place_windows, monitors, qre
 from stickle.core.labels import DEFAULT_ICON, Category, Mark
 from stickle.core.layout import MAIN, Place, fit, monitor_at, remember, restore
 from stickle.core.note import DEFAULT_COLOR, Note
+from stickle.core.paste import pasted_text
 from stickle.core.snap import snapped, together
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
@@ -65,11 +75,18 @@ SNAP_SLIDE_MS = 100
 
 
 def clipboard_text() -> str:
-    """The clipboard's plain text, as a note can hold it; empty if it holds none.
+    """The clipboard's text, as a note can hold it; empty if it holds none.
 
-    NUL cannot be stored in a note (see the schema), so it is left out.
+    Formatted text comes as Markdown, as when pasted into a note (see
+    stickle.core.paste), and NUL, which a note cannot hold, is left out.
     """
-    text = QGuiApplication.clipboard().text().replace("\x00", "")
+    # None when nothing was ever copied, whatever the type hints say.
+    copied = cast(QMimeData | None, QGuiApplication.clipboard().mimeData())
+    if copied is None:
+        return ""
+    text = pasted_text(
+        copied.html() if copied.hasHtml() else None, copied.text() if copied.hasText() else ""
+    )
     return text if text.strip() else ""
 
 

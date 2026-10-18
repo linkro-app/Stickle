@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QEvent,
     QEventLoop,
     QLocale,
+    QMimeData,
     QObject,
     QPoint,
     QPointF,
@@ -73,6 +74,7 @@ from stickle.core.colors import DARK_TEXT, DEFAULT_COLOR, PALETTE, note_colors
 from stickle.core.editing import on_close_bracket, on_enter, on_tab
 from stickle.core.labels import Category, Mark
 from stickle.core.markdown import note_title, task_box
+from stickle.core.paste import pasted_text
 from stickle.platform.linux.x11 import activate, keep_off_taskbar
 
 log = logging.getLogger(__name__)
@@ -280,6 +282,20 @@ def make_delete_icon(color: QColor) -> QIcon:
 
 def make_unsaved_icon(color: QColor) -> QIcon:
     return drawn_icon(_warning, color)
+
+
+class NoteEditor(QPlainTextEdit):
+    """The note's text as written. Formatted text pasted in (from a web page or a
+    word processor) arrives as Markdown, so it keeps the formatting a note can show."""
+
+    @override
+    def insertFromMimeData(self, source: QMimeData) -> None:
+        text = pasted_text(
+            source.html() if source.hasHtml() else None, source.text() if source.hasText() else ""
+        )
+        if text:
+            self.textCursor().insertText(text)
+            self.ensureCursorVisible()
 
 
 class TitleBar(QWidget):
@@ -625,7 +641,7 @@ class NoteWindow(QWidget):
         self.delete_action.triggered.connect(self.delete_requested)
         self.title_bar.menu_button.setMenu(self.menu)
 
-        self.editor = QPlainTextEdit(self)
+        self.editor = NoteEditor(self)
         self.editor.setFrameShape(QPlainTextEdit.Shape.NoFrame)
         self.editor.setPlainText(text)
         self.highlighter = MarkdownHighlighter(self.editor.document(), self.colors)
