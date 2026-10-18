@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+import apsw
 from PySide6.QtCore import (
     QLocale,
     QMessageLogContext,
@@ -18,6 +19,7 @@ from PySide6.QtCore import (
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from stickle.app.app_list import icon_png, offer_app_list
+from stickle.app.backups import BackupAccess, DailyBackups
 from stickle.app.first_run import welcome
 from stickle.app.fonts import ensure_korean_font
 from stickle.app.i18n import Translations
@@ -30,9 +32,12 @@ from stickle.app.signals import SignalWatcher
 from stickle.app.startup import open_notes
 from stickle.app.stickle_window import RecoveryKeys, StickleWindow
 from stickle.app.tray import Tray
+from stickle.core.clock import Clock, utc_now
+from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
+from stickle.data.schema import latest_version
 from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.data.startup import StartupSettings
 from stickle.platform.autostart import Autostart, this_computers_autostart
@@ -63,11 +68,57 @@ def report_ready(perf: PerfMode, manager: NoteManager) -> None:
 
 log = logging.getLogger(__name__)
 _ended_by_signal = False
+_restore_staged = False
 
 
 def ended_by_signal() -> bool:
     """Whether the last run was ended by a signal (a logout, a shutdown, kill)."""
     return _ended_by_signal
+
+
+def restore_staged() -> bool:
+    """Whether the run ended to go back to a backup: once the database is closed,
+    the staged copy is to take its place (finish_restore) and Stickle to start again."""
+    return _restore_staged
+
+
+def go_back_to(
+    backup: Path,
+    manager: NoteManager,
+    connection: apsw.Connection,
+    database: Path,
+    quit_app: Callable[[], object],
+    clock: Clock = utc_now,
+) -> bool:
+    """Back up the notes as they are, stage the backup and quit to put it in place.
+    False, with nothing changed, if either copy could not be made."""
+    global _restore_staged
+    manager.save_all()
+    try:
+        take(connection, database, clock, before_restore=True)
+        stage_restore(database, backup)
+    except (OSError, apsw.Error) as error:
+        cancel_restore(database)
+        log.error("could not go back to a backup: %s", type(error).__name__)
+        return False
+    log.info("going back to a backup: starting again")
+    _restore_staged = True
+    QTimer.singleShot(0, quit_app)
+    return True
+
+
+def backup_access(
+    manager: NoteManager,
+    connection: apsw.Connection,
+    database: Path,
+    key: bytes,
+    quit_app: Callable[[], object],
+) -> BackupAccess:
+    return BackupAccess(
+        available=lambda: backups(database),
+        contents=lambda path: contents(path, key, latest_version()),
+        restore=lambda path: go_back_to(path, manager, connection, database, quit_app),
+    )
 
 
 QT_LOG_LEVELS = {
@@ -118,6 +169,8 @@ def connect_stickle_window(
         tray.guide_action.triggered.connect(window.guide.open)
         tray.about_action.triggered.connect(window.about.present)
         tray.find_action.triggered.connect(window.finder.open)
+        tray.data_menu.menuAction().setVisible(not window.data_button.isHidden())
+        tray.restore_backup_action.triggered.connect(window.restore_backup)
         # Switched from the tray while the window is open: it shows the change.
         tray.autostart_action.triggered.connect(lambda: window.refresh())
         tray.app_list_action.triggered.connect(lambda: window.refresh())
@@ -380,6 +433,13 @@ def run(
             if perf is None
             else None
         )
+        daily_backups: DailyBackups | None = None
+        access: BackupAccess | None = None
+        if unlock is not None and connection is not None and unlock.opened_key is not None:
+            daily_backups = DailyBackups(connection, unlock.database)
+            access = backup_access(
+                manager, connection, unlock.database, unlock.opened_key, app.quit
+            )
         stickle_window = StickleWindow(
             manager,
             translations,
@@ -390,6 +450,7 @@ def run(
             Settings(connection) if connection else None,
             shortcuts=shortcuts,
             portable_folder=instance if portable else None,
+            backups=access,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
 
@@ -454,6 +515,8 @@ def run(
             return 0
         main_loop_running = True
         QTimer.singleShot(0, read_appimage_files)
+        if daily_backups is not None:
+            daily_backups.start()
         try:
             return app.exec()
         finally:

@@ -7,6 +7,7 @@ control (the line edit inside a key sequence edit) are named by the control.
 
 import secrets
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import apsw
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 from pytestqt.qtbot import QtBot
 from test_shortcuts import System
 
+from stickle.app.backups import BackupAccess, RestoreDialog
 from stickle.app.category_dialog import NewCategoryDialog
 from stickle.app.first_run import FirstRunDialog
 from stickle.app.i18n import Translations
@@ -37,6 +39,7 @@ from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, RecoveryKeyD
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.stickle_window import RecoveryKeys, StickleWindow
 from stickle.core.labels import Category, Mark
+from stickle.data.backups import Backup, Contents
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import NotesDiff, open_store
 from stickle.data.settings import Settings
@@ -45,6 +48,16 @@ from stickle.platform.linux.appimage import AppMenuEntry
 
 KEY = secrets.token_bytes(32)
 RECOVERY_KEY = "ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345-6789"
+
+
+def restore_dialog(folder: Path) -> RestoreDialog:
+    """With one backup to go back to."""
+    backup = Backup(folder / "notes.db", datetime(2026, 10, 18, 12, tzinfo=UTC), False)
+    return RestoreDialog(
+        BackupAccess(lambda: [backup], lambda _: Contents(2, newer=False), lambda _: True)
+    )
+
+
 COMPOSITE = (QKeySequenceEdit, QComboBox, QAbstractSpinBox)
 
 
@@ -142,6 +155,7 @@ def test_the_dialogs_name_all_they_offer(qtbot: QtBot, tmp_path: Path) -> None:
             None, lambda name, color, icon: Category("id", name, color, 1, icon), "blue"
         ),
         LabelManager(NoteManager()),
+        restore_dialog(tmp_path),
     ]
     found = {type(dialog).__name__: unnamed(dialog) for dialog in dialogs}
 
@@ -247,6 +261,7 @@ def test_tab_goes_round_the_stickle_window_as_it_reads(
         recovery=RecoveryKeys(exists=lambda: True, make=lambda: RECOVERY_KEY, kept=lambda: None),
         settings=Settings(connection),
         shortcuts=shortcuts,
+        backups=BackupAccess(lambda: [], lambda _: None, lambda _: False),
     )
     window.show_notice(True)  # the notice's two buttons, at the top
 
@@ -274,6 +289,7 @@ def test_tab_goes_round_the_dialogs_as_they_read(qtbot: QtBot, tmp_path: Path) -
             None, lambda name, color, icon: Category("id", name, color, 1, icon), "blue"
         ),
         LabelManager(NoteManager()),
+        restore_dialog(tmp_path),
     ]
     wrong: dict[str, list[str]] = {}
     for dialog in dialogs:

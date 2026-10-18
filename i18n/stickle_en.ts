@@ -58,4 +58,21 @@
         </translation>
     </message>
 </context>
+<context>
+    <name>RestoreDialog</name>
+    <message numerus="yes">
+        <source>%1 — %n note(s), from before going back</source>
+        <translation>
+            <numerusform>%1 — %n note, from before going back</numerusform>
+            <numerusform>%1 — %n notes, from before going back</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%1 — %n note(s)</source>
+        <translation>
+            <numerusform>%1 — %n note</numerusform>
+            <numerusform>%1 — %n notes</numerusform>
+        </translation>
+    </message>
+</context>
 </TS>

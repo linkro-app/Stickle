@@ -1429,6 +1429,69 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     </message>
 </context>
 <context>
+    <name>RestoreDialog</name>
+    <message>
+        <source>Restore from a backup</source>
+        <translation>백업에서 되돌리기</translation>
+    </message>
+    <message>
+        <source>Stickle backs up your notes once a day and keeps the backups for a week. Choose the time to go back to.</source>
+        <translation>Stickle은 하루에 한 번 메모를 백업해 일주일 동안 보관합니다. 되돌아갈 시점을 고르세요.</translation>
+    </message>
+    <message>
+        <source>Backups</source>
+        <translation>백업 목록</translation>
+    </message>
+    <message>
+        <source>There is no backup yet. The first one is made shortly after Stickle starts.</source>
+        <translation>아직 백업이 없습니다. 첫 백업은 Stickle을 켜고 잠시 뒤에 만들어집니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Restore…</source>
+        <translation>되돌리기(&amp;R)…</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>닫기</translation>
+    </message>
+    <message>
+        <source>%1 — cannot be opened</source>
+        <translation>%1 — 열 수 없음</translation>
+    </message>
+    <message>
+        <source>%1 — made by a newer Stickle</source>
+        <translation>%1 — 새 버전 Stickle이 만든 백업</translation>
+    </message>
+    <message numerus="yes">
+        <source>%1 — %n note(s), from before going back</source>
+        <translation>
+            <numerusform>%1 — 메모 %n개, 되돌리기 직전 상태</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%1 — %n note(s)</source>
+        <translation>
+            <numerusform>%1 — 메모 %n개</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Go back to your notes as they were at %1?
+
+Your notes as they are now are backed up first, so you can come back to them the same way. Stickle then starts again.</source>
+        <translation>메모를 %1 상태로 되돌릴까요?
+
+지금 메모는 먼저 백업해 두므로 같은 방법으로 다시 돌아올 수 있습니다. 그다음 Stickle이 다시 시작됩니다.</translation>
+    </message>
+    <message>
+        <source>Restore</source>
+        <translation>되돌리기</translation>
+    </message>
+    <message>
+        <source>The notes could not be restored. Nothing was changed.</source>
+        <translation>메모를 되돌리지 못했습니다. 아무것도 바뀌지 않았습니다.</translation>
+    </message>
+</context>
+<context>
     <name>ShortcutGuide</name>
     <message>
         <source>New note</source>
@@ -1686,6 +1749,14 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>바탕화면에 모든 메모 보기</translation>
     </message>
     <message>
+        <source>&amp;Data</source>
+        <translation>데이터(&amp;D)</translation>
+    </message>
+    <message>
+        <source>Restore from a backup…</source>
+        <translation>백업에서 되돌리기…</translation>
+    </message>
+    <message>
         <source>Keyboard shortcuts</source>
         <translation>단축키</translation>
     </message>
@@ -1847,6 +1918,14 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     <message>
         <source>Find on the desktop</source>
         <translation>바탕화면에서 찾기</translation>
+    </message>
+    <message>
+        <source>Data</source>
+        <translation>데이터</translation>
+    </message>
+    <message>
+        <source>Restore from a backup…</source>
+        <translation>백업에서 되돌리기…</translation>
     </message>
     <message>
         <source>Stickle: notes hidden for now</source>

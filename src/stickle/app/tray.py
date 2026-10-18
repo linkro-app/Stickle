@@ -93,6 +93,10 @@ class Tray(QSystemTrayIcon):
         self.find_action = self._menu.addAction("")
         self.find_action.setVisible(notes is not None)
         self.guide_action = self._menu.addAction("")
+        # Backups (and later exporting and importing): shown by the Stickle window.
+        self.data_menu = self._menu.addMenu("")
+        self.data_menu.menuAction().setVisible(False)
+        self.restore_backup_action = self.data_menu.addAction("")
         self.language_menu = self._menu.addMenu("")
         self.language_actions: dict[str | None, QAction] = {}
         group = QActionGroup(self.language_menu)
@@ -217,6 +221,8 @@ class Tray(QSystemTrayIcon):
         self.view_menu.setTitle(self.tr("Show on the desktop"))
         self.guide_action.setText(self.tr("Keyboard shortcuts"))
         self.find_action.setText(self.tr("Find on the desktop"))
+        self.data_menu.setTitle(self.tr("Data"))
+        self.restore_backup_action.setText(self.tr("Restore from a backup…"))
         set_aside = self._notes is not None and self._notes.set_aside
         # Faded while the notes are out of sight, so the icon says why none show;
         # set only on a change, as some desktops redraw the whole tray for it.

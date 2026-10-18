@@ -106,10 +106,15 @@ def main(argv: list[str] | None = None) -> int:
     # Before Qt is loaded below, so that a credential store lookup overlaps it.
     unlock = Unlock(folder, portable=place.portable)
 
-    from stickle.app.application import ended_by_signal, run
+    from stickle.app.application import ended_by_signal, restore_staged, run
+    from stickle.data.backups import cancel_restore, finish_restore
     from stickle.data.startup import StartupSettings
     from stickle.platform.autostart import started_at_login
 
+    # A backup staged by a run that ended before it could be put in place is
+    # not put in place now, unasked: going back is only done when chosen.
+    cancel_restore(unlock.database)
+    restored = False
     try:
         code = run(
             args,
@@ -121,8 +126,23 @@ def main(argv: list[str] | None = None) -> int:
             request=request,
             portable=place.portable,
         )
+        if restore_staged():
+            # The database is closed by now, and the lock still held.
+            try:
+                restored = finish_restore(unlock.database)
+            except OSError as error:
+                log.error("could not put the backup in place: %s", type(error).__name__)
+                cancel_restore(unlock.database)
+            log.info("backup %s", "put in place" if restored else "not put in place")
     finally:
         lock.release()
+    if restore_staged():
+        from stickle.platform.restart import start_again
+
+        try:
+            start_again()
+        except OSError as error:
+            log.error("could not start again: %s", type(error).__name__)
     if os.environ.get("APPIMAGE") and ended_by_signal():
         # An AppImage runs from files its launcher serves; a shutdown ends the
         # launcher at the same moment, and the usual clean-up would then read

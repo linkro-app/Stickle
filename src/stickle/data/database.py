@@ -18,10 +18,17 @@ class WrongKeyError(Exception):
     """The file is not a database encrypted with this key (or is damaged)."""
 
 
-def open_database(path: Path, key: bytes) -> apsw.Connection:
+def open_database(path: Path, key: bytes, read_only: bool = False) -> apsw.Connection:
+    """Open (or create) the database. read_only: look without changing the file
+    at all, not even its journal mode (for backups)."""
     if len(key) != KEY_BYTES:
         raise ValueError(f"key must be {KEY_BYTES} bytes")
-    connection = apsw.Connection(str(path))
+    flags = (
+        apsw.SQLITE_OPEN_READONLY
+        if read_only
+        else apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE
+    )
+    connection = apsw.Connection(str(path), flags=flags)
     try:
         connection.pragma("cipher", "chacha20")
         connection.pragma("kdf_iter", 1)
@@ -31,6 +38,8 @@ def open_database(path: Path, key: bytes) -> apsw.Connection:
     except apsw.NotADBError as error:
         connection.close()
         raise WrongKeyError(str(path.name)) from error
+    if read_only:
+        return connection
     connection.pragma("journal_mode", "wal")
     # Every committed save reaches the disk before the commit returns, so a power
     # loss keeps the last save. (SQLite's default today, pinned so it stays.)
