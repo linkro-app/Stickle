@@ -105,6 +105,7 @@ class Tray(QSystemTrayIcon):
         # Backups (and later exporting and importing): shown by the Stickle window.
         self.data_menu = self._menu.addMenu("")
         self.data_menu.menuAction().setVisible(False)
+        self.import_action = self.data_menu.addAction("")
         self.export_action = self.data_menu.addAction("")
         self.data_menu.addSeparator()
         self.restore_backup_action = self.data_menu.addAction("")
@@ -261,6 +262,7 @@ class Tray(QSystemTrayIcon):
         self.guide_action.setText(self.tr("Keyboard shortcuts"))
         self.find_action.setText(self.tr("Find on the desktop"))
         self.data_menu.setTitle(self.tr("Data"))
+        self.import_action.setText(self.tr("Bring notes in from another app…"))
         self.export_action.setText(self.tr("Export all notes…"))
         self.restore_backup_action.setText(self.tr("Restore from a backup…"))
         set_aside = self._notes is not None and self._notes.set_aside

@@ -395,6 +395,115 @@ The **X** hides a note: bring it back from the Stickle icon. **Ctrl+N** makes a 
     </message>
 </context>
 <context>
+    <name>ImportDialog</name>
+    <message>
+        <source>Bring notes in</source>
+        <translation>메모 가져오기</translation>
+    </message>
+    <message>
+        <source>Bring notes over from another sticky-note app. Its own files are only read, never changed, so it goes on working as before.</source>
+        <translation>다른 메모 앱의 메모를 가져옵니다. 그 앱의 파일은 읽기만 하고 바꾸지 않으므로 그 앱은 그대로 쓸 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>Apps with notes on this computer</source>
+        <translation>이 컴퓨터에서 찾은 메모 앱</translation>
+    </message>
+    <message>
+        <source>No other app&apos;s notes were found on this computer.</source>
+        <translation>이 컴퓨터에서 다른 앱의 메모를 찾지 못했습니다.</translation>
+    </message>
+    <message>
+        <source>Choose a &amp;file…</source>
+        <translation>파일 고르기(&amp;F)…</translation>
+    </message>
+    <message>
+        <source>Notes that would come</source>
+        <translation>가져올 메모</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>닫기</translation>
+    </message>
+    <message>
+        <source>%1 — its notes could not be read</source>
+        <translation>%1 — 메모를 읽지 못함</translation>
+    </message>
+    <message>
+        <source>%1 — every note brought in already</source>
+        <translation>%1 — 모두 이미 가져옴</translation>
+    </message>
+    <message numerus="yes">
+        <source>%1 — %n new note(s)</source>
+        <translation>
+            <numerusform>%1 — 새 메모 %n개</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>The notes could not be read. Nothing was changed.</source>
+        <translation>메모를 읽지 못했습니다. 아무것도 바뀌지 않았습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Bring in</source>
+        <translation>가져오기(&amp;B)</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) not brought in before. Each takes the nearest of Stickle&apos;s colours, and keeps its place and category where it had them.</source>
+        <translation>
+            <numerusform>아직 가져오지 않은 메모 %n개. 메모마다 Stickle 색 가운데 가장 가까운 색을 쓰고, 위치와 분류가 있으면 그대로 가져옵니다.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Left behind: %1.</source>
+        <translation>가져오지 않는 것: %1.</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) could not be read.</source>
+        <translation>
+            <numerusform>메모 %n개는 읽지 못했습니다.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>(empty note)</source>
+        <translation>(빈 메모)</translation>
+    </message>
+    <message numerus="yes">
+        <source>&amp;Bring in %n note(s)</source>
+        <translation>
+            <numerusform>메모 %n개 가져오기(&amp;B)</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>underline</source>
+        <translation>밑줄</translation>
+    </message>
+    <message>
+        <source>strikethrough</source>
+        <translation>취소선</translation>
+    </message>
+    <message>
+        <source>fonts</source>
+        <translation>글꼴</translation>
+    </message>
+    <message>
+        <source>text colours</source>
+        <translation>글자색</translation>
+    </message>
+    <message>
+        <source>Stickle does not know that file&apos;s notes.</source>
+        <translation>Stickle이 읽을 수 있는 메모 파일이 아닙니다.</translation>
+    </message>
+    <message>
+        <source>The notes could not be brought in. Nothing was changed.</source>
+        <translation>메모를 가져오지 못했습니다. 아무것도 바뀌지 않았습니다.</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) brought in. They are on the desktop; hidden ones are listed in the Stickle window.</source>
+        <translation>
+            <numerusform>메모 %n개를 가져왔습니다. 바탕화면에 있고, 숨긴 메모는 Stickle 창 목록에 있습니다.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>LabelIcon</name>
     <message>
         <source>Tag</source>
@@ -1802,6 +1911,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>데이터(&amp;D)</translation>
     </message>
     <message>
+        <source>Bring notes in from another app…</source>
+        <translation>다른 앱에서 메모 가져오기…</translation>
+    </message>
+    <message>
         <source>Export all notes…</source>
         <translation>모든 메모 내보내기…</translation>
     </message>
@@ -1991,6 +2104,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Data</source>
         <translation>데이터</translation>
+    </message>
+    <message>
+        <source>Bring notes in from another app…</source>
+        <translation>다른 앱에서 메모 가져오기…</translation>
     </message>
     <message>
         <source>Export all notes…</source>

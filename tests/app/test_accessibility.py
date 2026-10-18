@@ -7,6 +7,7 @@ control (the line edit inside a key sequence edit) are named by the control.
 
 import secrets
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from stickle.app.category_dialog import NewCategoryDialog
 from stickle.app.data_menu import DataAccess
 from stickle.app.first_run import FirstRunDialog
 from stickle.app.i18n import Translations
+from stickle.app.import_dialog import ImportAccess, ImportDialog
 from stickle.app.label_manager import LabelManager
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
@@ -45,11 +47,41 @@ from stickle.data.export import ExportResult
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import NotesDiff, open_store
 from stickle.data.settings import Settings
+from stickle.importers.base import Found, ImportedNote, ImportResult
+from stickle.importers.bring_in import BroughtIn
+from stickle.importers.sources import SOURCES
 from stickle.platform.autostart import Autostart, Places
 from stickle.platform.linux.appimage import AppMenuEntry
 
 KEY = secrets.token_bytes(32)
 RECOVERY_KEY = "ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345-6789"
+
+
+def recognise_nothing(_path: Path) -> None:
+    return None
+
+
+def no_imports() -> ImportAccess:
+    return ImportAccess(lambda: [], recognise_nothing, lambda _s, _r: 0, lambda _s, _r: BroughtIn())
+
+
+def import_dialog() -> ImportDialog:
+    """With one app's notes found."""
+
+    def read(_path: Path) -> ImportResult:
+        return ImportResult([ImportedNote("a", "장보기", "yellow")], dropped=["fonts"])
+
+    source = replace(SOURCES[0], read=read)
+    dialog = ImportDialog(
+        ImportAccess(
+            lambda: [(source, Found(source.name, Path("x")))],
+            recognise_nothing,
+            lambda _s, _r: 1,
+            lambda _s, _r: BroughtIn(),
+        )
+    )
+    dialog.refresh()
+    return dialog
 
 
 def restore_dialog(folder: Path) -> RestoreDialog:
@@ -158,6 +190,7 @@ def test_the_dialogs_name_all_they_offer(qtbot: QtBot, tmp_path: Path) -> None:
         ),
         LabelManager(NoteManager()),
         restore_dialog(tmp_path),
+        import_dialog(),
     ]
     found = {type(dialog).__name__: unnamed(dialog) for dialog in dialogs}
 
@@ -266,6 +299,7 @@ def test_tab_goes_round_the_stickle_window_as_it_reads(
         data=DataAccess(
             BackupAccess(lambda: [], lambda _: None, lambda _: False),
             lambda folder: ExportResult(folder, 0, 0),
+            no_imports(),
         ),
     )
     window.show_notice(True)  # the notice's two buttons, at the top
@@ -295,6 +329,7 @@ def test_tab_goes_round_the_dialogs_as_they_read(qtbot: QtBot, tmp_path: Path) -
         ),
         LabelManager(NoteManager()),
         restore_dialog(tmp_path),
+        import_dialog(),
     ]
     wrong: dict[str, list[str]] = {}
     for dialog in dialogs:

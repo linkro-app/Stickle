@@ -50,6 +50,7 @@ from stickle.app.data_menu import DataAccess, export_everything
 from stickle.app.finder import DesktopFinder
 from stickle.app.first_run import LoginNote
 from stickle.app.i18n import LANGUAGES, Translations
+from stickle.app.import_dialog import ImportDialog
 from stickle.app.label_manager import LabelManager
 from stickle.app.labels import category_item_icon
 from stickle.app.note_list import NoteList
@@ -231,6 +232,9 @@ class StickleWindow(QWidget):
         self.restore_dialog: RestoreDialog | None = None
         self.data_button = QPushButton(self)
         self.data_menu = QMenu(self.data_button)
+        self.import_dialog: ImportDialog | None = None
+        self.import_action = self.data_menu.addAction("")
+        self.import_action.triggered.connect(self.bring_in)
         self.export_action = self.data_menu.addAction("")
         self.export_action.triggered.connect(self.export_all)
         self.data_menu.addSeparator()
@@ -319,6 +323,17 @@ class StickleWindow(QWidget):
         note_list.refresh()
         note_list.search_box.setFocus()
 
+    def bring_in(self) -> None:
+        """The window for bringing notes over from another app, one at a time."""
+        if self._data is None:
+            return
+        if self.import_dialog is None:
+            self.import_dialog = ImportDialog(self._data.importing, self)
+        self.import_dialog.refresh()
+        self.import_dialog.show()
+        self.import_dialog.raise_()
+        self.import_dialog.activateWindow()
+
     def export_all(self) -> None:
         """Every note as Markdown and everything as JSON, into a folder the user picks."""
         if self._data is not None:
@@ -406,6 +421,7 @@ class StickleWindow(QWidget):
         self.show_all_button.setText(self.tr("Show all hidden notes"))
         self.labels_button.setText(self.tr("Manage &categories and marks…"))
         self.data_button.setText(self.tr("&Data"))
+        self.import_action.setText(self.tr("Bring notes in from another app…"))
         self.export_action.setText(self.tr("Export all notes…"))
         self.restore_backup_action.setText(self.tr("Restore from a backup…"))
         self.guide_button.setText(self.tr("Keyboard shortcuts"))

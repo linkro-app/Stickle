@@ -25,9 +25,11 @@ from stickle.app.data_menu import DataAccess
 from stickle.app.first_run import welcome
 from stickle.app.fonts import ensure_korean_font
 from stickle.app.i18n import Translations
+from stickle.app.import_dialog import ImportAccess
 from stickle.app.instance_server import InstanceServer
 from stickle.app.notes import NoteManager
 from stickle.app.perf import SAMPLE_NOTE, PerfMode, open_storage_like_startup
+from stickle.app.placement import monitors
 from stickle.app.recovery_offer import RecoveryOffer
 from stickle.app.shortcuts import GlobalShortcuts, no_portal
 from stickle.app.signals import SignalWatcher
@@ -36,6 +38,7 @@ from stickle.app.stickle_window import RecoveryKeys, StickleWindow
 from stickle.app.tray import Tray
 from stickle.app.update_check import UpdateCheck
 from stickle.core.clock import Clock, utc_now
+from stickle.core.layout import Place, Rect, place_of
 from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
 from stickle.data.export import ExportResult, export_all
 from stickle.data.labels import LabelRepository
@@ -44,6 +47,9 @@ from stickle.data.notes import NoteRepository
 from stickle.data.schema import latest_version
 from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.data.startup import StartupSettings
+from stickle.importers.base import ImportResult
+from stickle.importers.bring_in import BroughtIn, bring_in, new_notes
+from stickle.importers.sources import Source, found_here, recognise
 from stickle.platform.autostart import AUTOSTART_FLAG, Autostart, this_computers_autostart
 from stickle.platform.hotkeys import Portal, desktop_portal
 from stickle.platform.instance import FIND, NEW_NOTE, NEXT_VIEW, SET_ASIDE
@@ -125,6 +131,20 @@ def data_access(
         manager.save_all()  # what is being typed goes out too
         return export_all(connection, folder, __version__)
 
+    def place_for(rect: Rect) -> Place | None:
+        """Where a note brought in goes: where it was, if that is on a screen now."""
+        screens = monitors()
+        x, y = rect.x + rect.width / 2, rect.y + min(rect.height, 20) / 2
+        if not any(screen.geometry.contains(x, y) for screen in screens):
+            return None  # placed as a new note is
+        return place_of(rect, screens)
+
+    def bring(source: Source, result: ImportResult) -> BroughtIn:
+        manager.save_all()
+        brought = bring_in(source.name, result, connection, place_for)
+        manager.open_brought_in(brought.note_ids)
+        return brought
+
     return DataAccess(
         backups=BackupAccess(
             available=lambda: backups(database),
@@ -132,6 +152,12 @@ def data_access(
             restore=lambda path: go_back_to(path, manager, connection, database, quit_app),
         ),
         export=export,
+        importing=ImportAccess(
+            found=lambda: found_here(Path.home()),
+            recognise=recognise,
+            new_notes=lambda source, result: new_notes(source.name, result, connection),
+            bring_in=bring,
+        ),
     )
 
 
@@ -185,6 +211,7 @@ def connect_stickle_window(
         tray.feedback_action.triggered.connect(window.about.report)
         tray.find_action.triggered.connect(window.finder.open)
         tray.data_menu.menuAction().setVisible(not window.data_button.isHidden())
+        tray.import_action.triggered.connect(window.bring_in)
         tray.export_action.triggered.connect(window.export_all)
         tray.restore_backup_action.triggered.connect(window.restore_backup)
         # Switched from the tray while the window is open: it shows the change.

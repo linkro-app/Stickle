@@ -45,6 +45,44 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>ImportDialog</name>
+    <message numerus="yes">
+        <source>%1 — %n new note(s)</source>
+        <translation>
+            <numerusform>%1 — %n new note</numerusform>
+            <numerusform>%1 — %n new notes</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) not brought in before. Each takes the nearest of Stickle&apos;s colours, and keeps its place and category where it had them.</source>
+        <translation>
+            <numerusform>%n note not brought in before. It takes the nearest of Stickle&apos;s colours, and keeps its place and category where it had them.</numerusform>
+            <numerusform>%n notes not brought in before. Each takes the nearest of Stickle&apos;s colours, and keeps its place and category where it had them.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) could not be read.</source>
+        <translation>
+            <numerusform>%n note could not be read.</numerusform>
+            <numerusform>%n notes could not be read.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>&amp;Bring in %n note(s)</source>
+        <translation>
+            <numerusform>&amp;Bring in %n note</numerusform>
+            <numerusform>&amp;Bring in %n notes</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) brought in. They are on the desktop; hidden ones are listed in the Stickle window.</source>
+        <translation>
+            <numerusform>%n note brought in. It is on the desktop, or listed in the Stickle window if it was hidden.</numerusform>
+            <numerusform>%n notes brought in. They are on the desktop; hidden ones are listed in the Stickle window.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>MarkPage</name>
     <message numerus="yes">
         <source>%n note(s) will lose the mark “%1”. This cannot be undone. The notes themselves stay as they are.</source>

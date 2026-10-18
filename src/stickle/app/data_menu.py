@@ -1,4 +1,4 @@
-"""The Data menu: backups, exporting everything, and (later) bringing notes in.
+"""The Data menu: bringing notes in, exporting everything, and backups.
 
 The Stickle window holds the menu on a button, and the tray shows the same
 entries in a submenu. What the entries do is handed in as DataAccess, so
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 
 from stickle.app import file_dialogs
 from stickle.app.backups import BackupAccess
+from stickle.app.import_dialog import ImportAccess
 from stickle.data.export import ExportResult
 
 log = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ log = logging.getLogger(__name__)
 class DataAccess:
     backups: BackupAccess
     export: Callable[[Path], ExportResult]  # into a new folder inside the one given
+    importing: ImportAccess
 
 
 class DataMenu(QObject):

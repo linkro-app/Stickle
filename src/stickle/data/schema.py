@@ -160,8 +160,22 @@ UPDATE marks SET icon = CASE icon
 END;
 """
 
+V6 = """
+-- Notes brought in from other sticky-note apps: which note of which app became
+-- which note here, and its text as it came, so that bringing notes in again
+-- brings only new ones. A note changed since in the other app comes again.
+CREATE TABLE import_records (
+    source TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    imported_at TEXT NOT NULL,
+    PRIMARY KEY (source, source_id, content_hash)
+);
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6]
 BACKUPS_KEPT = 3
 
 

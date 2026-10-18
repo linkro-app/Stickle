@@ -234,6 +234,16 @@ class NoteManager(QObject):
             self.new_note()
         log.info("opened %d notes", len(visible))
 
+    def open_brought_in(self, note_ids: list[str]) -> None:
+        """Show the notes just brought in from another app; hidden ones stay hidden."""
+        if self._repository is None:
+            return
+        for note_id in note_ids:
+            note = self._repository.get(note_id)
+            if note is not None and not note.hidden:
+                self._open(note)
+        self.refresh_labels()  # categories may have been made for them; says changed
+
     def new_note(self) -> NoteWindow:
         """A new note in the colour last chosen (from the tray or the Stickle window)."""
         return self._open(None)
