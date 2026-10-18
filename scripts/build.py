@@ -59,10 +59,11 @@ def fetch_linux_fonts() -> None:
         shutil.copy2(fetch(url, sha256), FONTS_DIR / name)
 
 
-def write_icon() -> None:
-    """The app's icon as a Windows .ico, from the same drawing the tray uses."""
+def write_icon(path: Path, kind: str, size: int) -> None:
+    """The app's icon as a file (Windows .ico, a PNG for macOS), from the same
+    drawing the tray uses."""
     subprocess.run(
-        [sys.executable, "-c", ICON_SCRIPT, str(ICON_FILE)],
+        [sys.executable, "-c", ICON_SCRIPT, str(path), kind, str(size)],
         check=True,
         env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
     )
@@ -74,9 +75,12 @@ from PySide6.QtWidgets import QApplication
 from stickle.app.app_icon import make_icon
 app = QApplication([])
 icon = make_icon()
-if not icon.pixmap(256, 256).save(sys.argv[1], "ICO"):
+size = int(sys.argv[3])
+if not icon.pixmap(size, size).save(sys.argv[1], sys.argv[2]):
     raise SystemExit("could not write the icon")
 """
+MAC_ICON_FILE = BUILD_DIR / "stickle.png"
+MAC_APP = BUILD_DIR / "stickle.app"
 
 
 DPI_MANIFEST = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -170,6 +174,19 @@ def nuitka_command() -> list[str]:
             # The executable keeps Nuitka's default name, stickle.bin: a plain
             # "stickle" would collide with the stickle/ data folder next to it.
         ]
+    elif sys.platform == "darwin":
+        command += [
+            # Qt on macOS runs from an app bundle; built for the runner's own
+            # processor (arm64 and x64 are built apart, so neither needs Rosetta).
+            "--macos-create-app-bundle",
+            "--macos-target-arch=native",
+            "--macos-app-name=Stickle",
+            "--macos-app-mode=ui-element",  # a menu bar app, as on the other systems
+            f"--macos-app-version={__version__}",
+            f"--macos-app-icon={MAC_ICON_FILE}",
+            "--noinclude-qt-plugins=printsupport",
+            "--noinclude-dlls=PySide6/qt-plugins/imageformats/libqpdf*",
+        ]
     command.append(str(ROOT / "src" / "stickle"))
     return command
 
@@ -182,11 +199,14 @@ def main() -> int:
         fetch_linux_fonts()
     if sys.platform == "win32":
         BUILD_DIR.mkdir(exist_ok=True)
-        write_icon()
+        write_icon(ICON_FILE, "ICO", 256)
+    if sys.platform == "darwin":
+        BUILD_DIR.mkdir(exist_ok=True)
+        write_icon(MAC_ICON_FILE, "PNG", 1024)
     subprocess.run(nuitka_command(), check=True, cwd=ROOT)
     if sys.platform == "win32":
         declare_dpi_awareness()
-    print(f"Built {DIST_DIR}")
+    print(f"Built {MAC_APP if sys.platform == 'darwin' else DIST_DIR}")
     if sys.platform == "linux":
         # The fcitx5 plugin first, so its libraries are bundled with the rest.
         for script in ("build_fcitx5_qt.py", "bundle_linux_libs.py", "build_appimage.py"):

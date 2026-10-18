@@ -81,6 +81,44 @@ jobs:
             build/msix/stickle-windows-${{ matrix.arch }}-test.cer
           if-no-files-found: error
 
+  # Built and checked on every run, kept as a CI artifact only: macOS copies are
+  # published once they can be notarized.
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+      - run: uv sync --locked
+      - run: uv run python scripts/build.py
+      - name: Smoke test
+        run: |
+          app=build/stickle.app/Contents/MacOS/stickle
+          test "$(uname -m)" = "$( [ "${{ matrix.arch }}" = x64 ] && echo x86_64 || echo arm64 )"
+          file "$app" | grep -q "$(uname -m)"
+          expected="Stickle $(uv run python -c 'import stickle; print(stickle.__version__)')"
+          test "$("$app" --version)" = "$expected"
+          "$app" --self-test
+          QT_QPA_PLATFORM=offscreen "$app" &
+          pid=$!
+          sleep 5
+          kill -0 "$pid" || { echo "stickle exited early"; exit 1; }
+          kill "$pid"
+      - name: Package
+        run: ditto -c -k --keepParent build/stickle.app stickle-macos-${{ matrix.arch }}.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stickle-macos-${{ matrix.arch }}
+          path: stickle-macos-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
   linux:
     runs-on: ubuntu-latest
     # glibc 2.34: the oldest glibc the Qt libraries support, so the widest reach.
@@ -127,8 +165,9 @@ jobs:
           merge-multiple: true
       # The Store packages go to the Store, not here: the unsigned one does not
       # install, and the test certificate must not be trusted by anyone.
-      - name: Leave out the Store packages
-        run: rm -f dist/*.msix dist/*.cer && ls dist
+      # macOS builds are not published until they are notarized.
+      - name: Leave out the Store packages and macOS builds
+        run: rm -f dist/*.msix dist/*.cer dist/stickle-macos-* && ls dist
       - name: Checksums
         run: cd dist && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - name: Publish the release
@@ -141,7 +180,7 @@ jobs:
           case "$GITHUB_REF_NAME" in
             *-*)
               flags="--prerelease"
-              notes="Preview build for trying Stickle out. It keeps notes on this computer only: there is no syncing or backup yet, and later versions may change how notes are stored.
+              notes="Preview build for trying Stickle out. It keeps notes on this computer only: there is no syncing yet, and later versions may change how notes are stored.
 
           $notes"
               ;;
