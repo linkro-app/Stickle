@@ -213,21 +213,38 @@ def _warning(painter: QPainter, size: float) -> None:
     painter.drawPoint(QPointF(size * 0.5, size * 0.72))
 
 
+PIN_SCALE = 0.8  # of the whole box: drawn full size, it stood out beside the others
+
+
 def _pin(painter: QPainter, size: float, pinned: bool) -> None:
-    """A push pin: a head, a collar and a point. Pushed in (upright, head
-    filled) while the note stays on top; lying on its side and hollow when not,
-    so the state shows in its shape, not only its colour."""
+    """A push pin: a cap, a narrow waist, a wide collar and the point. Pushed
+    in (upright, filled) while the note stays on top; lying on its side and
+    hollow when not, so the state shows in its shape, not only its colour."""
+
+    def at(x: float, y: float) -> QPointF:
+        return QPointF(size * (0.5 + (x - 0.5) * PIN_SCALE), size * (0.5 + (y - 0.5) * PIN_SCALE))
+
     if not pinned:
         painter.translate(size / 2, size / 2)
         painter.rotate(45)
         painter.translate(-size / 2, -size / 2)
+    body = QPainterPath(at(0.31, 0.06))
+    body.lineTo(at(0.69, 0.06))
+    body.lineTo(at(0.69, 0.17))
+    body.quadTo(at(0.6, 0.2), at(0.6, 0.3))
+    body.lineTo(at(0.6, 0.38))
+    body.quadTo(at(0.6, 0.48), at(0.79, 0.5))
+    body.lineTo(at(0.79, 0.6))
+    body.lineTo(at(0.21, 0.6))
+    body.lineTo(at(0.21, 0.5))
+    body.quadTo(at(0.4, 0.48), at(0.4, 0.38))
+    body.lineTo(at(0.4, 0.3))
+    body.quadTo(at(0.4, 0.2), at(0.31, 0.17))
+    body.closeSubpath()
     if pinned:
         painter.setBrush(painter.pen().color())
-    painter.drawRoundedRect(
-        QRectF(size * 0.34, size * 0.08, size * 0.32, size * 0.34), size * 0.08, size * 0.08
-    )
-    painter.drawLine(QPointF(size * 0.24, size * 0.48), QPointF(size * 0.76, size * 0.48))
-    painter.drawLine(QPointF(size * 0.5, size * 0.48), QPointF(size * 0.5, size * 0.92))
+    painter.drawPath(body)
+    painter.drawLine(at(0.5, 0.6), at(0.5, 0.94))
 
 
 def _lock(painter: QPainter, size: float) -> None:

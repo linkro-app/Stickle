@@ -8,12 +8,12 @@ from pathlib import Path
 
 import apsw
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QPixmap
 from pytestqt.qtbot import QtBot
 
 from stickle.app.i18n import Translations
-from stickle.app.note_window import NoteWindow
+from stickle.app.note_window import ICON_SCALES, ICON_SIZE, NoteWindow, make_pin_icon
 from stickle.app.notes import NoteManager
 from stickle.app.tray import Tray
 from stickle.data.notes import NoteRepository
@@ -54,6 +54,29 @@ def test_new_notes_stay_on_top_and_show_a_solid_pin(manager: NoteManager) -> Non
     assert on_top_flag(window)
     assert window.title_bar.pin_button.isChecked()
     assert window.on_top_action.isChecked()
+
+
+def _ink_rows(pixmap: QPixmap) -> list[int]:
+    image = pixmap.toImage()
+    return [
+        y
+        for y in range(image.height())
+        if any(image.pixelColor(x, y).alpha() > 40 for x in range(image.width()))
+    ]
+
+
+@pytest.mark.parametrize("scale", ICON_SCALES)
+def test_the_pin_is_no_taller_than_the_buttons_beside_it_need(qtbot: QtBot, scale: float) -> None:
+    """Drawn at full height, the pin stood out beside the menu and hide buttons."""
+    del qtbot
+    size = round(ICON_SIZE * scale)
+    for pinned in (True, False):
+        pixmap = make_pin_icon(QColor("black"), pinned).pixmap(QSize(ICON_SIZE, ICON_SIZE), scale)
+        rows = _ink_rows(pixmap)
+        assert rows, "the pin is drawn"
+        assert rows[0] > 0 and rows[-1] < size - 1, "it stays inside its box"
+        # 80 % and a pixel and a half of smoothing; the old pin took about 93 %.
+        assert len(rows) <= 0.8 * size + 1.5
 
 
 def test_the_pin_turns_it_off_and_on_and_it_is_stored(

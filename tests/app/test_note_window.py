@@ -104,8 +104,12 @@ def test_the_pin_stands_when_on_top_and_lies_when_not(qtbot: QtBot) -> None:
     lying = window.title_bar.pin_button.icon().pixmap(size, 2.0).toImage()
 
     def column_of_point(image: QImage) -> set[int]:
-        """Columns inked in the bottom row: the pin's point."""
-        y = image.height() - 2
+        """Columns inked in the lowest inked row: the pin's point."""
+        y = max(
+            y
+            for y in range(image.height())
+            if any(image.pixelColor(x, y).alpha() > 60 for x in range(image.width()))
+        )
         return {x for x in range(image.width()) if image.pixelColor(x, y).alpha() > 60}
 
     middle = upright.width() // 2
