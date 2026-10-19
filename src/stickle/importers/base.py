@@ -6,10 +6,11 @@ note cannot keep (a font, an underline) is not silently lost: it is named,
 for the preview to say before anything is brought in.
 """
 
+import colorsys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from stickle.core.colors import PALETTE, Rgb, difference
+from stickle.core.colors import PALETTE, Rgb
 from stickle.core.layout import Rect
 
 __all__ = ["Found", "ImportResult", "ImportedNote", "Rect", "SourceError"]
@@ -46,9 +47,30 @@ class SourceError(Exception):
     """The other app's data could not be read at all."""
 
 
+GREYS = ("gray", "white")
+
+
+def _hsv(color: Rgb) -> tuple[float, float, float]:
+    return colorsys.rgb_to_hsv(color.red / 255, color.green / 255, color.blue / 255)
+
+
 def nearest_color(color: Rgb) -> str:
-    """The palette colour that looks closest to color."""
-    return min(PALETTE, key=lambda key: difference(PALETTE[key], color))
+    """The palette colour of the same kind: by hue first, then by how strong.
+
+    Other apps' backgrounds are paler or stronger than Stickle's pastels, so
+    plain closeness takes a pale pink or blue for grey. Nearly colourless
+    ones become grey or white, dark ones grey.
+    """
+    hue, saturation, value = _hsv(color)
+    if value < 0.5 or saturation < 0.05:
+        return "white" if value >= 0.95 else "gray"
+
+    def distance(key: str) -> float:
+        other_hue, other_saturation, _ = _hsv(PALETTE[key])
+        turn = abs(hue - other_hue) % 1.0
+        return min(turn, 1 - turn) * 360 + abs(saturation - other_saturation) * 60
+
+    return min((key for key in PALETTE if key not in GREYS), key=distance)
 
 
 def clean_text(text: str) -> str:

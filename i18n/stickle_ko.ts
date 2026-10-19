@@ -497,6 +497,10 @@ The **X** hides a note: bring it back from the Stickle icon. **Ctrl+N** makes a 
         <translation>글자색</translation>
     </message>
     <message>
+        <source>pictures</source>
+        <translation>그림</translation>
+    </message>
+    <message>
         <source>Brought in from %1 · %2</source>
         <translation>%1에서 가져옴 · %2</translation>
     </message>

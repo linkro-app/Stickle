@@ -221,6 +221,7 @@ class ImportDialog(QDialog):
             "strikethrough": self.tr("strikethrough"),
             "fonts": self.tr("fonts"),
             "text colours": self.tr("text colours"),
+            "pictures": self.tr("pictures"),
         }
         return names.get(what, what)
 

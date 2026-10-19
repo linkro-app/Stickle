@@ -57,7 +57,10 @@ def window_for(
     monkeypatch: pytest.MonkeyPatch,
 ) -> ImportDialog:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    # Only the made-up home: never the notes of apps on this very computer.
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "AppData" / "Roaming"))
     access = data_access(manager, connection, tmp_path / "notes.db", KEY, lambda: None)
     dialog = ImportDialog(access.importing)
     dialog.refresh()

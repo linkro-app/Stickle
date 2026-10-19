@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from stickle.importers import indicator_stickynotes, xpad
+from stickle.importers import indicator_stickynotes, sticky_notes, xpad, zhorn
 from stickle.importers.base import Found, ImportResult
 
 
@@ -18,6 +18,13 @@ class Source:
 
 
 SOURCES = (
+    Source(
+        sticky_notes.SOURCE,
+        "Microsoft Sticky Notes",
+        lambda home: sticky_notes.find(home),
+        sticky_notes.read,
+    ),
+    Source(zhorn.SOURCE, "Zhorn Stickies", lambda home: zhorn.find(home), zhorn.read),
     Source(xpad.SOURCE, "xpad", lambda home: xpad.find(home), xpad.read),
     Source(
         indicator_stickynotes.SOURCE,
@@ -27,6 +34,7 @@ SOURCES = (
     ),
 )
 BY_NAME = {source.name: source for source in SOURCES}
+SQLITE = b"SQLite format 3\x00"
 
 
 def found_here(home: Path) -> list[tuple[Source, Found]]:
@@ -41,6 +49,12 @@ def recognise(path: Path) -> tuple[Source, Found] | None:
     Stickynotes' file (JSON with notes in it).
     """
     folder = path if path.is_dir() else path.parent
+    if path.is_file() and path.name.lower().startswith("plum.sqlite"):
+        source = BY_NAME[sticky_notes.SOURCE]
+        return source, Found(source.name, path.with_name("plum.sqlite"))
+    if path.is_file() and path.suffix.lower() == ".db" and path.read_bytes()[:16] == SQLITE:
+        source = BY_NAME[zhorn.SOURCE]
+        return source, Found(source.name, path)
     if path.name.startswith(("info-", "content-")) or (
         path.is_dir() and any(folder.glob("info-*"))
     ):
