@@ -1653,8 +1653,8 @@ Your notes as they are now are backed up first, so you can come back to them the
 지금 메모는 먼저 백업해 두므로 같은 방법으로 다시 돌아올 수 있습니다. 그다음 Stickle이 다시 시작됩니다.</translation>
     </message>
     <message>
-        <source>Restore</source>
-        <translation>되돌리기</translation>
+        <source>&amp;Restore</source>
+        <translation>되돌리기(&amp;R)</translation>
     </message>
     <message>
         <source>The notes could not be restored. Nothing was changed.</source>

@@ -211,7 +211,7 @@ class RestoreDialog(QDialog):
                 "Your notes as they are now are backed up first, so you can come back "
                 "to them the same way. Stickle then starts again."
             ).replace("%1", moment),
-            self.tr("Restore"),
+            self.tr("&Restore"),
         )
         if not asked:
             return
