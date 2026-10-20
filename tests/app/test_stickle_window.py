@@ -24,7 +24,7 @@ from stickle.app.application import connect_stickle_window, open_at_start
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
-from stickle.app.stickle_window import LANDING_MS, StickleWindow
+from stickle.app.stickle_window import StickleWindow
 from stickle.app.tray import Tray
 from stickle.app.window_flags import set_stays_on_top, stays_on_top
 from stickle.data.notes import NoteRepository
@@ -279,7 +279,7 @@ def test_it_keeps_its_close_button_once_no_longer_on_top(qtbot: QtBot, app: App)
     # without the close button hint came back with its X greyed out.
     app.window.open()
     on_top = app.window.windowFlags()
-    move_to(qtbot, open_note(app, "다른 창"))
+    move_to(qtbot, None)
 
     assert not stays_on_top(app.window)
     assert app.window.windowFlags() & Qt.WindowType.WindowCloseButtonHint
@@ -320,21 +320,7 @@ def test_it_lets_go_when_the_user_leaves_from_a_window_it_opened(qtbot: QtBot, a
 
     move_to(qtbot, None)  # to another app: the Stickle window itself is not told
 
-    assert stays_on_top(app.window)  # it may be on its way to one of its windows
-    qtbot.waitUntil(lambda: not stays_on_top(app.window), timeout=LANDING_MS + 1000)
-
-
-def test_it_waits_for_the_keyboard_on_its_way_to_a_window_it_opened(qtbot: QtBot, app: App) -> None:
-    # Ubuntu: nowhere for a moment, then the import window has it.
-    app.window.open()
-    move_to(qtbot, None)
-    dialog = QDialog(app.window)
-    dialog.show()
-    move_to(qtbot, dialog)
-
-    QTest.qWait(LANDING_MS + 200)
-
-    assert stays_on_top(app.window)
+    assert not stays_on_top(app.window)
 
 
 def test_without_a_tray_hiding_the_last_note_opens_it_with_a_notice(trayless: App) -> None:
