@@ -3,12 +3,13 @@
 import secrets
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QSystemTrayIcon, QWidget
+from PySide6.QtWidgets import QAbstractButton, QLabel, QSystemTrayIcon, QWidget
 from pytestqt.qtbot import QtBot
 
 from stickle.app.application import connect_stickle_window, open_at_start
@@ -155,6 +156,32 @@ def test_everything_has_a_name_and_a_key(app: App) -> None:
     assert window.note_list.label.buddy() is window.note_list.list
     assert window.language_label.buddy() is window.language_box
     assert "&" in window.note_list.label.text()
+
+
+def mnemonics(texts: list[str]) -> list[str]:
+    """The letter after each "&" (an "&&" is a plain ampersand)."""
+    keys: list[str] = []
+    for text in texts:
+        cleaned = text.replace("&&", "")
+        if "&" in cleaned:
+            keys.append(cleaned[cleaned.index("&") + 1].lower())
+    return keys
+
+
+@pytest.mark.parametrize("language", ["en", "ko"])
+def test_no_two_things_share_a_key(app: App, translations: Translations, language: str) -> None:
+    # Alt and a letter two things share only moves between them: Alt+D reached
+    # "On the desktop" instead of the Data menu.
+    translations.apply(language)
+    texts = [w.text() for w in app.window.findChildren(QAbstractButton)]
+    texts += [
+        w.text()
+        for w in app.window.findChildren(QLabel)
+        if cast(QWidget | None, w.buddy()) is not None
+    ]
+    keys = mnemonics(texts)
+
+    assert len(set(keys)) == len(keys), sorted(keys)
 
 
 # When it opens

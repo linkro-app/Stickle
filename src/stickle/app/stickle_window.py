@@ -420,7 +420,7 @@ class StickleWindow(QWidget):
         self.note_list.retranslate()
         self.show_all_button.setText(self.tr("Show all hidden notes"))
         self.labels_button.setText(self.tr("Manage &categories and marks…"))
-        self.data_button.setText(self.tr("&Data"))
+        self.data_button.setText(self.tr("Da&ta"))
         self.import_action.setText(self.tr("Bring notes in from another app…"))
         self.export_action.setText(self.tr("Export all notes…"))
         self.restore_backup_action.setText(self.tr("Restore from a backup…"))

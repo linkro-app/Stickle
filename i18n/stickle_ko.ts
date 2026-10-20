@@ -1923,8 +1923,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>바탕화면에 모든 메모 보기</translation>
     </message>
     <message>
-        <source>&amp;Data</source>
-        <translation>데이터(&amp;D)</translation>
+        <source>Da&amp;ta</source>
+        <translation>데이터(&amp;T)</translation>
     </message>
     <message>
         <source>Bring notes in from another app…</source>
