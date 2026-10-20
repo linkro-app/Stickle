@@ -55,7 +55,9 @@ class DataMenu(QObject):
 def _tell_exported(parent: QWidget, title: str, text: str, folder: Path) -> None:
     box = QMessageBox(QMessageBox.Icon.Information, title, text, parent=parent)
     open_button = box.addButton(DataMenu().open_folder(), QMessageBox.ButtonRole.ActionRole)
-    box.addButton(QMessageBox.StandardButton.Ok)
+    ok = box.addButton(QMessageBox.StandardButton.Ok)
+    # With a second button Qt finds no button for Esc by itself, and the box stayed.
+    box.setEscapeButton(ok)
     box.exec()
     if box.clickedButton() is open_button:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))

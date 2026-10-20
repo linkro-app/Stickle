@@ -1,12 +1,16 @@
 """Exporting everything from the Data menu."""
 
 import secrets
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
 import apsw
 import pytest
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QDialog, QWidget
 from pytestqt.qtbot import QtBot
 
 from stickle.app import data_menu, file_dialogs
@@ -128,3 +132,31 @@ def test_a_folder_that_cannot_be_written_is_said(
 
     assert told.exported == []
     assert len(told.failed) == 1
+
+
+def test_escape_closes_the_done_message_without_opening_the_folder(
+    qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opened: list[QUrl] = []
+    monkeypatch.setattr(QDesktopServices, "openUrl", opened.append)
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    pressed: list[bool] = []
+
+    def press_escape() -> None:
+        box = QApplication.activeModalWidget()
+        pressed.append(box is not None)
+        if box is not None:
+            QTest.keyClick(box, Qt.Key.Key_Escape)
+
+    QTimer.singleShot(200, press_escape)
+    # Closed by Esc, or the test would wait here for good: closed anyway after 3 s.
+    QTimer.singleShot(
+        3000, lambda: isinstance(box := QApplication.activeModalWidget(), QDialog) and box.done(0)
+    )
+    started = time.monotonic()
+    data_menu._tell_exported(parent, "Export", "Done", tmp_path)  # pyright: ignore[reportPrivateUsage]
+
+    assert pressed == [True]
+    assert time.monotonic() - started < 2
+    assert opened == []
