@@ -74,6 +74,9 @@ from stickle.platform.linux.x11 import activate
 DEFAULT_SIZE = (460, 700)
 NOTICE_PADDING = 10  # inside the notice's frame
 NOTICE_BORDER = 2
+# How long the keyboard may be nowhere on its way to a window it opened: on
+# Ubuntu (XWayland) Qt said so before the import window had it.
+LANDING_MS = 2000
 log = logging.getLogger(__name__)
 
 
@@ -644,13 +647,17 @@ class StickleWindow(QWidget):
         if stays_on_top(self):
             QTimer.singleShot(0, self, self._let_go_unless_in_use)
 
-    def _let_go_unless_in_use(self) -> None:
+    def _let_go_unless_in_use(self, waited: bool = False) -> None:
         """No longer above the others once the user has moved on from it and
         the windows it opened: those stay above pinned notes only with it."""
         if not stays_on_top(self):
             return
         # A file chooser of the system has no Qt window, but its dialog is modal.
         widget = QApplication.activeModalWidget() or QApplication.activeWindow()
+        if widget is None and not waited:
+            # Another app, or on the way to one of its windows: seen again later.
+            QTimer.singleShot(LANDING_MS, self, lambda: self._let_go_unless_in_use(True))
+            return
         while widget is not None:
             if widget is self:
                 return
