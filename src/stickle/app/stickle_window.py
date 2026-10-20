@@ -30,6 +30,7 @@ from PySide6.QtGui import (
     QShowEvent,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QHBoxLayout,
@@ -118,6 +119,10 @@ class StickleWindow(QWidget):
         self._recovery = recovery
         self._settings = settings
         self.setMinimumWidth(320)
+        app = QGuiApplication.instance()
+        assert isinstance(app, QGuiApplication)
+        # From one of its windows to another app: it is not told itself.
+        app.focusWindowChanged.connect(self._let_go_soon)
         size = settings.get(LIST_WINDOW_SIZE) if settings else None
         self.resize(*(size or DEFAULT_SIZE))
 
@@ -627,11 +632,30 @@ class StickleWindow(QWidget):
             # Some desktops tell only the application in front that the clipboard changed.
             self.refresh_clipboard()
         # Not on activation: that can be reported before the window is in front.
-        if (
-            event.type() == QEvent.Type.WindowDeactivate or event.type() == QEvent.Type.Hide
-        ) and stays_on_top(self):
+        if event.type() == QEvent.Type.Hide and stays_on_top(self):
             set_stays_on_top(self, False)
+        elif event.type() == QEvent.Type.WindowDeactivate and stays_on_top(self):
+            self._let_go_soon()
         return super().event(event)
+
+    def _let_go_soon(self) -> None:
+        # Once the keyboard has landed, not on the way: in one of its own
+        # windows, it stays.
+        if stays_on_top(self):
+            QTimer.singleShot(0, self, self._let_go_unless_in_use)
+
+    def _let_go_unless_in_use(self) -> None:
+        """No longer above the others once the user has moved on from it and
+        the windows it opened: those stay above pinned notes only with it."""
+        if not stays_on_top(self):
+            return
+        # A file chooser of the system has no Qt window, but its dialog is modal.
+        widget = QApplication.activeModalWidget() or QApplication.activeWindow()
+        while widget is not None:
+            if widget is self:
+                return
+            widget = widget.parentWidget()
+        set_stays_on_top(self, False)
 
     def _choose_language(self, index: int) -> None:
         code = self.language_box.itemData(index)

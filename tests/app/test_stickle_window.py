@@ -1,6 +1,7 @@
 """The Stickle window: the tray's actions in a window, and when it opens."""
 
 import secrets
+import warnings
 from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
@@ -9,7 +10,14 @@ import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QAbstractButton, QLabel, QSystemTrayIcon, QWidget
+from PySide6.QtWidgets import (
+    QAbstractButton,
+    QApplication,
+    QDialog,
+    QLabel,
+    QSystemTrayIcon,
+    QWidget,
+)
 from pytestqt.qtbot import QtBot
 
 from stickle.app.application import connect_stickle_window, open_at_start
@@ -232,7 +240,22 @@ def test_the_tray_menu_opens_it_too(app: App) -> None:
     assert app.window.isVisible()
 
 
-def test_it_stays_above_other_windows_only_until_it_is_used(app: App) -> None:
+def move_to(qtbot: QtBot, window: QWidget | None) -> None:
+    """The keyboard goes to window, or to another app, as the system tells it."""
+    if window is None:
+        with warnings.catch_warnings():  # no other way to it off screen
+            warnings.simplefilter("ignore", DeprecationWarning)
+            QApplication.setActiveWindow(None)  # pyright: ignore[reportArgumentType]
+        app = QApplication.instance()
+        assert isinstance(app, QApplication)
+        app.focusWindowChanged.emit(None)
+    else:
+        window.activateWindow()
+        qtbot.waitUntil(lambda: QApplication.activeWindow() is window)
+    QTest.qWait(20)  # what it does once the keyboard has landed
+
+
+def test_it_stays_above_other_windows_only_until_it_is_used(qtbot: QtBot, app: App) -> None:
     # Opened by a second start, the window manager may not let it take the
     # keyboard; above the others, it is still seen.
     app.window.open()
@@ -241,7 +264,7 @@ def test_it_stays_above_other_windows_only_until_it_is_used(app: App) -> None:
     # Being made active is not enough: that can be reported before it is in front.
     QCoreApplication.sendEvent(app.window, QEvent(QEvent.Type.WindowActivate))
     assert stays_on_top(app.window)
-    QCoreApplication.sendEvent(app.window, QEvent(QEvent.Type.WindowDeactivate))
+    move_to(qtbot, open_note(app, "다른 창"))
     assert not stays_on_top(app.window)
 
     app.window.open()
@@ -251,17 +274,53 @@ def test_it_stays_above_other_windows_only_until_it_is_used(app: App) -> None:
     assert app.window.windowType() == Qt.WindowType.Window
 
 
-def test_it_keeps_its_close_button_once_no_longer_on_top(app: App) -> None:
+def test_it_keeps_its_close_button_once_no_longer_on_top(qtbot: QtBot, app: App) -> None:
     # Windows makes the window again after it is closed, from these flags: one
     # without the close button hint came back with its X greyed out.
     app.window.open()
     on_top = app.window.windowFlags()
-    QCoreApplication.sendEvent(app.window, QEvent(QEvent.Type.WindowDeactivate))
+    move_to(qtbot, None)
 
     assert not stays_on_top(app.window)
     assert app.window.windowFlags() & Qt.WindowType.WindowCloseButtonHint
     # Only the on-top hint went.
     assert app.window.windowFlags() | Qt.WindowType.WindowStaysOnTopHint == on_top
+
+
+def test_the_windows_it_opens_stay_above_pinned_notes_with_it(qtbot: QtBot, app: App) -> None:
+    # They are kept above it by the system only while it is above the notes:
+    # a pinned note covered the question of whether to go back to a backup.
+    note = open_note(app, "핀 메모")
+    app.window.open()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
+    dialog = QDialog(app.window)
+    dialog.show()
+    move_to(qtbot, dialog)
+    QCoreApplication.sendEvent(app.window, QEvent(QEvent.Type.WindowDeactivate))
+    QTest.qWait(20)
+    assert stays_on_top(app.window)
+
+    question = QDialog(dialog)  # asked from that window, waiting for an answer
+    question.setModal(True)
+    question.show()
+    move_to(qtbot, question)
+    assert stays_on_top(app.window)
+
+    question.close()
+    move_to(qtbot, note)
+    assert not stays_on_top(app.window)
+
+
+def test_it_lets_go_when_the_user_leaves_from_a_window_it_opened(qtbot: QtBot, app: App) -> None:
+    app.window.open()
+    dialog = QDialog(app.window)
+    dialog.show()
+    move_to(qtbot, dialog)
+    assert stays_on_top(app.window)
+
+    move_to(qtbot, None)  # to another app: the Stickle window itself is not told
+
+    assert not stays_on_top(app.window)
 
 
 def test_without_a_tray_hiding_the_last_note_opens_it_with_a_notice(trayless: App) -> None:
