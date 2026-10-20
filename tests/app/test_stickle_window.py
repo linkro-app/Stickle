@@ -9,6 +9,7 @@ from typing import cast
 import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtGui import QHideEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -285,6 +286,16 @@ def test_it_keeps_its_close_button_once_no_longer_on_top(qtbot: QtBot, app: App)
     assert app.window.windowFlags() & Qt.WindowType.WindowCloseButtonHint
     # Only the on-top hint went.
     assert app.window.windowFlags() | Qt.WindowType.WindowStaysOnTopHint == on_top
+
+
+def test_it_stays_above_when_said_to_be_hidden_while_on_screen(app: App) -> None:
+    # Ubuntu sent a hide event as the window came up, the window still on screen.
+    app.window.open()
+
+    QCoreApplication.sendEvent(app.window, QHideEvent())
+
+    assert app.window.isVisible()
+    assert stays_on_top(app.window)
 
 
 def test_the_windows_it_opens_stay_above_pinned_notes_with_it(qtbot: QtBot, app: App) -> None:

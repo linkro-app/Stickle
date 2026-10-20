@@ -632,7 +632,8 @@ class StickleWindow(QWidget):
             # Some desktops tell only the application in front that the clipboard changed.
             self.refresh_clipboard()
         # Not on activation: that can be reported before the window is in front.
-        if event.type() == QEvent.Type.Hide and stays_on_top(self):
+        # Hidden for real: Ubuntu also said so as the window came up, still on screen.
+        if event.type() == QEvent.Type.Hide and not self.isVisible() and stays_on_top(self):
             set_stays_on_top(self, False)
         elif event.type() == QEvent.Type.WindowDeactivate and stays_on_top(self):
             self._let_go_soon()
