@@ -19,21 +19,21 @@ def test_switching_language_updates_open_windows_and_the_tray(
     note = manager.new_note()
     try:
         assert note.title_bar.close_button.toolTip() == "Hide note"
-        assert tray.new_note_action.text() == "New note"
+        assert tray.new_note_action.text() == "&New note"
 
         translations.apply("ko")
 
         assert note.title_bar.close_button.toolTip() == "메모 숨기기"
         assert note.editor.accessibleName() == "메모 내용"
-        assert tray.new_note_action.text() == "새 메모"
-        assert tray.language_menu.title() == "언어"
+        assert tray.new_note_action.text() == "새 메모(&N)"
+        assert tray.language_menu.title() == "언어(&L)"
         # A note opened after the switch starts in the new language too.
         assert manager.new_note().title_bar.close_button.toolTip() == "메모 숨기기"
 
         translations.apply("en")
 
         assert note.title_bar.close_button.toolTip() == "Hide note"
-        assert tray.quit_action.text() == "Quit Stickle"
+        assert tray.quit_action.text() == "&Quit Stickle"
     finally:
         for window in manager.windows:
             window.close()

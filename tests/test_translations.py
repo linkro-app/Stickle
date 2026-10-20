@@ -71,7 +71,7 @@ def test_compiled_korean_translation_is_used(qtbot: QtBot, tmp_path: Path) -> No
         QCoreApplication.installTranslator(translator)
         translators.append(translator)
     try:
-        assert QCoreApplication.translate("Tray", "New note") == "새 메모"
+        assert QCoreApplication.translate("Tray", "&New note") == "새 메모(&N)"
         assert QCoreApplication.translate("QWidgetTextControl", "&Copy") != "&Copy"
     finally:
         for translator in translators:

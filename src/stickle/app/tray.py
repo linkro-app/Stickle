@@ -3,8 +3,8 @@
 import logging
 from collections.abc import Callable
 
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtCore import QElapsedTimer, QUrl
+from PySide6.QtGui import QAction, QActionGroup, QGuiApplication
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from stickle.app import note_window
@@ -152,33 +152,60 @@ class Tray(QSystemTrayIcon):
         self.setContextMenu(self._menu)
         self.refresh_switches()
 
+        # A double click on the icon makes a new note; a single click does nothing,
+        # the menu (the right button) holding the rest. StatusNotifierItem trays
+        # (KDE) tell of two single clicks instead of a double click.
+        self._on_new_note = on_new_note
+        self._last_click = QElapsedTimer()
+        self._last_note = QElapsedTimer()
+        self.activated.connect(self._clicked)
+
         # Not a widget, so no LanguageChange event: follow the translations instead.
         translations.changed.connect(self.retranslate)
         if notes is not None:
             notes.changed.connect(self.refresh_notes)
         self.retranslate()
 
+    def _clicked(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        interval = QGuiApplication.styleHints().mouseDoubleClickInterval()
+        # Windows tells of the clicks of a double click too, after or before it:
+        # one note for the lot.
+        if self._last_note.isValid() and not self._last_note.hasExpired(interval):
+            return
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick or (
+            reason == QSystemTrayIcon.ActivationReason.Trigger
+            and self._last_click.isValid()
+            and not self._last_click.hasExpired(interval)
+        ):
+            self._last_click.invalidate()
+            self._last_note.start()
+            self._on_new_note()
+        elif reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self._last_click.start()
+
     def refresh_notes(self) -> None:
         """Rebuild the lists of hidden and deleted notes (they change only through the app)."""
         self.hidden_menu.clear()
         hidden = self._notes.hidden_notes() if self._notes else []
-        for note in hidden[:HIDDEN_LISTED]:
-            action = self.hidden_menu.addAction(menu_title(note) or self.tr("(empty note)"))
+        for number, note in enumerate(hidden[:HIDDEN_LISTED], start=1):
+            title = menu_title(note) or self.tr("(empty note)")
+            # The first nine chosen by their number while the menu is open.
+            action = self.hidden_menu.addAction(f"&{number} {title}" if number < 10 else title)
             action.triggered.connect(lambda _=False, note_id=note.id: self._show(note_id))
         if hidden:
             self.hidden_menu.addSeparator()
-        show_all = self.hidden_menu.addAction(self.tr("Show all hidden notes"))
+        show_all = self.hidden_menu.addAction(self.tr("Show &all hidden notes"))
         show_all.triggered.connect(self._show_all)
         self.hidden_menu.setEnabled(bool(hidden))
 
         deleted = self._notes.last_deleted() if self._notes else None
         self.restore_action.setEnabled(deleted is not None)
         if deleted is None:
-            self.restore_action.setText(self.tr("Restore the note just deleted"))
+            self.restore_action.setText(self.tr("&Restore the note just deleted"))
         else:
             title = menu_title(deleted) or self.tr("(empty note)")
             self.restore_action.setText(
-                self.tr("Restore the note just deleted: %1").replace("%1", title)
+                self.tr("&Restore the note just deleted: %1").replace("%1", title)
             )
 
     def _show(self, note_id: str) -> None:
@@ -210,7 +237,7 @@ class Tray(QSystemTrayIcon):
         self.new_version_action.setVisible(release is not None)
         if release is not None:
             self.new_version_action.setText(
-                self.tr("Get Stickle %1…").replace("%1", release.version)
+                self.tr("&Get Stickle %1…").replace("%1", release.version)
             )
         self.refresh_switches()
 
@@ -249,22 +276,22 @@ class Tray(QSystemTrayIcon):
             self._notes.raise_all()
 
     def retranslate(self) -> None:
-        self.open_window_action.setText(self.tr("Open Stickle"))
-        self.new_note_action.setText(self.tr("New note"))
-        self.hidden_menu.setTitle(self.tr("Hidden notes"))
-        self.raise_action.setText(self.tr("Bring all notes to front"))
-        self.clipboard_action.setText(self.tr("New note from clipboard"))
+        self.open_window_action.setText(self.tr("&Open Stickle"))
+        self.new_note_action.setText(self.tr("&New note"))
+        self.hidden_menu.setTitle(self.tr("&Hidden notes"))
+        self.raise_action.setText(self.tr("&Bring all notes to front"))
+        self.clipboard_action.setText(self.tr("New note from &clipboard"))
         if self._notes is not None and self._notes.set_aside:
-            self.set_aside_action.setText(self.tr("Show the notes again"))
+            self.set_aside_action.setText(self.tr("Sho&w the notes again"))
         else:
-            self.set_aside_action.setText(self.tr("Hide all notes for now"))
-        self.view_menu.setTitle(self.tr("Show on the desktop"))
-        self.guide_action.setText(self.tr("Keyboard shortcuts"))
-        self.find_action.setText(self.tr("Find on the desktop"))
-        self.data_menu.setTitle(self.tr("Data"))
-        self.import_action.setText(self.tr("Bring notes in from another app…"))
-        self.export_action.setText(self.tr("Export all notes…"))
-        self.restore_backup_action.setText(self.tr("Restore from a backup…"))
+            self.set_aside_action.setText(self.tr("Hide all notes for no&w"))
+        self.view_menu.setTitle(self.tr("Show on the &desktop"))
+        self.guide_action.setText(self.tr("&Keyboard shortcuts"))
+        self.find_action.setText(self.tr("&Find on the desktop"))
+        self.data_menu.setTitle(self.tr("Da&ta"))
+        self.import_action.setText(self.tr("&Bring notes in from another app…"))
+        self.export_action.setText(self.tr("&Export all notes…"))
+        self.restore_backup_action.setText(self.tr("&Restore from a backup…"))
         set_aside = self._notes is not None and self._notes.set_aside
         # Faded while the notes are out of sight, so the icon says why none show;
         # set only on a change, as some desktops redraw the whole tray for it.
@@ -281,15 +308,15 @@ class Tray(QSystemTrayIcon):
         else:
             self.setToolTip("Stickle")
         self.refresh_notes()
-        self.language_menu.setTitle(self.tr("Language"))
+        self.language_menu.setTitle(self.tr("&Language"))
         self.language_actions[None].setText(self.tr("System language"))
         if chosen := self.language_actions.get(self._translations.language):
             chosen.setChecked(True)
-        self.quit_action.setText(self.tr("Quit Stickle"))
-        self.feedback_action.setText(self.tr("Report a problem or idea…"))
-        self.support_action.setText(self.tr("Support Stickle…"))
-        self.about_action.setText(self.tr("About Stickle"))
-        self.autostart_action.setText(self.tr("Start Stickle when I log in"))
-        self.app_list_action.setText(self.tr("Show Stickle in the app list"))
-        self.update_check_action.setText(self.tr("Check for a new version daily"))
+        self.quit_action.setText(self.tr("&Quit Stickle"))
+        self.feedback_action.setText(self.tr("Report a problem or &idea…"))
+        self.support_action.setText(self.tr("Su&pport Stickle…"))
+        self.about_action.setText(self.tr("Abo&ut Stickle"))
+        self.autostart_action.setText(self.tr("&Start Stickle when I log in"))
+        self.app_list_action.setText(self.tr("Show Stickle in the &app list"))
+        self.update_check_action.setText(self.tr("Check for a new &version daily"))
         self.refresh_new_version()

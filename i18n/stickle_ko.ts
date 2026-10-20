@@ -1927,18 +1927,6 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>데이터(&amp;T)</translation>
     </message>
     <message>
-        <source>Bring notes in from another app…</source>
-        <translation>다른 앱에서 메모 가져오기…</translation>
-    </message>
-    <message>
-        <source>Export all notes…</source>
-        <translation>모든 메모 내보내기…</translation>
-    </message>
-    <message>
-        <source>Restore from a backup…</source>
-        <translation>백업에서 되돌리기…</translation>
-    </message>
-    <message>
         <source>Keyboard shortcuts</source>
         <translation>단축키</translation>
     </message>
@@ -1982,6 +1970,18 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Manage &amp;categories and marks…</source>
         <translation>카테고리·표시 관리(&amp;C)…</translation>
+    </message>
+    <message>
+        <source>&amp;Bring notes in from another app…</source>
+        <translation>다른 앱에서 메모 가져오기(&amp;B)…</translation>
+    </message>
+    <message>
+        <source>&amp;Export all notes…</source>
+        <translation>모든 메모 내보내기(&amp;E)…</translation>
+    </message>
+    <message>
+        <source>&amp;Restore from a backup…</source>
+        <translation>백업에서 되돌리기(&amp;R)…</translation>
     </message>
     <message>
         <source>Restore the note just deleted: %1</source>
@@ -2062,76 +2062,76 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>(빈 메모)</translation>
     </message>
     <message>
-        <source>Show all hidden notes</source>
-        <translation>숨긴 메모 모두 보이기</translation>
+        <source>Show &amp;all hidden notes</source>
+        <translation>숨긴 메모 모두 보이기(&amp;A)</translation>
     </message>
     <message>
-        <source>Restore the note just deleted</source>
-        <translation>방금 지운 메모 되살리기</translation>
+        <source>&amp;Restore the note just deleted</source>
+        <translation>방금 지운 메모 되살리기(&amp;R)</translation>
     </message>
     <message>
-        <source>Restore the note just deleted: %1</source>
-        <translation>방금 지운 메모 되살리기: %1</translation>
+        <source>&amp;Restore the note just deleted: %1</source>
+        <translation>방금 지운 메모 되살리기(&amp;R): %1</translation>
     </message>
     <message>
-        <source>Get Stickle %1…</source>
-        <translation>Stickle %1 받기…</translation>
+        <source>&amp;Get Stickle %1…</source>
+        <translation>Stickle %1 받기(&amp;G)…</translation>
     </message>
     <message>
-        <source>Open Stickle</source>
-        <translation>Stickle 창 열기</translation>
+        <source>&amp;Open Stickle</source>
+        <translation>Stickle 창 열기(&amp;O)</translation>
     </message>
     <message>
-        <source>New note</source>
-        <translation>새 메모</translation>
+        <source>&amp;New note</source>
+        <translation>새 메모(&amp;N)</translation>
     </message>
     <message>
-        <source>Hidden notes</source>
-        <translation>숨긴 메모</translation>
+        <source>&amp;Hidden notes</source>
+        <translation>숨긴 메모(&amp;H)</translation>
     </message>
     <message>
-        <source>Bring all notes to front</source>
-        <translation>모든 메모 앞으로 가져오기</translation>
+        <source>&amp;Bring all notes to front</source>
+        <translation>모든 메모 앞으로 가져오기(&amp;B)</translation>
     </message>
     <message>
-        <source>New note from clipboard</source>
-        <translation>클립보드로 새 메모</translation>
+        <source>New note from &amp;clipboard</source>
+        <translation>클립보드로 새 메모(&amp;C)</translation>
     </message>
     <message>
-        <source>Show the notes again</source>
-        <translation>메모 다시 보이기</translation>
+        <source>Sho&amp;w the notes again</source>
+        <translation>메모 다시 보이기(&amp;W)</translation>
     </message>
     <message>
-        <source>Hide all notes for now</source>
-        <translation>모든 메모 잠시 숨기기</translation>
+        <source>Hide all notes for no&amp;w</source>
+        <translation>모든 메모 잠시 숨기기(&amp;W)</translation>
     </message>
     <message>
-        <source>Show on the desktop</source>
-        <translation>바탕화면에 보기</translation>
+        <source>Show on the &amp;desktop</source>
+        <translation>바탕화면에 보기(&amp;D)</translation>
     </message>
     <message>
-        <source>Keyboard shortcuts</source>
-        <translation>단축키</translation>
+        <source>&amp;Keyboard shortcuts</source>
+        <translation>단축키(&amp;K)</translation>
     </message>
     <message>
-        <source>Find on the desktop</source>
-        <translation>바탕화면에서 찾기</translation>
+        <source>&amp;Find on the desktop</source>
+        <translation>바탕화면에서 찾기(&amp;F)</translation>
     </message>
     <message>
-        <source>Data</source>
-        <translation>데이터</translation>
+        <source>Da&amp;ta</source>
+        <translation>데이터(&amp;T)</translation>
     </message>
     <message>
-        <source>Bring notes in from another app…</source>
-        <translation>다른 앱에서 메모 가져오기…</translation>
+        <source>&amp;Bring notes in from another app…</source>
+        <translation>다른 앱에서 메모 가져오기(&amp;B)…</translation>
     </message>
     <message>
-        <source>Export all notes…</source>
-        <translation>모든 메모 내보내기…</translation>
+        <source>&amp;Export all notes…</source>
+        <translation>모든 메모 내보내기(&amp;E)…</translation>
     </message>
     <message>
-        <source>Restore from a backup…</source>
-        <translation>백업에서 되돌리기…</translation>
+        <source>&amp;Restore from a backup…</source>
+        <translation>백업에서 되돌리기(&amp;R)…</translation>
     </message>
     <message>
         <source>Stickle: notes hidden for now</source>
@@ -2142,40 +2142,40 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>Stickle: 바탕화면에 ‘%1’만 보는 중</translation>
     </message>
     <message>
-        <source>Language</source>
-        <translation>언어</translation>
+        <source>&amp;Language</source>
+        <translation>언어(&amp;L)</translation>
+    </message>
+    <message>
+        <source>&amp;Quit Stickle</source>
+        <translation>Stickle 종료(&amp;Q)</translation>
+    </message>
+    <message>
+        <source>Report a problem or &amp;idea…</source>
+        <translation>문제·제안 보내기(&amp;I)…</translation>
+    </message>
+    <message>
+        <source>Su&amp;pport Stickle…</source>
+        <translation>후원하기(&amp;P)…</translation>
+    </message>
+    <message>
+        <source>Abo&amp;ut Stickle</source>
+        <translation>Stickle 정보(&amp;U)</translation>
+    </message>
+    <message>
+        <source>&amp;Start Stickle when I log in</source>
+        <translation>로그인할 때 Stickle 시작(&amp;S)</translation>
+    </message>
+    <message>
+        <source>Show Stickle in the &amp;app list</source>
+        <translation>앱 목록에 Stickle 표시(&amp;A)</translation>
+    </message>
+    <message>
+        <source>Check for a new &amp;version daily</source>
+        <translation>하루에 한 번 새 버전 확인(&amp;V)</translation>
     </message>
     <message>
         <source>System language</source>
         <translation>시스템 설정 따르기</translation>
-    </message>
-    <message>
-        <source>Quit Stickle</source>
-        <translation>Stickle 종료</translation>
-    </message>
-    <message>
-        <source>Report a problem or idea…</source>
-        <translation>문제·제안 보내기…</translation>
-    </message>
-    <message>
-        <source>Support Stickle…</source>
-        <translation>후원하기…</translation>
-    </message>
-    <message>
-        <source>About Stickle</source>
-        <translation>Stickle 정보</translation>
-    </message>
-    <message>
-        <source>Start Stickle when I log in</source>
-        <translation>로그인할 때 Stickle 시작</translation>
-    </message>
-    <message>
-        <source>Show Stickle in the app list</source>
-        <translation>앱 목록에 Stickle 표시</translation>
-    </message>
-    <message>
-        <source>Check for a new version daily</source>
-        <translation>하루에 한 번 새 버전 확인</translation>
     </message>
 </context>
 </TS>

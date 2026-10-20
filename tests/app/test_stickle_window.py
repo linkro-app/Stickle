@@ -224,10 +224,25 @@ def test_with_a_tray_hiding_the_last_note_leaves_it_closed(app: App) -> None:
     assert app.quits == []
 
 
-def test_clicking_the_tray_icon_opens_it(app: App) -> None:
+def test_a_double_click_on_the_tray_icon_makes_a_note_not_the_window(app: App) -> None:
     app.tray.activated.emit(QSystemTrayIcon.ActivationReason.Trigger)
+    assert not app.window.isVisible()  # a single click does nothing
 
-    assert app.window.isVisible()
+    app.tray.activated.emit(QSystemTrayIcon.ActivationReason.DoubleClick)
+
+    assert len(app.manager.windows) == 1
+    assert not app.window.isVisible()
+
+
+def test_the_tray_menu_numbers_the_first_nine_hidden_notes(app: App) -> None:
+    for number in range(1, 12):
+        hidden_note(app, f"메모 {number}")
+    app.tray.refresh_notes()
+
+    texts = [a.text() for a in app.tray.hidden_menu.actions() if not a.isSeparator()]
+
+    assert [t.split(" ", 1)[0] for t in texts[:9]] == [f"&{n}" for n in range(1, 10)]
+    assert not texts[9].startswith("&")  # the tenth on, by mouse or arrow keys
 
 
 def test_the_tray_menu_opens_it_too(app: App) -> None:
@@ -501,7 +516,7 @@ def test_starting_at_login_is_switched_from_the_tray_and_the_window(
     assert not autostart.enabled
     tray.refresh_switches()
     assert not tray.autostart_action.isChecked()
-    assert tray.autostart_action.text() == "Start Stickle when I log in"
+    assert tray.autostart_action.text() == "&Start Stickle when I log in"
     window.deleteLater()
 
 

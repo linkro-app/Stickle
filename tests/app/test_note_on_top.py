@@ -242,4 +242,4 @@ def test_bring_all_notes_to_front_raises_every_note(
     tray.raise_action.trigger()
 
     assert set(raised) == {first, second}
-    assert tray.raise_action.text() == "Bring all notes to front"
+    assert tray.raise_action.text() == "&Bring all notes to front"

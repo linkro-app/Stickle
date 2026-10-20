@@ -88,7 +88,7 @@ def test_the_tray_offers_support_and_about(
     tray = Tray(lambda: None, lambda: None, translations)
     actions = [a.text() for a in tray.contextMenu().actions() if a.text()]
     # Just above Quit, the last item.
-    assert actions[-3:] == ["Support Stickle…", "About Stickle", "Quit Stickle"]
+    assert actions[-3:] == ["Su&pport Stickle…", "Abo&ut Stickle", "&Quit Stickle"]
     tray.support_action.trigger()
     assert opened == ["https://stickle.linkro.co/en/support"]
 

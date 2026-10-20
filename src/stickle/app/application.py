@@ -193,18 +193,13 @@ def connect_stickle_window(
 ) -> None:
     """When the Stickle window opens, and when closing it ends the app.
 
-    With a tray, the app stays in it when every note is hidden, and clicking
-    the tray icon opens the window. Without one there would be no way back,
+    With a tray, the app stays in it when every note is hidden, and the tray's
+    menu opens the window (a double click on the icon makes a new note, see
+    Tray). Without one there would be no way back,
     so the window opens saying all notes are hidden, and closing it quits;
     closing it while the notes are set aside brings them back.
     """
     if tray is not None:
-
-        def tray_clicked(reason: QSystemTrayIcon.ActivationReason) -> None:
-            if reason == QSystemTrayIcon.ActivationReason.Trigger:
-                window.open()
-
-        tray.activated.connect(tray_clicked)
         tray.open_window_action.triggered.connect(lambda: window.open())
         tray.guide_action.triggered.connect(window.guide.open)
         tray.about_action.triggered.connect(window.about.present)

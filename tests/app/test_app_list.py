@@ -105,7 +105,7 @@ def test_it_is_switched_from_the_tray_and_the_window_even_after_saying_no(
     assert not entry.added
     tray.refresh_switches()
     assert not tray.app_list_action.isChecked()
-    assert tray.app_list_action.text() == "Show Stickle in the app list"
+    assert tray.app_list_action.text() == "Show Stickle in the &app list"
 
 
 def test_not_an_appimage_no_item(qtbot: QtBot) -> None:

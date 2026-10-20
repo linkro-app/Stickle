@@ -119,11 +119,11 @@ def test_the_window_and_the_tray_say_so_while_it_holds(app: App) -> None:
     button.click()
     assert button.text() == "Show the notes again"
     assert app.window.set_aside_label.isVisibleTo(app.window)
-    assert app.tray.set_aside_action.text() == "Show the notes again"
+    assert app.tray.set_aside_action.text() == "Sho&w the notes again"
 
     button.click()
     assert on_screen(app) == ["A"]
-    assert app.tray.set_aside_action.text() == "Hide all notes for now"
+    assert app.tray.set_aside_action.text() == "Hide all notes for no&w"
     assert not app.window.set_aside_label.isVisibleTo(app.window)
 
 

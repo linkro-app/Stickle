@@ -105,7 +105,7 @@ def test_hidden_note_is_listed_and_comes_back(qtbot: QtBot, session: Session) ->
 
     later = session.restart()
     assert later.manager.windows == ()
-    (entry,) = [a for a in later.tray.hidden_menu.actions() if a.text() == "회의록"]
+    (entry,) = [a for a in later.tray.hidden_menu.actions() if a.text() == "&1 회의록"]
     entry.trigger()
 
     assert later.texts() == ["회의록\n둘째 줄"]
@@ -186,7 +186,7 @@ def test_tray_lists_the_latest_hidden_notes(qtbot: QtBot, session: Session) -> N
     actions = [a for a in session.tray.hidden_menu.actions() if not a.isSeparator()]
     titles = [a.text() for a in actions]
     assert len(titles) == HIDDEN_LISTED + 1
-    assert titles[0] == "숨긴 메모 19"  # the latest first
+    assert titles[0] == "&1 숨긴 메모 19"  # the latest first, chosen by its number
     actions[-1].trigger()  # show all
 
     assert len(session.manager.windows) == 20
@@ -232,7 +232,7 @@ def test_ampersands_in_titles_stay_literal(session: Session) -> None:
     window.title_bar.close_button.click()
 
     (entry,) = [a for a in session.tray.hidden_menu.actions() if "R" in a.text()]
-    assert entry.text() == "R&&D 회의"
+    assert entry.text() == "&1 R&&D 회의"
 
 
 # J. No note text in the log.
