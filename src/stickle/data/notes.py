@@ -119,8 +119,11 @@ class NoteRepository:
             raise NoteNotFoundError(note_id)
         return note
 
-    def create(self, body: str = "", color: str = DEFAULT_COLOR) -> Note:
-        note_id = str(uuid.uuid4())
+    def create(
+        self, body: str = "", color: str = DEFAULT_COLOR, note_id: str | None = None
+    ) -> Note:
+        """note_id: one decided by the caller (the same on every device), else a new one."""
+        note_id = note_id or str(uuid.uuid4())
         now = self._clock()
         with self._db:
             self._db.execute(

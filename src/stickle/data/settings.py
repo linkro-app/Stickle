@@ -20,6 +20,7 @@ import apsw
 
 from stickle.core.clock import Clock, utc_now
 from stickle.core.note import DEFAULT_COLOR
+from stickle.core.updates import version_key
 
 type Scope = Literal["device", "shared"]
 
@@ -116,6 +117,15 @@ UPDATE_CHECK = Setting[bool]("update_check", "device", True, _flag)
 # When it last asked, so that a restart does not ask again the same day.
 UPDATE_CHECKED_AT = Setting[str | None]("update_checked_at", "device", None, _stamp_or_none)
 
+
+def _version_or_none(value: object) -> TypeGuard[str | None]:
+    return value is None or (isinstance(value, str) and version_key(value) is not None)
+
+
+# The version whose "what's new" note was last given. Shared: seen on one device,
+# it does not come up again on another.
+NEWS_SEEN = Setting[str | None]("news_seen", "shared", None, _version_or_none)
+
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -129,6 +139,7 @@ SETTINGS: dict[str, Setting[object]] = {
         SHORTCUTS,
         UPDATE_CHECK,
         UPDATE_CHECKED_AT,
+        NEWS_SEEN,
     )
 }
 

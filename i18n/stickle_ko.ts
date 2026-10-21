@@ -2178,4 +2178,27 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>시스템 설정 따르기</translation>
     </message>
 </context>
+<context>
+    <name>WhatsNew</name>
+    <message>
+        <source># What&apos;s new in Stickle 0.5
+- **Daily backups**: a copy of your notes each day, kept for a week. Go back to one from Data → Restore from a backup…
+- **Export**: every note as Markdown, or everything as JSON (Data → Export all notes…)
+- **Bring notes in** from Microsoft Sticky Notes, Zhorn Stickies, xpad and Indicator Stickynotes (Data → Bring notes in from another app…)
+- **Paste with formatting**: bold, lists and links copied from a web page or a document stay as they were
+- **Report a problem or idea** from the Stickle icon&apos;s menu
+- A double click on the Stickle icon makes a new note, where the system allows it
+
+Data is in the Stickle window and in the Stickle icon&apos;s menu. [Everything Stickle does](%1)</source>
+        <translation># Stickle 0.5에서 바뀐 점
+- **날마다 백업**: 하루에 한 번 메모를 백업해 일주일 동안 보관합니다. 데이터 → 백업에서 되돌리기…에서 그 시점으로 돌아갈 수 있습니다
+- **내보내기**: 모든 메모를 마크다운으로, 또는 전부를 JSON으로 (데이터 → 모든 메모 내보내기…)
+- **가져오기**: Microsoft Sticky Notes, Zhorn Stickies, xpad, Indicator Stickynotes의 메모를 가져옵니다 (데이터 → 다른 앱에서 메모 가져오기…)
+- **서식 붙여넣기**: 웹 페이지나 문서에서 복사한 굵은 글씨·목록·링크가 그대로 들어옵니다
+- **문제·제안 보내기**: Stickle 아이콘 메뉴에서
+- Stickle 아이콘을 두 번 클릭하면 새 메모가 생깁니다(시스템이 허용하는 곳에서)
+
+데이터 메뉴는 Stickle 창과 Stickle 아이콘 메뉴에 있습니다. [모든 기능 안내](%1)</translation>
+    </message>
+</context>
 </TS>

@@ -37,6 +37,7 @@ from stickle.app.startup import open_notes
 from stickle.app.stickle_window import RecoveryKeys, StickleWindow
 from stickle.app.tray import Tray
 from stickle.app.update_check import UpdateCheck
+from stickle.app.whats_new import give_news
 from stickle.core.clock import Clock, utc_now
 from stickle.core.layout import Place, Rect, place_of
 from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
@@ -536,6 +537,8 @@ def run(
                     app_list,
                     translations=translations,
                 )
+            if connection is not None:
+                give_news(NoteRepository(connection), Settings(connection), first_start)
             open_at_start(manager, stickle_window, tray_available, at_login)
             if shortcuts is not None:
                 # The desktop may ask about them: after the first start's windows.
