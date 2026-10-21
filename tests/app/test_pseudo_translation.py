@@ -21,7 +21,7 @@ from stickle.app.i18n import Translations
 from stickle.app.password_dialog import PasswordDialog
 from stickle.app.recovery_dialog import KINDS, Problem, RecoveryDialog
 from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, RecoveryKeyDialog
-from stickle.app.stickle_window import StickleWindow
+from stickle.app.stickle_window import ElidedButton, StickleWindow
 from stickle.app.tray import Tray
 from stickle.data.schema import NotesDiff
 
@@ -62,7 +62,9 @@ def visible_texts(widget: QWidget) -> list[str]:
     for item in [widget, *widget.findChildren(QWidget)]:
         texts += [item.windowTitle(), item.toolTip(), item.accessibleName()]
         texts += [action.text() for action in item.actions()]
-        if isinstance(item, QLabel | QAbstractButton):
+        if isinstance(item, ElidedButton):
+            texts.append(item.full_text())  # shown cut short with "…" when narrow
+        elif isinstance(item, QLabel | QAbstractButton):
             texts.append(item.text())
         if isinstance(item, QListWidget):
             texts += [item.item(row).text() for row in range(item.count())]

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QLabel,
+    QPushButton,
     QSystemTrayIcon,
     QWidget,
 )
@@ -25,7 +26,7 @@ from stickle.app.application import connect_stickle_window, open_at_start
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
-from stickle.app.stickle_window import StickleWindow
+from stickle.app.stickle_window import ElidedButton, StickleWindow
 from stickle.app.tray import Tray
 from stickle.app.window_flags import set_stays_on_top, stays_on_top
 from stickle.data.notes import NoteRepository
@@ -191,6 +192,43 @@ def test_no_two_things_share_a_key(app: App, translations: Translations, languag
     keys = mnemonics(texts)
 
     assert len(set(keys)) == len(keys), sorted(keys)
+
+
+@pytest.mark.parametrize("language", ["en", "ko"])
+def test_every_button_is_wide_enough_for_its_text(
+    app: App, qtbot: QtBot, translations: Translations, language: str
+) -> None:
+    # "Manage categories and marks…" was cut to "age categories and ma" in English.
+    translations.apply(language)
+    window = app.window
+    window.show()
+    for width in (window.width(), 200):  # as it opens, and made as narrow as it goes
+        window.resize(width, window.height())
+        qtbot.wait(50)
+        cut = [
+            b.text()
+            for b in window.findChildren(QPushButton)
+            if b.isVisible()
+            and not isinstance(b, ElidedButton)  # ends with "…" instead
+            and b.width() < b.sizeHint().width()
+        ]
+        assert cut == [], (width, window.width())
+
+
+def test_a_long_title_just_deleted_does_not_widen_the_window(app: App, qtbot: QtBot) -> None:
+    window = app.window
+    window.show()
+    width = window.width()
+    note = open_note(app, "A title far longer than any window would show " * 4)
+    app.manager.delete(note)
+    window.refresh()
+    qtbot.wait(50)
+
+    button = window.restore_button
+    assert window.width() == width
+    assert button.text().endswith("…")
+    assert button.fontMetrics().horizontalAdvance(button.text()) <= button.width()
+    assert "A title far longer" in button.toolTip() == button.accessibleName()
 
 
 # When it opens

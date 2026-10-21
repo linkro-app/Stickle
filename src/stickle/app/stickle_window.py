@@ -26,6 +26,7 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPalette,
     QPen,
+    QResizeEvent,
     QShortcut,
     QShowEvent,
 )
@@ -38,7 +39,9 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpacerItem,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -93,6 +96,36 @@ def _exec(dialog: RecoveryKeyDialog) -> bool:
 show_recovery_key: Callable[[RecoveryKeyDialog], bool] = _exec  # replaced in tests
 
 
+class ElidedButton(QPushButton):
+    """A button whose text may hold a note's title, of any length: it takes the
+    window's width rather than setting it, and ends its text with "…" to fit."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+
+    def full_text(self) -> str:
+        return self._full
+
+    def set_full_text(self, text: str) -> None:
+        self._full = text
+        self.setToolTip(text)
+        self.setAccessibleName(text)  # read whole, whatever is shown
+        self._fit()
+
+    @override
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._fit()
+
+    def _fit(self) -> None:
+        room = self.width() - 2 * self.style().pixelMetric(QStyle.PixelMetric.PM_ButtonMargin) - 8
+        self.setText(
+            self.fontMetrics().elidedText(self._full, Qt.TextElideMode.ElideRight, max(room, 0))
+        )
+
+
 class StickleWindow(QWidget):
     closed = Signal()  # the user closed the window
 
@@ -118,7 +151,8 @@ class StickleWindow(QWidget):
         self._app_list = app_list
         self._recovery = recovery
         self._settings = settings
-        self.setMinimumWidth(320)
+        # No minimum width of its own: its layout's keeps every button as wide as
+        # its text (a fixed 320 let "Manage categories and marks…" be cut).
         app = QGuiApplication.instance()
         assert isinstance(app, QGuiApplication)
         # From one of its windows to another app: it is not told itself.
@@ -217,7 +251,7 @@ class StickleWindow(QWidget):
         self.note_list = NoteList(notes, self)
         self.show_all_button = QPushButton(self)
         self.show_all_button.clicked.connect(notes.show_all_hidden)
-        self.restore_button = QPushButton(self)
+        self.restore_button = ElidedButton(self)
         self.restore_button.clicked.connect(notes.restore_last_deleted)
         self.labels_button = QPushButton(self)
         self.labels_button.clicked.connect(self.manage_labels)
@@ -459,10 +493,10 @@ class StickleWindow(QWidget):
         deleted = self._notes.last_deleted()
         self.restore_button.setEnabled(deleted is not None)
         if deleted is None:
-            self.restore_button.setText(self.tr("Restore the note just deleted"))
+            self.restore_button.set_full_text(self.tr("Restore the note just deleted"))
         else:
             title = note_title(deleted.body) or self.tr("(empty note)")
-            self.restore_button.setText(
+            self.restore_button.set_full_text(
                 self.tr("Restore the note just deleted: %1").replace("%1", title)
             )
         self.language_box.setCurrentIndex(

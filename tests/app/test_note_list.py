@@ -188,12 +188,13 @@ def test_the_window_size_is_kept_on_this_computer(app: App, qtbot: QtBot) -> Non
     assert (app.window.width(), app.window.height()) == DEFAULT_SIZE
     app.window.open()
     qtbot.waitExposed(app.window)
-    app.window.resize(520, 700)
+    width = app.window.minimumSizeHint().width() + 60  # wider than its buttons need
+    app.window.resize(width, 700)
     app.window.hide()
 
-    assert app.settings.get(LIST_WINDOW_SIZE) == [520, 700]
+    assert app.settings.get(LIST_WINDOW_SIZE) == [width, 700]
     again = StickleWindow(app.manager, Translations(), lambda: None, settings=app.settings)
-    assert (again.width(), again.height()) == (520, 700)
+    assert (again.width(), again.height()) == (width, 700)
     again.deleteLater()
 
 
