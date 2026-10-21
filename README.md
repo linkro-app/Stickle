@@ -5,9 +5,9 @@
 [한국어](README.ko.md) · [Website](https://stickle.linkro.co) ·
 [Microsoft Store](https://apps.microsoft.com/detail/9MZ6BHN3JKFR)
 
-> **Status: preview.** The 0.4 preview is out: notes on one computer, for Windows and Linux,
-> with categories and marks, now shown as icons, notes that line up, find on the desktop, and
-> easier lists and code. Syncing between computers is not there yet — see
+> **Status: preview.** The 0.5 preview is out: notes on one computer, for Windows and Linux,
+> now with daily backups you can go back to, export of every note, and notes brought over from
+> other sticky-note apps. Syncing between computers is not there yet — see
 > [Try the preview](#try-the-preview).
 > To hear about new versions, click **Watch → Custom → Releases** at the top of this page.
 > A star tells us you are interested, but does not notify you.
@@ -43,7 +43,7 @@
 | 0.2 *(preview out)* | Search, a trash that keeps notes for a year, shortcuts from anywhere, see-through and locked notes, full keyboard use, portable mode; on the [Microsoft Store](https://apps.microsoft.com/detail/9MZ6BHN3JKFR) |
 | 0.3 *(preview out)* | Categories and marks, one category on the desktop, find on the desktop, notes that line up (Shift moves them together), easier lists and code blocks, the shortcuts at a glance, a new icon |
 | 0.4 *(preview out)* | Category and mark icons, About Stickle and ways to support it, a faded tray icon while notes are hidden |
-| 0.5 *(next)* | Automatic backups you can restore, export of every note (Markdown and JSON), bringing notes over from Windows Sticky Notes and other sticky-note apps, a daily update check you can turn off, sending feedback from the app |
+| 0.5 *(preview out)* | Daily backups you can go back to, export of every note (Markdown and JSON), bringing notes over from Microsoft Sticky Notes and other sticky-note apps, pasting with formatting, notes that line up when resized too, a daily update check you can turn off, reporting a problem or idea from the app |
 | On the way to 1.0 | Reminders, including times written in a note; secret notes behind a password of their own; then syncing through a folder you already sync, first as an option to try, followed by end-to-end encryption and locking out a lost computer |
 | 1.0 | Sync between your computers, ready for everyday use; macOS; packages for Linux (Flathub, AppImage, deb) and macOS (Homebrew) |
 | Later | WebDAV and S3 storage, what-you-see-is-what-you-get editing, tags, shared notes and a browser extension, a read-only viewer for phones |
@@ -80,25 +80,32 @@ Previews are under [Releases](https://github.com/linkro-app/Stickle/releases), m
   away from this computer: it opens your notes if the key stored on this computer is ever lost.
 - Downloads can be checked against `SHA256SUMS.txt` in the same release.
 
-New in 0.4:
+New in 0.5:
 
-- **Category icons**: give each category an icon when you make it, or change it later. A
-  note's title bar shows its category's icon instead of the name, so a long name no longer
-  fills the bar; a note without a category shows Stickle's own icon, and a strip of tape
-  across its corner means the note stays on top. Marks use the same set of icons, and the
-  Stickle window shows them beside their names.
-- **About Stickle**, from the Stickle window or the tray: the version, links and the license.
-- **Support Stickle…** in the tray and in About Stickle. The Microsoft Store copy opens the
-  Store's own purchase window; the other copies open the [website](https://stickle.linkro.co).
-  Every feature stays free either way, and the app keeps nothing about it.
-- While every note is hidden for a moment (`Ctrl+Alt+H`), the **tray icon fades**, so an empty
-  desktop is not taken for lost notes.
-- `Esc` closes the Stickle window. Over a note the pointer is an arrow, and a hand over boxes
-  and links.
-- Notes made with the 0.3, 0.2 or 0.1.2 preview open as they were: just replace the program. A
-  copy of the notes from before is kept in the `backups` folder where the notes are
+- **Daily backups**: Stickle keeps a copy of your notes each day, for a week. To go back to
+  one, choose **Data → Restore from a backup…** in the Stickle window or the tray menu.
+- **Export**: **Data → Export all notes…** writes each note as a Markdown file, with
+  everything in one JSON file beside them.
+- **Bring notes in** from Microsoft Sticky Notes, Zhorn Stickies, xpad and Indicator
+  Stickynotes: **Data → Bring notes in from another app…**. The other app's files are only
+  read, never changed.
+- **Paste with formatting**: bold, lists and links copied from a web page or a document stay
+  as they were.
+- **Lining up when resizing**: let a note go near the edge of the one beside it and the edges
+  meet. **Line notes up like a magnet** turns lining up on or off, for moving and resizing
+  alike; hold `Alt` to skip it once.
+- **Report a problem or idea…** in the tray menu and in About Stickle.
+- **A daily update check**: the zip and the AppImage look once a day for a newer Stickle and
+  say so in the Stickle window. It reads one small file and sends nothing about you; **Check
+  for a new version daily** turns it off. The Microsoft Store keeps its copy up to date itself.
+- A double click on the tray icon makes a new note, where the system allows it, and after an
+  update a note tells you what changed.
+- Notes made with the 0.4, 0.3, 0.2 or 0.1.2 preview open as they were: just replace the
+  program. A copy of the notes from before is kept in the `backups` folder where the notes are
   (`%APPDATA%\Stickle\backups` on Windows, `~/.local/share/stickle/backups` on Linux).
 
+0.4 brought icons for categories and marks, About Stickle and ways to support it, and a tray
+icon that fades while every note is hidden.
 0.3 brought categories and marks, one category on the desktop, find on the desktop, notes that
 line up, easier lists and code blocks, and the shortcuts at a glance (`F1` or `Ctrl+/`).
 0.2 brought search, a trash, shortcuts from anywhere (`Ctrl+Alt+N`, `Ctrl+Alt+S`,
@@ -119,7 +126,9 @@ which the desktop would have to keep.
 
 What a preview is, and is not:
 
-- Notes are kept on this computer only, encrypted. There is no syncing or backup yet.
+- Notes are kept on this computer only, encrypted, with a week of daily backups on the same
+  computer. There is no syncing yet, so a backup does not survive losing the computer: export
+  your notes now and then to keep a copy elsewhere.
 - Later versions are meant to open notes made with a preview, but the way notes are stored
   may still change, and a preview can have bugs. Keep anything important elsewhere too.
 
