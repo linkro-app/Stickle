@@ -2,7 +2,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from stickle.core.layout import Rect
-from stickle.core.snap import GAP, SNAP_DISTANCE, snapped, together
+from stickle.core.snap import GAP, SNAP_DISTANCE, resized, snapped, together
 
 SCREEN = Rect(0, 0, 1920, 1040)
 A = Rect(100, 100, 260, 300)
@@ -67,3 +67,53 @@ def test_snapping_moves_a_note_little_and_keeps_its_size(window: Rect, others: l
     assert (result.width, result.height) == (window.width, window.height)
     assert abs(result.x - window.x) <= SNAP_DISTANCE
     assert abs(result.y - window.y) <= SNAP_DISTANCE
+
+
+# Resizing (by the bottom right corner)
+
+
+def test_a_note_below_another_takes_its_width() -> None:
+    below = Rect(A.x, A.bottom + GAP, A.width - 9, 200)
+    assert resized(below, [A], [SCREEN]) == Rect(A.x, below.y, A.width, 200)
+    wider = Rect(A.x, A.bottom + GAP, A.width + 7, 200)
+    assert resized(wider, [A], [SCREEN]).width == A.width
+
+
+def test_a_note_beside_another_takes_its_height() -> None:
+    beside = Rect(A.right + GAP, A.y, 260, A.height + 10)
+    assert resized(beside, [A], [SCREEN]) == Rect(beside.x, A.y, 260, A.height)
+
+
+def test_it_stops_short_of_the_note_on_its_right_or_below() -> None:
+    right = Rect(A.right + GAP, A.y, 260, 300)
+    left = Rect(A.x - 200 - GAP - 8, A.y, 200, 300)  # 8 short of the gap before A
+    assert resized(left, [A, right], [SCREEN]).right == A.x - GAP
+    above = Rect(A.x, A.y - 150 - GAP - 5, 260, 150)
+    assert resized(above, [A], [SCREEN]).bottom == A.y - GAP
+
+
+def test_it_goes_to_the_edge_of_the_screen() -> None:
+    near = Rect(SCREEN.right - 300, SCREEN.bottom - 400, 290, 392)
+    assert resized(near, [], [SCREEN]) == Rect(near.x, near.y, 300, 400)
+
+
+def test_a_folded_note_keeps_its_height() -> None:
+    beside = Rect(A.right + GAP, A.y, 260, 30)
+    assert resized(beside, [A], [SCREEN], height_too=False).height == 30
+    below = Rect(A.x, A.bottom + GAP, A.width - 5, 30)
+    assert resized(below, [A], [SCREEN], height_too=False) == Rect(A.x, below.y, A.width, 30)
+
+
+def test_far_from_every_edge_the_size_stays() -> None:
+    alone = Rect(900, 400, 250, 250)
+    assert resized(alone, [A], [SCREEN]) == alone
+
+
+@given(rects, st.lists(rects, max_size=6))
+def test_resizing_keeps_the_place_and_changes_the_size_little(
+    window: Rect, others: list[Rect]
+) -> None:
+    result = resized(window, others, [SCREEN])
+    assert (result.x, result.y) == (window.x, window.y)
+    assert abs(result.right - window.right) <= SNAP_DISTANCE
+    assert abs(result.bottom - window.bottom) <= SNAP_DISTANCE

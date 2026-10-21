@@ -125,6 +125,8 @@ def _version_or_none(value: object) -> TypeGuard[str | None]:
 # The version whose "what's new" note was last given. Shared: seen on one device,
 # it does not come up again on another.
 NEWS_SEEN = Setting[str | None]("news_seen", "shared", None, _version_or_none)
+# Notes line up with the notes and screen edges near them when moved or resized.
+MAGNET = Setting[bool]("magnet", "shared", True, _flag)
 
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
@@ -140,6 +142,7 @@ SETTINGS: dict[str, Setting[object]] = {
         UPDATE_CHECK,
         UPDATE_CHECKED_AT,
         NEWS_SEEN,
+        MAGNET,
     )
 }
 

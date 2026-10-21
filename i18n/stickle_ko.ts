@@ -1952,6 +1952,14 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>하루에 한 번 새 버전 확인(&amp;V)</translation>
     </message>
     <message>
+        <source>Line notes up like a &amp;magnet</source>
+        <translation>자석처럼 메모 정렬(&amp;M)</translation>
+    </message>
+    <message>
+        <source>A note moved or resized near another note or the edge of the screen lines up with it. Hold Alt as you let go to leave it as it is.</source>
+        <translation>메모를 옮기거나 크기를 바꿔 다른 메모나 화면 가장자리 가까이에 놓으면 거기에 맞춰 붙습니다. 놓을 때 Alt를 누르고 있으면 그대로 둡니다.</translation>
+    </message>
+    <message>
         <source>&amp;Get it…</source>
         <translation>받기(&amp;G)…</translation>
     </message>
@@ -2174,6 +2182,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>하루에 한 번 새 버전 확인(&amp;V)</translation>
     </message>
     <message>
+        <source>Line notes up like a &amp;magnet</source>
+        <translation>자석처럼 메모 정렬(&amp;M)</translation>
+    </message>
+    <message>
         <source>System language</source>
         <translation>시스템 설정 따르기</translation>
     </message>
@@ -2186,6 +2198,7 @@ Your notes as they are now are backed up first, so you can come back to them the
 - **Export**: every note as Markdown, or everything as JSON (Data → Export all notes…)
 - **Bring notes in** from Microsoft Sticky Notes, Zhorn Stickies, xpad and Indicator Stickynotes (Data → Bring notes in from another app…)
 - **Paste with formatting**: bold, lists and links copied from a web page or a document stay as they were
+- **Lining up when resizing**: let a note go near the edge of the one beside it and the edges meet. &apos;Line notes up like a magnet&apos; turns lining up on or off
 - **Report a problem or idea** from the Stickle icon&apos;s menu
 - A double click on the Stickle icon makes a new note, where the system allows it
 
@@ -2195,6 +2208,7 @@ Data is in the Stickle window and in the Stickle icon&apos;s menu. [Everything S
 - **내보내기**: 모든 메모를 마크다운으로, 또는 전부를 JSON으로 (데이터 → 모든 메모 내보내기…)
 - **가져오기**: Microsoft Sticky Notes, Zhorn Stickies, xpad, Indicator Stickynotes의 메모를 가져옵니다 (데이터 → 다른 앱에서 메모 가져오기…)
 - **서식 붙여넣기**: 웹 페이지나 문서에서 복사한 굵은 글씨·목록·링크가 그대로 들어옵니다
+- **크기 바꿀 때도 맞춤**: 크기를 바꿔 옆 메모의 가장자리 가까이에서 놓으면 거기에 맞춰집니다. &apos;자석처럼 메모 정렬&apos;로 켜고 끕니다
 - **문제·제안 보내기**: Stickle 아이콘 메뉴에서
 - Stickle 아이콘을 두 번 클릭하면 새 메모가 생깁니다(시스템이 허용하는 곳에서)
 

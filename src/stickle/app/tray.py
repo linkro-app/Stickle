@@ -136,6 +136,12 @@ class Tray(QSystemTrayIcon):
             self.update_check_action.triggered.connect(updates.set_enabled)
             updates.found.connect(self._update_news)
             updates.switched.connect(self._update_news)
+        # Notes line up with the notes and screen edges near them when moved or
+        # resized (Alt as one is let go skips it once).
+        self.magnet_action = self._menu.addAction("")
+        self.magnet_action.setCheckable(True)
+        self.magnet_action.setVisible(notes is not None)
+        self.magnet_action.triggered.connect(self._switch_magnet)
         # The file may have been removed in the system's own settings meanwhile.
         self._menu.aboutToShow.connect(self.refresh_switches)
 
@@ -228,6 +234,12 @@ class Tray(QSystemTrayIcon):
             self.app_list_action.setChecked(self._app_list.added)
         if self._updates is not None:
             self.update_check_action.setChecked(self._updates.enabled)
+        if self._notes is not None:
+            self.magnet_action.setChecked(self._notes.magnet)
+
+    def _switch_magnet(self, on: bool) -> None:
+        if self._notes is not None:
+            self._notes.set_magnet(on)
 
     def _update_news(self, _news: object) -> None:
         self.refresh_new_version()
@@ -319,4 +331,5 @@ class Tray(QSystemTrayIcon):
         self.autostart_action.setText(self.tr("&Start Stickle when I log in"))
         self.app_list_action.setText(self.tr("Show Stickle in the &app list"))
         self.update_check_action.setText(self.tr("Check for a new &version daily"))
+        self.magnet_action.setText(self.tr("Line notes up like a &magnet"))
         self.refresh_new_version()

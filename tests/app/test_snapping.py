@@ -6,17 +6,21 @@ from pathlib import Path
 
 import apsw
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QGuiApplication, QMouseEvent
 from pytestqt.qtbot import QtBot
 
 from stickle.app import note_window
+from stickle.app.i18n import Translations
 from stickle.app.note_window import SETTLE_MS, NoteWindow
 from stickle.app.notes import NoteManager
+from stickle.app.stickle_window import StickleWindow
+from stickle.app.tray import Tray
 from stickle.core.snap import GAP
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
+from stickle.data.settings import MAGNET, Settings
 
 KEY = secrets.token_bytes(32)
 
@@ -166,3 +170,97 @@ def test_without_shift_only_the_note_moves(qtbot: QtBot, app: App) -> None:
     app.drop(a, QPoint(30, 400))
     qtbot.wait(200)
     assert b.pos() == b_at
+
+
+# Resized by its corner, and the magnet switched off
+
+
+def let_go_resized(window: NoteWindow, width: int, height: int, alt: bool = False) -> None:
+    """As its corner grip would: pressed, the size changed, let go, left alone."""
+    press = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(2, 2),
+        QPointF(window.size_grip.mapToGlobal(QPoint(2, 2))),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    window.eventFilter(window.size_grip, press)  # what the note hears of the grip
+    window.resize(width, height)
+    window.alt_at_drop = alt
+    window.geometry_settled.emit()
+
+
+def test_resized_below_a_note_it_takes_its_width(qtbot: QtBot, app: App) -> None:
+    a = app.note("a", 0, 0)
+    b = app.note("b", 0, a.height() + GAP)
+    assert b.resizing is False
+    let_go_resized(b, a.width() - 8, b.height())
+
+    qtbot.waitUntil(lambda: b.width() == a.width(), timeout=1000)
+    assert b.pos() == app.origin + QPoint(0, a.height() + GAP)
+    assert b.resizing is False
+
+
+def test_resized_beside_a_note_it_takes_its_height(qtbot: QtBot, app: App) -> None:
+    a = app.note("a", 0, 0)
+    b = app.note("b", a.width() + GAP, 0)
+    let_go_resized(b, b.width(), a.height() + 9)
+
+    qtbot.waitUntil(lambda: b.height() == a.height(), timeout=1000)
+
+
+def test_with_alt_held_the_size_stays_as_let_go(qtbot: QtBot, app: App) -> None:
+    a = app.note("a", 0, 0)
+    b = app.note("b", 0, a.height() + GAP)
+    let_go_resized(b, a.width() - 8, b.height(), alt=True)
+    qtbot.wait(200)
+    assert b.width() == a.width() - 8
+
+
+def test_with_the_magnet_off_nothing_lines_up(
+    qtbot: QtBot, connection: apsw.Connection, app: App
+) -> None:
+    settings = Settings(connection)
+    manager = NoteManager(app.notes, idle_ms=10, max_ms=50, layouts=app.layouts, settings=settings)
+    switched: list[None] = []
+    manager.magnet_changed.connect(lambda: switched.append(None))
+    assert manager.magnet is True
+    manager.set_magnet(False)
+    assert manager.magnet is False and settings.get(MAGNET) is False and switched == [None]
+
+    app.manager = manager
+    a = app.note("a", 0, 0)
+    b = app.note("b", 600, 0)
+    app.drop(b, QPoint(a.width() + 10, 5))
+    qtbot.wait(200)
+    assert b.pos() == app.origin + QPoint(a.width() + 10, 5)
+    c = app.note("c", 0, a.height() + GAP)
+    let_go_resized(c, a.width() - 8, c.height())
+    qtbot.wait(200)
+    assert c.width() == a.width() - 8
+
+
+def test_the_tray_and_the_stickle_window_switch_the_magnet(
+    qtbot: QtBot, connection: apsw.Connection
+) -> None:
+    manager = NoteManager(NoteRepository(connection), settings=Settings(connection))
+    translations = Translations()
+    tray = Tray(manager.new_note, lambda: None, translations, manager)
+    window = StickleWindow(manager, translations, lambda: None)
+    try:
+        assert tray.magnet_action.isChecked() and window.magnet_box.isChecked()
+
+        tray.magnet_action.trigger()  # off
+        assert manager.magnet is False
+        assert not window.magnet_box.isChecked()  # told at once
+
+        window.magnet_box.click()  # on again
+        assert manager.magnet is True
+        tray.refresh_switches()  # as the menu opens
+        assert tray.magnet_action.isChecked()
+    finally:
+        # Gone before the database closes: a later language switch reaches every window.
+        window.deleteLater()
+        tray.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

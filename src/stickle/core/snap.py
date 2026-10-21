@@ -59,6 +59,50 @@ def snapped(window: Rect, others: Sequence[Rect], areas: Sequence[Rect]) -> Rect
     )
 
 
+def resized(
+    window: Rect, others: Sequence[Rect], areas: Sequence[Rect], height_too: bool = True
+) -> Rect:
+    """The size window settles at when let go after resizing (by its bottom right
+    corner, so only the right and bottom edges moved): each edge near the same
+    edge of a note in line with it, near the gap before a note beside or below
+    it, or near an edge of the area it is on, goes there. height_too False keeps
+    the height (a folded note)."""
+    rights: list[int] = []
+    bottoms: list[int] = []
+    for other in others:
+        near_vertically = _overlap(
+            window.y, window.bottom, other.y - TOUCHING, other.bottom + TOUCHING
+        )
+        near_horizontally = _overlap(
+            window.x, window.right, other.x - TOUCHING, other.right + TOUCHING
+        )
+        if near_vertically:
+            # Side by side: bottoms in line, or up to the note on its right.
+            bottoms.append(other.bottom)
+            if other.x > window.x:
+                rights.append(other.x - GAP)
+        if near_horizontally:
+            # One above the other: right sides in line (the same width when the
+            # left sides are), or down to the note below.
+            rights.append(other.right)
+            if other.y > window.y:
+                bottoms.append(other.y - GAP)
+    for area in areas:
+        if _overlap(window.x, window.right, area.x, area.right) and _overlap(
+            window.y, window.bottom, area.y, area.bottom
+        ):
+            rights.append(area.right)
+            bottoms.append(area.bottom)
+    right = _nearest(window.right, rights)
+    bottom = _nearest(window.bottom, bottoms) if height_too else None
+    return Rect(
+        window.x,
+        window.y,
+        window.width if right is None else right - window.x,
+        window.height if bottom is None else bottom - window.y,
+    )
+
+
 def touching(a: Rect, b: Rect) -> bool:
     """Whether two notes are side by side or one above the other, at most
     TOUCHING apart (as snapping leaves them), or overlap."""

@@ -183,6 +183,10 @@ class StickleWindow(QWidget):
             self.update_box.clicked.connect(updates.set_enabled)
             updates.found.connect(self._update_news)
             updates.switched.connect(self._update_news)
+        # Lining notes up when moved or resized, as the tray's switch does.
+        self.magnet_box = QCheckBox(self)
+        self.magnet_box.clicked.connect(notes.set_magnet)
+        notes.magnet_changed.connect(self.refresh_switches)
         self.recovery_button = QPushButton(self)
         self.recovery_button.setVisible(recovery is not None)
         self.recovery_button.clicked.connect(self.new_recovery_key)
@@ -343,6 +347,7 @@ class StickleWindow(QWidget):
         layout.addWidget(self.login_note)
         layout.addWidget(self.app_list_box)
         layout.addWidget(self.update_box)
+        layout.addWidget(self.magnet_box)
         layout.addWidget(self.recovery_button)
         if self.shortcut_rows is not None:
             layout.addWidget(self.shortcut_rows)
@@ -421,6 +426,7 @@ class StickleWindow(QWidget):
             self.autostart_box,
             self.app_list_box,
             self.update_box,
+            self.magnet_box,
             self.recovery_button,
             *(self.shortcut_rows.tab_order() if self.shortcut_rows is not None else []),
             self.quit_button,
@@ -473,6 +479,13 @@ class StickleWindow(QWidget):
         self.autostart_box.setText(self.tr("&Start Stickle when I log in"))
         self.app_list_box.setText(self.tr("Show Stickle in the &app list"))
         self.update_box.setText(self.tr("Check for a new &version daily"))
+        self.magnet_box.setText(self.tr("Line notes up like a &magnet"))
+        self.magnet_box.setToolTip(
+            self.tr(
+                "A note moved or resized near another note or the edge of the screen lines"
+                " up with it. Hold Alt as you let go to leave it as it is."
+            )
+        )
         self.new_version_button.setText(self.tr("&Get it…"))
         self.refresh_new_version()
         self.recovery_button.setText(self.tr("Make a new &recovery key…"))
@@ -548,6 +561,7 @@ class StickleWindow(QWidget):
             self.app_list_box.setChecked(self._app_list.added)
         if self._updates is not None:
             self.update_box.setChecked(self._updates.enabled)
+        self.magnet_box.setChecked(self._notes.magnet)
 
     def _update_news(self, _news: object) -> None:
         self.refresh_new_version()

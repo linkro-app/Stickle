@@ -34,6 +34,7 @@ from PySide6.QtCore import (
     QPoint,
     QPropertyAnimation,
     QRect,
+    QSize,
     QTimer,
     Signal,
 )
@@ -48,11 +49,11 @@ from stickle.core.labels import DEFAULT_ICON, Category, Mark
 from stickle.core.layout import MAIN, Place, fit, monitor_at, remember, restore
 from stickle.core.note import DEFAULT_COLOR, Note
 from stickle.core.paste import pasted_text
-from stickle.core.snap import snapped, together
+from stickle.core.snap import resized, snapped, together
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
-from stickle.data.settings import DEFAULT_NOTE_COLOR, Settings
+from stickle.data.settings import DEFAULT_NOTE_COLOR, MAGNET, Settings
 from stickle.platform.linux.x11 import activate
 
 # New notes cascade from the top-left of the screen so they never land exactly on top of each other.
@@ -159,6 +160,8 @@ class NoteManager(QObject):
     set_aside_changed = Signal()
     # The desktop shows another category's notes, or every note again.
     view_changed = Signal()
+    # Lining up like a magnet was switched on or off.
+    magnet_changed = Signal()
     # A note asked for the keys at a glance (F1, Ctrl+/, its menu).
     guide_requested = Signal()
 
@@ -504,13 +507,17 @@ class NoteManager(QObject):
         """Moved or resized, then left alone: remembered. Just dropped after a drag,
         it is lined up first with the notes and the edge of the screen near it,
         unless Alt was held (or the window system places windows itself)."""
+        if window.resizing:
+            window.resizing = False
+            self._line_up_size(window)
+            return
         if not window.dragging:
             self.save_layout(window)
             return
         window.dragging = False
         moving = [window, *(other for other, _start in self._groups.pop(window, []))]
         delta = QPoint()
-        if not window.alt_at_drop and can_place_windows():
+        if self.magnet and not window.alt_at_drop and can_place_windows():
             others = [
                 rect(other.geometry())
                 for other in self._windows
@@ -530,6 +537,43 @@ class NoteManager(QObject):
             slide.setEndValue(moved.pos() + delta)
             slide.finished.connect(lambda moved=moved: self.save_layout(moved))
             slide.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+
+    def _line_up_size(self, window: NoteWindow) -> None:
+        """Just let go after resizing by its corner: its right and bottom edges go
+        to the edges near them (a folded note keeps its height), unless Alt was held."""
+        target = now = rect(window.geometry())
+        if self.magnet and not window.alt_at_drop and can_place_windows():
+            others = [
+                rect(other.geometry())
+                for other in self._windows
+                if other.isVisible() and other is not window
+            ]
+            areas = [monitor.available for monitor in monitors()]
+            target = resized(now, others, areas, height_too=not window.collapsed)
+        if (target.width, target.height) == (now.width, now.height):
+            self.save_layout(window)
+            return
+        grow = QPropertyAnimation(window, b"size", self)
+        grow.setDuration(SNAP_SLIDE_MS)
+        grow.setEndValue(QSize(target.width, target.height))
+        grow.finished.connect(lambda: self.save_layout(window))
+        grow.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+
+    # Lining up like a magnet, on or off (one setting for moving and resizing)
+
+    @property
+    def magnet(self) -> bool:
+        return self._settings.get(MAGNET) if self._settings is not None else True
+
+    def set_magnet(self, on: bool) -> None:
+        if self._settings is None:
+            return
+        try:
+            self._settings.set(MAGNET, on)
+        except apsw.Error as error:
+            log.error("could not keep the magnet setting: %s", type(error).__name__)
+            return
+        self.magnet_changed.emit()
 
     def place_all(self) -> None:
         """Monitors were connected, removed or changed: put every note where it belongs."""

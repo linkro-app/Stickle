@@ -564,6 +564,7 @@ class NoteWindow(QWidget):
         self.title_bar.menu_requested.connect(self.open_menu_at)
         # Dragged by its title bar: its owner may line it up where it is dropped.
         self.dragging = False
+        self.resizing = False  # by its corner, the same way
         self.alt_at_drop = False  # Alt held as it was let go: left where it is
         self._after_drop = 0  # looks for Alt since the button went up
         self._drag_watch = QTimer(self)
@@ -664,6 +665,7 @@ class NoteWindow(QWidget):
         grip_row.setContentsMargins(0, 0, 0, 0)
         grip_row.addStretch()
         self.size_grip = QSizeGrip(self)
+        self.size_grip.installEventFilter(self)  # resized by it: lined up when let go
         grip_row.addWidget(self.size_grip)
 
         layout = QVBoxLayout(self)
@@ -1066,17 +1068,25 @@ class NoteWindow(QWidget):
             self._settle.start()
 
     def _settled(self) -> None:
-        if self.dragging and (_main_button_down() or self._drag_watch.isActive()):
+        held = self.dragging or self.resizing
+        if held and (_main_button_down() or self._drag_watch.isActive()):
             self._settle.start()  # held still in the middle of a drag: not dropped yet
             return
         self.geometry_settled.emit()
 
     def _drag_started(self, group: bool) -> None:
         self.dragging = True
+        self._watch_alt()
+        self.drag_started.emit(group)
+
+    def _resize_started(self) -> None:
+        self.resizing = True
+        self._watch_alt()
+
+    def _watch_alt(self) -> None:
         self.alt_at_drop = False
         self._after_drop = 0
         self._drag_watch.start()
-        self.drag_started.emit(group)
 
     def _watch_drag(self) -> None:
         """Whether Alt is held as the note is let go. While the desktop moves a
@@ -1283,6 +1293,13 @@ class NoteWindow(QWidget):
 
     @override
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if (
+            isinstance(watched, QSizeGrip)  # its own (watched before it exists: the editor)
+            and event.type() == QEvent.Type.MouseButtonPress
+            and isinstance(event, QMouseEvent)
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._resize_started()
         # Once released the note has been stored (or deleted): closing moves the focus
         # away, and that must not store it again.
         if (
