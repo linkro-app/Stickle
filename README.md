@@ -177,4 +177,9 @@ Stickle collects nothing and has no server: see the [privacy policy](PRIVACY.md)
 [GPL-3.0-or-later](LICENSE).
 
 The icons for categories and marks come from [Lucide](https://lucide.dev),
-under the [ISC License](src/stickle/app/icons/lucide/LICENSE).
+under the [ISC License](src/stickle/app/icons/lucide/LICENSE). Each build has a `licenses`
+folder next to the program, whose `THIRD-PARTY-NOTICES.txt` lists everything it includes
+(Qt, Python and the rest) with their licenses.
+
+To help, see [CONTRIBUTING.md](CONTRIBUTING.md); to report a security problem,
+[SECURITY.md](SECURITY.md).

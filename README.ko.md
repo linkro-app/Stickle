@@ -158,4 +158,9 @@ uv run python -m stickle
 [GPL-3.0-or-later](LICENSE)
 
 카테고리와 표시의 아이콘은 [Lucide](https://lucide.dev)의 것이며
-[ISC 라이선스](src/stickle/app/icons/lucide/LICENSE)를 따릅니다.
+[ISC 라이선스](src/stickle/app/icons/lucide/LICENSE)를 따릅니다. 배포 파일에는 프로그램 옆에
+`licenses` 폴더가 있고, 그 안의 `THIRD-PARTY-NOTICES.txt`에 함께 담긴 모든 것(Qt, 파이썬 등)과
+그 라이선스가 적혀 있습니다.
+
+참여 방법은 [CONTRIBUTING.md](CONTRIBUTING.md)(영어), 보안 문제 신고는
+[SECURITY.md](SECURITY.md)(영어)를 보세요.
