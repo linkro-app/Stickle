@@ -1,9 +1,10 @@
 """System tray icon and its menu."""
 
 import logging
+import sys
 from collections.abc import Callable
 
-from PySide6.QtCore import QElapsedTimer, QUrl
+from PySide6.QtCore import QElapsedTimer, QObject, QTimer, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QGuiApplication
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
@@ -42,6 +43,44 @@ def menu_title(note: Note) -> str:
     if len(title) > TITLE_LENGTH:
         title = title[: TITLE_LENGTH - 1] + "…"
     return title.replace("&", "&&")
+
+
+class MenuWatch(QObject):
+    """Closes a menu when another program's window comes to the front while it is
+    open. Windows leaves the tray menu on screen when a program comes up by itself
+    (a click elsewhere closes it): the window in front as it opened (the menu, or
+    the taskbar if it was not let in front) is noted, and any other program's
+    window in front after that closes it."""
+
+    INTERVAL_MS = 200
+
+    def __init__(
+        self, menu: QMenu, front: Callable[[], int], another_program: Callable[[int], bool]
+    ) -> None:
+        super().__init__(menu)
+        self._menu = menu
+        self._front = front
+        self._another_program = another_program
+        self._at_open: int | None = None
+        self._timer = QTimer(self)
+        self._timer.setInterval(self.INTERVAL_MS)
+        self._timer.timeout.connect(self._look)
+        menu.aboutToShow.connect(self._start)
+        menu.aboutToHide.connect(self._timer.stop)
+
+    def _start(self) -> None:
+        self._at_open = None
+        self._timer.start()
+
+    def _look(self) -> None:
+        if not self._menu.isVisible():
+            self._timer.stop()
+            return
+        window = self._front()
+        if self._at_open is None:
+            self._at_open = window
+        elif window and window != self._at_open and self._another_program(window):
+            self._menu.hide()
 
 
 class Tray(QSystemTrayIcon):
@@ -95,6 +134,10 @@ class Tray(QSystemTrayIcon):
             notes.set_aside_changed.connect(self.retranslate)
             notes.view_changed.connect(self.retranslate)
         self._menu.aboutToShow.connect(self._refresh_clipboard)
+        if sys.platform == "win32":
+            from stickle.platform.windows.foreground import foreground_window, is_another_program
+
+            self._menu_watch = MenuWatch(self._menu, foreground_window, is_another_program)
         self._menu.addSeparator()
 
         # Finding notes on the desktop, and the keys at a glance: shown by the

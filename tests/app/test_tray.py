@@ -1,12 +1,12 @@
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 from pytestqt.qtbot import QtBot
 
 from stickle.app.i18n import Translations
-from stickle.app.tray import Tray
+from stickle.app.tray import MenuWatch, Tray
 
 
 def test_menu_actions_call_their_handlers(translations: Translations) -> None:
@@ -120,3 +120,52 @@ def test_a_letter_picks_its_item(qtbot: QtBot, translations: Translations) -> No
     QTest.keyClick(menu, Qt.Key.Key_N)
 
     assert calls == ["new"]
+
+
+# The menu, once another program's window comes to the front
+
+
+class Front:
+    """Stands in for the window system: which window is in front, and whose."""
+
+    def __init__(self, window: int) -> None:
+        self.window = window
+        self.ours = {1}
+
+    def __call__(self) -> int:
+        return self.window
+
+    def another_program(self, window: int) -> bool:
+        return window not in self.ours
+
+
+def open_watched(qtbot: QtBot, front: Front) -> QMenu:
+    menu = QMenu()
+    menu.addAction("Item")
+    MenuWatch(menu, front, front.another_program)
+    menu.popup(QPoint(100, 100))
+    qtbot.waitUntil(menu.isVisible)
+    qtbot.wait(MenuWatch.INTERVAL_MS + 100)  # what was in front as it opened, noted
+    return menu
+
+
+def test_another_program_coming_up_closes_the_menu(qtbot: QtBot) -> None:
+    front = Front(50)  # the taskbar, the menu not let in front
+    menu = open_watched(qtbot, front)
+
+    front.window = 70  # a program that came up by itself
+    qtbot.waitUntil(lambda: not menu.isVisible(), timeout=1000)
+
+
+def test_the_menu_stays_while_stickle_or_the_same_window_is_in_front(qtbot: QtBot) -> None:
+    front = Front(50)
+    menu = open_watched(qtbot, front)
+
+    front.window = 1  # one of Stickle's own (its menu, a submenu)
+    qtbot.wait(MenuWatch.INTERVAL_MS * 2)
+    front.window = 50  # back to what was in front as it opened
+    qtbot.wait(MenuWatch.INTERVAL_MS * 2)
+    front.window = 0  # none, while the front one changes
+    qtbot.wait(MenuWatch.INTERVAL_MS * 2)
+    assert menu.isVisible()
+    menu.hide()

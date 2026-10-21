@@ -155,7 +155,7 @@ def test_the_language_can_be_chosen(app: App) -> None:
 
     assert app.translations.language == "en"
     assert box.itemText(0) == "System language"
-    app.translations.apply(None)
+    app.translations.apply("en")  # not the system's: on a Korean system it stayed Korean
 
 
 def test_everything_has_a_name_and_a_key(app: App) -> None:
