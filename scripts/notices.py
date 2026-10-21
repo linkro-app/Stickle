@@ -45,6 +45,14 @@ LICENSES = {
 # Where the system keeps the libraries bundle_linux_libs.py copied in.
 SYSTEM_LIBRARIES = (Path("/usr/lib64"), Path("/lib64"), Path("/usr/lib"))
 LICENSE_NAME = re.compile(r"(licen[cs]e|copying|notice|authors)", re.I)
+DOC_LICENSE = re.compile(r"(licen[cs]e|copying)", re.I)
+# Packages of the build image that install no license text at all: the text from
+# their source package (libxcb 1.13.1's COPYING; xcb-util-keysyms 0.4.0 has only
+# the notice at the top of keysyms.c), kept in packaging/licenses.
+NO_FILE_IN_RPM = {
+    "libxcb": "libxcb-COPYING.txt",
+    "xcb-util-keysyms": "xcb-util-keysyms-COPYING.txt",
+}
 
 
 @dataclass
@@ -196,19 +204,37 @@ def library_packages(
         version, license = query("-q", "--queryformat", "%{VERSION}\t%{LICENSE}", owner).split(
             "\t", 1
         )
-        texts = [Path(p) for p in query("-qL", owner).split() if Path(p).is_file()]
-        if not texts:
-            # Some split packages keep the texts in the main one (libX11-xcb in libX11).
-            base = re.sub(r"-(libs|xcb|common)$", "", owner)
-            if base != owner:
-                try:
-                    texts = [Path(p) for p in query("-qL", base).split() if Path(p).is_file()]
-                except subprocess.CalledProcessError:
-                    texts = []
+        texts = package_licenses(owner, query)
         if not texts:
             missing.extend(libraries)
         packages.append(LibraryPackage(owner, version, license, texts))
     return packages, missing
+
+
+def package_licenses(package: str, query: Callable[..., str]) -> list[Path]:
+    """The license files of an installed package, looked for where packagers put them."""
+
+    def existing(*args: str) -> list[Path]:
+        return [Path(p) for p in query(*args).splitlines() if Path(p).is_file()]
+
+    def own(name: str) -> list[Path]:
+        # Older packages mark the license as documentation (libXau, lz4-libs).
+        return existing("-qL", name) or [
+            p for p in existing("-qd", name) if DOC_LICENSE.match(p.name)
+        ]
+
+    texts = own(package)
+    if not texts:
+        # Split packages can keep it in another package built from the same
+        # source: libX11-xcb in libX11-common, pcre2 in pcre2-syntax.
+        source = query("-q", "--queryformat", "%{SOURCERPM}", package)
+        for line in query("-qa", "--queryformat", "%{NAME}\t%{SOURCERPM}\n").splitlines():
+            name, _, other = line.partition("\t")
+            if other == source and name != package:
+                texts += own(name)
+    if not texts and package in NO_FILE_IN_RPM:
+        texts = [PACKAGED / NO_FILE_IN_RPM[package]]
+    return texts
 
 
 def render(version: str, components: list[Component]) -> str:

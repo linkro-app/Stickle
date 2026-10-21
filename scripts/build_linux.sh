@@ -16,6 +16,10 @@ set -eu
 # build the fcitx5 input method plugin (scripts/build_fcitx5_qt.py).
 # A nearby mirror sometimes serves broken metadata. After a failure, switch from
 # the location-based mirror list to AlmaLinux's own repository server.
+# The image installs without documentation, where some packages keep their
+# license: install with it, and reinstall the image's own packages that do so
+# (scripts/notices.py fails on a bundled library without its license).
+sed -i '/^tsflags=nodocs/d' /etc/dnf/dnf.conf
 for attempt in 1 2 3; do
     if [ "$attempt" != 1 ]; then
         sed -i 's/^mirrorlist=/#mirrorlist=/; s/^# *baseurl=/baseurl=/' \
@@ -26,7 +30,8 @@ for attempt in 1 2 3; do
         xcb-util-renderutil xcb-util-wm libEGL mesa-libGL fontconfig dbus-libs \
         libwayland-client libwayland-cursor libwayland-egl \
         cmake extra-cmake-modules gettext libxkbcommon-devel libxcb-devel libX11-devel \
-        mesa-libGL-devel mesa-libEGL-devel wayland-devel >/dev/null; then
+        mesa-libGL-devel mesa-libEGL-devel wayland-devel >/dev/null &&
+        dnf reinstall -y -q libXau libX11-common lz4-libs >/dev/null; then
         break
     fi
     [ "$attempt" = 3 ] && exit 1
