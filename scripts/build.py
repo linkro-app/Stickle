@@ -221,9 +221,20 @@ def main() -> int:
     if sys.platform == "win32":
         declare_dpi_awareness()
     print(f"Built {MAC_APP if sys.platform == 'darwin' else DIST_DIR}")
+    notices = [sys.executable, str(ROOT / "scripts" / "notices.py")]
+    if sys.platform == "win32":
+        subprocess.run([*notices, str(DIST_DIR)], check=True)
+    if sys.platform == "darwin":
+        subprocess.run([*notices, str(MAC_APP / "Contents" / "MacOS")], check=True)
     if sys.platform == "linux":
-        # The fcitx5 plugin first, so its libraries are bundled with the rest.
-        for script in ("build_fcitx5_qt.py", "bundle_linux_libs.py", "build_appimage.py"):
+        # The fcitx5 plugin first, so its libraries are bundled with the rest, and
+        # the licenses once everything is in the folder.
+        for script in (
+            "build_fcitx5_qt.py",
+            "bundle_linux_libs.py",
+            "notices.py",
+            "build_appimage.py",
+        ):
             script_path = ROOT / "scripts" / script
             subprocess.run([sys.executable, str(script_path), str(DIST_DIR)], check=True)
     return 0
