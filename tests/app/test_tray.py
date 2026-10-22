@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QAction, QGuiApplication
@@ -110,6 +112,7 @@ def test_every_item_has_a_key_of_its_own(translations: Translations, language: s
         assert len(set(keys)) == len(keys), sorted(keys)
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Qt turns menu letters off on macOS")
 def test_a_letter_picks_its_item(qtbot: QtBot, translations: Translations) -> None:
     calls: list[str] = []
     tray = Tray(lambda: calls.append("new"), lambda: None, translations)
