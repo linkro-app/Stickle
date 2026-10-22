@@ -542,7 +542,6 @@ def test_starting_at_login_is_switched_from_the_tray_and_the_window(
     translations = Translations()
     tray = Tray(manager.new_note, lambda: None, translations, manager, autostart)
     window = StickleWindow(manager, translations, lambda: None, autostart)
-    qtbot.addWidget(window)
     assert not tray.autostart_action.isChecked()
 
     tray.autostart_action.trigger()
@@ -556,6 +555,7 @@ def test_starting_at_login_is_switched_from_the_tray_and_the_window(
     assert not tray.autostart_action.isChecked()
     assert tray.autostart_action.text() == "&Start Stickle when I log in"
     window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def test_a_switch_from_the_tray_shows_in_the_open_window(
@@ -567,7 +567,6 @@ def test_a_switch_from_the_tray_shows_in_the_open_window(
     translations = Translations()
     tray = Tray(manager.new_note, lambda: None, translations, manager, autostart)
     window = StickleWindow(manager, translations, lambda: None, autostart)
-    qtbot.addWidget(window)
     connect_stickle_window(window, manager, tray, lambda: None)
     window.open()
     assert not window.autostart_box.isChecked()
@@ -578,6 +577,7 @@ def test_a_switch_from_the_tray_shows_in_the_open_window(
     tray.autostart_action.trigger()
     assert not window.autostart_box.isChecked()
     window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def test_turned_off_elsewhere_shows_as_off(
@@ -603,7 +603,6 @@ def test_the_open_window_shows_a_change_made_elsewhere_when_it_is_used(
     autostart.enable()
     manager = NoteManager(NoteRepository(connection))
     window = StickleWindow(manager, Translations(), lambda: None, autostart)
-    qtbot.addWidget(window)
     window.open()
     assert window.autostart_box.isChecked()
 
@@ -612,6 +611,7 @@ def test_the_open_window_shows_a_change_made_elsewhere_when_it_is_used(
 
     assert not window.autostart_box.isChecked()
     window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def test_a_file_that_cannot_be_written_leaves_it_off(
