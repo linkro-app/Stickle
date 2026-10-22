@@ -9,7 +9,7 @@ import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtGui import QHelpEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMenu, QToolTip
+from PySide6.QtWidgets import QApplication, QMenu, QToolTip, QWidget
 from pytestqt.qtbot import QtBot
 
 from stickle.app import notes as notes_module
@@ -260,6 +260,29 @@ def test_resting_on_the_left_icon_tells_what_it_shows(app: App, qtbot: QtBot) ->
 
     rest_at(QPoint(bar.width() // 2, bar.height() // 2))  # elsewhere on the bar
     assert QToolTip.text() == ""  # nothing to tell there
+
+
+def test_the_title_bar_tells_what_its_buttons_do_while_another_window_is_in_use(
+    app: App, qtbot: QtBot
+) -> None:
+    window = app.note("Plan")
+    window.show()
+    qtbot.waitExposed(window)
+    other = QWidget()
+    qtbot.addWidget(other)
+    other.setGeometry(window.x(), window.y() + window.height() + 40, 100, 50)  # not over it
+    other.show()
+    other.activateWindow()
+    qtbot.waitUntil(lambda: other.isActiveWindow() and not window.isActiveWindow())
+
+    pin = window.title_bar.pin_button
+    # From somewhere else first, so that it is a move onto the button wherever
+    # an earlier test left the pointer.
+    QTest.mouseMove(window.editor, window.editor.rect().center())
+    QTest.mouseMove(pin, pin.rect().center())  # and rests there
+    qtbot.waitUntil(QToolTip.isVisible)
+    assert QToolTip.text() == "Always on top"
+    QToolTip.hideText()
 
 
 def test_a_category_icon_shows_on_every_note_colour(app: App) -> None:

@@ -538,6 +538,9 @@ class NoteWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         # macOS hides tool windows while the app is inactive unless told otherwise.
         self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow)
+        # A note is mostly pointed at while another program is in use: its title
+        # bar's tooltips show then too, once the pointer rests on a button.
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips)
         self.resize(*DEFAULT_SIZE)
 
         self.note_id = note_id  # None until the note is first stored
