@@ -66,10 +66,9 @@ Previews are under [Releases](https://github.com/linkro-app/Stickle/releases), m
   may say it protected your PC: choose **More info → Run anyway**. When **Start Stickle
   when I log in** was on, Microsoft Defender sometimes blocked 0.3 as
   `Trojan:Win32/Bearfoos.A!ml`: its machine learning mistook an unsigned program that starts
-  itself at login for a trojan. 0.4 is not blocked by an up-to-date Defender, but this can
-  change from build to build, so until signed builds are out that option starts off on
-  Windows. If
-  Defender blocks Stickle for you, please
+  itself at login for a trojan. 0.4 and 0.5 are not blocked by an up-to-date Defender, but
+  this can change from build to build, so until signed builds are out that option starts off
+  on Windows. If Defender blocks Stickle for you, please
   [open an issue](https://github.com/linkro-app/Stickle/issues/new) so we know.
 - **Linux**: download the AppImage, make it executable (`chmod +x Stickle-x86_64.AppImage`,
   or in its file properties) and run it. Stickle offers to add itself to your application list.
