@@ -209,6 +209,10 @@ def double_click(window: NoteWindow, point: QPoint) -> None:
     viewport = window.view.viewport()
     QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, pos=point)
     QTest.mouseDClick(viewport, Qt.MouseButton.LeftButton, pos=point)
+    # Let go as a person does: QTest leaves the button held after a double-click,
+    # and every later mouse move in the tests would drag. On the note, as the
+    # formatted view is gone once it is being edited.
+    QTest.mouseRelease(window, Qt.MouseButton.LeftButton, pos=viewport.mapTo(window, point))
 
 
 def test_note_with_text_opens_formatted(window: NoteWindow) -> None:

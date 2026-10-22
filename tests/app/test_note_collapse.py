@@ -61,6 +61,9 @@ def double_click_title_bar(window: NoteWindow) -> None:
     bar = window.title_bar
     point = QPoint(bar.width() // 3, bar.height() // 2)
     QTest.mouseDClick(bar, Qt.MouseButton.LeftButton, pos=point)
+    # Let go as a person does: QTest leaves the button held after a double-click,
+    # and every later mouse move in the tests would drag.
+    QTest.mouseRelease(bar, Qt.MouseButton.LeftButton, pos=point)
 
 
 def test_double_clicking_the_title_bar_folds_and_unfolds(app: App) -> None:
