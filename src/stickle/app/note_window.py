@@ -33,6 +33,7 @@ from PySide6.QtGui import (
     QDesktopServices,
     QFocusEvent,
     QGuiApplication,
+    QHelpEvent,
     QIcon,
     QInputMethodEvent,
     QKeyEvent,
@@ -59,6 +60,7 @@ from PySide6.QtWidgets import (
     QSizeGrip,
     QStackedWidget,
     QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -408,6 +410,17 @@ class TitleBar(QWidget):
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._elide()
+
+    @override
+    def event(self, event: QEvent) -> bool:
+        # The category icon lets the mouse through, so that a press on it moves
+        # the note; resting on it is then this bar's, which shows the icon's tooltip.
+        if event.type() == QEvent.Type.ToolTip and isinstance(event, QHelpEvent):
+            tag = self.category_tag
+            if tag.isVisible() and tag.geometry().contains(event.pos()):
+                QToolTip.showText(event.globalPos(), tag.toolTip(), tag, tag.rect())
+                return True
+        return super().event(event)
 
     @override
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:

@@ -6,9 +6,10 @@ from pathlib import Path
 
 import apsw
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtGui import QHelpEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QMenu
+from PySide6.QtWidgets import QApplication, QMenu, QToolTip
 from pytestqt.qtbot import QtBot
 
 from stickle.app import notes as notes_module
@@ -237,6 +238,28 @@ def test_the_left_icon_only_shows_the_state(app: App) -> None:
     tag = window.title_bar.category_tag
     assert tag.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     assert tag.focusPolicy() == Qt.FocusPolicy.NoFocus
+
+
+def test_resting_on_the_left_icon_tells_what_it_shows(app: App, qtbot: QtBot) -> None:
+    window = app.note("Plan")
+    window.show()
+    qtbot.waitExposed(window)
+    bar = window.title_bar
+    point = bar.category_tag.geometry().center()
+    # The icon lets the mouse through, so Qt asks the bar for the tooltip there.
+    assert bar.childAt(point) is None
+
+    def rest_at(point: QPoint) -> None:
+        QToolTip.hideText()
+        qtbot.waitUntil(lambda: QToolTip.text() == "")  # gone, not only fading
+        QApplication.sendEvent(bar, QHelpEvent(QEvent.Type.ToolTip, point, bar.mapToGlobal(point)))
+
+    rest_at(point)
+    qtbot.waitUntil(QToolTip.isVisible)
+    assert QToolTip.text() == "No category, stays on top"
+
+    rest_at(QPoint(bar.width() // 2, bar.height() // 2))  # elsewhere on the bar
+    assert QToolTip.text() == ""  # nothing to tell there
 
 
 def test_a_category_icon_shows_on_every_note_colour(app: App) -> None:
