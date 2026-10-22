@@ -37,10 +37,13 @@ KEY = secrets.token_bytes(32)
 
 
 class App:
-    def __init__(self, connection: apsw.Connection, tray: bool) -> None:
+    def __init__(self, connection: apsw.Connection, tray: bool, folder: Path) -> None:
         self.notes = NoteRepository(connection)
         self.manager = NoteManager(self.notes)
-        self.translations = Translations()
+        # No translation files here: a language chosen in a test installs nothing
+        # that outlives it (the built English plurals turned "2 note(s)" into
+        # "2 notes" in the tests after). The translations fixture switches languages.
+        self.translations = Translations(folder / "no translations")
         self.quits: list[None] = []
         self.window = StickleWindow(self.manager, self.translations, self.quit)
         self.tray = Tray(self.manager.new_note, lambda: None, self.translations, self.manager)
@@ -65,15 +68,15 @@ def connection(tmp_path: Path) -> Iterator[apsw.Connection]:
 
 
 @pytest.fixture
-def app(qtbot: QtBot, connection: apsw.Connection) -> Iterator[App]:
-    app = App(connection, tray=True)
+def app(qtbot: QtBot, connection: apsw.Connection, tmp_path: Path) -> Iterator[App]:
+    app = App(connection, tray=True, folder=tmp_path)
     yield app
     app.close()
 
 
 @pytest.fixture
-def trayless(qtbot: QtBot, connection: apsw.Connection) -> Iterator[App]:
-    app = App(connection, tray=False)
+def trayless(qtbot: QtBot, connection: apsw.Connection, tmp_path: Path) -> Iterator[App]:
+    app = App(connection, tray=False, folder=tmp_path)
     yield app
     app.close()
 

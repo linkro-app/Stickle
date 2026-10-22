@@ -33,15 +33,15 @@ def connection(tmp_path: Path) -> Iterator[apsw.Connection]:
 
 
 @pytest.fixture
-def app(qtbot: QtBot, connection: apsw.Connection) -> Iterator[App]:
-    app = App(connection, tray=True)
+def app(qtbot: QtBot, connection: apsw.Connection, tmp_path: Path) -> Iterator[App]:
+    app = App(connection, tray=True, folder=tmp_path)
     yield app
     app.close()
 
 
 @pytest.fixture
-def trayless(qtbot: QtBot, connection: apsw.Connection) -> Iterator[App]:
-    app = App(connection, tray=False)
+def trayless(qtbot: QtBot, connection: apsw.Connection, tmp_path: Path) -> Iterator[App]:
+    app = App(connection, tray=False, folder=tmp_path)
     yield app
     app.close()
 
