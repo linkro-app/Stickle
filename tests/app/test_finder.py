@@ -141,6 +141,24 @@ def test_hidden_and_deleted_notes_found_are_counted_and_listed(app: App) -> None
     assert listed.trash_found.text() == "1 note(s) in the trash match too."
 
 
+def test_the_stickle_window_lists_every_category_and_mark_for_what_was_found(app: App) -> None:
+    work = app.labels.create_category("회사", "blue")
+    urgent = app.labels.marks()[0]
+    app.window.open()
+    listed = app.window.note_list
+    listed.category_box.setCurrentIndex(listed.category_box.findData(work.id))
+    listed.mark_box.setCurrentIndex(listed.mark_box.findData(urgent.id))
+    app.window.hide()
+    app.manager.hide(next(w for w in app.manager.windows if w.text == "회의 준비"))
+
+    app.finder.open()
+    app.type("회의")
+    QTest.keyClick(app.finder.box, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+    assert listed.category_box.currentIndex() == 0  # all categories
+    assert listed.mark_box.currentIndex() == 0  # all marks
+    assert listed.list.count() == 2  # as many as were found, in no category, unmarked
+
+
 def test_only_the_view_is_searched(app: App) -> None:
     work = app.labels.create_category("회사", "blue")
     meeting = next(w for w in app.manager.windows if w.text == "회의 준비")

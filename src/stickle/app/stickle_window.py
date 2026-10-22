@@ -359,11 +359,14 @@ class StickleWindow(QWidget):
         self.retranslate()
 
     def search_for(self, term: str) -> None:
-        """Open, listing every note with term, hidden ones too; those in the trash
-        are counted below the list, a button away."""
+        """Open, listing every note with term, hidden ones too, whatever category
+        or mark was chosen there; those in the trash are counted below the list,
+        a button away."""
         self.open()
         note_list = self.note_list
         note_list.filter_box.setCurrentIndex(0)  # all notes
+        note_list.category_box.setCurrentIndex(0)  # all categories
+        note_list.mark_box.setCurrentIndex(0)  # all marks
         note_list.search_box.setText(term)
         note_list.refresh()
         note_list.search_box.setFocus()
