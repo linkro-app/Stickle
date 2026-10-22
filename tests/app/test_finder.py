@@ -125,16 +125,20 @@ def test_text_just_typed_is_found(app: App) -> None:
 def test_hidden_and_deleted_notes_found_are_counted_and_listed(app: App) -> None:
     hidden = next(w for w in app.manager.windows if w.text == "회의 준비")
     app.manager.hide(hidden)
+    app.manager.delete(app.note("지난 회의"))
     app.finder.open()
     app.type("회의")
     assert app.finder.elsewhere.isVisibleTo(app.finder)
     assert "1 hidden" in app.finder.elsewhere.text()
+    assert "1 in the trash" in app.finder.elsewhere.text()
 
     QTest.keyClick(app.finder.box, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
     assert not app.finder.isVisible() and app.window.isVisible()
-    assert app.window.note_list.search_box.text() == "회의"
-    rows = app.window.note_list.list
-    assert rows.count() == 2  # the hidden one too
+    listed = app.window.note_list
+    assert listed.search_box.text() == "회의"
+    assert listed.list.count() == 2  # the hidden one too
+    assert listed.trash_row.isVisible()  # and the one in the trash, a button away
+    assert listed.trash_found.text() == "1 note(s) in the trash match too."
 
 
 def test_only_the_view_is_searched(app: App) -> None:

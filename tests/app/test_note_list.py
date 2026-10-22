@@ -17,6 +17,7 @@ from stickle.app.note_list import ALL, HIDDEN, REFRESH_DELAY_MS, SEARCH_DELAY_MS
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.app.stickle_window import DEFAULT_SIZE, StickleWindow
+from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.settings import LIST_WINDOW_SIZE, Settings
@@ -28,7 +29,8 @@ class App:
     def __init__(self, connection: apsw.Connection) -> None:
         self.notes = NoteRepository(connection)
         self.settings = Settings(connection)
-        self.manager = NoteManager(self.notes, idle_ms=10, max_ms=50)
+        self.labels = LabelRepository(connection)
+        self.manager = NoteManager(self.notes, idle_ms=10, max_ms=50, labels=self.labels)
         self.window = StickleWindow(
             self.manager, Translations(), lambda: None, settings=self.settings
         )
@@ -389,6 +391,81 @@ def test_search_stays_within_the_chosen_notes(app: App, qtbot: QtBot) -> None:
     app.show_only(TRASH)
     assert titles(app) == ["회의 지운 것"]
     assert app.window.note_list.empty_button.isEnabled()
+
+
+def test_a_search_outside_the_trash_counts_the_notes_in_it_that_match(
+    app: App, qtbot: QtBot
+) -> None:
+    app.note("회의 준비")
+    deleted(app, "회의록", "지난 회의", "장보기")
+    app.window.open()
+    listed = app.window.note_list
+    assert not listed.trash_row.isVisible()  # nothing searched
+
+    typed(app, qtbot, "회의")
+    assert titles(app) == ["회의 준비"]  # the list itself keeps to notes not deleted
+    assert listed.trash_row.isVisible()
+    assert listed.trash_found.text() == "2 note(s) in the trash match too."
+    assert listed.trash_button.accessibleDescription() == listed.trash_found.text()
+
+    typed(app, qtbot, "장보기")
+    assert app.rows() == ["No notes match"]
+    assert listed.trash_found.text() == "1 note(s) in the trash match too."
+
+    typed(app, qtbot, "없는 말")
+    assert not listed.trash_row.isVisible()
+    listed.search_box.clear()
+    qtbot.wait(SEARCH_DELAY_MS + 100)
+    assert not listed.trash_row.isVisible()
+
+
+def test_the_trash_count_keeps_to_the_category_and_mark_chosen(app: App, qtbot: QtBot) -> None:
+    work = app.labels.create_category("회사", "blue")
+    note = app.note("회의 회사")
+    app.manager.set_category(note, work.id)
+    app.manager.delete(note)
+    deleted(app, "회의 집")
+    app.window.open()
+    listed = app.window.note_list
+
+    typed(app, qtbot, "회의")
+    assert listed.trash_found.text() == "2 note(s) in the trash match too."
+    listed.category_box.setCurrentIndex(listed.category_box.findData(work.id))
+    assert listed.trash_found.text() == "1 note(s) in the trash match too."
+    app.show_only(HIDDEN)  # a deleted note is neither on screen nor hidden: still counted
+    assert listed.trash_found.text() == "1 note(s) in the trash match too."
+
+
+def test_the_button_shows_the_same_search_in_the_trash(app: App, qtbot: QtBot) -> None:
+    app.note("회의 준비")
+    deleted(app, "회의록", "장보기")
+    app.window.open()
+    qtbot.waitActive(app.window)
+    listed = app.window.note_list
+    typed(app, qtbot, "회의")
+
+    listed.trash_button.click()
+    assert listed.in_trash and listed.search_box.text() == "회의"
+    assert titles(app) == ["회의록"]
+    assert not listed.trash_row.isVisible()  # in the trash there is nothing more to tell
+    assert app.window.focusWidget() is listed.list and listed.list.currentRow() == 0
+
+
+def test_the_trash_count_is_reached_with_tab_and_translated(
+    app: App, qtbot: QtBot, translations: Translations
+) -> None:
+    deleted(app, "회의록")
+    app.window.open()
+    qtbot.waitActive(app.window)
+    listed = app.window.note_list
+    typed(app, qtbot, "회의")
+
+    listed.list.setFocus()
+    QTest.keyClick(listed.list, Qt.Key.Key_Tab)
+    assert app.window.focusWidget() is listed.trash_button
+    translations.apply("ko")
+    assert listed.trash_button.text() == "휴지통에서 보기"
+    assert listed.trash_found.text() == "휴지통에도 맞는 메모가 1개 있습니다."
 
 
 def test_emptying_the_trash_while_searching_still_empties_all_of_it(

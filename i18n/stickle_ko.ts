@@ -1047,6 +1047,10 @@ The **X** hides a note: bring it back from the Stickle icon. **Ctrl+N** makes a 
         <translation>휴지통 비우기…</translation>
     </message>
     <message>
+        <source>Show in the trash</source>
+        <translation>휴지통에서 보기</translation>
+    </message>
+    <message>
         <source>All categories</source>
         <translation>모든 카테고리</translation>
     </message>
@@ -1093,6 +1097,12 @@ The **X** hides a note: bring it back from the Stickle icon. **Ctrl+N** makes a 
     <message>
         <source>The trash is empty</source>
         <translation>휴지통이 비어 있습니다</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) in the trash match too.</source>
+        <translation>
+            <numerusform>휴지통에도 맞는 메모가 %n개 있습니다.</numerusform>
+        </translation>
     </message>
     <message>
         <source>Empty this note from the trash? This cannot be undone.</source>

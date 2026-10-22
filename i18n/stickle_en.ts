@@ -93,6 +93,16 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>NoteList</name>
+    <message numerus="yes">
+        <source>%n note(s) in the trash match too.</source>
+        <translation>
+            <numerusform>%n note in the trash matches too.</numerusform>
+            <numerusform>%n notes in the trash match too.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>PasswordDialog</name>
     <message numerus="yes">
         <source>Use at least %n characters.</source>

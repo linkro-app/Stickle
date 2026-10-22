@@ -1,5 +1,7 @@
 """The list of notes in the Stickle window: every note not deleted, shown or
-hidden, and the trash, narrowed down by a search as it is typed.
+hidden, and the trash, narrowed down by a search as it is typed. Searched
+outside the trash, it says how many notes in the trash match too, one button
+away.
 
 It only reads the notes; opening, hiding, deleting, restoring and emptying go
 through the note manager, as they do from a note's own window. Emptying from
@@ -108,6 +110,13 @@ class NoteList(QWidget):
         self.list.installEventFilter(self)
         self.empty_button = QPushButton(self)
         self.empty_button.clicked.connect(self.empty_trash)
+        # Deleted notes stay out of the other lists, but a search there says
+        # how many of them match too.
+        self.trash_row = QWidget(self)
+        self.trash_found = QLabel(self.trash_row)
+        self.trash_found.setWordWrap(True)
+        self.trash_button = QPushButton(self.trash_row)
+        self.trash_button.clicked.connect(self.search_trash)
 
         self._refresh_soon = QTimer(self)
         self._refresh_soon.setSingleShot(True)
@@ -122,12 +131,17 @@ class NoteList(QWidget):
         narrow = QHBoxLayout()
         narrow.addWidget(self.category_box, 1)
         narrow.addWidget(self.mark_box, 1)
+        trash_row = QHBoxLayout(self.trash_row)
+        trash_row.setContentsMargins(0, 0, 0, 0)
+        trash_row.addWidget(self.trash_found, 1)
+        trash_row.addWidget(self.trash_button)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(top)
         layout.addLayout(narrow)
         layout.addWidget(self.search_box)
         layout.addWidget(self.list, 1)
+        layout.addWidget(self.trash_row)
         layout.addWidget(self.empty_button)
         self.retranslate()
 
@@ -139,6 +153,7 @@ class NoteList(QWidget):
             self.mark_box,
             self.search_box,
             self.list,
+            self.trash_button,
             self.empty_button,
         ]
 
@@ -165,6 +180,7 @@ class NoteList(QWidget):
             self.tr("The list keeps only notes containing this text. Down goes to the list.")
         )
         self.empty_button.setText(self.tr("Empty the trash…"))
+        self.trash_button.setText(self.tr("Show in the trash"))
         self.refresh()
 
     def _fill_filters(self) -> None:
@@ -203,16 +219,20 @@ class NoteList(QWidget):
             index = self.category_box.findData(self._categories[digit - 1].id)
             self.category_box.setCurrentIndex(index)
 
-    def _wanted(self, note: Note) -> bool:
-        shown = self.filter_box.currentData()
+    def _labelled(self, note: Note) -> bool:
+        """Whether the note is in the category and has the mark chosen."""
         category = self.category_box.currentData()
         mark = self.mark_box.currentData()
         if category == NONE and note.label is not None:
             return False
         if category not in (ANY, NONE) and note.label != category:
             return False
-        if mark != ANY and mark not in note.marks:
+        return mark == ANY or mark in note.marks
+
+    def _wanted(self, note: Note) -> bool:
+        if not self._labelled(note):
             return False
+        shown = self.filter_box.currentData()
         if shown in (ALL, TRASH):
             return True
         return note.hidden if shown == HIDDEN else not note.hidden
@@ -263,9 +283,16 @@ class NoteList(QWidget):
                 self.tr("Enter opens the note, Delete deletes it; more in the context menu.")
             )
         term = self.search_term
+        trash_found: list[Note] = []
         if term:
             found = self._notes.matching(term)
             notes = [note for note in notes if note.id in found]
+            if not self.in_trash:
+                trash_found = [
+                    note
+                    for note in self._notes.trash_notes()
+                    if note.id in found and self._labelled(note)
+                ]
         for note in notes:
             item = QListWidgetItem(self._text(note))
             item.setIcon(swatch_icon(note.color if note.color in PALETTE else DEFAULT_COLOR))
@@ -287,6 +314,11 @@ class NoteList(QWidget):
             self.list.setCurrentRow(0)
         self.empty_button.setVisible(self.in_trash)
         self.empty_button.setEnabled(bool(trash))  # the whole trash, whatever is searched
+        self.trash_row.setVisible(bool(trash_found))
+        if trash_found:
+            text = self.tr("%n note(s) in the trash match too.", "", len(trash_found))
+            self.trash_found.setText(text)
+            self.trash_button.setAccessibleDescription(text)
 
     def selected_id(self) -> str | None:
         row = self.list.currentRow()
@@ -310,6 +342,11 @@ class NoteList(QWidget):
         question = self.tr("Empty this note from the trash? This cannot be undone.")
         if confirm(self, question):
             self._notes.purge_note(note_id)
+
+    def search_trash(self) -> None:
+        """The same search, in the trash."""
+        self.filter_box.setCurrentIndex(self.filter_box.findData(TRASH))
+        self.list.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def empty_trash(self) -> None:
         question = self.tr("Empty the trash? Its notes will be gone for good.")
