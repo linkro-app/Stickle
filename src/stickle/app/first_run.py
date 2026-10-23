@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 from stickle.app.app_list import switch_app_list
 from stickle.app.i18n import LANGUAGES, Translations
 from stickle.app.recovery_key_dialog import RecoveryKeyPanel
+from stickle.app.support import site_page
 from stickle.app.tray import switch_autostart
 from stickle.data.notes import NoteRepository
 from stickle.data.settings import (
@@ -50,8 +51,9 @@ log = logging.getLogger(__name__)
 
 
 def sample_note() -> str:
-    """The first note: how Stickle works, in the interface language, as Markdown."""
-    return QCoreApplication.translate(
+    """The first note: how Stickle works, in the interface language, as Markdown,
+    ending with a link to the guide to everything it does."""
+    text = QCoreApplication.translate(
         "FirstRun",
         "# Welcome to Stickle\n"
         "Double-click this note to edit it; click elsewhere to see it formatted again.\n"
@@ -59,11 +61,17 @@ def sample_note() -> str:
         "- [ ] Tick a box like this one\n"
         "- [ ] Double-click the title bar to fold the note\n"
         "- [ ] Use the pin to keep a note above other windows, or not\n"
-        "- [ ] Change its colour from the menu with three dots\n"
+        "- [ ] Change its colour, category and marks from the menu with three dots\n"
+        "- [ ] Put a note near another one: they line up like magnets\n"
+        "- [ ] **F1** shows every keyboard shortcut\n"
         "\n"
         "The **X** hides a note: bring it back from the Stickle icon. "
-        "**Ctrl+N** makes a new note.",
+        "**Ctrl+N** makes a new note.\n"
+        "Search, the trash and your data (backups, export, notes from other apps) "
+        "are in the Stickle window, opened from the Stickle icon.\n"
+        "[Everything Stickle does](%1)",
     )
+    return text.replace("%1", site_page("guide"))
 
 
 @dataclass(frozen=True)

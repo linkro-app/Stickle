@@ -215,6 +215,17 @@ def test_the_sample_note_speaks_the_interface_language(translations: Translation
 
     assert note.startswith("# Stickle에 오신 것을 환영합니다")
     assert "- [ ] " in note
+    assert note.endswith("[모든 기능 안내](https://stickle.linkro.co/ko/guide)")
+
+
+def test_the_sample_note_leads_to_the_whole_guide(translations: Translations) -> None:
+    translations.apply("en")
+
+    note = sample_note()
+
+    assert "**F1**" in note
+    assert "Stickle window" in note
+    assert note.endswith("[Everything Stickle does](https://stickle.linkro.co/en/guide)")
 
 
 def test_first_start_is_only_the_start_that_made_the_notes(tmp_path: Path) -> None:

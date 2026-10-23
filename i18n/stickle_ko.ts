@@ -276,18 +276,26 @@ Double-click this note to edit it; click elsewhere to see it formatted again.
 - [ ] Tick a box like this one
 - [ ] Double-click the title bar to fold the note
 - [ ] Use the pin to keep a note above other windows, or not
-- [ ] Change its colour from the menu with three dots
+- [ ] Change its colour, category and marks from the menu with three dots
+- [ ] Put a note near another one: they line up like magnets
+- [ ] **F1** shows every keyboard shortcut
 
-The **X** hides a note: bring it back from the Stickle icon. **Ctrl+N** makes a new note.</source>
+The **X** hides a note: bring it back from the Stickle icon. **Ctrl+N** makes a new note.
+Search, the trash and your data (backups, export, notes from other apps) are in the Stickle window, opened from the Stickle icon.
+[Everything Stickle does](%1)</source>
         <translation># Stickle에 오신 것을 환영합니다
 이 메모를 더블클릭하면 편집할 수 있고, 다른 곳을 클릭하면 다시 서식이 입혀진 모습으로 보입니다.
 
 - [ ] 이렇게 체크박스를 눌러 보세요
 - [ ] 제목줄을 더블클릭하면 메모가 접힙니다
 - [ ] 핀으로 메모를 다른 창 위에 둘지 정합니다
-- [ ] 점 세 개 메뉴에서 색을 바꿉니다
+- [ ] 점 세 개 메뉴에서 색·카테고리·표시를 바꿉니다
+- [ ] 메모를 다른 메모 가까이 놓으면 자석처럼 붙습니다
+- [ ] **F1**을 누르면 모든 단축키가 보입니다
 
-**X**는 메모를 숨깁니다. Stickle 아이콘에서 다시 꺼낼 수 있습니다. **Ctrl+N**으로 새 메모를 만듭니다.</translation>
+**X**는 메모를 숨깁니다. Stickle 아이콘에서 다시 꺼낼 수 있습니다. **Ctrl+N**으로 새 메모를 만듭니다.
+검색·휴지통·데이터(백업, 내보내기, 다른 앱에서 가져오기)는 Stickle 아이콘에서 여는 Stickle 창에 있습니다.
+[모든 기능 안내](%1)</translation>
     </message>
 </context>
 <context>
