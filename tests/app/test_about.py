@@ -1,11 +1,13 @@
 """About Stickle, and where "Support Stickle" leads."""
 
+from pathlib import Path
+
 import pytest
 from PySide6.QtCore import Qt, QUrl
 from pytestqt.qtbot import QtBot
 
 from stickle import __version__
-from stickle.app import note_window, support
+from stickle.app import about_dialog, note_window, support
 from stickle.app.about_dialog import AboutDialog
 from stickle.app.i18n import Translations
 from stickle.app.tray import Tray
@@ -101,6 +103,40 @@ def test_links_open_only_web_pages(
     about.links.linkActivated.emit("https://github.com/linkro-app/Stickle")
     about.links.linkActivated.emit("file:///C:/Windows/System32/calc.exe")
     assert opened == ["https://github.com/linkro-app/Stickle"]
+
+
+def test_a_build_opens_its_third_party_licenses(
+    qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    translations: Translations,
+    opened: list[str],
+) -> None:
+    notices = tmp_path / "licenses" / "THIRD-PARTY-NOTICES.txt"
+    notices.parent.mkdir()
+    notices.write_text("Qt: LGPL-3.0\n", encoding="utf-8")
+    monkeypatch.setattr(about_dialog, "own_files_folder", lambda: tmp_path)
+    about = AboutDialog()
+    qtbot.addWidget(about)
+
+    assert about.notices.isVisibleTo(about)
+    assert about.notices.accessibleName() == "Open source licenses"
+    assert about.notices.textInteractionFlags() & Qt.TextInteractionFlag.LinksAccessibleByKeyboard
+    about.notices.linkActivated.emit("notices")
+    translations.apply("ko")
+    assert "오픈 소스 라이선스" in about.notices.text()
+
+    assert opened == [QUrl.fromLocalFile(str(notices)).toString()]
+
+
+def test_without_the_notices_there_is_no_link(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, translations: Translations
+) -> None:
+    monkeypatch.setattr(about_dialog, "own_files_folder", lambda: tmp_path)  # none written
+    about = AboutDialog()
+    qtbot.addWidget(about)
+
+    assert not about.notices.isVisibleTo(about)
 
 
 def test_the_keyboard_starts_on_close_and_reaches_support(

@@ -44,6 +44,10 @@
         <translation>라이선스</translation>
     </message>
     <message>
+        <source>Open source licenses</source>
+        <translation>오픈 소스 라이선스</translation>
+    </message>
+    <message>
         <source>Stickle connects only to %1, once a day, to see whether a new version is out. It sends nothing about you or your notes, and the check can be turned off.</source>
         <translation>Stickle은 새 버전이 나왔는지 보려고 하루에 한 번 %1에만 접속합니다. 사용자나 메모에 관해서는 아무것도 보내지 않으며, 이 확인은 끌 수 있습니다.</translation>
     </message>

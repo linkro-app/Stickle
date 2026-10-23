@@ -31,6 +31,14 @@ def program_folder(env: Mapping[str, str] | None = None) -> Path | None:
     return None
 
 
+def own_files_folder() -> Path | None:
+    """The folder the program's own files are in: next to stickle.exe, or inside
+    the AppImage or the app bundle; None when run from source."""
+    if "__compiled__" in globals():  # a Nuitka build: argv[0] is the program
+        return Path(sys.argv[0]).resolve().parent
+    return None
+
+
 def data_place(
     env: Mapping[str, str] | None = None,
     platform: str = sys.platform,

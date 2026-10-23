@@ -2,12 +2,14 @@
 
 Opened from the Stickle window and the tray. The support line is one of the
 two places Stickle mentions support (the other is the tray menu); nothing
-else in the app asks for it.
+else in the app asks for it. A build also links to the licenses of what it
+includes, written next to the program when it was built.
 """
 
+from pathlib import Path
 from typing import override
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, Qt, QUrl
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from stickle import __version__
@@ -16,8 +18,19 @@ from stickle.app.app_icon import icon_pixmap
 from stickle.app.feedback import open_feedback
 from stickle.app.support import LICENSE, PRIVACY, SOURCE, open_support, site_page
 from stickle.core.updates import FEED_HOST
+from stickle.platform.paths import own_files_folder
 
 ICON_SIZE = 64
+NOTICES = Path("licenses") / "THIRD-PARTY-NOTICES.txt"
+
+
+def third_party_notices() -> Path | None:
+    """The list of what the build includes, with their licenses; None when run
+    from source, which has none."""
+    folder = own_files_folder()
+    if folder is None or not (folder / NOTICES).is_file():
+        return None
+    return folder / NOTICES
 
 
 def _link_label(parent: QWidget) -> QLabel:
@@ -55,6 +68,13 @@ class AboutDialog(QDialog):
         self.summary.setWordWrap(True)
         self.links = _link_label(self)
         self.license = _link_label(self)
+        # A file on this computer, so not through open_link, which opens web pages only.
+        self._notices = third_party_notices()
+        self.notices = QLabel(self)
+        self.notices.setTextFormat(Qt.TextFormat.RichText)
+        self.notices.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.notices.linkActivated.connect(self.open_notices)
+        self.notices.setVisible(self._notices is not None)
         self.support_text = QLabel(self)
         self.support_text.setWordWrap(True)
         self.support_button = QPushButton(self)
@@ -82,6 +102,7 @@ class AboutDialog(QDialog):
         layout.addWidget(self.summary)
         layout.addWidget(self.links)
         layout.addWidget(self.license)
+        layout.addWidget(self.notices)
         layout.addWidget(self.connections)
         feedback = QHBoxLayout()
         feedback.addWidget(self.feedback_button)
@@ -122,6 +143,9 @@ class AboutDialog(QDialog):
             + "</a>"
         )
         self.license.setAccessibleName(self.tr("License"))
+        notices = self.tr("Open source licenses")
+        self.notices.setText(f'<a href="notices">{notices}</a>')
+        self.notices.setAccessibleName(notices)
         # Every address the app itself connects to, said where it can be read.
         if self._checks_updates:
             self.connections.setText(
@@ -148,6 +172,11 @@ class AboutDialog(QDialog):
 
     def report(self) -> None:
         open_feedback(self._portable)
+
+    def open_notices(self) -> None:
+        """In the system's app for text files."""
+        if self._notices is not None:
+            note_window.open_url(QUrl.fromLocalFile(str(self._notices)))
 
     def present(self) -> None:
         """Shown, or brought forward if it already is, with the keyboard on Close."""
