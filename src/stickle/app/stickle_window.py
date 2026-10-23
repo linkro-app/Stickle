@@ -265,8 +265,10 @@ class StickleWindow(QWidget):
         self.guide_button = QPushButton(self)
         self.guide_button.clicked.connect(self.guide.toggle)
         notes.guide_requested.connect(self.guide.toggle)
+        # One of its own windows, above it and the pinned notes while in use: on its
+        # own, the Stickle window letting go of the top was put back above it.
         self.about = AboutDialog(
-            checks_updates=updates is not None, portable=portable_folder is not None
+            self, checks_updates=updates is not None, portable=portable_folder is not None
         )
         self.about_button = QPushButton(self)
         self.about_button.clicked.connect(self.about.present)

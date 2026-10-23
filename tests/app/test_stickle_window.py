@@ -186,11 +186,12 @@ def test_no_two_things_share_a_key(app: App, translations: Translations, languag
     # Alt and a letter two things share only moves between them: Alt+D reached
     # "On the desktop" instead of the Data menu.
     translations.apply(language)
-    texts = [w.text() for w in app.window.findChildren(QAbstractButton)]
+    # In this window only: the windows it opens (About Stickle) have keys of their own.
+    texts = [w.text() for w in app.window.findChildren(QAbstractButton) if w.window() is app.window]
     texts += [
         w.text()
         for w in app.window.findChildren(QLabel)
-        if cast(QWidget | None, w.buddy()) is not None
+        if cast(QWidget | None, w.buddy()) is not None and w.window() is app.window
     ]
     keys = mnemonics(texts)
 
@@ -376,6 +377,19 @@ def test_the_windows_it_opens_stay_above_pinned_notes_with_it(qtbot: QtBot, app:
     question.close()
     move_to(qtbot, note)
     assert not stays_on_top(app.window)
+
+
+def test_about_stickle_is_one_of_its_windows(qtbot: QtBot, app: App) -> None:
+    # Not one of them, it made the Stickle window let go of the top on Windows,
+    # which put that window back above every other, About too: About was hidden.
+    app.window.open()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
+
+    app.window.about_button.click()
+    move_to(qtbot, app.window.about)
+
+    assert app.window.about.parentWidget() is app.window
+    assert stays_on_top(app.window)
 
 
 def test_it_lets_go_when_the_user_leaves_from_a_window_it_opened(qtbot: QtBot, app: App) -> None:
