@@ -10,7 +10,7 @@ import pytest
 from stickle.core.layout import MAIN, Place
 from stickle.data.database import KEY_BYTES
 from stickle.data.layouts import LayoutRepository
-from stickle.data.notes import KEEP_DAYS, NoteNotDeletedError, NoteRepository
+from stickle.data.notes import KEEP_DAYS, NoteNotBlankError, NoteNotDeletedError, NoteRepository
 from stickle.data.schema import open_store, search_index_is_consistent
 from stickle.data.search import search
 
@@ -72,6 +72,35 @@ def test_emptying_a_note_leaves_only_a_deletion_record(
     assert search_index_is_consistent(db)
     assert repo.deletion_records() == [(note.id, deleted.deleted_at, "2026-01-05T09:00:00.000Z")]
     assert repo.last_deleted() is None  # nothing left to bring back
+
+
+def test_a_note_with_no_text_is_removed_past_the_trash(
+    repo: NoteRepository, db: apsw.Connection, clock: Clock
+) -> None:
+    earlier = repo.create("먼저 지운 메모")
+    repo.delete(earlier.id)
+    note = repo.create("잠깐")
+    LayoutRepository(db, clock).save(note.id, {MAIN: PLACE})
+    repo.update_body(note.id, " \n\t")
+
+    repo.discard(note.id)
+
+    assert repo.get(note.id) is None
+    assert [n.id for n in repo.deleted()] == [earlier.id]
+    assert repo.last_deleted() == repo.get(earlier.id)  # still the one to bring back
+    assert LayoutRepository(db).places(note.id) == {}
+    assert [record[0] for record in repo.deletion_records()] == [note.id]
+    assert search_index_is_consistent(db)
+
+
+def test_a_note_with_text_is_never_removed_past_the_trash(repo: NoteRepository) -> None:
+    note = repo.create("남길 글")
+
+    with pytest.raises(NoteNotBlankError):
+        repo.discard(note.id)
+    stored = repo.get(note.id)
+    assert stored is not None and not stored.deleted
+    assert repo.deletion_records() == []
 
 
 def test_only_a_note_in_the_trash_can_be_emptied(repo: NoteRepository) -> None:

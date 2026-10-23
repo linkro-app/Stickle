@@ -1,8 +1,8 @@
 """Reading and changing notes in the local database.
 
 Deleting only marks a note, which then sits in the trash (kept 365 days).
-A note is removed only when emptied from the trash, and then a deletion
-record takes its place. Every change stamps the note with this device's
+A note is removed only when emptied from the trash, or at once when it has no
+text, and then a deletion record takes its place. Every change stamps the note with this device's
 next change number, which never goes backwards even if the clock does.
 """
 
@@ -31,6 +31,10 @@ class NoteDeletedError(ValueError):
 
 class NoteNotDeletedError(ValueError):
     """Only a note in the trash can be emptied from it."""
+
+
+class NoteNotBlankError(ValueError):
+    """Only a note with no text can be removed past the trash."""
 
 
 # Notes stay in the trash this long, and deletion records this long after emptying.
@@ -375,6 +379,15 @@ class NoteRepository:
             self._db.execute("DELETE FROM note_layouts WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+
+    def discard(self, note_id: str) -> None:
+        """Remove a note with no text (spaces and line breaks at most) for good, past
+        the trash: there is nothing in it to bring back. Only a deletion record stays."""
+        with self._db:
+            if self._require_live(note_id).body.strip():
+                raise NoteNotBlankError(note_id)
+            self.delete(note_id)
+            self.purge(note_id)
 
     def empty_trash(self) -> int:
         """Purge every deleted note, all or none; how many there were."""

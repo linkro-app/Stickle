@@ -1,16 +1,17 @@
 """The open note windows, and keeping them in step with the stored notes.
 
-A new note is stored once it has text: an untouched note that is closed
-leaves nothing behind. Text is saved a second after typing stops, at least
-every five seconds while typing goes on, when it loses focus, when the note
-is hidden or deleted, and before the app quits, the session ends or the
+A new note is stored once it has text (more than spaces and line breaks): an
+untouched note that is closed leaves nothing behind. Text is saved a second
+after typing stops, at least every five seconds while typing goes on, when it
+loses focus, when the note is hidden or deleted, and before the app quits, the session ends or the
 computer sleeps. A character still being composed by an input method is
 saved once it is committed; hiding, quitting and sleeping ask the input
 method to commit it first. If saving fails, the text stays in the window, a
 mark in its title bar says so, and saving is tried again. Hiding keeps the note for later;
-hiding a note whose text was all erased deletes it instead (it can still be
-restored), so the hidden list never fills up with empty notes. Deleting only
-marks the note. Setting every note aside only takes the windows out of sight
+deleting puts it into the trash, from where it can be restored. A note whose
+text was all erased goes for good instead, when hidden or deleted: there is
+nothing in it to restore, and neither the hidden list nor the trash fills up
+with empty notes. Setting every note aside only takes the windows out of sight
 for a while: nothing stored changes.
 
 Where each note is, and its size, is kept once moving or resizing stops, and
@@ -401,7 +402,7 @@ class NoteManager(QObject):
         text = window.text
         try:
             if window.note_id is None:
-                if text:
+                if text.strip():
                     window.note_id = self._repository.create(text, window.color).id
                     self.note_created.emit()
                     self.save_layout(window, force=True)
@@ -1122,7 +1123,7 @@ class NoteManager(QObject):
                 if window.text.strip():
                     self._repository.set_hidden(window.note_id, True)
                 else:
-                    self._repository.delete(window.note_id)
+                    self._repository.discard(window.note_id)
             except apsw.Error as error:
                 log.error("could not hide a note: %s", type(error).__name__)
                 return
@@ -1130,12 +1131,20 @@ class NoteManager(QObject):
         self._autosaves[window].stop()
         window.release()
 
+    def _delete(self, note_id: str, text: str) -> None:
+        """Into the trash; with no text, for good (see NoteRepository.discard)."""
+        assert self._repository is not None
+        if text.strip():
+            self._repository.delete(note_id)
+        else:
+            self._repository.discard(note_id)
+
     def delete(self, window: NoteWindow) -> None:
         if not self.flush(window, closing=True):
             return
         if self._repository is not None and window.note_id is not None:
             try:
-                self._repository.delete(window.note_id)
+                self._delete(window.note_id, window.text)
             except apsw.Error as error:
                 log.error("could not delete a note: %s", type(error).__name__)
                 return
@@ -1201,7 +1210,9 @@ class NoteManager(QObject):
         if self._repository is None:
             return
         try:
-            self._repository.delete(note_id)
+            note = self._repository.get(note_id)
+            if note is not None:
+                self._delete(note_id, note.body)
         except apsw.Error as error:
             log.error("could not delete a note: %s", type(error).__name__)
             return

@@ -129,18 +129,79 @@ def test_deleted_note_can_be_restored(session: Session) -> None:
     assert not later.tray.restore_action.isEnabled()
 
 
-# E. A note emptied by hand is deleted rather than hidden, and can be restored.
-def test_hiding_an_emptied_note_deletes_it(session: Session) -> None:
+# E. A note with no text goes for good when closed or deleted: there is nothing in
+# it to bring back, so it is neither hidden nor put into the trash.
+def test_a_new_note_with_only_spaces_is_not_stored(session: Session) -> None:
+    window = only_window(session)
+    type_into(window, " \n ")
+    leave(window)
+    assert session.repository.all() == []
+
+    window.title_bar.close_button.click()
+
+    assert session.repository.all() == []
+    assert not session.tray.restore_action.isEnabled()
+
+
+@pytest.mark.parametrize("how", ["close", "delete"])
+def test_a_note_emptied_by_hand_goes_for_good(session: Session, how: str) -> None:
     window = only_window(session)
     type_into(window, "잠깐")
     leave(window)
+    stored = window.note_id
     window.editor.clear()
-    window.title_bar.close_button.click()
+    type_into(window, " \n")  # a space and a line break left
 
-    assert session.repository.hidden() == []
-    deleted = session.repository.last_deleted()
-    assert deleted is not None and deleted.body == ""
+    if how == "close":
+        window.title_bar.close_button.click()
+    else:
+        window.delete_action.trigger()
+
+    assert session.manager.windows == ()
+    assert session.repository.all() == []
+    assert [record[0] for record in session.repository.deletion_records()] == [stored]
+    assert not session.tray.restore_action.isEnabled()
     assert not session.tray.hidden_menu.isEnabled()
+
+
+def test_the_note_to_restore_stays_the_last_one_with_text(session: Session) -> None:
+    window = only_window(session)
+    type_into(window, "지운 메모")
+    window.delete_action.trigger()
+    empty = session.manager.new_note()
+    type_into(empty, "곧 지움")
+    leave(empty)
+    empty.editor.clear()
+
+    empty.title_bar.close_button.click()
+
+    assert "지운 메모" in session.tray.restore_action.text()
+
+
+def test_an_empty_note_restored_from_the_trash_goes_for_good_when_closed(
+    session: Session,
+) -> None:
+    only_window(session).release()
+    note = session.repository.create("옛 메모")
+    session.repository.update_body(note.id, "")
+    session.repository.delete(note.id)  # as Stickle 0.5 left such a note
+    session.manager.restore_last_deleted()
+
+    only_window(session).title_bar.close_button.click()
+
+    assert session.repository.all() == []
+    assert not session.tray.restore_action.isEnabled()
+
+
+def test_deleting_a_hidden_note_with_no_text_removes_it_for_good(session: Session) -> None:
+    note = session.repository.create("x")
+    session.repository.update_body(note.id, "")
+    session.repository.set_hidden(note.id, True)
+
+    session.manager.delete_note(note.id)
+
+    assert session.repository.get(note.id) is None
+    assert session.repository.last_deleted() is None
 
 
 # F. Quitting saves every open note, and does not hide them.
