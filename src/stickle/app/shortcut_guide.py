@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.link_label import LinkLabel
 from stickle.app.shortcuts import GlobalShortcuts, State
 from stickle.data.settings import SHORTCUT_ACTIONS
 from stickle.platform.linux.x11 import activate
@@ -160,9 +161,7 @@ class ShortcutGuide(QWidget):
         self.list.installEventFilter(self)
         self.hint = QLabel(self)
         # Everything else Stickle does, on the website (opened in the browser).
-        self.more = QLabel(self)
-        self.more.setTextFormat(Qt.TextFormat.RichText)
-        self.more.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.more = LinkLabel(self)
         self.more.linkActivated.connect(_open_link)
         bottom = QHBoxLayout()
         bottom.addWidget(self.hint, 1)

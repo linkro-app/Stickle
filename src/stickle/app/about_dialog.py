@@ -16,6 +16,7 @@ from stickle import __version__
 from stickle.app import note_window
 from stickle.app.app_icon import icon_pixmap
 from stickle.app.feedback import open_feedback
+from stickle.app.link_label import LinkLabel
 from stickle.app.support import LICENSE, PRIVACY, SOURCE, open_support, site_page
 from stickle.core.updates import FEED_HOST
 from stickle.platform.paths import own_files_folder
@@ -33,12 +34,10 @@ def third_party_notices() -> Path | None:
     return folder / NOTICES
 
 
-def _link_label(parent: QWidget) -> QLabel:
-    """Links reached with Tab and opened with Enter, as well as by a click."""
-    label = QLabel(parent)
+def _link_label(parent: QWidget) -> LinkLabel:
+    """Web links, opened in the browser."""
+    label = LinkLabel(parent)
     label.setWordWrap(True)
-    label.setTextFormat(Qt.TextFormat.RichText)
-    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
     label.linkActivated.connect(note_window.open_link)
     return label
 
@@ -70,9 +69,7 @@ class AboutDialog(QDialog):
         self.license = _link_label(self)
         # A file on this computer, so not through open_link, which opens web pages only.
         self._notices = third_party_notices()
-        self.notices = QLabel(self)
-        self.notices.setTextFormat(Qt.TextFormat.RichText)
-        self.notices.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        self.notices = LinkLabel(self)
         self.notices.linkActivated.connect(self.open_notices)
         self.notices.setVisible(self._notices is not None)
         self.support_text = QLabel(self)

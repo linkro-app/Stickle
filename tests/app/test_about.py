@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import Qt, QUrl
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 from pytestqt.qtbot import QtBot
 
 from stickle import __version__
@@ -127,6 +129,34 @@ def test_a_build_opens_its_third_party_licenses(
     assert "오픈 소스 라이선스" in about.notices.text()
 
     assert opened == [QUrl.fromLocalFile(str(notices)).toString()]
+
+
+def test_the_keyboard_opens_the_licenses_from_close(
+    qtbot: QtBot,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    translations: Translations,
+    opened: list[str],
+) -> None:
+    # Shift+Tab twice from Close is on the link; Enter pressed Close instead.
+    notices = tmp_path / "licenses" / "THIRD-PARTY-NOTICES.txt"
+    notices.parent.mkdir()
+    notices.write_text("Qt: LGPL-3.0\n", encoding="utf-8")
+    monkeypatch.setattr(about_dialog, "own_files_folder", lambda: tmp_path)
+    about = AboutDialog()
+    qtbot.addWidget(about)
+    about.present()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is about)
+
+    for _ in range(2):
+        focused = QApplication.focusWidget()
+        assert focused is not None
+        QTest.keyClick(focused, Qt.Key.Key_Backtab, Qt.KeyboardModifier.ShiftModifier)
+    assert QApplication.focusWidget() is about.notices
+    QTest.keyClick(about.notices, Qt.Key.Key_Return)
+
+    assert opened == [QUrl.fromLocalFile(str(notices)).toString()]
+    assert about.isVisible()
 
 
 def test_without_the_notices_there_is_no_link(
