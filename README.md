@@ -79,6 +79,18 @@ Previews are under [Releases](https://github.com/linkro-app/Stickle/releases), m
   away from this computer: it opens your notes if the key stored on this computer is ever lost.
 - Downloads can be checked against `SHA256SUMS.txt` in the same release.
 
+New in 0.5.1:
+
+- A note whose text you erased is gone for good when you hide or delete it, without going
+  through the trash.
+- Searching in the Stickle window tells you when notes in the trash match too; **Show in the
+  trash** shows them.
+- The welcome note of a first start points to more of what Stickle does, and About Stickle
+  opens the open source licenses of everything a build includes.
+- Fixed: About Stickle could open behind the Stickle window on Windows; `Enter` on a link
+  reached with `Tab` closed the window instead of opening the link; the tips of a note's
+  buttons did not show while another app was in use.
+
 New in 0.5:
 
 - **Daily backups**: Stickle keeps a copy of your notes each day, for a week. To go back to
