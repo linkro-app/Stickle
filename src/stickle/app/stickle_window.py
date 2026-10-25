@@ -2,18 +2,18 @@
 
 It opens when Stickle starts with only hidden notes, when it is started
 again while already running, and, where there is no tray, when the last
-note is hidden: then it says so, and closing it ends Stickle.
+note is hidden: then it says so, and closing it ends Stickle. The settings
+are in a window of their own, opened from here and the tray.
 """
 
 import itertools
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import override
 
 import apsw
-from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QUrl, Signal
 from PySide6.QtGui import (
     QCloseEvent,
     QFont,
@@ -28,16 +28,12 @@ from PySide6.QtGui import (
     QPen,
     QResizeEvent,
     QShortcut,
-    QShowEvent,
 )
 from PySide6.QtWidgets import (
-    QApplication,
-    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
     QMenu,
-    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSpacerItem,
@@ -46,28 +42,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stickle.app import file_dialogs, note_window
+from stickle.app import note_window
 from stickle.app.about_dialog import AboutDialog
-from stickle.app.app_list import switch_app_list
 from stickle.app.backups import RestoreDialog
 from stickle.app.data_menu import DataAccess, export_everything
 from stickle.app.finder import DesktopFinder
-from stickle.app.first_run import LoginNote
-from stickle.app.i18n import LANGUAGES, Translations
+from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportDialog
+from stickle.app.in_use import OnTopWhileInUse
 from stickle.app.label_manager import LabelManager
 from stickle.app.labels import category_item_icon
 from stickle.app.note_list import NoteList
 from stickle.app.notes import NoteManager, clipboard_text
-from stickle.app.recovery_key_dialog import RecoveryKeyDialog
+from stickle.app.settings_window import RecoveryKeys, SettingsWindow
 from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.shortcut_guide import ShortcutGuide
-from stickle.app.shortcut_rows import ShortcutRows
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
-from stickle.app.tray import switch_autostart
 from stickle.app.update_check import UpdateCheck
-from stickle.app.window_flags import keep_stays_on_top, set_stays_on_top, stays_on_top
+from stickle.app.window_flags import set_stays_on_top
 from stickle.core.markdown import note_title
 from stickle.data.settings import LIST_WINDOW_SIZE, Settings
 from stickle.platform.autostart import Autostart, may_be_blocked
@@ -77,23 +70,8 @@ from stickle.platform.linux.x11 import activate
 DEFAULT_SIZE = (460, 700)
 NOTICE_PADDING = 10  # inside the notice's frame
 NOTICE_BORDER = 2
+SETTINGS_KEYS = "Ctrl+,"  # ⌘, on macOS, where Qt reads Ctrl as Command
 log = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class RecoveryKeys:
-    """Making the recovery key, without the window knowing the database key."""
-
-    exists: Callable[[], bool]
-    make: Callable[[], str]  # a new one, the old one no longer working
-    kept: Callable[[], None]  # the user said the new one is kept somewhere safe
-
-
-def _exec(dialog: RecoveryKeyDialog) -> bool:
-    return dialog.exec() == RecoveryKeyDialog.DialogCode.Accepted
-
-
-show_recovery_key: Callable[[RecoveryKeyDialog], bool] = _exec  # replaced in tests
 
 
 class ElidedButton(QPushButton):
@@ -147,49 +125,43 @@ class StickleWindow(QWidget):
         super().__init__()
         self._notes = notes
         self._translations = translations
-        self._autostart = autostart
-        self._app_list = app_list
-        self._recovery = recovery
         self._settings = settings
+        # Above the others while in use, from when open() puts it there.
+        self._on_top = OnTopWhileInUse(self)
         # No minimum width of its own: its layout's keeps every button as wide as
         # its text (a fixed 320 let "Manage categories and marks…" be cut).
-        app = QGuiApplication.instance()
-        assert isinstance(app, QGuiApplication)
-        # From one of its windows to another app: it is not told itself.
-        app.focusWindowChanged.connect(self._let_go_soon)
         size = settings.get(LIST_WINDOW_SIZE) if settings else None
         self.resize(*(size or DEFAULT_SIZE))
 
-        self.autostart_box = QCheckBox(self)
-        self.autostart_box.setVisible(autostart is not None)
-        self.autostart_box.clicked.connect(self._switch_autostart)
         if login_may_be_blocked is None:
             login_may_be_blocked = may_be_blocked()
-        self.login_note = LoginNote(self)
-        self.login_note.setVisible(autostart is not None and login_may_be_blocked)
-        self.app_list_box = QCheckBox(self)
-        self.app_list_box.setVisible(app_list is not None)
-        self.app_list_box.clicked.connect(self._switch_app_list)
-        # The daily check for a newer Stickle (not where a store keeps it up to date),
-        # and, while one is out, a line saying so at the top.
+        # One of its own windows, above it and the pinned notes while in use.
+        self.settings = SettingsWindow(
+            notes,
+            translations,
+            self,
+            autostart=autostart,
+            app_list=app_list,
+            recovery=recovery,
+            login_may_be_blocked=login_may_be_blocked,
+            shortcuts=shortcuts,
+            portable=portable_folder is not None,
+            updates=updates,
+        )
+        self.settings_button = QPushButton(self)
+        self.settings_button.clicked.connect(lambda: self.open_settings())
+        settings_shortcut = QShortcut(QKeySequence(SETTINGS_KEYS), self)
+        settings_shortcut.activated.connect(lambda: self.open_settings())
+        # While a newer Stickle is out (not where a store keeps it up to date),
+        # a line saying so at the top.
         self._updates = updates
-        self.update_box = QCheckBox(self)
-        self.update_box.setVisible(updates is not None)
         self.new_version_label = QLabel(self)
         self.new_version_label.setWordWrap(True)
         self.new_version_button = QPushButton(self)
         self.new_version_button.clicked.connect(self._get_new_version)
         if updates is not None:
-            self.update_box.clicked.connect(updates.set_enabled)
             updates.found.connect(self._update_news)
             updates.switched.connect(self._update_news)
-        # Lining notes up when moved or resized, as the tray's switch does.
-        self.magnet_box = QCheckBox(self)
-        self.magnet_box.clicked.connect(notes.set_magnet)
-        notes.magnet_changed.connect(self.refresh_switches)
-        self.recovery_button = QPushButton(self)
-        self.recovery_button.setVisible(recovery is not None)
-        self.recovery_button.clicked.connect(self.new_recovery_key)
 
         # Shown only when there is no tray and every note was hidden: the window
         # then opened by itself, so it says why at the top, where it is seen, and
@@ -265,11 +237,10 @@ class StickleWindow(QWidget):
         self.guide_button = QPushButton(self)
         self.guide_button.clicked.connect(self.guide.toggle)
         notes.guide_requested.connect(self.guide.toggle)
+        self.guide.settings_requested.connect(self.open_shortcut_settings)
         # One of its own windows, above it and the pinned notes while in use: on its
         # own, the Stickle window letting go of the top was put back above it.
-        self.about = AboutDialog(
-            self, checks_updates=updates is not None, portable=portable_folder is not None
-        )
+        self.about = AboutDialog(self, portable=portable_folder is not None)
         self.about_button = QPushButton(self)
         self.about_button.clicked.connect(self.about.present)
         # Backups (and later exporting and importing), from a menu on one button.
@@ -293,19 +264,8 @@ class StickleWindow(QWidget):
             shortcut = QShortcut(QKeySequence(keys), self)
             shortcut.activated.connect(self.guide.toggle)
 
-        self.language_label = QLabel(self)
-        self.language_box = QComboBox(self)
-        self.language_label.setBuddy(self.language_box)
-        for code, native_name in LANGUAGES:
-            self.language_box.addItem(native_name, code)
-        self.language_box.activated.connect(self._choose_language)
         self.quit_button = QPushButton(self)
         self.quit_button.clicked.connect(on_quit)
-        self.shortcut_rows = (
-            ShortcutRows(shortcuts, self, portable=portable_folder is not None)
-            if shortcuts is not None
-            else None
-        )
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.new_note_button)
@@ -317,9 +277,6 @@ class StickleWindow(QWidget):
         view.addWidget(self.view_label)
         view.addWidget(self.view_box, 1)
         view.addWidget(self.all_notes_button)
-        language = QHBoxLayout()
-        language.addWidget(self.language_label)
-        language.addWidget(self.language_box, 1)
         layout = QVBoxLayout(self)
         for part in self._notice_parts:
             layout.addWidget(part)
@@ -344,16 +301,11 @@ class StickleWindow(QWidget):
         tools.addWidget(self.guide_button)
         tools.addWidget(self.about_button)
         layout.addLayout(tools)
-        layout.addLayout(language)
-        layout.addWidget(self.autostart_box)
-        layout.addWidget(self.login_note)
-        layout.addWidget(self.app_list_box)
-        layout.addWidget(self.update_box)
-        layout.addWidget(self.magnet_box)
-        layout.addWidget(self.recovery_button)
-        if self.shortcut_rows is not None:
-            layout.addWidget(self.shortcut_rows)
-        layout.addWidget(self.quit_button)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.settings_button)
+        bottom.addStretch(1)
+        bottom.addWidget(self.quit_button)
+        layout.addLayout(bottom)
 
         self._set_tab_order()
         notes.changed.connect(self.refresh)
@@ -428,13 +380,7 @@ class StickleWindow(QWidget):
             self.data_button,
             self.guide_button,
             self.about_button,
-            self.language_box,
-            self.autostart_box,
-            self.app_list_box,
-            self.update_box,
-            self.magnet_box,
-            self.recovery_button,
-            *(self.shortcut_rows.tab_order() if self.shortcut_rows is not None else []),
+            self.settings_button,
             self.quit_button,
         ]
         for before, after in itertools.pairwise(order):
@@ -478,23 +424,11 @@ class StickleWindow(QWidget):
         self.guide_button.setText(self.tr("Keyboard shortcuts"))
         self.guide_button.setToolTip(self.tr("F1", "the key that opens the shortcuts"))
         self.about_button.setText(self.tr("About Stickle"))
-        self.language_label.setText(self.tr("&Language"))
-        self.language_box.setAccessibleName(self.tr("Language"))
-        self.language_box.setItemText(0, self.tr("System language"))
+        self.settings_button.setText(self.tr("&Settings…"))
+        self.settings_button.setToolTip(self.tr("Ctrl+,", "the keys that open the settings"))
         self.quit_button.setText(self.tr("Quit Stickle"))
-        self.autostart_box.setText(self.tr("&Start Stickle when I log in"))
-        self.app_list_box.setText(self.tr("Show Stickle in the &app list"))
-        self.update_box.setText(self.tr("Check for a new &version daily"))
-        self.magnet_box.setText(self.tr("Line notes up like a &magnet"))
-        self.magnet_box.setToolTip(
-            self.tr(
-                "A note moved or resized near another note or the edge of the screen lines"
-                " up with it. Hold Alt as you let go to leave it as it is."
-            )
-        )
         self.new_version_button.setText(self.tr("&Get it…"))
         self.refresh_new_version()
-        self.recovery_button.setText(self.tr("Make a new &recovery key…"))
         self.refresh()
 
     @override
@@ -503,8 +437,15 @@ class StickleWindow(QWidget):
             self.retranslate()
         super().changeEvent(event)
 
+    def open_settings(self, page: QWidget | None = None) -> None:
+        """The settings, on the page last shown unless told which."""
+        self.settings.present(page)
+
+    def open_shortcut_settings(self) -> None:
+        self.open_settings(self.settings.shortcuts_page)
+
     def refresh(self) -> None:
-        """Show the notes, the note just deleted and the language as they are now."""
+        """Show the notes and the note just deleted as they are now."""
         self.note_list.refresh()
         self.show_all_button.setEnabled(bool(self._notes.hidden_notes()))
         self.refresh_view()  # categories may have been made, renamed or deleted
@@ -518,10 +459,6 @@ class StickleWindow(QWidget):
             self.restore_button.set_full_text(
                 self.tr("Restore the note just deleted: %1").replace("%1", title)
             )
-        self.language_box.setCurrentIndex(
-            max(0, self.language_box.findData(self._translations.language))
-        )
-        self.refresh_switches()
         self.refresh_clipboard()
 
     def refresh_view(self) -> None:
@@ -559,16 +496,6 @@ class StickleWindow(QWidget):
     def refresh_clipboard(self) -> None:
         self.clipboard_button.setEnabled(bool(clipboard_text()))
 
-    def refresh_switches(self) -> None:
-        """Show what the files say: they may have changed outside Stickle, or elsewhere in it."""
-        if self._autostart is not None:
-            self.autostart_box.setChecked(self._autostart.enabled)
-        if self._app_list is not None:
-            self.app_list_box.setChecked(self._app_list.added)
-        if self._updates is not None:
-            self.update_box.setChecked(self._updates.enabled)
-        self.magnet_box.setChecked(self._notes.magnet)
-
     def _update_news(self, _news: object) -> None:
         self.refresh_new_version()
 
@@ -581,46 +508,10 @@ class StickleWindow(QWidget):
             text = self.tr("Stickle %1 is out.").replace("%1", release.version)
             self.new_version_label.setText(text)
             self.new_version_button.setAccessibleDescription(text)
-        self.refresh_switches()
 
     def _get_new_version(self) -> None:
         if self._updates is not None and self._updates.release is not None:
             note_window.open_url(QUrl(self._updates.release.page))
-
-    def new_recovery_key(self) -> None:
-        """Make a new recovery key and show it; the previous one stops working."""
-        if self._recovery is None:
-            return
-        if self._recovery.exists():
-            answer = QMessageBox.question(
-                self,
-                "Stickle",
-                self.tr(
-                    "Make a new recovery key? The one you have now will no longer open your notes."
-                ),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return
-        try:
-            recovery_key = self._recovery.make()
-        except OSError as error:
-            log.error("could not make a recovery key: %s", type(error).__name__)
-            QMessageBox.warning(self, "Stickle", self.tr("The recovery key could not be saved."))
-            return
-        if show_recovery_key(RecoveryKeyDialog(recovery_key, self)):
-            self._recovery.kept()
-
-    def _switch_app_list(self, on: bool) -> None:
-        if self._app_list is not None:
-            switch_app_list(self._app_list, on)
-            self.app_list_box.setChecked(self._app_list.added)
-
-    def _switch_autostart(self, on: bool) -> None:
-        if self._autostart is not None:
-            switch_autostart(self._autostart, on)
-            self.autostart_box.setChecked(self._autostart.enabled)
 
     @property
     def notice_shown(self) -> bool:
@@ -682,50 +573,9 @@ class StickleWindow(QWidget):
     @override
     def event(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.WindowActivate:
-            self.refresh_switches()  # as the tray does each time its menu opens
             # Some desktops tell only the application in front that the clipboard changed.
             self.refresh_clipboard()
-        # Not on activation: that can be reported before the window is in front.
-        # Hidden for real: Ubuntu also said so as the window came up, still on screen.
-        if event.type() == QEvent.Type.Hide and not self.isVisible() and stays_on_top(self):
-            set_stays_on_top(self, False)
-        elif event.type() == QEvent.Type.WindowDeactivate and stays_on_top(self):
-            self._let_go_soon()
         return super().event(event)
-
-    def _let_go_soon(self) -> None:
-        # Once the keyboard has landed, not on the way: in one of its own
-        # windows, it stays.
-        if stays_on_top(self):
-            QTimer.singleShot(0, self, self._let_go_unless_in_use)
-
-    def _let_go_unless_in_use(self) -> None:
-        """No longer above the others once the user has moved on from it and
-        the windows it opened: those stay above pinned notes only with it."""
-        if not stays_on_top(self):
-            return
-        # A file chooser of the system has no Qt window, but it is modal to one.
-        widget = (
-            QApplication.activeModalWidget()
-            or file_dialogs.asking_for()
-            or QApplication.activeWindow()
-        )
-        while widget is not None:
-            if widget is self:
-                return
-            widget = widget.parentWidget()
-        set_stays_on_top(self, False)
-
-    def _choose_language(self, index: int) -> None:
-        code = self.language_box.itemData(index)
-        self._translations.apply(code if isinstance(code, str) else None)
-
-    @override
-    def showEvent(self, event: QShowEvent) -> None:
-        super().showEvent(event)
-        if not event.spontaneous():
-            # Once shown: Qt may have put back an on-top state since changed.
-            QTimer.singleShot(0, self, lambda: keep_stays_on_top(self))
 
     @override
     def hideEvent(self, event: QHideEvent) -> None:

@@ -28,7 +28,8 @@ from stickle.data.schema import NotesDiff
 ACCENTED = str.maketrans("aeiouAEIOUcnst", "åëïöüÅËÏÖÜçñşŧ")
 # Texts that are not translated on purpose.
 RECOVERY_KEY = "K7QM-2HXP-9RTV-4WJD-8FNB-3YCS-6GKA-M2Q7"
-UNTRANSLATED = {"", "Stickle", "English", "한국어"}
+# With Qt's own (the hidden buttons of the settings' tabs), translated by Qt's files.
+UNTRANSLATED = {"", "Stickle", "English", "한국어", "Scroll Left", "Scroll Right"}
 
 
 def pseudo(text: str) -> str:
@@ -86,9 +87,12 @@ def test_every_visible_text_is_translated(qtbot: QtBot, tmp_path: Path) -> None:
         menu = tray.contextMenu()
         assert menu is not None
         texts = visible_texts(note) + visible_texts(note.menu) + visible_texts(menu)
-        texts += visible_texts(tray.language_menu) + visible_texts(tray.hidden_menu)
+        texts += visible_texts(tray.hidden_menu)
         texts += visible_texts(stickle_window) + visible_texts(stickle_window.about)
-        box = stickle_window.language_box
+        settings = stickle_window.settings  # one of its windows, so in its texts too
+        tabs = settings.tabs
+        texts += [tabs.tabText(index) for index in range(tabs.count())]
+        box = settings.language_box
         texts += [box.itemText(index) for index in range(box.count())]
 
         untranslated = [text for text in texts if text not in UNTRANSLATED and "~]" not in text]

@@ -233,7 +233,7 @@ def test_where_only_the_desktop_keeps_shortcuts_portable_says_it_sets_none(
         shortcuts=shortcuts,
         portable_folder=tmp_path / PORTABLE_FOLDER,
     )
-    rows = window.shortcut_rows
+    rows = window.settings.shortcut_rows
     assert rows is not None
 
     assert "Portable" in rows.unavailable.text() and "--new-note" not in rows.unavailable.text()

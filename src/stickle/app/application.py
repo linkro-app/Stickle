@@ -31,10 +31,11 @@ from stickle.app.notes import NoteManager
 from stickle.app.perf import SAMPLE_NOTE, PerfMode, open_storage_like_startup
 from stickle.app.placement import monitors
 from stickle.app.recovery_offer import RecoveryOffer
+from stickle.app.settings_window import RecoveryKeys
 from stickle.app.shortcuts import GlobalShortcuts, no_portal
 from stickle.app.signals import SignalWatcher
 from stickle.app.startup import open_notes
-from stickle.app.stickle_window import RecoveryKeys, StickleWindow
+from stickle.app.stickle_window import StickleWindow
 from stickle.app.tray import Tray
 from stickle.app.update_check import UpdateCheck
 from stickle.app.whats_new import give_news
@@ -210,9 +211,7 @@ def connect_stickle_window(
         tray.import_action.triggered.connect(window.bring_in)
         tray.export_action.triggered.connect(window.export_all)
         tray.restore_backup_action.triggered.connect(window.restore_backup)
-        # Switched from the tray while the window is open: it shows the change.
-        tray.autostart_action.triggered.connect(lambda: window.refresh())
-        tray.app_list_action.triggered.connect(lambda: window.refresh())
+        tray.settings_action.triggered.connect(lambda: window.open_settings())
         return
 
     manager.last_note_closed.connect(lambda: window.open(notice=True))
@@ -485,7 +484,7 @@ def run(
             if connection is not None and perf is None and not updated_by_its_store()
             else None
         )
-        tray = Tray(manager.new_note, app.quit, translations, manager, autostart, app_list, updates)
+        tray = Tray(manager.new_note, app.quit, translations, manager, updates)
         tray.show()
         recovery = recovery_keys(unlock, Settings(connection) if connection else None)
         # Measuring must not take the user's shortcuts from their own Stickle.

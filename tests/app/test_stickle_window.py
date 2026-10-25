@@ -27,6 +27,7 @@ from stickle.app.application import connect_stickle_window, open_at_start
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
+from stickle.app.settings_window import SettingsWindow
 from stickle.app.stickle_window import ElidedButton, StickleWindow
 from stickle.app.tray import Tray
 from stickle.app.window_flags import set_stays_on_top, stays_on_top
@@ -153,8 +154,8 @@ def test_the_quit_button_quits(app: App) -> None:
     assert app.quits == [None]
 
 
-def test_the_language_can_be_chosen(app: App) -> None:
-    box = app.window.language_box
+def test_the_language_can_be_chosen_in_its_settings(app: App) -> None:
+    box = app.window.settings.language_box
     box.activated.emit(box.findData("en"))
 
     assert app.translations.language == "en"
@@ -166,10 +167,72 @@ def test_everything_has_a_name_and_a_key(app: App) -> None:
     window = app.window
     assert window.note_list.list.accessibleName()
     assert window.note_list.filter_box.accessibleName()
-    assert window.language_box.accessibleName()
     assert window.note_list.label.buddy() is window.note_list.list
-    assert window.language_label.buddy() is window.language_box
     assert "&" in window.note_list.label.text()
+    assert window.settings_button.text() == "&Settings…"
+
+
+# The settings
+
+
+def test_the_button_and_ctrl_comma_open_the_settings_once(qtbot: QtBot, app: App) -> None:
+    app.window.open()
+    qtbot.waitExposed(app.window)
+
+    app.window.settings_button.click()
+    assert app.window.settings.isVisible()
+    assert app.window.settings.parentWidget() is app.window  # one of its windows
+    app.window.settings.close()
+
+    app.window.activateWindow()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
+    QTest.keyClick(app.window.note_list.list, Qt.Key.Key_Comma, Qt.KeyboardModifier.ControlModifier)
+    assert app.window.settings.isVisible()
+    app.window.settings_button.click()  # again: the same window, brought forward
+
+    assert len(app.window.findChildren(SettingsWindow)) == 1
+
+
+def test_from_the_stickle_window_the_settings_stay_above_pinned_notes_with_it(
+    qtbot: QtBot, app: App
+) -> None:
+    note = open_note(app, "핀 메모")
+    app.window.open()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
+
+    app.window.settings_button.click()
+    move_to(qtbot, app.window.settings)
+
+    assert stays_on_top(app.window)
+    assert not stays_on_top(app.window.settings)  # kept above it by the system
+    move_to(qtbot, note)
+    assert not stays_on_top(app.window)
+
+
+def test_from_the_tray_the_settings_stay_above_pinned_notes_until_left(
+    qtbot: QtBot, app: App
+) -> None:
+    # The Stickle window closed: nothing else keeps them above the notes.
+    note = open_note(app, "핀 메모")
+    app.tray.settings_action.trigger()
+    settings = app.window.settings
+
+    assert settings.isVisible() and not app.window.isVisible()
+    assert stays_on_top(settings)
+    move_to(qtbot, settings)
+    assert stays_on_top(settings)
+
+    move_to(qtbot, note)
+    assert not stays_on_top(settings)
+    settings.close()
+
+
+def test_the_tray_has_the_settings_where_its_switches_were(app: App) -> None:
+    texts = [a.text() for a in app.tray.contextMenu().actions() if not a.isSeparator()]
+
+    assert "&Settings…" in texts
+    for gone in ("&Language", "&Start Stickle when I log in", "Line notes up like a &magnet"):
+        assert gone not in texts
 
 
 def mnemonics(texts: list[str]) -> list[str]:
@@ -572,101 +635,56 @@ class FakeAutostart(Autostart):
         super().enable()
 
 
-def test_starting_at_login_is_switched_from_the_tray_and_the_window(
-    qtbot: QtBot, connection: apsw.Connection, tmp_path: Path
-) -> None:
+def settings_with(qtbot: QtBot, autostart: Autostart) -> SettingsWindow:
+    window = SettingsWindow(NoteManager(), Translations(), autostart=autostart)
+    qtbot.addWidget(window)
+    window.present()
+    return window
+
+
+def test_starting_at_login_is_switched_in_the_settings(qtbot: QtBot, tmp_path: Path) -> None:
     autostart = FakeAutostart(tmp_path)
-    manager = NoteManager(NoteRepository(connection))
-    translations = Translations()
-    tray = Tray(manager.new_note, lambda: None, translations, manager, autostart)
-    window = StickleWindow(manager, translations, lambda: None, autostart)
-    assert not tray.autostart_action.isChecked()
+    window = settings_with(qtbot, autostart)
+    box = window.autostart_box
+    assert not box.isChecked()
+    assert box.text() == "&Start Stickle when I log in"
 
-    tray.autostart_action.trigger()
-    assert autostart.enabled
-    window.open()
-    assert window.autostart_box.isChecked()
+    box.click()
+    assert autostart.enabled and box.isChecked()
 
-    window.autostart_box.click()
-    assert not autostart.enabled
-    tray.refresh_switches()
-    assert not tray.autostart_action.isChecked()
-    assert tray.autostart_action.text() == "&Start Stickle when I log in"
-    window.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    box.click()
+    assert not autostart.enabled and not box.isChecked()
 
 
-def test_a_switch_from_the_tray_shows_in_the_open_window(
-    qtbot: QtBot, connection: apsw.Connection, tmp_path: Path
-) -> None:
-    # The window stayed as it was while the tray changed the setting (Mint).
-    autostart = FakeAutostart(tmp_path)
-    manager = NoteManager(NoteRepository(connection))
-    translations = Translations()
-    tray = Tray(manager.new_note, lambda: None, translations, manager, autostart)
-    window = StickleWindow(manager, translations, lambda: None, autostart)
-    connect_stickle_window(window, manager, tray, lambda: None)
-    window.open()
-    assert not window.autostart_box.isChecked()
-
-    tray.autostart_action.trigger()
-
-    assert window.autostart_box.isChecked()
-    tray.autostart_action.trigger()
-    assert not window.autostart_box.isChecked()
-    window.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-
-
-def test_turned_off_elsewhere_shows_as_off(
-    qtbot: QtBot, connection: apsw.Connection, tmp_path: Path
-) -> None:
-    autostart = FakeAutostart(tmp_path)
-    autostart.enable()
-    tray = Tray(lambda: None, lambda: None, Translations(), None, autostart)
-    assert tray.autostart_action.isChecked()
-
-    autostart.path.unlink()  # as when turned off in the system's own settings
-    tray.refresh_switches()
-
-    assert not tray.autostart_action.isChecked()
-
-
-def test_the_open_window_shows_a_change_made_elsewhere_when_it_is_used(
-    qtbot: QtBot, connection: apsw.Connection, tmp_path: Path
+def test_the_open_settings_show_a_change_made_elsewhere_when_used(
+    qtbot: QtBot, tmp_path: Path
 ) -> None:
     # Turned off in the system's settings, or on from the app list question,
     # while the window was open: it showed the old state until opened again.
     autostart = FakeAutostart(tmp_path)
     autostart.enable()
-    manager = NoteManager(NoteRepository(connection))
-    window = StickleWindow(manager, Translations(), lambda: None, autostart)
-    window.open()
+    window = settings_with(qtbot, autostart)
     assert window.autostart_box.isChecked()
 
-    autostart.path.unlink()
+    autostart.path.unlink()  # as when turned off in the system's own settings
     QCoreApplication.sendEvent(window, QEvent(QEvent.Type.WindowActivate))
 
     assert not window.autostart_box.isChecked()
-    window.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
-def test_a_file_that_cannot_be_written_leaves_it_off(
-    qtbot: QtBot, connection: apsw.Connection, tmp_path: Path
-) -> None:
+def test_a_file_that_cannot_be_written_leaves_it_off(qtbot: QtBot, tmp_path: Path) -> None:
     autostart = FakeAutostart(tmp_path, fail=True)
-    tray = Tray(lambda: None, lambda: None, Translations(), None, autostart)
+    window = settings_with(qtbot, autostart)
 
-    tray.autostart_action.trigger()
+    window.autostart_box.click()
 
     assert not autostart.enabled
-    assert not tray.autostart_action.isChecked()
+    assert not window.autostart_box.isChecked()
 
 
 def test_without_the_setting_the_items_are_hidden(app: App) -> None:
-    assert not app.tray.autostart_action.isVisible()
-    assert app.window.autostart_box.isHidden()
+    assert app.window.settings.autostart_box.isHidden()
+    assert app.window.settings.login_note.isHidden()
 
 
 def test_started_at_login_with_only_hidden_notes_stays_in_the_tray(app: App) -> None:

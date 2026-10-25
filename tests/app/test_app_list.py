@@ -6,14 +6,14 @@ from pathlib import Path
 
 import apsw
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QMessageBox
 from pytestqt.qtbot import QtBot
 
 from stickle.app.app_list import icon_png, offer_app_list
 from stickle.app.i18n import Translations
 from stickle.app.notes import NoteManager
-from stickle.app.stickle_window import StickleWindow
-from stickle.app.tray import Tray
+from stickle.app.settings_window import SettingsWindow
 from stickle.data.schema import open_store
 from stickle.data.settings import APP_MENU_ASKED, Settings
 from stickle.platform.linux.appimage import AppMenuEntry
@@ -85,35 +85,37 @@ def test_the_icon_is_a_png(qtbot: QtBot) -> None:
     assert icon_png().startswith(b"\x89PNG\r\n\x1a\n")
 
 
-def test_it_is_switched_from_the_tray_and_the_window_even_after_saying_no(
+def test_it_is_switched_in_the_settings_even_after_saying_no(
     qtbot: QtBot, entry: AppMenuEntry
 ) -> None:
-    manager = NoteManager()
-    translations = Translations()
-    tray = Tray(manager.new_note, lambda: None, translations, manager, None, entry)
-    window = StickleWindow(manager, translations, lambda: None, None, entry)
+    window = SettingsWindow(NoteManager(), Translations(), app_list=entry)
     qtbot.addWidget(window)
-    assert tray.app_list_action.isVisible()
-    assert not tray.app_list_action.isChecked()
+    window.present()
+    box = window.app_list_box
+    assert box.isVisibleTo(window) and not box.isChecked()
+    assert box.text() == "Show Stickle in the &app list"
 
-    tray.app_list_action.trigger()
-    assert entry.added
-    window.open()
+    box.click()
+    assert entry.added and box.isChecked()
+
+    box.click()
+    assert not entry.added and not box.isChecked()
+
+
+def test_the_settings_show_a_change_made_elsewhere(qtbot: QtBot, entry: AppMenuEntry) -> None:
+    # Added from the first start's question, say, while the settings were open.
+    window = SettingsWindow(NoteManager(), Translations(), app_list=entry)
+    qtbot.addWidget(window)
+    window.present()
+
+    entry.add()
+    QCoreApplication.sendEvent(window, QEvent(QEvent.Type.WindowActivate))
+
     assert window.app_list_box.isChecked()
-
-    window.app_list_box.click()
-    assert not entry.added
-    tray.refresh_switches()
-    assert not tray.app_list_action.isChecked()
-    assert tray.app_list_action.text() == "Show Stickle in the &app list"
 
 
 def test_not_an_appimage_no_item(qtbot: QtBot) -> None:
-    manager = NoteManager()
-    translations = Translations()
-    tray = Tray(manager.new_note, lambda: None, translations, manager)
-    window = StickleWindow(manager, translations, lambda: None)
+    window = SettingsWindow(NoteManager(), Translations())
     qtbot.addWidget(window)
 
-    assert not tray.app_list_action.isVisible()
     assert window.app_list_box.isHidden()

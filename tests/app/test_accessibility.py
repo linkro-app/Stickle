@@ -39,8 +39,9 @@ from stickle.app.notes import NoteManager
 from stickle.app.password_dialog import PasswordDialog
 from stickle.app.recovery_dialog import KINDS, Problem, RecoveryDialog
 from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, RecoveryKeyDialog
+from stickle.app.settings_window import RecoveryKeys, SettingsWindow
 from stickle.app.shortcuts import GlobalShortcuts
-from stickle.app.stickle_window import RecoveryKeys, StickleWindow
+from stickle.app.stickle_window import StickleWindow
 from stickle.core.labels import Category, Mark
 from stickle.data.backups import Backup, Contents
 from stickle.data.export import ExportResult
@@ -224,6 +225,8 @@ def tab_chain(top: QWidget) -> list[QWidget]:
         and widget.isEnabled()
         and not part_of_another(widget, top)
     ]
+    # One that hands the keyboard to another (a tab widget to its tabs) is that other.
+    reachable = [w for w in reachable if w.focusProxy() not in reachable]
     if not reachable:
         return []
     chain: list[QWidget] = []
@@ -308,6 +311,31 @@ def test_tab_goes_round_the_stickle_window_as_it_reads(
 
     try:
         assert_tab_follows_the_screen(qtbot, window)
+    finally:
+        close(window)
+
+
+@pytest.mark.parametrize("hotkeys", [True, False])
+def test_tab_goes_round_each_page_of_the_settings_as_it_reads(
+    qtbot: QtBot, connection: apsw.Connection, tmp_path: Path, hotkeys: bool
+) -> None:
+    """With everything they can show: the tabs, then the page shown."""
+    places = Places(home=tmp_path, config=tmp_path / "config", appdata=tmp_path)
+    window = SettingsWindow(
+        NoteManager(NoteRepository(connection)),
+        Translations(),
+        autostart=Autostart(places, "linux", ["/x"]),
+        app_list=AppMenuEntry(tmp_path / "Stickle.AppImage", b"png", tmp_path / "share"),
+        recovery=RecoveryKeys(exists=lambda: True, make=lambda: RECOVERY_KEY, kept=lambda: None),
+        login_may_be_blocked=True,
+        shortcuts=GlobalShortcuts(Settings(connection), System(available=hotkeys)),
+    )
+    try:
+        assert unnamed(window) == []
+        tabs = window.tabs
+        for index in range(tabs.count()):
+            tabs.setCurrentIndex(index)
+            assert_tab_follows_the_screen(qtbot, window)  # the tabs first: they are on top
     finally:
         close(window)
 

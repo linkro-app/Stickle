@@ -74,6 +74,7 @@ def test_the_stickle_window_keys_it_lists_are_its_own(
     for digit in range(10):
         assert f"Ctrl+{digit}" in answered
     assert {"F1", "Ctrl+/"} <= answered
+    assert rows["Open the settings"] == "Ctrl+," and "Ctrl+," in answered
     window.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 

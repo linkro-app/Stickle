@@ -8,13 +8,15 @@ from pathlib import Path
 
 import apsw
 import pytest
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QUrl
+from PySide6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
 
 from stickle.app import note_window, update_check
 from stickle.app.about_dialog import AboutDialog
 from stickle.app.i18n import Translations
 from stickle.app.notes import NoteManager
+from stickle.app.settings_window import SettingsWindow
 from stickle.app.stickle_window import StickleWindow
 from stickle.app.tray import Tray
 from stickle.app.update_check import UpdateCheck, fetch_feed
@@ -163,10 +165,11 @@ def test_the_tray_and_window_say_a_new_version_is_out(
     check = checker(settings, Server(NEWER), FakeClock())
     tray = Tray(lambda: None, lambda: None, Translations(), manager, updates=check)
     window = StickleWindow(manager, Translations(), lambda: None, updates=check)
+    settings_window = window.settings
     try:
         assert not tray.new_version_action.isVisible()
         assert window.new_version_label.isHidden()
-        assert tray.update_check_action.isChecked() and window.update_box.isChecked()
+        assert settings_window.update_box.isChecked()
 
         with qtbot.waitSignal(check.found, timeout=3000):
             check.check_if_due()
@@ -179,24 +182,43 @@ def test_the_tray_and_window_say_a_new_version_is_out(
         tray.new_version_action.trigger()
         assert opened == [QUrl(PAGE), QUrl(PAGE)]
 
-        window.update_box.click()  # off
+        settings_window.update_box.click()  # off
+        assert not check.enabled
         assert not tray.new_version_action.isVisible()
         assert window.new_version_label.isHidden()
-        assert not tray.update_check_action.isChecked()
     finally:
         tray.hide()
         window.deleteLater()
         connection.close()
 
 
-def test_about_says_what_stickle_connects_to(qtbot: QtBot) -> None:
-    checking = AboutDialog(checks_updates=True)
-    not_checking = AboutDialog()
-    qtbot.addWidget(checking)
+def test_the_settings_say_what_stickle_connects_to(
+    qtbot: QtBot, settings: Settings, tmp_path: Path
+) -> None:
+    check = checker(settings, Server(NEWER), FakeClock())
+    checking = SettingsWindow(NoteManager(), Translations(), updates=check)
+    not_checking = SettingsWindow(NoteManager(), Translations())
     qtbot.addWidget(not_checking)
+    try:
+        assert "stickle.linkro.co" in checking.connections.text()
+        assert "nothing" in not_checking.connections.text()
+        checking.update_box.click()  # off: the line says so at once
+        assert "turned off" in checking.connections.text()
+        assert "stickle.linkro.co" not in checking.connections.text()
+        checking.update_box.click()
+        assert "stickle.linkro.co" in checking.connections.text()
+    finally:
+        # Gone before the database closes: a later language switch reaches every window.
+        checking.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
-    assert "stickle.linkro.co" in checking.connections.text()
-    assert "nothing" in not_checking.connections.text()
+
+def test_about_no_longer_lists_the_connections(qtbot: QtBot) -> None:
+    about = AboutDialog()
+    qtbot.addWidget(about)
+
+    texts = " ".join(label.text() for label in about.findChildren(QLabel))
+    assert "connects" not in texts
 
 
 def test_without_a_check_nothing_about_updates_shows(qtbot: QtBot, tmp_path: Path) -> None:
@@ -206,8 +228,8 @@ def test_without_a_check_nothing_about_updates_shows(qtbot: QtBot, tmp_path: Pat
     tray = Tray(lambda: None, lambda: None, Translations(), manager)
     window = StickleWindow(manager, Translations(), lambda: None)
     try:
-        assert not tray.update_check_action.isVisible()
-        assert window.update_box.isHidden()
+        assert not tray.new_version_action.isVisible()
+        assert window.settings.update_box.isHidden()
         assert window.new_version_button.isHidden()
     finally:
         tray.hide()

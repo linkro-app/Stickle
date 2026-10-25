@@ -3,7 +3,8 @@
 F1 or Ctrl+/ in a note or the Stickle window opens it, and so do the menus.
 It closes with Esc, the same key again, or a click elsewhere, and the keyboard
 goes back to where it was. The shortcuts from anywhere show the keys they have
-now: changed by the user, given by the desktop, or none.
+now: changed by the user, given by the desktop, or none. They are changed in
+the settings, which a link leads to; here they are only shown.
 
 What it lists is written here once (GUIDE); tests check that the keys it
 names within the app are the keys the app answers to.
@@ -11,7 +12,7 @@ names within the app are the keys the app answers to.
 
 from typing import override
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRectF, QSize, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QCloseEvent,
     QColor,
@@ -122,6 +123,7 @@ def guide() -> list[tuple[str, list[tuple[str, str]]]]:
                     ),
                     "Alt+Up, Alt+Down",
                 ),
+                (QCoreApplication.translate("ShortcutGuide", "Open the settings"), "Ctrl+,"),
                 (QCoreApplication.translate("ShortcutGuide", "Close the window"), "Esc"),
             ],
         ),
@@ -136,6 +138,8 @@ def _open_link(href: str) -> None:
 
 
 class ShortcutGuide(QWidget):
+    settings_requested = Signal()  # the link to where the shortcuts from anywhere are changed
+
     def __init__(self, shortcuts: GlobalShortcuts | None) -> None:
         super().__init__(
             None,
@@ -160,11 +164,16 @@ class ShortcutGuide(QWidget):
         self.list.setStyleSheet("QTreeWidget { background: transparent; }")
         self.list.installEventFilter(self)
         self.hint = QLabel(self)
+        self.change = LinkLabel(self)
+        self.change.linkActivated.connect(self._to_settings)
+        self.change.setVisible(shortcuts is not None)
         # Everything else Stickle does, on the website (opened in the browser).
         self.more = LinkLabel(self)
         self.more.linkActivated.connect(_open_link)
-        bottom = QHBoxLayout()
+        self._bottom = bottom = QHBoxLayout()
         bottom.addWidget(self.hint, 1)
+        bottom.addWidget(self.change)
+        bottom.addSpacing(MARGIN)
         bottom.addWidget(self.more)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
@@ -186,6 +195,9 @@ class ShortcutGuide(QWidget):
         every_feature = self.tr("Every feature, explained")
         self.more.setText(f'<a href="{site_page("guide")}">{every_feature}</a>')
         self.more.setAccessibleName(every_feature)
+        change = self.tr("Change shortcuts in Settings")
+        self.change.setText(f'<a href="settings">{change}</a>')
+        self.change.setAccessibleName(change)
         if self.isVisible():
             self.fill()  # otherwise filled as it opens
 
@@ -235,6 +247,12 @@ class ShortcutGuide(QWidget):
         items = (self.list.topLevelItem(i) for i in range(self.list.topLevelItemCount()))
         return [(item.text(0), item.text(1)) for item in items if item is not None]
 
+    def _to_settings(self) -> None:
+        """Closed for the settings, which take the keyboard instead."""
+        self._came_from = None
+        self.close()
+        self.settings_requested.emit()
+
     def toggle(self) -> None:
         if self.isVisible():
             self.close()
@@ -252,7 +270,9 @@ class ShortcutGuide(QWidget):
             if (item := self.list.topLevelItem(i)) is not None
         )
         chrome = self.title.sizeHint().height() + self.hint.sizeHint().height() + 2 * MARGIN
-        self.resize(max(width, 420), min(content + chrome + 24, 760))
+        # As wide as the line of links below the list, too.
+        width = max(width, self._bottom.sizeHint().width() + 2 * MARGIN, 420)
+        self.resize(width, min(content + chrome + 24, 760))
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
         area = screen.availableGeometry()
         self.move(area.center() - QPoint(self.width() // 2, self.height() // 2))

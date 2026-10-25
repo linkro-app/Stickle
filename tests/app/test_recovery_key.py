@@ -20,14 +20,14 @@ from test_startup_dialogs import (
     type_and_accept,
 )
 
-from stickle.app import stickle_window
+from stickle.app import settings_window
 from stickle.app.i18n import Translations
 from stickle.app.notes import NoteManager
 from stickle.app.password_dialog import PasswordDialog
 from stickle.app.recovery_dialog import Choice, RecoveryDialog
 from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, KeptBox, RecoveryKeyDialog
+from stickle.app.settings_window import RecoveryKeys, SettingsWindow
 from stickle.app.startup import open_notes
-from stickle.app.stickle_window import RecoveryKeys, StickleWindow
 from stickle.crypto.recovery import generate
 from stickle.data.notes import NoteRepository
 from stickle.platform.credentials import DATABASE_KEY, SERVICE
@@ -241,7 +241,7 @@ def test_the_store_key_is_not_touched_by_a_new_recovery_key(qtbot: QtBot, tmp_pa
     assert backend.items[(SERVICE, DATABASE_KEY)] == key_before
 
 
-# Making a new one from the Stickle window
+# Making a new one in the settings
 
 
 def test_a_new_recovery_key_replaces_the_old_one_after_asking(
@@ -268,11 +268,10 @@ def test_a_new_recovery_key_replaces_the_old_one_after_asking(
         return True  # Done
 
     monkeypatch.setattr(QMessageBox, "question", question)
-    monkeypatch.setattr(stickle_window, "show_recovery_key", show)
-    window = StickleWindow(
+    monkeypatch.setattr(settings_window, "show_recovery_key", show)
+    window = SettingsWindow(
         NoteManager(),
         Translations(),
-        lambda: None,
         recovery=RecoveryKeys(
             exists=lambda: unlock.has_recovery_key,
             make=lambda: unlock.make_recovery_key(key),

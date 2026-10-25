@@ -14,8 +14,7 @@ from stickle.app import note_window
 from stickle.app.i18n import Translations
 from stickle.app.note_window import SETTLE_MS, NoteWindow
 from stickle.app.notes import NoteManager
-from stickle.app.stickle_window import StickleWindow
-from stickle.app.tray import Tray
+from stickle.app.settings_window import SettingsWindow
 from stickle.core.snap import GAP
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
@@ -241,26 +240,20 @@ def test_with_the_magnet_off_nothing_lines_up(
     assert c.width() == a.width() - 8
 
 
-def test_the_tray_and_the_stickle_window_switch_the_magnet(
-    qtbot: QtBot, connection: apsw.Connection
-) -> None:
+def test_the_settings_switch_the_magnet(qtbot: QtBot, connection: apsw.Connection) -> None:
     manager = NoteManager(NoteRepository(connection), settings=Settings(connection))
-    translations = Translations()
-    tray = Tray(manager.new_note, lambda: None, translations, manager)
-    window = StickleWindow(manager, translations, lambda: None)
+    window = SettingsWindow(manager, Translations())
     try:
-        assert tray.magnet_action.isChecked() and window.magnet_box.isChecked()
+        box = window.magnet_box
+        assert box.isChecked()
+        assert "Alt" in window.magnet_note.text() == box.accessibleDescription()
 
-        tray.magnet_action.trigger()  # off
-        assert manager.magnet is False
-        assert not window.magnet_box.isChecked()  # told at once
+        box.click()  # off
+        assert manager.magnet is False and Settings(connection).get(MAGNET) is False
 
-        window.magnet_box.click()  # on again
-        assert manager.magnet is True
-        tray.refresh_switches()  # as the menu opens
-        assert tray.magnet_action.isChecked()
+        manager.set_magnet(True)  # elsewhere
+        assert box.isChecked()  # told at once
     finally:
         # Gone before the database closes: a later language switch reaches every window.
         window.deleteLater()
-        tray.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

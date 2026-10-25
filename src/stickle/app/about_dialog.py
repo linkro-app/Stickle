@@ -18,7 +18,6 @@ from stickle.app.app_icon import icon_pixmap
 from stickle.app.feedback import open_feedback
 from stickle.app.link_label import LinkLabel
 from stickle.app.support import LICENSE, PRIVACY, SOURCE, open_support, site_page
-from stickle.core.updates import FEED_HOST
 from stickle.platform.paths import own_files_folder
 
 ICON_SIZE = 64
@@ -43,14 +42,9 @@ def _link_label(parent: QWidget) -> LinkLabel:
 
 
 class AboutDialog(QDialog):
-    def __init__(
-        self, parent: QWidget | None = None, checks_updates: bool = False, portable: bool = False
-    ) -> None:
+    def __init__(self, parent: QWidget | None = None, portable: bool = False) -> None:
         super().__init__(parent)
-        self._checks_updates = checks_updates
         self._portable = portable
-        self.connections = QLabel(self)
-        self.connections.setWordWrap(True)
         # A draft issue in the browser; Stickle sends nothing itself.
         self.feedback_button = QPushButton(self)
         self.feedback_button.clicked.connect(self.report)
@@ -100,7 +94,6 @@ class AboutDialog(QDialog):
         layout.addWidget(self.links)
         layout.addWidget(self.license)
         layout.addWidget(self.notices)
-        layout.addWidget(self.connections)
         feedback = QHBoxLayout()
         feedback.addWidget(self.feedback_button)
         feedback.addStretch(1)
@@ -143,17 +136,6 @@ class AboutDialog(QDialog):
         notices = self.tr("Open source licenses")
         self.notices.setText(f'<a href="notices">{notices}</a>')
         self.notices.setAccessibleName(notices)
-        # Every address the app itself connects to, said where it can be read.
-        if self._checks_updates:
-            self.connections.setText(
-                self.tr(
-                    "Stickle connects only to %1, once a day, to see whether a new version "
-                    "is out. It sends nothing about you or your notes, and the check can be "
-                    "turned off."
-                ).replace("%1", FEED_HOST)
-            )
-        else:
-            self.connections.setText(self.tr("Stickle connects to nothing on the internet."))
         self.support_text.setText(
             self.tr(
                 "If Stickle is useful to you, your support keeps it going. "

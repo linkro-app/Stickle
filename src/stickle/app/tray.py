@@ -5,20 +5,18 @@ import sys
 from collections.abc import Callable
 
 from PySide6.QtCore import QElapsedTimer, QObject, QTimer, QUrl
-from PySide6.QtGui import QAction, QActionGroup, QGuiApplication
+from PySide6.QtGui import QActionGroup, QGuiApplication
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from stickle.app import note_window
 from stickle.app.app_icon import make_icon
-from stickle.app.app_list import switch_app_list
-from stickle.app.i18n import LANGUAGES, Translations
+from stickle.app.i18n import Translations
 from stickle.app.notes import HIDDEN_LISTED, NoteManager, clipboard_text
 from stickle.app.support import open_support
 from stickle.app.update_check import UpdateCheck
 from stickle.core.markdown import note_title
 from stickle.core.note import Note
 from stickle.platform.autostart import Autostart
-from stickle.platform.linux.appimage import AppMenuEntry
 
 log = logging.getLogger(__name__)
 TITLE_LENGTH = 40
@@ -90,17 +88,12 @@ class Tray(QSystemTrayIcon):
         on_quit: Callable[[], object],
         translations: Translations,
         notes: NoteManager | None = None,
-        autostart: Autostart | None = None,
-        app_list: AppMenuEntry | None = None,
         updates: UpdateCheck | None = None,
     ) -> None:
         super().__init__(make_icon())
         self._faded = False
         self.setToolTip("Stickle")
-        self._translations = translations
         self._notes = notes
-        self._autostart = autostart
-        self._app_list = app_list
         self._updates = updates
 
         # QSystemTrayIcon does not own its menu, so keep a reference.
@@ -152,41 +145,12 @@ class Tray(QSystemTrayIcon):
         self.export_action = self.data_menu.addAction("")
         self.data_menu.addSeparator()
         self.restore_backup_action = self.data_menu.addAction("")
-        self.language_menu = self._menu.addMenu("")
-        self.language_actions: dict[str | None, QAction] = {}
-        group = QActionGroup(self.language_menu)
-        for code, native_name in LANGUAGES:
-            action = self.language_menu.addAction(native_name)
-            action.setCheckable(True)
-            action.setChecked(code == translations.language)
-            action.triggered.connect(lambda _=False, code=code: translations.apply(code))
-            group.addAction(action)
-            self.language_actions[code] = action
-        self.autostart_action = self._menu.addAction("")
-        self.autostart_action.setCheckable(True)
-        self.autostart_action.setVisible(autostart is not None)
-        self.autostart_action.triggered.connect(self._switch_autostart)
-        # Only for an AppImage: packages add themselves to the list.
-        self.app_list_action = self._menu.addAction("")
-        self.app_list_action.setCheckable(True)
-        self.app_list_action.setVisible(app_list is not None)
-        self.app_list_action.triggered.connect(self._switch_app_list)
-        # Not where the Store or Flatpak keep Stickle up to date.
-        self.update_check_action = self._menu.addAction("")
-        self.update_check_action.setCheckable(True)
-        self.update_check_action.setVisible(updates is not None)
+        # Language, starting at login and the like: in the settings window,
+        # shown by the Stickle window.
+        self.settings_action = self._menu.addAction("")
         if updates is not None:
-            self.update_check_action.triggered.connect(updates.set_enabled)
             updates.found.connect(self._update_news)
-            updates.switched.connect(self._update_news)
-        # Notes line up with the notes and screen edges near them when moved or
-        # resized (Alt as one is let go skips it once).
-        self.magnet_action = self._menu.addAction("")
-        self.magnet_action.setCheckable(True)
-        self.magnet_action.setVisible(notes is not None)
-        self.magnet_action.triggered.connect(self._switch_magnet)
-        # The file may have been removed in the system's own settings meanwhile.
-        self._menu.aboutToShow.connect(self.refresh_switches)
+            updates.switched.connect(self._update_news)  # off: no longer said
 
         self._menu.addSeparator()
         # One of the two places that mention support (the other is About Stickle).
@@ -199,7 +163,6 @@ class Tray(QSystemTrayIcon):
         self.quit_action = self._menu.addAction("")
         self.quit_action.triggered.connect(on_quit)
         self.setContextMenu(self._menu)
-        self.refresh_switches()
 
         # A double click on the icon makes a new note; a single click does nothing,
         # the menu (the right button) holding the rest. StatusNotifierItem trays
@@ -269,21 +232,6 @@ class Tray(QSystemTrayIcon):
         if self._notes:
             self._notes.restore_last_deleted()
 
-    def refresh_switches(self) -> None:
-        """Show what the files say (they may have changed outside Stickle)."""
-        if self._autostart is not None:
-            self.autostart_action.setChecked(self._autostart.enabled)
-        if self._app_list is not None:
-            self.app_list_action.setChecked(self._app_list.added)
-        if self._updates is not None:
-            self.update_check_action.setChecked(self._updates.enabled)
-        if self._notes is not None:
-            self.magnet_action.setChecked(self._notes.magnet)
-
-    def _switch_magnet(self, on: bool) -> None:
-        if self._notes is not None:
-            self._notes.set_magnet(on)
-
     def _update_news(self, _news: object) -> None:
         self.refresh_new_version()
 
@@ -294,21 +242,10 @@ class Tray(QSystemTrayIcon):
             self.new_version_action.setText(
                 self.tr("&Get Stickle %1…").replace("%1", release.version)
             )
-        self.refresh_switches()
 
     def _get_new_version(self) -> None:
         if self._updates is not None and self._updates.release is not None:
             note_window.open_url(QUrl(self._updates.release.page))
-
-    def _switch_app_list(self, on: bool) -> None:
-        if self._app_list is not None:
-            switch_app_list(self._app_list, on)
-        self.refresh_switches()
-
-    def _switch_autostart(self, on: bool) -> None:
-        if self._autostart is not None:
-            switch_autostart(self._autostart, on)
-        self.refresh_switches()
 
     def _refresh_clipboard(self) -> None:
         self.clipboard_action.setEnabled(bool(clipboard_text()))
@@ -363,16 +300,9 @@ class Tray(QSystemTrayIcon):
         else:
             self.setToolTip("Stickle")
         self.refresh_notes()
-        self.language_menu.setTitle(self.tr("&Language"))
-        self.language_actions[None].setText(self.tr("System language"))
-        if chosen := self.language_actions.get(self._translations.language):
-            chosen.setChecked(True)
+        self.settings_action.setText(self.tr("&Settings…"))
         self.quit_action.setText(self.tr("&Quit Stickle"))
         self.feedback_action.setText(self.tr("Report a problem or &idea…"))
         self.support_action.setText(self.tr("Su&pport Stickle…"))
         self.about_action.setText(self.tr("Abo&ut Stickle"))
-        self.autostart_action.setText(self.tr("&Start Stickle when I log in"))
-        self.app_list_action.setText(self.tr("Show Stickle in the &app list"))
-        self.update_check_action.setText(self.tr("Check for a new &version daily"))
-        self.magnet_action.setText(self.tr("Line notes up like a &magnet"))
         self.refresh_new_version()

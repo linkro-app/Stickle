@@ -48,14 +48,6 @@
         <translation>오픈 소스 라이선스</translation>
     </message>
     <message>
-        <source>Stickle connects only to %1, once a day, to see whether a new version is out. It sends nothing about you or your notes, and the check can be turned off.</source>
-        <translation>Stickle은 새 버전이 나왔는지 보려고 하루에 한 번 %1에만 접속합니다. 사용자나 메모에 관해서는 아무것도 보내지 않으며, 이 확인은 끌 수 있습니다.</translation>
-    </message>
-    <message>
-        <source>Stickle connects to nothing on the internet.</source>
-        <translation>Stickle은 인터넷의 어디에도 접속하지 않습니다.</translation>
-    </message>
-    <message>
         <source>If Stickle is useful to you, your support keeps it going. Every feature is free, whether or not you support Stickle.</source>
         <translation>Stickle이 도움이 되었다면 후원으로 개발을 이어 갈 수 있습니다. 후원 여부와 관계없이 모든 기능을 무료로 쓸 수 있습니다.</translation>
     </message>
@@ -1684,6 +1676,93 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
 </context>
 <context>
+    <name>SettingsWindow</name>
+    <message>
+        <source>Stickle Settings</source>
+        <translation>Stickle 설정</translation>
+    </message>
+    <message>
+        <source>Settings</source>
+        <translation>설정</translation>
+    </message>
+    <message>
+        <source>General</source>
+        <translation>일반</translation>
+    </message>
+    <message>
+        <source>Notes</source>
+        <translation>메모</translation>
+    </message>
+    <message>
+        <source>Protection</source>
+        <translation>메모 보호</translation>
+    </message>
+    <message>
+        <source>Shortcuts</source>
+        <translation>단축키</translation>
+    </message>
+    <message>
+        <source>Connections</source>
+        <translation>연결</translation>
+    </message>
+    <message>
+        <source>&amp;Language</source>
+        <translation>언어(&amp;L)</translation>
+    </message>
+    <message>
+        <source>Language</source>
+        <translation>언어</translation>
+    </message>
+    <message>
+        <source>System language</source>
+        <translation>시스템 설정 따르기</translation>
+    </message>
+    <message>
+        <source>&amp;Start Stickle when I log in</source>
+        <translation>로그인할 때 Stickle 시작(&amp;S)</translation>
+    </message>
+    <message>
+        <source>Show Stickle in the &amp;app list</source>
+        <translation>앱 목록에 Stickle 표시(&amp;A)</translation>
+    </message>
+    <message>
+        <source>Check for a new &amp;version daily</source>
+        <translation>하루에 한 번 새 버전 확인(&amp;V)</translation>
+    </message>
+    <message>
+        <source>Line notes up like a &amp;magnet</source>
+        <translation>자석처럼 메모 정렬(&amp;M)</translation>
+    </message>
+    <message>
+        <source>A note moved or resized near another note or the edge of the screen lines up with it. Hold Alt as you let go to leave it as it is.</source>
+        <translation>메모를 옮기거나 크기를 바꿔 다른 메모나 화면 가장자리 가까이에 놓으면 거기에 맞춰 붙습니다. 놓을 때 Alt를 누르고 있으면 그대로 둡니다.</translation>
+    </message>
+    <message>
+        <source>Make a new &amp;recovery key…</source>
+        <translation>새 복구 키 만들기(&amp;R)…</translation>
+    </message>
+    <message>
+        <source>Stickle connects to nothing on the internet.</source>
+        <translation>Stickle은 인터넷의 어디에도 접속하지 않습니다.</translation>
+    </message>
+    <message>
+        <source>Stickle connects only to %1, once a day, to see whether a new version is out. It sends nothing about you or your notes, and the check can be turned off in General.</source>
+        <translation>Stickle은 새 버전이 나왔는지 보려고 하루에 한 번 %1에만 접속합니다. 사용자나 메모에 관해서는 아무것도 보내지 않으며, 이 확인은 일반 칸에서 끌 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>With the daily check for a new version turned off, Stickle connects to nothing on the internet.</source>
+        <translation>새 버전 확인을 꺼 두어 Stickle은 인터넷의 어디에도 접속하지 않습니다.</translation>
+    </message>
+    <message>
+        <source>Make a new recovery key? The one you have now will no longer open your notes.</source>
+        <translation>새 복구 키를 만들까요? 지금 가진 복구 키로는 더 이상 메모를 열 수 없게 됩니다.</translation>
+    </message>
+    <message>
+        <source>The recovery key could not be saved.</source>
+        <translation>복구 키를 저장하지 못했습니다.</translation>
+    </message>
+</context>
+<context>
     <name>ShortcutGuide</name>
     <message>
         <source>New note</source>
@@ -1794,6 +1873,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>카테고리·표시 순서 바꾸기</translation>
     </message>
     <message>
+        <source>Open the settings</source>
+        <translation>설정 열기</translation>
+    </message>
+    <message>
         <source>Close the window</source>
         <translation>창 닫기</translation>
     </message>
@@ -1808,6 +1891,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Every feature, explained</source>
         <translation>모든 기능 안내</translation>
+    </message>
+    <message>
+        <source>Change shortcuts in Settings</source>
+        <translation>단축키 바꾸기는 설정에서</translation>
     </message>
     <message>
         <source>none</source>
@@ -1897,18 +1984,6 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>숨긴 메모 모두 보이기</translation>
     </message>
     <message>
-        <source>&amp;Language</source>
-        <translation>언어(&amp;L)</translation>
-    </message>
-    <message>
-        <source>Language</source>
-        <translation>언어</translation>
-    </message>
-    <message>
-        <source>System language</source>
-        <translation>시스템 설정 따르기</translation>
-    </message>
-    <message>
         <source>Quit Stickle</source>
         <translation>Stickle 종료</translation>
     </message>
@@ -1962,32 +2037,13 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>Stickle 정보</translation>
     </message>
     <message>
-        <source>&amp;Start Stickle when I log in</source>
-        <translation>로그인할 때 Stickle 시작(&amp;S)</translation>
-    </message>
-    <message>
-        <source>Show Stickle in the &amp;app list</source>
-        <translation>앱 목록에 Stickle 표시(&amp;A)</translation>
-    </message>
-    <message>
-        <source>Check for a new &amp;version daily</source>
-        <translation>하루에 한 번 새 버전 확인(&amp;V)</translation>
-    </message>
-    <message>
-        <source>Line notes up like a &amp;magnet</source>
-        <translation>자석처럼 메모 정렬(&amp;M)</translation>
-    </message>
-    <message>
-        <source>A note moved or resized near another note or the edge of the screen lines up with it. Hold Alt as you let go to leave it as it is.</source>
-        <translation>메모를 옮기거나 크기를 바꿔 다른 메모나 화면 가장자리 가까이에 놓으면 거기에 맞춰 붙습니다. 놓을 때 Alt를 누르고 있으면 그대로 둡니다.</translation>
+        <source>Ctrl+,</source>
+        <comment>the keys that open the settings</comment>
+        <translation>Ctrl+,</translation>
     </message>
     <message>
         <source>&amp;Get it…</source>
         <translation>받기(&amp;G)…</translation>
-    </message>
-    <message>
-        <source>Make a new &amp;recovery key…</source>
-        <translation>새 복구 키 만들기(&amp;R)…</translation>
     </message>
     <message>
         <source>(empty note)</source>
@@ -2022,6 +2078,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>백업에서 되돌리기(&amp;R)…</translation>
     </message>
     <message>
+        <source>&amp;Settings…</source>
+        <translation>설정(&amp;S)…</translation>
+    </message>
+    <message>
         <source>Restore the note just deleted: %1</source>
         <translation>방금 지운 메모 되살리기: %1</translation>
     </message>
@@ -2040,14 +2100,6 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Stickle %1 is out.</source>
         <translation>Stickle %1이 나왔습니다.</translation>
-    </message>
-    <message>
-        <source>Make a new recovery key? The one you have now will no longer open your notes.</source>
-        <translation>새 복구 키를 만들까요? 지금 가진 복구 키로는 더 이상 메모를 열 수 없게 됩니다.</translation>
-    </message>
-    <message>
-        <source>The recovery key could not be saved.</source>
-        <translation>복구 키를 저장하지 못했습니다.</translation>
     </message>
 </context>
 <context>
@@ -2176,8 +2228,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>Stickle: 바탕화면에 ‘%1’만 보는 중</translation>
     </message>
     <message>
-        <source>&amp;Language</source>
-        <translation>언어(&amp;L)</translation>
+        <source>&amp;Settings…</source>
+        <translation>설정(&amp;S)…</translation>
     </message>
     <message>
         <source>&amp;Quit Stickle</source>
@@ -2194,26 +2246,6 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Abo&amp;ut Stickle</source>
         <translation>Stickle 정보(&amp;U)</translation>
-    </message>
-    <message>
-        <source>&amp;Start Stickle when I log in</source>
-        <translation>로그인할 때 Stickle 시작(&amp;S)</translation>
-    </message>
-    <message>
-        <source>Show Stickle in the &amp;app list</source>
-        <translation>앱 목록에 Stickle 표시(&amp;A)</translation>
-    </message>
-    <message>
-        <source>Check for a new &amp;version daily</source>
-        <translation>하루에 한 번 새 버전 확인(&amp;V)</translation>
-    </message>
-    <message>
-        <source>Line notes up like a &amp;magnet</source>
-        <translation>자석처럼 메모 정렬(&amp;M)</translation>
-    </message>
-    <message>
-        <source>System language</source>
-        <translation>시스템 설정 따르기</translation>
     </message>
 </context>
 <context>

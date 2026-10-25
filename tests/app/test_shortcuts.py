@@ -168,7 +168,7 @@ class Window:
         self.window = StickleWindow(
             self.manager, Translations(), lambda: None, shortcuts=self.shortcuts
         )
-        rows = self.window.shortcut_rows
+        rows = self.window.settings.shortcut_rows
         assert rows is not None
         self.rows = rows
 
@@ -194,10 +194,10 @@ def test_each_shortcut_is_shown_with_what_holds_for_it(window: Window) -> None:
     rows = window.rows
     assert rows.edits["new-note"].keySequence() == QKeySequence("Ctrl+Alt+N")
     assert rows.edits["new-note"].accessibleName() == "New note"
-    assert not rows.notes["new-note"].isVisibleTo(window.window)
+    assert not rows.notes["new-note"].isVisibleTo(window.rows)
     assert "Another app is using Ctrl+Alt+S" in rows.notes["show"].text()
-    assert rows.notes["show"].isVisibleTo(window.window)
-    assert not rows.unavailable.isVisibleTo(window.window)
+    assert rows.notes["show"].isVisibleTo(window.rows)
+    assert not rows.unavailable.isVisibleTo(window.rows)
 
 
 def test_a_new_combination_chosen_in_the_window_is_used(window: Window) -> None:
@@ -205,7 +205,7 @@ def test_a_new_combination_chosen_in_the_window_is_used(window: Window) -> None:
 
     assert window.shortcuts.combo("show") == "Ctrl+Alt+J"
     assert window.shortcuts.state("show") == State.ON
-    assert not window.rows.notes["show"].isVisibleTo(window.window)
+    assert not window.rows.notes["show"].isVisibleTo(window.rows)
 
 
 def test_a_combination_that_cannot_work_is_explained_and_put_back(window: Window) -> None:
@@ -230,9 +230,9 @@ def test_where_shortcuts_cannot_be_set_the_window_says_how_to_have_them(
 ) -> None:
     window = Window(settings, System(available=False))
 
-    assert window.rows.unavailable.isVisibleTo(window.window)
+    assert window.rows.unavailable.isVisibleTo(window.rows)
     assert "--new-note" in window.rows.unavailable.text()
-    assert not window.rows.edits["new-note"].isVisibleTo(window.window)
+    assert not window.rows.edits["new-note"].isVisibleTo(window.rows)
     window.close()
 
 
@@ -346,7 +346,7 @@ def test_the_window_shows_the_desktops_keys_and_leads_to_its_settings(
     portal = FakePortal()
     shortcuts = kept_by_desktop(settings, portal)
     window = StickleWindow(NoteManager(None), Translations(), lambda: None, shortcuts=shortcuts)
-    rows = window.shortcut_rows
+    rows = window.settings.shortcut_rows
     assert rows is not None
 
     assert "asked" in rows.desktop_note.text()
@@ -357,8 +357,8 @@ def test_the_window_shows_the_desktops_keys_and_leads_to_its_settings(
 
     assert rows.given["new-note"].text() == "Ctrl+Alt+N"
     assert rows.given["show"].text() == "none"
-    assert rows.given["new-note"].isVisibleTo(window)
-    assert not rows.edits["new-note"].isVisibleTo(window)
+    assert rows.given["new-note"].isVisibleTo(rows)
+    assert not rows.edits["new-note"].isVisibleTo(rows)
     assert "keyboard settings" in rows.desktop_note.text()
     rows.configure_button.click()
     assert portal.pages_opened == 1

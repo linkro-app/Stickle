@@ -7,6 +7,7 @@ from pytestqt.qtbot import QtBot
 from stickle.app.application import NoteManager, use_language
 from stickle.app.i18n import Translations
 from stickle.app.password_dialog import PasswordDialog
+from stickle.app.settings_window import SettingsWindow
 from stickle.app.tray import Tray
 from stickle.data.startup import StartupSettings
 
@@ -16,6 +17,7 @@ def test_switching_language_updates_open_windows_and_the_tray(
 ) -> None:
     manager = NoteManager()
     tray = Tray(manager.new_note, lambda: None, translations)
+    settings = SettingsWindow(manager, translations)
     note = manager.new_note()
     try:
         assert note.title_bar.close_button.toolTip() == "Hide note"
@@ -26,7 +28,9 @@ def test_switching_language_updates_open_windows_and_the_tray(
         assert note.title_bar.close_button.toolTip() == "메모 숨기기"
         assert note.editor.accessibleName() == "메모 내용"
         assert tray.new_note_action.text() == "새 메모(&N)"
-        assert tray.language_menu.title() == "언어(&L)"
+        assert tray.settings_action.text() == "설정(&S)…"
+        assert settings.language_label.text() == "언어(&L)"
+        assert settings.windowTitle() == "Stickle 설정"
         # A note opened after the switch starts in the new language too.
         assert manager.new_note().title_bar.close_button.toolTip() == "메모 숨기기"
 
@@ -37,15 +41,21 @@ def test_switching_language_updates_open_windows_and_the_tray(
     finally:
         for window in manager.windows:
             window.close()
+        settings.deleteLater()
 
 
-def test_language_names_stay_in_their_own_language(translations: Translations) -> None:
-    tray = Tray(lambda: None, lambda: None, translations)
+def test_language_names_stay_in_their_own_language(
+    qtbot: QtBot, translations: Translations
+) -> None:
+    settings = SettingsWindow(NoteManager(), translations)
+    qtbot.addWidget(settings)
+    box = settings.language_box
 
     translations.apply("ko")
 
-    assert tray.language_actions["en"].text() == "English"
-    assert tray.language_actions["ko"].text() == "한국어"
+    assert box.itemText(box.findData("en")) == "English"
+    assert box.itemText(box.findData("ko")) == "한국어"
+    assert box.itemText(0) == "시스템 설정 따르기"
 
 
 def test_the_language_chosen_before_applies_from_the_start(
@@ -65,17 +75,20 @@ def test_the_language_chosen_before_applies_from_the_start(
     QLocale.setDefault(QLocale.system())
 
 
-def test_a_language_chosen_in_the_tray_is_kept_for_next_time(
+def test_a_language_chosen_in_the_settings_is_kept_for_next_time(
     qtbot: QtBot, translations_dir: Path, tmp_path: Path
 ) -> None:
     translations = Translations(translations_dir)
     use_language(translations, StartupSettings(tmp_path))
-    tray = Tray(lambda: None, lambda: None, translations)
+    settings = SettingsWindow(NoteManager(), translations)
+    qtbot.addWidget(settings)
+    box = settings.language_box
 
-    tray.language_actions["ko"].trigger()
+    box.activated.emit(box.findData("ko"))
     assert StartupSettings(tmp_path).language == "ko"
+    assert box.currentData() == "ko"
 
-    tray.language_actions[None].trigger()
+    box.activated.emit(0)  # the system's
     assert StartupSettings(tmp_path).language is None
     translations.apply("en")
     QLocale.setDefault(QLocale.system())

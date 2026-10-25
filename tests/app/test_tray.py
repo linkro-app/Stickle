@@ -28,14 +28,13 @@ def test_tray_has_an_icon_and_a_menu(qtbot: QtBot, translations: Translations) -
     assert tray.contextMenu() is not None
 
 
-def test_language_menu_switches_and_marks_the_choice(translations: Translations) -> None:
+def test_what_is_set_once_is_left_to_the_settings(translations: Translations) -> None:
+    # Language, starting at login and the like are in the settings window.
     tray = Tray(lambda: None, lambda: None, translations)
+    checkable = [a.text() for a in tray.contextMenu().actions() if a.isCheckable()]
 
-    tray.language_actions["ko"].trigger()
-
-    assert translations.language == "ko"
-    assert tray.language_actions["ko"].isChecked()
-    assert not tray.language_actions["en"].isChecked()
+    assert checkable == []
+    assert tray.settings_action.text() == "&Settings…"
 
 
 # Clicks on the icon: a double click makes a new note, a single click nothing.
