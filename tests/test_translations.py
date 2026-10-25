@@ -5,6 +5,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
 from PySide6.QtCore import QCoreApplication, QLocale, QTranslator
 from pytestqt.qtbot import QtBot
 
@@ -50,12 +51,18 @@ def test_stickle_manager_goes_by_its_name_with_the_right_particles() -> None:
     assert any("Stickle 관리자" in text for text in korean)
 
 
-def test_every_ui_string_has_a_korean_translation(tmp_path: Path) -> None:
-    # Re-extract from the current source into a copy: a new string without Korean shows up here.
-    project = copy_project(tmp_path)
+@pytest.fixture(scope="module")
+def extracted(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A copy of the project with its strings extracted afresh from the current
+    source, once for the tests here: the script starts several programs."""
+    project = copy_project(tmp_path_factory.mktemp("project"))
     run_script(root=project)
+    return project
 
-    messages = ET.parse(project / "i18n" / KOREAN.name).getroot().iter("message")
+
+def test_every_ui_string_has_a_korean_translation(extracted: Path) -> None:
+    # A new string without Korean shows up here.
+    messages = ET.parse(extracted / "i18n" / KOREAN.name).getroot().iter("message")
     missing = [
         message.findtext("source")
         for message in messages
@@ -67,11 +74,8 @@ def test_every_ui_string_has_a_korean_translation(tmp_path: Path) -> None:
     assert missing == []
 
 
-def test_committed_korean_file_is_up_to_date(tmp_path: Path) -> None:
-    project = copy_project(tmp_path)
-    run_script(root=project)
-
-    assert (project / "i18n" / KOREAN.name).read_bytes() == KOREAN.read_bytes()
+def test_committed_korean_file_is_up_to_date(extracted: Path) -> None:
+    assert (extracted / "i18n" / KOREAN.name).read_bytes() == KOREAN.read_bytes()
 
 
 def test_compiled_korean_translation_is_used(qtbot: QtBot, tmp_path: Path) -> None:

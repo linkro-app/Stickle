@@ -10,6 +10,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
 from PySide6.QtCore import QLocale
 from PySide6.QtWidgets import QAbstractButton, QLabel, QListWidget, QWidget
 from pytestqt.qtbot import QtBot
@@ -58,6 +59,15 @@ def make_pseudo_translation(folder: Path) -> None:
     compile_to(ts_file, folder / "stickle_fr.qm")
 
 
+@pytest.fixture(scope="module")
+def pseudo_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The fake translation, made once for the tests here: extracting and
+    compiling start several programs each time."""
+    folder = tmp_path_factory.mktemp("pseudo")
+    make_pseudo_translation(folder)
+    return folder
+
+
 def visible_texts(widget: QWidget) -> list[str]:
     texts: list[str] = []
     for item in [widget, *widget.findChildren(QWidget)]:
@@ -72,9 +82,8 @@ def visible_texts(widget: QWidget) -> list[str]:
     return texts
 
 
-def test_every_visible_text_is_translated(qtbot: QtBot, tmp_path: Path) -> None:
-    make_pseudo_translation(tmp_path)
-    translations = Translations(tmp_path)
+def test_every_visible_text_is_translated(qtbot: QtBot, pseudo_dir: Path) -> None:
+    translations = Translations(pseudo_dir)
     translations.apply("en")
     manager = NoteManager()
     tray = Tray(manager.new_note, lambda: None, translations, manager)
@@ -103,9 +112,10 @@ def test_every_visible_text_is_translated(qtbot: QtBot, tmp_path: Path) -> None:
         QLocale.setDefault(QLocale.system())
 
 
-def test_every_startup_dialog_text_is_translated(qtbot: QtBot, tmp_path: Path) -> None:
-    make_pseudo_translation(tmp_path)
-    translations = Translations(tmp_path)
+def test_every_startup_dialog_text_is_translated(
+    qtbot: QtBot, pseudo_dir: Path, tmp_path: Path
+) -> None:
+    translations = Translations(pseudo_dir)
     translations.apply("en")
     dialogs: list[QWidget] = [PasswordDialog(create, lambda _: None) for create in (True, False)]
     diff = NotesDiff(missing=["회의록"], changed=[""], added=["새 메모"])
