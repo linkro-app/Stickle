@@ -17,7 +17,6 @@ from typing import Literal, override
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -29,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from stickle.app.master_password import ERROR_STYLE, MasterPasswords, weakness_reason
+from stickle.app.recovery_key_dialog import KeptBox
 from stickle.app.times import local_time
 from stickle.core.passwords import weakness
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
@@ -174,7 +174,7 @@ class TurnOnDialog(_PasswordWindow):
         self.master_form.addRow(self.master_confirm_label, self.master_confirm)
         self.master_form.setRowVisible(1, not self.has_master)
         self.layout_parts.addLayout(self.master_form)
-        self.understood = QCheckBox()
+        self.understood = KeptBox()  # Enter goes on to Turn on, as Space ticks it
         self.understood.toggled.connect(
             lambda: self.ok_button.setEnabled(self.understood.isChecked())
         )

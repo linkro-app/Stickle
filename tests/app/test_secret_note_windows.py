@@ -855,3 +855,25 @@ def test_locked_while_its_title_is_changed_it_stays_locked(
     assert window.secret_locked and window.stack.currentWidget() is window.locked_face
     assert window.open_secret_action.isVisible()
     assert stored(connection, window).secret_title == "통장"
+
+
+def test_enter_after_ticking_i_understand_turns_them_on(qtbot: QtBot, manager: NoteManager) -> None:
+    # Some desktops (GNOME) have Enter tick a check box too: ticked with Space,
+    # it was unticked again instead of turning them on.
+    assert manager.secrets is not None
+    dialog = TurnOnDialog(manager.secrets)
+    qtbot.addWidget(dialog)
+    for field in (dialog.password, dialog.confirm):
+        field.setText(SECRET)
+    for field in (dialog.master, dialog.master_confirm):
+        field.setText(MASTER)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+    dialog.understood.setFocus()
+
+    QTest.keyClick(dialog.understood, Qt.Key.Key_Space)
+    QTest.keyClick(dialog.understood, Qt.Key.Key_Return)
+
+    assert dialog.understood.isChecked()
+    qtbot.waitUntil(lambda: dialog.result() == QDialog.DialogCode.Accepted.value)
+    assert dialog.key is not None
