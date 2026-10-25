@@ -17,7 +17,7 @@ from stickle.data.search import search
 COLUMNS = (
     "id, body, color, hidden, always_on_top, created_at, updated_at, content_hash, deleted_at,"
     " change_seq, opacity, status, label, locked, collapsed, auto_height, zoom, sleep_until,"
-    " style_id"
+    " style_id, secret_title, secret_body"
 )
 
 
@@ -35,6 +35,14 @@ class NoteNotDeletedError(ValueError):
 
 class NoteNotBlankError(ValueError):
     """Only a note with no text can be removed past the trash."""
+
+
+class NoteIsSecretError(ValueError):
+    """A secret note's text is kept encrypted only, never as body."""
+
+
+class NoteNotSecretError(ValueError):
+    """Only a secret note has a sealed text and a title of its own."""
 
 
 # Notes stay in the trash this long, and deletion records this long after emptying.
@@ -62,6 +70,8 @@ def _note(row: apsw.SQLiteValues, marks: frozenset[str] = frozenset()) -> Note:
         zoom,
         sleep_until,
         style_id,
+        secret_title,
+        secret_body,
     ) = row
     return Note(
         id=str(note_id),
@@ -84,6 +94,8 @@ def _note(row: apsw.SQLiteValues, marks: frozenset[str] = frozenset()) -> Note:
         zoom=float(zoom),  # pyright: ignore[reportArgumentType]
         sleep_until=None if sleep_until is None else str(sleep_until),
         style_id=None if style_id is None else str(style_id),
+        secret_title=None if secret_title is None else str(secret_title),
+        sealed=secret_body if isinstance(secret_body, bytes) else None,
     )
 
 
@@ -155,9 +167,65 @@ class NoteRepository:
 
     def update_body(self, note_id: str, body: str) -> Note:
         note = self._require_live(note_id)
+        if note.secret:
+            raise NoteIsSecretError(note_id)  # its text goes in sealed only
         if body == note.body:
             return note  # nothing changed: no new change number
         return self._change(note_id, {"body": body, "content_hash": content_hash(body)})
+
+    # Secret notes: the text only ever encrypted here (stickle.crypto.secret_notes)
+
+    def make_secret(self, note_id: str, title: str, sealed: bytes) -> Note:
+        """The note's text replaced by sealed (it, encrypted), in one step, and gone
+        from the database: overwritten where it was, out of the search index."""
+        self._require_live(note_id)
+        note = self._change(
+            note_id,
+            {
+                "body": "",
+                "secret_body": sealed,
+                "secret_title": title,
+                "content_hash": content_hash(sealed.hex()),
+            },
+        )
+        self.forget_old_text()
+        return note
+
+    def update_secret_body(self, note_id: str, sealed: bytes) -> Note:
+        note = self._require_live(note_id)
+        if not note.secret:
+            raise NoteNotSecretError(note_id)
+        if sealed == note.sealed:
+            return note
+        return self._change(
+            note_id, {"secret_body": sealed, "content_hash": content_hash(sealed.hex())}
+        )
+
+    def set_secret_title(self, note_id: str, title: str) -> Note:
+        if not self._require_live(note_id).secret:
+            raise NoteNotSecretError(note_id)
+        return self._change(note_id, {"secret_title": title})
+
+    def make_ordinary(self, note_id: str, body: str) -> Note:
+        """A secret note an ordinary one again, its text (decrypted) as given."""
+        if not self._require_live(note_id).secret:
+            raise NoteNotSecretError(note_id)
+        return self._change(
+            note_id,
+            {
+                "body": body,
+                "secret_body": None,
+                "secret_title": None,
+                "content_hash": content_hash(body),
+            },
+        )
+
+    def forget_old_text(self) -> None:
+        """Text replaced or removed leaves no trace a key to the database would
+        read: freed pages are overwritten (secure_delete is on), the search
+        index is merged so its old entries go, and the log is folded in."""
+        self._db.execute("INSERT INTO notes_fts(notes_fts) VALUES ('optimize')")
+        self._db.pragma("wal_checkpoint", "TRUNCATE")
 
     def set_color(self, note_id: str, color: str) -> Note:
         """color is a palette key; the colours drawn are worked out from it."""
@@ -384,7 +452,9 @@ class NoteRepository:
         """Remove a note with no text (spaces and line breaks at most) for good, past
         the trash: there is nothing in it to bring back. Only a deletion record stays."""
         with self._db:
-            if self._require_live(note_id).body.strip():
+            note = self._require_live(note_id)
+            # A secret note's body is always empty: its text is sealed, unseen here.
+            if note.body.strip() or note.secret:
                 raise NoteNotBlankError(note_id)
             self.delete(note_id)
             self.purge(note_id)

@@ -61,22 +61,35 @@ def make_sealed_slot(
     return SealedSlot(secret, public, seal(public, key))
 
 
-def open_sealed_slot(slot: SealedSlot, typed: str, slot_name: str) -> bytes:
-    """The sealed key; WrongPasswordError if typed does not open the pair,
-    KeyFileError if the slot was altered."""
+def open_pair(slot: SealedSlot, typed: str, slot_name: str) -> bytes:
+    """The pair's secret key; WrongPasswordError if typed does not open it,
+    KeyFileError if the slot was altered (its public key is not the pair's)."""
+    from nacl.public import PrivateKey
+
+    secret = unwrap_with_password(slot.secret, typed, slot_name)
+    if bytes(PrivateKey(secret).public_key) != slot.public:
+        raise KeyFileError("the public key does not belong to the secret key")
+    return secret
+
+
+def unseal(secret: bytes, sealed: bytes) -> bytes:
+    """A key sealed for the pair whose secret key this is (KeyFileError if not)."""
     from nacl.exceptions import CryptoError
     from nacl.public import PrivateKey, SealedBox
 
-    pair = PrivateKey(unwrap_with_password(slot.secret, typed, slot_name))
-    if bytes(pair.public_key) != slot.public:
-        raise KeyFileError("the public key does not belong to the secret key")
     try:
-        key = SealedBox(pair).decrypt(slot.sealed)
+        key = SealedBox(PrivateKey(secret)).decrypt(sealed)
     except CryptoError as error:
         raise KeyFileError("the sealed key does not open") from error
     if len(key) != KEY_BYTES:
         raise KeyFileError("sealed key has the wrong length")
     return key
+
+
+def open_sealed_slot(slot: SealedSlot, typed: str, slot_name: str) -> bytes:
+    """The sealed key; WrongPasswordError if typed does not open the pair,
+    KeyFileError if the slot was altered."""
+    return unseal(open_pair(slot, typed, slot_name), slot.sealed)
 
 
 def decode_sealed_slot(value: object) -> SealedSlot:

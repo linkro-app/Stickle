@@ -44,6 +44,9 @@ def open_database(path: Path, key: bytes, read_only: bool = False) -> apsw.Conne
     # Every committed save reaches the disk before the commit returns, so a power
     # loss keeps the last save. (SQLite's default today, pinned so it stays.)
     connection.pragma("synchronous", "FULL")
+    # What is deleted or replaced is overwritten, not left in free pages: the text
+    # of a note made secret must not stay readable with the database's key.
+    connection.pragma("secure_delete", True)
     # Sorting and temporary tables stay in memory instead of unencrypted temp files.
     connection.pragma("temp_store", "memory")
     return connection

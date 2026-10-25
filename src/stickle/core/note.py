@@ -36,7 +36,15 @@ class Note:
     zoom: float = 1.0
     sleep_until: str | None = None
     style_id: str | None = None
+    # A secret note: its text encrypted (stickle.crypto.secret_notes) in sealed,
+    # body left empty, and a title of its own that shows while it is locked.
+    secret_title: str | None = None
+    sealed: bytes | None = None
 
     @property
     def deleted(self) -> bool:
         return self.deleted_at is not None
+
+    @property
+    def secret(self) -> bool:
+        return self.sealed is not None

@@ -181,8 +181,17 @@ V7 = """
 CREATE TABLE key_copies (name TEXT PRIMARY KEY, content BLOB NOT NULL);
 """
 
+V8 = """
+-- Secret notes: their text, encrypted with the secret notes' key and bound to
+-- the note's id, in secret_body; body stays empty, so the search index (made
+-- from body) never holds it. The title typed for one is plain (the database
+-- itself is encrypted), as it shows while the note is locked.
+ALTER TABLE notes ADD COLUMN secret_title TEXT;
+ALTER TABLE notes ADD COLUMN secret_body BLOB;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8]
 BACKUPS_KEPT = 3
 
 
