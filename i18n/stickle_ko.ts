@@ -1963,6 +1963,26 @@ Your notes as they are now are backed up first, so you can come back to them the
         <source>The recovery key could not be saved.</source>
         <translation>복구 키를 저장하지 못했습니다.</translation>
     </message>
+    <message>
+        <source>No recovery key yet</source>
+        <translation>아직 복구 키 없음</translation>
+    </message>
+    <message>
+        <source>Recovery key: made with an earlier Stickle</source>
+        <translation>복구 키: 이전 버전 Stickle에서 만듦</translation>
+    </message>
+    <message>
+        <source>Recovery key: made %1</source>
+        <translation>복구 키: %1 만듦</translation>
+    </message>
+    <message>
+        <source>No master password</source>
+        <translation>마스터 암호 없음</translation>
+    </message>
+    <message>
+        <source>Master password: set %1</source>
+        <translation>마스터 암호: %1 정함</translation>
+    </message>
 </context>
 <context>
     <name>ShortcutGuide</name>
@@ -2248,8 +2268,32 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>받기(&amp;G)…</translation>
     </message>
     <message>
+        <source>Set &amp;again…</source>
+        <translation>다시 정하기(&amp;A)…</translation>
+    </message>
+    <message>
+        <source>OK, it was me</source>
+        <translation>확인(내가 했음)</translation>
+    </message>
+    <message>
         <source>(empty note)</source>
         <translation>(빈 메모)</translation>
+    </message>
+    <message>
+        <source>On %1 a new recovery key was made on this computer.</source>
+        <translation>%1에 이 PC에서 새 복구 키를 만들었습니다.</translation>
+    </message>
+    <message>
+        <source>On %1 a master password was set on this computer.</source>
+        <translation>%1에 이 PC에서 마스터 암호를 새로 정했습니다.</translation>
+    </message>
+    <message>
+        <source>On %1 the master password was changed on this computer.</source>
+        <translation>%1에 이 PC에서 마스터 암호를 바꿨습니다.</translation>
+    </message>
+    <message>
+        <source>If it was not you, set it again in the settings.</source>
+        <translation>직접 하지 않았다면 설정에서 다시 정하세요.</translation>
     </message>
     <message>
         <source>All notes are hidden - Stickle Manager</source>
@@ -2341,6 +2385,14 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>The Microsoft Store could not take the payment just now.</source>
         <translation>지금은 Microsoft Store에서 결제할 수 없습니다.</translation>
+    </message>
+</context>
+<context>
+    <name>Times</name>
+    <message>
+        <source>MMMM d, h:mm AP</source>
+        <comment>a day and time, as QDateTime formats them</comment>
+        <translation>M월 d일 AP h:mm</translation>
     </message>
 </context>
 <context>

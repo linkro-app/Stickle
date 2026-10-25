@@ -194,6 +194,15 @@ class Unlock:
         except KeyFileError, OSError:
             return False
 
+    @property
+    def recovery_key_made_at(self) -> str | None:
+        """When it was made (UTC), None without one or for one made before 0.6."""
+        try:
+            slot = read_recovery(self.files)
+        except KeyFileError, OSError:
+            return None
+        return None if slot is None else slot.set_at
+
     def open_with_recovery_key(self, typed: str) -> bytes:
         """The key, or RecoveryKeyTypoError / WrongRecoveryKeyError.
 

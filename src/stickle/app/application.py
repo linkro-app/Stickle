@@ -31,6 +31,7 @@ from stickle.app.master_password import MasterPasswords
 from stickle.app.notes import NoteManager
 from stickle.app.perf import SAMPLE_NOTE, PerfMode, open_storage_like_startup
 from stickle.app.placement import monitors
+from stickle.app.protection_changes import ProtectionChanges
 from stickle.app.recovery_offer import RecoveryOffer
 from stickle.app.settings_window import RecoveryKeys
 from stickle.app.shortcuts import GlobalShortcuts, no_portal
@@ -67,6 +68,7 @@ from stickle.platform.linux.appimage import (
 )
 from stickle.platform.linux.display import preferred_qt_platform
 from stickle.platform.power import watch_sleep
+from stickle.platform.session import watch_unlock
 from stickle.platform.updates import updated_by_its_store
 from stickle.unlock import Unlock
 
@@ -249,23 +251,47 @@ def answer_request(asked: bytes, manager: NoteManager, window: StickleWindow) ->
         window.open()
 
 
-def recovery_keys(unlock: Unlock | None, settings: Settings | None) -> RecoveryKeys | None:
-    """Making recovery keys for the key that opened the notes (none in measurement mode)."""
+def recovery_keys(
+    unlock: Unlock | None, settings: Settings | None, changes: ProtectionChanges | None = None
+) -> RecoveryKeys | None:
+    """Making recovery keys for the key that opened the notes (none in measurement
+    mode); each one made noted in changes, to be told later."""
     if unlock is None or unlock.opened_key is None or settings is None:
         return None
     key = unlock.opened_key
+
+    def make() -> str:
+        recovery_key = unlock.make_recovery_key(key)
+        if changes is not None:
+            changes.note("recovery_key")
+        return recovery_key
+
     return RecoveryKeys(
         exists=lambda: unlock.has_recovery_key,
-        make=lambda: unlock.make_recovery_key(key),
+        make=make,
         kept=lambda: settings.set(RECOVERY_KEY_KEPT, True),
+        made_at=lambda: unlock.recovery_key_made_at,
     )
 
 
-def master_passwords(unlock: Unlock | None) -> MasterPasswords | None:
-    """The master password for the key that opened the notes (none in measurement mode)."""
+def master_passwords(
+    unlock: Unlock | None, changes: ProtectionChanges | None = None
+) -> MasterPasswords | None:
+    """The master password for the key that opened the notes (none in measurement
+    mode); each one set or changed noted in changes, to be told later."""
     if unlock is None or unlock.opened_key is None:
         return None
     key = unlock.opened_key
+
+    def set_password(password: str) -> None:
+        unlock.set_master_password(key, password)
+        if changes is not None:
+            changes.note("master_password_set")
+
+    def change_password(current: str, new: str) -> None:
+        unlock.change_master_password(current, new)
+        if changes is not None:
+            changes.note("master_password_changed")
 
     def recovery_key_opens(typed: str) -> bool:
         """RecoveryKeyTypoError for a mistyped one."""
@@ -276,12 +302,24 @@ def master_passwords(unlock: Unlock | None) -> MasterPasswords | None:
 
     return MasterPasswords(
         exists=lambda: unlock.has_master_password,
-        set=lambda password: unlock.set_master_password(key, password),
-        change=unlock.change_master_password,
+        set=set_password,
+        change=change_password,
         check=unlock.is_master_password,
         opens_notes=unlock.opens_with_password,
         recovery_key_opens=recovery_key_opens,
+        set_at=lambda: unlock.master_password_set_at,
     )
+
+
+def tell_changes(changes: ProtectionChanges, window: StickleWindow, tray: Tray | None) -> None:
+    """Changes now due are told: at the top of Stickle Manager and, with it
+    closed, in one notification of the system (a click on it opens it)."""
+    if not changes.due():
+        return
+    window.refresh_changes()
+    told = window.changes_told()
+    if told and tray is not None and not window.isVisible():
+        tray.showMessage("Stickle", told)
 
 
 def read_appimage_files() -> None:
@@ -502,6 +540,7 @@ def run(
             app.installNativeEventFilter(close_filter)
         sleep_watch = watch_sleep(before_sleep)
         log.info("sleep %s", "watched" if sleep_watch is not None else "not watched")
+        unlock_watch: object | None = None
         tray_available = QSystemTrayIcon.isSystemTrayAvailable()
         autostart, app_list, make_portal = on_this_computer(perf is not None, portable)
         # Not when measuring, nor where the Store or Flatpak keep Stickle up to date.
@@ -512,7 +551,13 @@ def run(
         )
         tray = Tray(manager.new_note, app.quit, translations, manager, updates)
         tray.show()
-        recovery = recovery_keys(unlock, Settings(connection) if connection else None)
+        # Changes to what protects the notes, told at a start or an unlock (not when measuring).
+        changes = (
+            ProtectionChanges(Settings(connection))
+            if connection is not None and perf is None
+            else None
+        )
+        recovery = recovery_keys(unlock, Settings(connection) if connection else None, changes)
         # Measuring must not take the user's shortcuts from their own Stickle.
         shortcuts = (
             GlobalShortcuts(Settings(connection) if connection else None, make_portal=make_portal)
@@ -536,7 +581,8 @@ def run(
             portable_folder=instance if portable else None,
             data=access,
             updates=updates,
-            master=master_passwords(unlock),
+            master=master_passwords(unlock, changes),
+            changes=changes,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
 
@@ -569,6 +615,17 @@ def run(
             if connection is not None:
                 give_news(NoteRepository(connection), Settings(connection), first_start)
             open_at_start(manager, stickle_window, tray_available, at_login)
+            if changes is not None:
+                # Made in an earlier run: told now, and anything made later once
+                # the computer has been locked and unlocked.
+                shown_tray = tray if tray_available else None
+                tray.messageClicked.connect(lambda: stickle_window.open())
+                tell_changes(changes, stickle_window, shown_tray)
+                window_for_changes = stickle_window
+                unlock_watch = watch_unlock(
+                    lambda: tell_changes(changes, window_for_changes, shown_tray)
+                )
+                log.info("unlocking %s", "watched" if unlock_watch is not None else "not watched")
             if shortcuts is not None:
                 # The desktop may ask about them: after the first start's windows.
                 shortcuts.start(stickle_window)
@@ -588,7 +645,12 @@ def run(
                 QTimer.singleShot(0, lambda: offer_app_list(entry, settings))
             if recovery is not None and connection is not None:
                 repository = NoteRepository(connection)
-                offer = RecoveryOffer(Settings(connection), repository, recovery.make)
+                # The user's own setting up, as at the first start: not noted.
+                assert unlock is not None and unlock.opened_key is not None
+                opened_key, offering = unlock.opened_key, unlock
+                offer = RecoveryOffer(
+                    Settings(connection), repository, lambda: offering.make_recovery_key(opened_key)
+                )
                 # Out of the saving in progress: the offer is a window of its own.
                 manager.note_created.connect(lambda: QTimer.singleShot(0, offer.check))
                 if not (at_login or first_start):
@@ -613,7 +675,7 @@ def run(
         try:
             return app.exec()
         finally:
-            del sleep_watch, close_filter
+            del sleep_watch, close_filter, unlock_watch
     finally:
         watcher.close()
         if connection is not None:

@@ -128,6 +128,35 @@ NEWS_SEEN = Setting[str | None]("news_seen", "shared", None, _version_or_none)
 # Notes line up with the notes and screen edges near them when moved or resized.
 MAGNET = Setting[bool]("magnet", "shared", True, _flag)
 
+CHANGE_KINDS = ("recovery_key", "master_password_set", "master_password_changed")
+
+
+def _protection_changes(value: object) -> TypeGuard[list[dict[str, object]]]:
+    """Each {"what": a kind, "at": a time, "told": whether it is to be told now}."""
+    if not isinstance(value, list):
+        return False
+    for entry in cast(list[object], value):
+        if not isinstance(entry, dict):
+            return False
+        fields = cast(dict[str, object], entry)
+        if (
+            set(fields) != {"what", "at", "told"}
+            or fields["what"] not in CHANGE_KINDS
+            or not _stamp_or_none(fields["at"])
+            or fields["at"] is None
+            or not isinstance(fields["told"], bool)
+        ):
+            return False
+    return True
+
+
+# What protects the notes changed on this computer (a new recovery key, the
+# master password), told to its user later: at the next start, or once the
+# computer is unlocked, in case someone else made the change at it.
+PROTECTION_CHANGES = Setting[list[dict[str, object]]](
+    "protection_changes", "device", [], _protection_changes
+)
+
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -143,6 +172,7 @@ SETTINGS: dict[str, Setting[object]] = {
         UPDATE_CHECKED_AT,
         NEWS_SEEN,
         MAGNET,
+        PROTECTION_CHANGES,
     )
 }
 

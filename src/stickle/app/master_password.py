@@ -47,6 +47,7 @@ class MasterPasswords:
     opens_notes: Callable[[str], bool]  # whether it is the password that opens the notes
     # Whether a recovery key opens these notes; RecoveryKeyTypoError if mistyped.
     recovery_key_opens: Callable[[str], bool]
+    set_at: Callable[[], str | None] = lambda: None  # when it was set or changed (UTC)
 
 
 def _password_field() -> QLineEdit:

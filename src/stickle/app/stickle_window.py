@@ -55,11 +55,13 @@ from stickle.app.labels import category_item_icon
 from stickle.app.master_password import MasterPasswords
 from stickle.app.note_list import NoteList
 from stickle.app.notes import NoteManager, clipboard_text
+from stickle.app.protection_changes import Change, ProtectionChanges
 from stickle.app.settings_window import RecoveryKeys, SettingsWindow
 from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
+from stickle.app.times import local_time
 from stickle.app.update_check import UpdateCheck
 from stickle.app.window_flags import set_stays_on_top
 from stickle.core.markdown import note_title
@@ -123,6 +125,7 @@ class StickleWindow(QWidget):
         data: DataAccess | None = None,
         updates: UpdateCheck | None = None,
         master: MasterPasswords | None = None,
+        changes: ProtectionChanges | None = None,
     ) -> None:
         super().__init__()
         self._notes = notes
@@ -165,6 +168,17 @@ class StickleWindow(QWidget):
         if updates is not None:
             updates.found.connect(self._update_news)
             updates.switched.connect(self._update_news)
+        # A change to what protects the notes, told once it is due (the next start,
+        # an unlock) until the user says it is fine: someone else may have made it.
+        self._changes = changes
+        self.changes_label = QLabel(self)
+        self.changes_label.setWordWrap(True)
+        self.changes_again_button = QPushButton(self)
+        self.changes_again_button.clicked.connect(
+            lambda: self.open_settings(self.settings.protection)
+        )
+        self.changes_seen_button = QPushButton(self)
+        self.changes_seen_button.clicked.connect(self._changes_seen)
 
         # Shown only when there is no tray and every note was hidden: the window
         # then opened by itself, so it says why at the top, where it is seen, and
@@ -285,6 +299,12 @@ class StickleWindow(QWidget):
             layout.addWidget(part)
         self._after_notice = QSpacerItem(0, 0)  # room below the frame, while shown
         layout.addItem(self._after_notice)
+        changes_buttons = QHBoxLayout()
+        changes_buttons.addStretch(1)
+        changes_buttons.addWidget(self.changes_again_button)
+        changes_buttons.addWidget(self.changes_seen_button)
+        layout.addWidget(self.changes_label)
+        layout.addLayout(changes_buttons)
         new_version = QHBoxLayout()
         new_version.addWidget(self.new_version_label, 1)
         new_version.addWidget(self.new_version_button)
@@ -369,6 +389,8 @@ class StickleWindow(QWidget):
         order: list[QWidget] = [
             self.notice_show_button,
             self.notice_quit_button,
+            self.changes_again_button,
+            self.changes_seen_button,
             self.new_version_button,
             self.new_note_button,
             self.raise_button,
@@ -432,6 +454,9 @@ class StickleWindow(QWidget):
         self.quit_button.setText(self.tr("Quit Stickle"))
         self.new_version_button.setText(self.tr("&Get it…"))
         self.refresh_new_version()
+        self.changes_again_button.setText(self.tr("Set &again…"))
+        self.changes_seen_button.setText(self.tr("OK, it was me"))
+        self.refresh_changes()
         self.refresh()
 
     @override
@@ -511,6 +536,38 @@ class StickleWindow(QWidget):
             text = self.tr("Stickle %1 is out.").replace("%1", release.version)
             self.new_version_label.setText(text)
             self.new_version_button.setAccessibleDescription(text)
+
+    def change_text(self, change: Change) -> str:
+        when = local_time(change.at)
+        texts = {
+            "recovery_key": self.tr("On %1 a new recovery key was made on this computer."),
+            "master_password_set": self.tr("On %1 a master password was set on this computer."),
+            "master_password_changed": self.tr(
+                "On %1 the master password was changed on this computer."
+            ),
+        }
+        return texts[change.what].replace("%1", when)
+
+    def changes_told(self) -> str:
+        """What is being told, with what to do if it was not the user; "" if nothing."""
+        changes = self._changes.to_tell() if self._changes is not None else []
+        if not changes:
+            return ""
+        lines = [self.change_text(change) for change in changes]
+        return " ".join([*lines, self.tr("If it was not you, set it again in the settings.")])
+
+    def refresh_changes(self) -> None:
+        """At the top for as long as there is a change being told (no pop-up)."""
+        text = self.changes_told()
+        for part in (self.changes_label, self.changes_again_button, self.changes_seen_button):
+            part.setVisible(bool(text))
+        self.changes_label.setText(text)
+        self.changes_seen_button.setAccessibleDescription(text)
+
+    def _changes_seen(self) -> None:
+        if self._changes is not None:
+            self._changes.seen()
+        self.refresh_changes()
 
     def _get_new_version(self) -> None:
         if self._updates is not None and self._updates.release is not None:

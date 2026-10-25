@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import override
 
-from PySide6.QtCore import QEvent
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -40,6 +40,7 @@ from stickle.app.notes import NoteManager
 from stickle.app.recovery_key_dialog import RecoveryKeyDialog
 from stickle.app.shortcut_rows import ShortcutRows
 from stickle.app.shortcuts import GlobalShortcuts
+from stickle.app.times import local_time
 from stickle.app.tray import switch_autostart
 from stickle.app.update_check import UpdateCheck
 from stickle.app.window_flags import set_stays_on_top, stays_on_top
@@ -58,6 +59,7 @@ class RecoveryKeys:
     exists: Callable[[], bool]
     make: Callable[[], str]  # a new one, the old one no longer working
     kept: Callable[[], None]  # the user said the new one is kept somewhere safe
+    made_at: Callable[[], str | None] = lambda: None  # when (UTC); unknown before 0.6
 
 
 def _exec(dialog: RecoveryKeyDialog) -> bool:
@@ -159,6 +161,12 @@ class SettingsWindow(QDialog):
         notes_layout.addStretch(1)
 
         self.protection, protection = _page(self.tabs)
+        # When each was made or set, always in sight: a change made by someone
+        # else at this computer shows here too.
+        self.protection_dates = QLabel(self.protection)
+        self.protection_dates.setWordWrap(True)
+        self.protection_dates.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        protection.addWidget(self.protection_dates)
         self.recovery_button = QPushButton(self.protection)
         self.recovery_button.clicked.connect(self.new_recovery_key)
         # A second way back, which the user remembers: set once, changed, never removed.
@@ -296,6 +304,7 @@ class SettingsWindow(QDialog):
             else self.tr("Set a &master password…")
         )
         self.check_master_button.setVisible(master)
+        self.protection_dates.setText(self.dates())
         if self._updates is None:
             self.connections.setText(self.tr("Stickle connects to nothing on the internet."))
         elif self._updates.enabled:
@@ -356,6 +365,24 @@ class SettingsWindow(QDialog):
             return
         if show_recovery_key(RecoveryKeyDialog(recovery_key, self)):
             self._recovery.kept()
+        self.refresh()  # its date
+
+    def dates(self) -> str:
+        """When the recovery key was made and the master password set, one line."""
+        parts: list[str] = []
+        if self._recovery is not None:
+            if not self._recovery.exists():
+                parts.append(self.tr("No recovery key yet"))
+            elif (made := self._recovery.made_at()) is None:
+                parts.append(self.tr("Recovery key: made with an earlier Stickle"))
+            else:
+                parts.append(self.tr("Recovery key: made %1").replace("%1", local_time(made)))
+        if self._master is not None:
+            if not self._master.exists():
+                parts.append(self.tr("No master password"))
+            elif (set_at := self._master.set_at()) is not None:
+                parts.append(self.tr("Master password: set %1").replace("%1", local_time(set_at)))
+        return " · ".join(parts)
 
     def set_master_password(self) -> None:
         """Set it, or change it when there is one."""
