@@ -40,14 +40,14 @@ def _request_path(unique_name: str, token: str) -> str:
 
 
 def choose(
-    kind: Literal["save", "folder"],
+    kind: Literal["open", "save", "folder"],
     title: str,
     parent_window: str = "",
     suggested: Path | None = None,
     connection: DBusConnection | None = None,
 ) -> Path | None:
-    """A file to save to (suggested: its folder and name) or a folder; None if
-    the user cancelled. parent_window: "x11:<window id in hex>" or ""."""
+    """A file to open, a file to save to (suggested: its folder and name) or a
+    folder; None if the user cancelled. parent_window: "x11:<window id in hex>" or ""."""
     try:
         bus = connection or open_dbus_connection(bus="SESSION")
     except (OSError, ValueError, KeyError) as error:  # no session bus
@@ -77,6 +77,8 @@ class _Request:
         options: Variants = {"handle_token": ("s", self._token), "modal": ("b", True)}
         if kind == "folder":
             options["directory"] = ("b", True)
+            method = "OpenFile"
+        elif kind == "open":
             method = "OpenFile"
         else:
             method = "SaveFile"

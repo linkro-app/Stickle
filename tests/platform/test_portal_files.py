@@ -106,6 +106,15 @@ def test_a_folder_is_asked_for_as_a_folder(qtbot: QtBot, made: list[Bus]) -> Non
     assert call.body[2]["directory"] == ("b", True)
 
 
+def test_a_file_to_open_is_asked_for_as_a_file(qtbot: QtBot, made: list[Bus]) -> None:
+    fake = bus(made, "accepted", "file:///home/me/notes.json")
+
+    assert choose("open", "가져오기", "", None, fake) == Path("/home/me/notes.json")  # pyright: ignore[reportArgumentType]
+    call = fake.call()
+    assert call.header.fields[HeaderFields.member] == "OpenFile"
+    assert "directory" not in call.body[2]
+
+
 def test_cancelling_chooses_nothing(qtbot: QtBot, made: list[Bus]) -> None:
     assert choose("save", "t", "", None, bus(made, "cancelled")) is None  # pyright: ignore[reportArgumentType]
 

@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stickle.app import note_window
+from stickle.app import file_dialogs, note_window
 from stickle.app.about_dialog import AboutDialog
 from stickle.app.app_list import switch_app_list
 from stickle.app.backups import RestoreDialog
@@ -704,8 +704,12 @@ class StickleWindow(QWidget):
         the windows it opened: those stay above pinned notes only with it."""
         if not stays_on_top(self):
             return
-        # A file chooser of the system has no Qt window, but its dialog is modal.
-        widget = QApplication.activeModalWidget() or QApplication.activeWindow()
+        # A file chooser of the system has no Qt window, but it is modal to one.
+        widget = (
+            QApplication.activeModalWidget()
+            or file_dialogs.asking_for()
+            or QApplication.activeWindow()
+        )
         while widget is not None:
             if widget is self:
                 return

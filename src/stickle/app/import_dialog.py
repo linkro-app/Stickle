@@ -16,7 +16,6 @@ from PySide6.QtCore import QDate, QEvent, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
-    QFileDialog,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -26,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.file_dialogs import open_file_name
 from stickle.app.palette import swatch_icon
 from stickle.core.markdown import note_title
 from stickle.importers.base import Found, ImportResult, SourceError
@@ -47,12 +47,7 @@ class ImportAccess:
     bring_in: Callable[[Source, ImportResult, str | None], BroughtIn]
 
 
-def _choose_file(parent: QWidget, title: str) -> Path | None:
-    name, _ = QFileDialog.getOpenFileName(parent, title)
-    return Path(name) if name else None
-
-
-choose_file: Callable[[QWidget, str], Path | None] = _choose_file  # replaced in tests
+choose_file: Callable[[QWidget, str], Path | None] = open_file_name  # replaced in tests
 
 
 @dataclass

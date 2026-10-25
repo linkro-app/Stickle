@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 from pytestqt.qtbot import QtBot
 
+from stickle.app import file_dialogs
 from stickle.app.application import connect_stickle_window, open_at_start
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
@@ -376,6 +377,26 @@ def test_the_windows_it_opens_stay_above_pinned_notes_with_it(qtbot: QtBot, app:
 
     question.close()
     move_to(qtbot, note)
+    assert not stays_on_top(app.window)
+
+
+def test_it_stays_above_pinned_notes_while_the_systems_file_dialog_is_open(
+    qtbot: QtBot, app: App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # That dialog is no Qt window: to Qt, the keyboard has left for another app.
+    app.window.open()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
+    held: list[bool] = []
+
+    def system_dialog(*_args: object) -> None:
+        move_to(qtbot, None)
+        held.append(stays_on_top(app.window))
+
+    monkeypatch.setattr(file_dialogs, "from_the_system", system_dialog)
+    file_dialogs.existing_folder(app.window, "폴더")
+
+    assert held == [True]
+    move_to(qtbot, None)  # closed: leaving now lets go
     assert not stays_on_top(app.window)
 
 
