@@ -33,6 +33,7 @@ from stickle.app.perf import SAMPLE_NOTE, PerfMode, open_storage_like_startup
 from stickle.app.placement import monitors
 from stickle.app.protection_changes import ProtectionChanges
 from stickle.app.recovery_offer import RecoveryOffer
+from stickle.app.secret_dialogs import SecretPasswords
 from stickle.app.settings_window import RecoveryKeys
 from stickle.app.shortcuts import GlobalShortcuts, no_portal
 from stickle.app.signals import SignalWatcher
@@ -68,7 +69,7 @@ from stickle.platform.linux.appimage import (
 )
 from stickle.platform.linux.display import preferred_qt_platform
 from stickle.platform.power import watch_sleep
-from stickle.platform.session import watch_unlock
+from stickle.platform.session import watch_session
 from stickle.platform.updates import updated_by_its_store
 from stickle.unlock import Unlock
 
@@ -300,6 +301,13 @@ def master_passwords(
         except WrongRecoveryKeyError, KeyFileError, OSError:
             return False
 
+    def set_with_secret(secret_password: str, password: str) -> None:
+        """A new master password, the secret notes' key (opened with their
+        password, or WrongPasswordError) kept for it as for the old one."""
+        secret_key = unlock.open_secret_notes(secret_password)
+        set_password(password)
+        unlock.keep_secret_notes_for_master(secret_key)
+
     return MasterPasswords(
         exists=lambda: unlock.has_master_password,
         set=set_password,
@@ -308,6 +316,36 @@ def master_passwords(
         opens_notes=unlock.opens_with_password,
         recovery_key_opens=recovery_key_opens,
         set_at=lambda: unlock.master_password_set_at,
+        secret_notes_on=lambda: unlock.has_secret_notes,
+        set_with_secret=set_with_secret,
+        is_secret_password=unlock.opens_secret_notes,
+    )
+
+
+def secret_passwords(
+    unlock: Unlock | None,
+    master: MasterPasswords | None,
+    changes: ProtectionChanges | None = None,
+) -> SecretPasswords | None:
+    """The secret notes' key (none in measurement mode); their password changed
+    noted in changes, to be told later."""
+    if unlock is None or unlock.opened_key is None or master is None:
+        return None
+
+    def change_password(key: bytes, password: str) -> None:
+        unlock.change_secret_password(key, password)
+        if changes is not None:
+            changes.note("secret_password_changed")
+
+    return SecretPasswords(
+        turned_on=lambda: unlock.has_secret_notes,
+        turn_on=unlock.turn_on_secret_notes,
+        open=unlock.open_secret_notes,
+        open_with_master=unlock.open_secret_notes_with_master,
+        change_password=change_password,
+        is_password=unlock.opens_secret_notes,
+        master=master,
+        set_at=lambda: unlock.secret_password_set_at,
     )
 
 
@@ -516,10 +554,12 @@ def run(
         def before_session_end(*_: object) -> None:
             log.info("saving before the session ends")
             manager.save_all()
+            manager.lock_secret_notes()
 
         def before_sleep() -> None:
             log.info("saving before sleep")
             manager.save_all()
+            manager.lock_secret_notes()
 
         app.commitDataRequest.connect(before_session_end)
         close_filter = None
@@ -569,6 +609,9 @@ def run(
         if unlock is not None and connection is not None and unlock.opened_key is not None:
             daily_backups = DailyBackups(connection, unlock.database)
             access = data_access(manager, connection, unlock.database, unlock.opened_key, app.quit)
+        master = master_passwords(unlock, changes)
+        # Before any note opens: each offers to become a secret note.
+        manager.secrets = secret_passwords(unlock, master, changes)
         stickle_window = StickleWindow(
             manager,
             translations,
@@ -581,7 +624,7 @@ def run(
             portable_folder=instance if portable else None,
             data=access,
             updates=updates,
-            master=master_passwords(unlock, changes),
+            master=master,
             changes=changes,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
@@ -615,17 +658,21 @@ def run(
             if connection is not None:
                 give_news(NoteRepository(connection), Settings(connection), first_start)
             open_at_start(manager, stickle_window, tray_available, at_login)
-            if changes is not None:
-                # Made in an earlier run: told now, and anything made later once
-                # the computer has been locked and unlocked.
-                shown_tray = tray if tray_available else None
+            # Changes made in an earlier run are told now, and anything made later
+            # once the computer has been locked and unlocked; locking it locks
+            # the secret notes left open.
+            shown_tray = tray if tray_available else None
+            told, window_for_changes = changes, stickle_window
+            if told is not None:
                 tray.messageClicked.connect(lambda: stickle_window.open())
-                tell_changes(changes, stickle_window, shown_tray)
-                window_for_changes = stickle_window
-                unlock_watch = watch_unlock(
-                    lambda: tell_changes(changes, window_for_changes, shown_tray)
-                )
-                log.info("unlocking %s", "watched" if unlock_watch is not None else "not watched")
+                tell_changes(told, stickle_window, shown_tray)
+
+            def unlocked() -> None:
+                if told is not None:
+                    tell_changes(told, window_for_changes, shown_tray)
+
+            unlock_watch = watch_session(unlocked, manager.lock_secret_notes)
+            log.info("locking %s", "watched" if unlock_watch is not None else "not watched")
             if shortcuts is not None:
                 # The desktop may ask about them: after the first start's windows.
                 shortcuts.start(stickle_window)

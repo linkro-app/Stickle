@@ -18,6 +18,13 @@ Where each note is, and its size, is kept once moving or resizing stops, and
 before it is hidden or the app quits (see stickle.core.layout); a stored note
 opens where it was, and notes are put back when monitors come or go.
 
+A secret note's text is stored encrypted only (stickle.crypto.secret_notes).
+It opens with the secret notes' password, one note at a time: the key is held
+by the window it opened, and dropped (its bytes overwritten) when the note
+locks again, by itself (stickle.app.secret_notes) or when asked. Its text is
+saved before it locks; if that fails it stays open, as closing it would lose
+the text. A locked one shows no text, and is never taken for an empty note.
+
 Without a repository (measurement mode, some tests) the windows are simply
 not stored.
 """
@@ -29,6 +36,7 @@ from typing import cast, override
 
 import apsw
 from PySide6.QtCore import (
+    QCoreApplication,
     QEvent,
     QMimeData,
     QObject,
@@ -40,21 +48,35 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 from stickle.app.category_dialog import CreateCategory, NewCategoryDialog, next_dot_color
 from stickle.app.labels import mark_name
 from stickle.app.note_window import NoteWindow
 from stickle.app.placement import MonitorWatch, can_place_windows, monitors, qrect, rect
+from stickle.app.secret_dialogs import (
+    OpenSecretDialog,
+    SecretPasswords,
+    SecretTitleDialog,
+    TurnOnDialog,
+)
+from stickle.app.secret_notes import Relock
 from stickle.core.labels import DEFAULT_ICON, Category, Mark
 from stickle.core.layout import MAIN, Place, fit, monitor_at, remember, restore
 from stickle.core.note import DEFAULT_COLOR, Note
 from stickle.core.paste import pasted_text
 from stickle.core.snap import resized, snapped, together
+from stickle.crypto.secret_notes import SecretNoteError, open_text, seal_text
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
-from stickle.data.settings import DEFAULT_NOTE_COLOR, MAGNET, Settings
+from stickle.data.settings import (
+    DEFAULT_NOTE_COLOR,
+    LOCK_ON_LEAVE,
+    MAGNET,
+    RELOCK_MINUTES,
+    Settings,
+)
 from stickle.platform.linux.x11 import activate
 
 # New notes cascade from the top-left of the screen so they never land exactly on top of each other.
@@ -148,6 +170,35 @@ new_category_dialog: Callable[[QWidget, CreateCategory, str], NewCategoryDialog]
 )
 
 
+def _ask(dialog: QDialog) -> bool:
+    return dialog.exec() == QDialog.DialogCode.Accepted
+
+
+# Shows a secret note's dialog (its password, its title) and waits: whether accepted.
+ask_secret: Callable[[QDialog], bool] = _ask  # replaced in tests
+
+
+def _confirm_ordinary(parent: QWidget) -> bool:
+    answer = QMessageBox.question(
+        parent,
+        "Stickle",
+        QCoreApplication.translate(
+            "NoteManager",
+            "Make it an ordinary note? It will no longer lock, and its text can be"
+            " found by searching again.",
+        ),
+    )
+    return answer == QMessageBox.StandardButton.Yes
+
+
+confirm_ordinary: Callable[[QWidget], bool] = _confirm_ordinary  # replaced in tests
+
+
+def _wipe(key: bytearray) -> None:
+    """Overwrite a key no longer needed, so its bytes do not linger in memory."""
+    key[:] = bytes(len(key))
+
+
 class NoteManager(QObject):
     # Qt's own "quit on last window closed" ignores tool windows, which notes are.
     last_note_closed = Signal()
@@ -194,6 +245,14 @@ class NoteManager(QObject):
         self._groups: dict[NoteWindow, list[tuple[NoteWindow, QPoint]]] = {}
         self._created = 0
         self._quitting = False
+        # Secret notes: none without (measurement mode, tests). The key of each
+        # open one, and its text as last stored (saved again only once changed).
+        self.secrets: SecretPasswords | None = None
+        self._keys: dict[NoteWindow, bytearray] = {}
+        self._stored_secret: dict[NoteWindow, str] = {}
+        self._relock = Relock(lambda: self.relock_minutes, lambda: self.lock_on_leave, self)
+        self._relock.lock_due.connect(self.lock_secret)
+        self._relock.all_due.connect(self.lock_secret_notes)
 
     @property
     def windows(self) -> tuple[NoteWindow, ...]:
@@ -297,10 +356,22 @@ class NoteManager(QObject):
                 note.always_on_top,
                 opacity=note.opacity,
                 locked=note.locked,
+                secret_title=(note.secret_title or "") if note.secret else None,
+                can_be_secret=self.secrets is not None,
             )
         else:
-            window = NoteWindow(None, text, color or self._new_note_color())
+            window = NoteWindow(
+                None,
+                text,
+                color or self._new_note_color(),
+                can_be_secret=self.secrets is not None,
+            )
         window.new_note_requested.connect(lambda: self.new_note_from(window))
+        window.secret_requested.connect(lambda: self.make_secret(window))
+        window.open_secret_requested.connect(lambda: self.open_secret(window))
+        window.lock_secret_requested.connect(lambda: self.lock_secret(window))
+        window.secret_title_requested.connect(lambda: self.change_secret_title(window))
+        window.ordinary_requested.connect(lambda: self.make_ordinary(window))
 
         def color_requested(color: str) -> None:
             self.set_color(window, color)
@@ -387,6 +458,7 @@ class NoteManager(QObject):
         return window
 
     def _forget(self, window: NoteWindow) -> None:
+        self._forget_key(window)
         self._windows.remove(window)
         self._autosaves.pop(window).stop()
         self._take_back(window)
@@ -399,25 +471,13 @@ class NoteManager(QObject):
         """Store the window's text; False (and the window says so) if that failed."""
         if self._repository is None:
             return True
+        if window.secret:
+            return self._save_secret(window)
         text = window.text
         try:
             if window.note_id is None:
                 if text.strip():
-                    window.note_id = self._repository.create(text, window.color).id
-                    self.note_created.emit()
-                    self.save_layout(window, force=True)
-                    if window.collapsed:
-                        self._repository.set_collapsed(window.note_id, True)
-                    if not window.always_on_top:
-                        self._repository.set_always_on_top(window.note_id, False)
-                    if window.opacity != 1.0:
-                        self._repository.set_opacity(window.note_id, window.opacity)
-                    if window.locked:
-                        self._repository.set_locked(window.note_id, True)
-                    if window.category is not None:
-                        self._repository.set_category(window.note_id, window.category.id)
-                    for mark in window.marks:
-                        self._repository.set_mark(window.note_id, mark.id, True)
+                    self._store_new(window)
             else:
                 self._repository.update_body(window.note_id, text)
         except (apsw.Error, OSError) as error:
@@ -427,6 +487,47 @@ class NoteManager(QObject):
         window.set_unsaved(False)
         if window.note_id is not None:
             self.note_saved.emit()
+        return True
+
+    def _store_new(self, window: NoteWindow) -> str:
+        """Store a note for the first time, as it is now; its id."""
+        assert self._repository is not None
+        note_id = self._repository.create(window.text, window.color).id
+        window.note_id = note_id
+        self.note_created.emit()
+        self.save_layout(window, force=True)
+        if window.collapsed:
+            self._repository.set_collapsed(note_id, True)
+        if not window.always_on_top:
+            self._repository.set_always_on_top(note_id, False)
+        if window.opacity != 1.0:
+            self._repository.set_opacity(note_id, window.opacity)
+        if window.locked:
+            self._repository.set_locked(note_id, True)
+        if window.category is not None:
+            self._repository.set_category(note_id, window.category.id)
+        for mark in window.marks:
+            self._repository.set_mark(note_id, mark.id, True)
+        return note_id
+
+    def _save_secret(self, window: NoteWindow) -> bool:
+        """An open secret note's text, encrypted; a locked one holds none to save."""
+        assert self._repository is not None
+        key = self._keys.get(window)
+        if window.secret_locked or key is None or window.note_id is None:
+            return True
+        text = window.text
+        if text != self._stored_secret.get(window):
+            try:
+                sealed = seal_text(bytes(key), window.note_id, text)
+                self._repository.update_secret_body(window.note_id, sealed)
+            except (apsw.Error, OSError) as error:
+                log.error("could not save a secret note: %s", type(error).__name__)
+                window.set_unsaved(True)
+                return False
+            self._stored_secret[window] = text
+            self.note_saved.emit()
+        window.set_unsaved(False)
         return True
 
     def flush(self, window: NoteWindow, closing: bool = False) -> bool:
@@ -1109,6 +1210,168 @@ class NoteManager(QObject):
             return
         window.set_color(color)
 
+    # Secret notes
+
+    def make_secret(self, window: NoteWindow) -> None:
+        """Ask for the secret notes' password (setting them up the first time)
+        and a title, then keep the note's text encrypted only. It stays open."""
+        passwords = self.secrets
+        if self._repository is None or passwords is None or window.secret:
+            return
+        if not self.flush(window, closing=True):
+            return
+        dialog = (
+            OpenSecretDialog(passwords, parent=window, purpose="make")
+            if passwords.turned_on()
+            else TurnOnDialog(passwords, window)
+        )
+        if not ask_secret(dialog) or dialog.key is None:
+            return
+        key = bytearray(dialog.key)
+        titled = SecretTitleDialog(parent=window)
+        if not ask_secret(titled):
+            _wipe(key)
+            return
+        title, text = titled.chosen(), window.text
+        try:
+            note_id = window.note_id or self._store_new(window)
+            self._repository.make_secret(note_id, title, seal_text(bytes(key), note_id, text))
+        except (apsw.Error, OSError) as error:
+            log.error("could not make a note secret: %s", type(error).__name__)
+            _wipe(key)
+            QMessageBox.warning(window, "Stickle", self.tr("The note could not be made secret."))
+            return
+        self._keys[window] = key
+        self._stored_secret[window] = text
+        window.set_secret_title(title)
+        self._relock.opened(window)
+        self.changed.emit()
+
+    def open_secret(self, window: NoteWindow) -> None:
+        """Open a locked secret note with the secret notes' password: this one only."""
+        passwords = self.secrets
+        if (
+            self._repository is None
+            or passwords is None
+            or not window.secret_locked
+            or window.note_id is None
+        ):
+            return
+        dialog = OpenSecretDialog(passwords, window.secret_name, window)
+        if not ask_secret(dialog) or dialog.key is None:
+            return
+        key = bytearray(dialog.key)
+        try:
+            note = self._repository.get(window.note_id)
+            if note is None or note.sealed is None:
+                raise SecretNoteError("not a secret note")
+            text = open_text(bytes(key), note.id, note.sealed)
+        except (SecretNoteError, apsw.Error) as error:
+            log.error("could not open a secret note: %s", type(error).__name__)
+            _wipe(key)
+            QMessageBox.warning(
+                window,
+                "Stickle",
+                self.tr("This secret note could not be opened. What is stored may be damaged."),
+            )
+            return
+        self._keys[window] = key
+        self._stored_secret[window] = text
+        window.show_secret_open(text)
+        self._relock.opened(window)
+
+    def lock_secret(self, window: NoteWindow) -> bool:
+        """Lock an open secret note, its text saved first (the character being
+        composed too). False, and left open, if saving failed: locking would lose it."""
+        if not window.secret or window.secret_locked:
+            return True
+        if not self.flush(window, closing=True):
+            self._relock.used(window)  # tried again in a while
+            return False
+        self._forget_key(window)
+        window.show_secret_locked(window.secret_title or "")
+        return True
+
+    def lock_secret_notes(self) -> None:
+        """Every open secret note (the computer locked, asleep, its screen saver on)."""
+        for window in self._relock.open_windows:
+            self.lock_secret(window)
+
+    def _forget_key(self, window: NoteWindow) -> None:
+        key = self._keys.pop(window, None)
+        if key is not None:
+            _wipe(key)
+        self._stored_secret.pop(window, None)
+        self._relock.closed(window)
+
+    def change_secret_title(self, window: NoteWindow) -> None:
+        if self._repository is None or window.secret_locked or window.note_id is None:
+            return
+        if window.secret_title is None:
+            return
+        dialog = SecretTitleDialog(window.secret_title, window)
+        if not ask_secret(dialog):
+            return
+        title = dialog.chosen()
+        try:
+            self._repository.set_secret_title(window.note_id, title)
+        except apsw.Error as error:
+            log.error("could not keep a secret note's title: %s", type(error).__name__)
+            QMessageBox.warning(window, "Stickle", self.tr("The title could not be kept."))
+            return
+        window.set_secret_title(title)
+        self.changed.emit()
+
+    def make_ordinary(self, window: NoteWindow) -> None:
+        """An open secret note an ordinary one again, once the user says so."""
+        if (
+            self._repository is None
+            or not window.secret
+            or window.secret_locked
+            or window.note_id is None
+        ):
+            return
+        if not confirm_ordinary(window) or not self.flush(window, closing=True):
+            return
+        try:
+            self._repository.make_ordinary(window.note_id, window.text)
+        except apsw.Error as error:
+            log.error("could not make a note ordinary: %s", type(error).__name__)
+            QMessageBox.warning(window, "Stickle", self.tr("The note could not be made ordinary."))
+            return
+        self._forget_key(window)
+        window.set_secret_title(None)
+        self.changed.emit()
+
+    @property
+    def relock_minutes(self) -> int:
+        """How long an open secret note is left alone before it locks again."""
+        if self._settings is None:
+            return RELOCK_MINUTES.default
+        return self._settings.get(RELOCK_MINUTES)
+
+    def set_relock_minutes(self, minutes: int) -> None:
+        if self._settings is not None:
+            try:
+                self._settings.set(RELOCK_MINUTES, minutes)
+            except apsw.Error as error:
+                log.error("could not keep the relock time: %s", type(error).__name__)
+        self._relock.restart_all()
+
+    @property
+    def lock_on_leave(self) -> bool:
+        """Whether an open secret note locks as soon as another window is used."""
+        if self._settings is None:
+            return LOCK_ON_LEAVE.default
+        return self._settings.get(LOCK_ON_LEAVE)
+
+    def set_lock_on_leave(self, on: bool) -> None:
+        if self._settings is not None:
+            try:
+                self._settings.set(LOCK_ON_LEAVE, on)
+            except apsw.Error as error:
+                log.error("could not keep locking on leaving: %s", type(error).__name__)
+
     # Hiding, deleting, bringing back
 
     def hide(self, window: NoteWindow) -> None:
@@ -1120,7 +1383,8 @@ class NoteManager(QObject):
             return
         if self._repository is not None and window.note_id is not None:
             try:
-                if window.text.strip():
+                # A secret note's text is not in its window: never taken for empty.
+                if window.secret or window.text.strip():
                     self._repository.set_hidden(window.note_id, True)
                 else:
                     self._repository.discard(window.note_id)
@@ -1131,10 +1395,11 @@ class NoteManager(QObject):
         self._autosaves[window].stop()
         window.release()
 
-    def _delete(self, note_id: str, text: str) -> None:
-        """Into the trash; with no text, for good (see NoteRepository.discard)."""
+    def _delete(self, note_id: str, text: str, secret: bool) -> None:
+        """Into the trash; with no text, for good (see NoteRepository.discard).
+        A secret note always goes into the trash: its text is not in text."""
         assert self._repository is not None
-        if text.strip():
+        if secret or text.strip():
             self._repository.delete(note_id)
         else:
             self._repository.discard(note_id)
@@ -1144,7 +1409,7 @@ class NoteManager(QObject):
             return
         if self._repository is not None and window.note_id is not None:
             try:
-                self._delete(window.note_id, window.text)
+                self._delete(window.note_id, window.text, window.secret)
             except apsw.Error as error:
                 log.error("could not delete a note: %s", type(error).__name__)
                 return
@@ -1212,7 +1477,7 @@ class NoteManager(QObject):
         try:
             note = self._repository.get(note_id)
             if note is not None:
-                self._delete(note_id, note.body)
+                self._delete(note_id, note.body, note.secret)
         except apsw.Error as error:
             log.error("could not delete a note: %s", type(error).__name__)
             return

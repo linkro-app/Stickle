@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -38,6 +39,7 @@ from stickle.app.master_password import (
 )
 from stickle.app.notes import NoteManager
 from stickle.app.recovery_key_dialog import RecoveryKeyDialog
+from stickle.app.secret_dialogs import NewSecretPasswordDialog, OpenSecretDialog
 from stickle.app.shortcut_rows import ShortcutRows
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.times import local_time
@@ -74,6 +76,13 @@ def _exec_master(dialog: QDialog) -> object:
 
 
 show_master_dialog: Callable[[QDialog], object] = _exec_master  # replaced in tests
+
+
+def _exec_secret(dialog: QDialog) -> bool:
+    return dialog.exec() == QDialog.DialogCode.Accepted
+
+
+show_secret_dialog: Callable[[QDialog], bool] = _exec_secret  # replaced in tests
 
 
 def _page(parent: QWidget) -> tuple[QWidget, QVBoxLayout]:
@@ -175,11 +184,37 @@ class SettingsWindow(QDialog):
         self.master_button.clicked.connect(self.set_master_password)
         self.check_master_button = QPushButton(self.protection)
         self.check_master_button.clicked.connect(self.check_master_password)
-        for button in (self.recovery_button, self.master_button, self.check_master_button):
+        # Secret notes, once there are any: a new password for them.
+        self.secret_password_button = QPushButton(self.protection)
+        self.secret_password_button.clicked.connect(self.change_secret_password)
+        for button in (
+            self.recovery_button,
+            self.master_button,
+            self.check_master_button,
+            self.secret_password_button,
+        ):
             row = QHBoxLayout()
             row.addWidget(button)
             row.addStretch(1)
             protection.addLayout(row)
+        # When an open secret note locks again by itself.
+        self.relock_before = QLabel(self.protection)
+        self.relock_box = QSpinBox(self.protection)
+        self.relock_box.setRange(1, 60)
+        self.relock_before.setBuddy(self.relock_box)
+        self.relock_after = QLabel(self.protection)
+        self.relock_box.valueChanged.connect(self._set_relock_minutes)
+        relock = QHBoxLayout()
+        relock.addWidget(self.relock_before)
+        relock.addWidget(self.relock_box)
+        relock.addWidget(self.relock_after)
+        relock.addStretch(1)
+        protection.addLayout(relock)
+        self.leave_box = QCheckBox(self.protection)
+        self.leave_box.clicked.connect(notes.set_lock_on_leave)
+        protection.addWidget(self.leave_box)
+        for part in (self.relock_before, self.relock_box, self.relock_after, self.leave_box):
+            part.setVisible(notes.secrets is not None)
         protection.addStretch(1)
 
         self.shortcuts_page, shortcuts_layout = _page(self.tabs)
@@ -209,7 +244,8 @@ class SettingsWindow(QDialog):
             self.tabs.addTab(page, "")
         self.recovery_button.setVisible(recovery is not None)
         self.tabs.setTabVisible(
-            self.tabs.indexOf(self.protection), recovery is not None or master is not None
+            self.tabs.indexOf(self.protection),
+            recovery is not None or master is not None or notes.secrets is not None,
         )
         self.tabs.setTabVisible(self.tabs.indexOf(self.shortcuts_page), shortcuts is not None)
 
@@ -240,6 +276,9 @@ class SettingsWindow(QDialog):
             self.recovery_button,
             self.master_button,
             self.check_master_button,
+            self.secret_password_button,
+            self.relock_box,
+            self.leave_box,
             *(self.shortcut_rows.tab_order() if self.shortcut_rows is not None else []),
         ]
         for before, after in itertools.pairwise(order):
@@ -269,6 +308,13 @@ class SettingsWindow(QDialog):
         self.magnet_box.setAccessibleDescription(magnet)
         self.recovery_button.setText(self.tr("Make a new &recovery key…"))
         self.check_master_button.setText(self.tr("Chec&k the master password…"))
+        self.secret_password_button.setText(self.tr("Change the &secret notes' password…"))
+        self.relock_before.setText(self.tr("Lock an open secret note again a&fter"))
+        self.relock_after.setText(self.tr("minutes left alone"))
+        self.relock_box.setAccessibleName(
+            self.tr("Minutes an open secret note is left alone before it locks again")
+        )
+        self.leave_box.setText(self.tr("Also lock it as soon as I &use another window"))
         self.refresh()
 
     @override
@@ -304,6 +350,12 @@ class SettingsWindow(QDialog):
             else self.tr("Set a &master password…")
         )
         self.check_master_button.setVisible(master)
+        secrets = self._notes.secrets
+        self.secret_password_button.setVisible(secrets is not None and secrets.turned_on())
+        self.relock_box.blockSignals(True)  # shown as kept: not a change to keep
+        self.relock_box.setValue(self._notes.relock_minutes)
+        self.relock_box.blockSignals(False)
+        self.leave_box.setChecked(self._notes.lock_on_leave)
         self.protection_dates.setText(self.dates())
         if self._updates is None:
             self.connections.setText(self.tr("Stickle connects to nothing on the internet."))
@@ -382,6 +434,11 @@ class SettingsWindow(QDialog):
                 parts.append(self.tr("No master password"))
             elif (set_at := self._master.set_at()) is not None:
                 parts.append(self.tr("Master password: set %1").replace("%1", local_time(set_at)))
+        secrets = self._notes.secrets
+        if secrets is not None and secrets.turned_on() and (set_at := secrets.set_at()):
+            parts.append(
+                self.tr("Secret notes' password: set %1").replace("%1", local_time(set_at))
+            )
         return " · ".join(parts)
 
     def set_master_password(self) -> None:
@@ -393,6 +450,21 @@ class SettingsWindow(QDialog):
     def check_master_password(self) -> None:
         if self._master is not None:
             show_master_dialog(CheckMasterPasswordDialog(self._master, self))
+
+    def change_secret_password(self) -> None:
+        """Their password now, or the master password, then a new one."""
+        secrets = self._notes.secrets
+        if secrets is None or not secrets.turned_on():
+            return
+        opened = OpenSecretDialog(secrets, parent=self, purpose="change")
+        if not show_secret_dialog(opened) or opened.key is None:
+            return
+        if not opened.using_master:  # that way, the new one was asked for already
+            show_secret_dialog(NewSecretPasswordDialog(secrets, opened.key, self))
+        self.refresh()  # its date
+
+    def _set_relock_minutes(self, minutes: int) -> None:
+        self._notes.set_relock_minutes(minutes)
 
     def _choose_language(self, index: int) -> None:
         code = self.language_box.itemData(index)

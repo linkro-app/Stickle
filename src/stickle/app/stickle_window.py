@@ -545,6 +545,9 @@ class StickleWindow(QWidget):
             "master_password_changed": self.tr(
                 "On %1 the master password was changed on this computer."
             ),
+            "secret_password_changed": self.tr(
+                "On %1 the secret notes' password was changed on this computer."
+            ),
         }
         return texts[change.what].replace("%1", when)
 

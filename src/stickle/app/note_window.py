@@ -109,6 +109,7 @@ RAISE_AGAIN_MS = 150
 MOVE, RESIZE = "move", "resize"
 KEYBOARD_STEP = 10
 FOUND_BORDER = 3  # the border of a note chosen among those found
+LOCKED_FACE_MARGIN = 12
 ARROWS: dict[int, tuple[int, int]] = {
     Qt.Key.Key_Left.value: (-1, 0),
     Qt.Key.Key_Right.value: (1, 0),
@@ -298,6 +299,37 @@ class NoteEditor(QPlainTextEdit):
         if text:
             self.textCursor().insertText(text)
             self.ensureCursorVisible()
+
+
+class LockedFace(QLabel):
+    """What a locked secret note shows: nothing of its text, only how to open it."""
+
+    open_requested = Signal()
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setWordWrap(True)
+        self.setMargin(LOCKED_FACE_MARGIN)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    @override
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.open_requested.emit()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    @override
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        modifiers = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        if (
+            event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and modifiers == Qt.KeyboardModifier.NoModifier
+        ):
+            self.open_requested.emit()
+            return
+        super().keyPressEvent(event)
 
 
 class TitleBar(QWidget):
@@ -492,6 +524,10 @@ class NoteWindow(QWidget):
     The window only asks: hiding and deleting are decided (and stored) by its
     owner, which then closes it with release(). Any other close, such as Alt+F4,
     asks to hide too, so a note never leaves the screen without being stored.
+
+    A secret note shows its title, and while locked nothing of its text: the
+    window holds none of it then, not even for undo. Opening and locking it are
+    its owner's (see show_secret_open and show_secret_locked).
     """
 
     closed = Signal()
@@ -510,6 +546,11 @@ class NoteWindow(QWidget):
     new_category_requested = Signal()
     mark_requested = Signal(str, bool)  # a mark id; True: put it on
     guide_requested = Signal()  # the keys at a glance
+    secret_requested = Signal()  # to be made a secret note
+    open_secret_requested = Signal()  # locked: to be opened with the password
+    lock_secret_requested = Signal()  # open: to be locked now
+    secret_title_requested = Signal()  # its title, to be changed
+    ordinary_requested = Signal()  # a secret note, to be an ordinary one again
     drag_started = Signal(bool)  # by its title bar; True: with Shift, the notes beside it along
     dragged_by = Signal(QPoint)  # moved by Stickle itself (with Shift), this far from the start
     switch_requested = Signal(int)  # 1: to the next note on screen, -1: the one before
@@ -523,6 +564,8 @@ class NoteWindow(QWidget):
         always_on_top: bool = True,
         opacity: float = 1.0,
         locked: bool = False,
+        secret_title: str | None = None,  # a secret note's: it opens locked
+        can_be_secret: bool = False,  # offered where secret notes can be kept
     ) -> None:
         # A tool window stays out of the taskbar and window switcher. Under X11 an
         # ordinary window is asked to do the same instead (see showEvent): window
@@ -558,6 +601,9 @@ class NoteWindow(QWidget):
         # Still being edited while the shortcuts it asked for are shown over it.
         self._keep_editing = False
         self.found = False  # chosen among the notes found on the desktop
+        self.secret_title: str | None = None  # a secret note's ("" for none typed)
+        self.secret_locked = False
+        self.can_be_secret = can_be_secret
 
         # Where the app last put the note; anything else is the user's doing.
         self._placed: QRect | None = None
@@ -644,6 +690,17 @@ class NoteWindow(QWidget):
         self.move_action.triggered.connect(lambda: self.start_keyboard(MOVE))
         self.resize_action = self.menu.addAction("")
         self.resize_action.triggered.connect(lambda: self.start_keyboard(RESIZE))
+        # Secret notes: those that apply now are shown (see _show_secret_state).
+        self.secret_action = self.menu.addAction("")
+        self.secret_action.triggered.connect(self.secret_requested)
+        self.open_secret_action = self.menu.addAction("")
+        self.open_secret_action.triggered.connect(self.open_secret_requested)
+        self.lock_secret_action = self.menu.addAction("")
+        self.lock_secret_action.triggered.connect(self.lock_secret_requested)
+        self.secret_title_action = self.menu.addAction("")
+        self.secret_title_action.triggered.connect(self.secret_title_requested)
+        self.ordinary_action = self.menu.addAction("")
+        self.ordinary_action.triggered.connect(self.ordinary_requested)
         self._keyboard: str | None = None  # MOVE or RESIZE while the arrow keys do that
         self._keyboard_from = QRect()
         # The keys at a glance (F1, Ctrl+/), shown by the app (stickle.app.shortcut_guide).
@@ -672,9 +729,12 @@ class NoteWindow(QWidget):
         self.view.edit_requested.connect(self._edit_asked)
         self.view.checkbox_clicked.connect(self._checkbox_clicked)
         self.view.link_clicked.connect(open_link)  # locked or not: the text stays as it is
+        self.locked_face = LockedFace(self)
+        self.locked_face.open_requested.connect(self.open_secret_requested)
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.view)
         self.stack.addWidget(self.editor)
+        self.stack.addWidget(self.locked_face)
         self.stack.setCurrentWidget(self.editor)
 
         grip_row = QHBoxLayout()
@@ -718,6 +778,10 @@ class NoteWindow(QWidget):
         else:
             self.edit()
         self.set_locked(locked)
+        if secret_title is not None:
+            self.show_secret_locked(secret_title)
+        else:
+            self._show_secret_state()
 
     def retranslate(self) -> None:
         """Apply every visible text; runs again when the UI language changes."""
@@ -753,6 +817,13 @@ class NoteWindow(QWidget):
         self.lock_action.setText(self.tr("Lock note"))
         self.move_action.setText(self.tr("Move with the arrow keys"))
         self.resize_action.setText(self.tr("Resize with the arrow keys"))
+        self.secret_action.setText(self.tr("Make it a secret note…"))
+        self.open_secret_action.setText(self.tr("Open the secret note…"))
+        self.lock_secret_action.setText(self.tr("Lock the secret note now"))
+        self.secret_title_action.setText(self.tr("Secret note's title…"))
+        self.ordinary_action.setText(self.tr("Make it an ordinary note…"))
+        self.locked_face.setText(self.tr("Double-click or press Enter to open it."))
+        self.locked_face.setAccessibleDescription(self.locked_face.text())
         locked = self.tr("Locked: it cannot be moved or changed. Unlock it in the note menu.")
         self.title_bar.lock_button.setAccessibleName(self.tr("Locked"))
         self.title_bar.lock_button.setToolTip(locked)
@@ -947,14 +1018,36 @@ class NoteWindow(QWidget):
             self.size_grip.setVisible(not self.locked)
             self.resize(self.width(), self._expanded_height)
             self.title_bar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            focus = self.editor if self.editing else self.view
+            focus = (
+                self.editor
+                if self.editing
+                else self.locked_face
+                if self.secret_locked
+                else self.view
+            )
             self.setFocusProxy(focus)
             focus.setFocus()
         self.move(top_left)
-        self.title_bar.title.setVisible(collapsed)
-        self.retranslate()
+        self.retranslate()  # the title shown or not, with it
 
     def _update_title(self) -> None:
+        if self.secret_title is not None:
+            # A secret note shows the title typed for it, folded or not.
+            title = self.secret_name
+            self.title_bar.set_title(title)
+            self.title_bar.title.setVisible(True)
+            name = (
+                self.tr("Secret note, locked: %1")
+                if self.secret_locked
+                else self.tr("Secret note: %1")
+            ).replace("%1", title)
+            self.locked_face.setAccessibleName(name)
+            self.title_bar.setAccessibleName(name if self.collapsed else "")
+            self.title_bar.setAccessibleDescription(
+                self.tr("Enter unfolds it.") if self.collapsed else ""
+            )
+            return
+        self.title_bar.title.setVisible(self.collapsed)
         if not self.collapsed:
             self.title_bar.set_title("")  # only a folded note shows it
             self.title_bar.setAccessibleName("")
@@ -1135,6 +1228,7 @@ class NoteWindow(QWidget):
         # The buttons are flat: only a faint rounded shade where the pointer is.
         self.setStyleSheet(
             f"QPlainTextEdit, QTextEdit {{ background: transparent; color: {text}; }}"
+            f"LockedFace {{ color: {text}; }}"
             f"TitleBar QLabel {{ color: {qcolor(title).name()}; }}"
             "TitleBar QToolButton { border: none; border-radius: 4px; padding: 0;"
             " background: transparent; }"
@@ -1185,6 +1279,8 @@ class NoteWindow(QWidget):
 
     def edit(self, position: int = -1) -> None:
         """Show the text to edit, with the cursor at position (-1: the end)."""
+        if self.secret_locked:
+            return  # opened first, with the password
         self.stack.setCurrentWidget(self.editor)
         self.setFocusProxy(self.editor)
         cursor = self.editor.textCursor()
@@ -1207,6 +1303,57 @@ class NoteWindow(QWidget):
         self.setFocusProxy(self.view)
         # Given at once if the note is active, or when it next becomes active.
         self.view.setFocus()
+
+    # Secret notes
+
+    @property
+    def secret(self) -> bool:
+        return self.secret_title is not None
+
+    @property
+    def secret_name(self) -> str:
+        """The title it is shown by: the one typed, or a name for none."""
+        return self.secret_title or self.tr("Secret note")
+
+    def show_secret_locked(self, title: str) -> None:
+        """Locked, by its title: none of its text left in the window, nor in
+        what undo would bring back. Its owner has saved it first."""
+        self.secret_title = title
+        self.secret_locked = True
+        self._last_text = ""  # emptied below: not a change to save
+        self.editor.setPlainText("")  # which also forgets what undo would bring back
+        self.view.show_markdown("")
+        self.stack.setCurrentWidget(self.locked_face)
+        if not self.collapsed:
+            self.setFocusProxy(self.locked_face)
+            self.locked_face.setFocus()
+        self._show_secret_state()
+
+    def show_secret_open(self, text: str) -> None:
+        """Opened with the password: its text, to read and edit."""
+        self.secret_locked = False
+        self._last_text = text  # what was stored: not a change to save
+        self.editor.setPlainText(text)
+        self.stack.setCurrentWidget(self.editor)
+        if text.strip():
+            self.show_formatted()
+        elif not self.collapsed:
+            self.edit()
+        self._show_secret_state()
+
+    def set_secret_title(self, title: str | None) -> None:
+        """A secret note by this title, open as it is; None: an ordinary note again."""
+        self.secret_title = title
+        self.secret_locked = False
+        self._show_secret_state()
+
+    def _show_secret_state(self) -> None:
+        secret, opened = self.secret, self.secret and not self.secret_locked
+        self.secret_action.setVisible(self.can_be_secret and not secret)
+        self.open_secret_action.setVisible(self.secret_locked)
+        for action in (self.lock_secret_action, self.secret_title_action, self.ordinary_action):
+            action.setVisible(opened)
+        self._update_title()
 
     def toggle_checkbox(self, line: int) -> None:
         """Check or uncheck the task item on that line of the text.
@@ -1421,7 +1568,9 @@ class NoteWindow(QWidget):
         """
 
         def check() -> None:
-            if self._released or self.composing or self._commits != commits:
+            # Locked meanwhile: the text was saved, and the window is to hold none.
+            locked = self.secret_locked
+            if self._released or locked or self.composing or self._commits != commits:
                 return
             event = QInputMethodEvent("", [])
             event.setCommitString(preedit)

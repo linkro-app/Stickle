@@ -21,7 +21,7 @@ from stickle.app.stickle_window import StickleWindow
 from stickle.app.tray import Tray
 from stickle.data.schema import open_store
 from stickle.data.settings import PROTECTION_CHANGES, InvalidSettingError, Settings
-from stickle.platform.linux.session import UnlockWatcher
+from stickle.platform.linux.session import ScreenSaverWatcher
 
 KEY = secrets.token_bytes(32)
 
@@ -209,18 +209,18 @@ def test_changes_made_in_the_settings_are_noted_but_not_at_the_first_start(
     assert settings_page.set_at() is not None and recovery.made_at() is not None
 
 
-def test_an_unlock_is_told_when_the_screen_saver_ends() -> None:
-    unlocked: list[None] = []
-    watcher = UnlockWatcher(lambda: unlocked.append(None))
+def test_the_screen_saver_starting_is_a_lock_and_ending_an_unlock() -> None:
+    heard: list[str] = []
+    watcher = ScreenSaverWatcher(lambda: heard.append("unlock"), lambda: heard.append("lock"))
 
     watcher.active_changed(True)  # it starts: the screen locks
-    assert unlocked == []
+    assert heard == ["lock"]
     watcher.active_changed(False)
-    assert unlocked == [None]
+    assert heard == ["lock", "unlock"]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
-def test_windows_tells_of_the_unlock() -> None:
+def test_windows_tells_of_the_lock_and_the_unlock() -> None:
     if sys.platform != "win32":  # also tells the type checker this is Windows
         return
     import ctypes
@@ -228,13 +228,16 @@ def test_windows_tells_of_the_unlock() -> None:
     from stickle.platform.windows.power import MSG
     from stickle.platform.windows.session import (
         WM_WTSSESSION_CHANGE,
+        WTS_SESSION_LOCK,
         WTS_SESSION_UNLOCK,
-        UnlockFilter,
+        SessionFilter,
+        screen_saver_running,
     )
 
-    unlocked: list[None] = []
-    session_filter = UnlockFilter(lambda: unlocked.append(None))
-    for change in (0x7, WTS_SESSION_UNLOCK):  # locked, then unlocked
+    heard: list[str] = []
+    session_filter = SessionFilter(lambda: heard.append("unlock"), lambda: heard.append("lock"))
+    for change in (WTS_SESSION_LOCK, WTS_SESSION_UNLOCK, 0x5):  # 0x5: a logon, neither
         message = MSG(None, WM_WTSSESSION_CHANGE, change, 0, 0)
         session_filter.nativeEventFilter(b"windows_generic_MSG", ctypes.addressof(message))
-    assert unlocked == [None]
+    assert heard == ["lock", "unlock"]
+    assert screen_saver_running() is False  # asked of Windows: not while tests run

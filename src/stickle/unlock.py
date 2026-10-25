@@ -23,6 +23,7 @@ from typing import Literal
 import apsw
 
 from stickle.core.clock import Clock, utc_now
+from stickle.crypto import secret_notes
 from stickle.crypto.key_files import A, KeyFiles
 from stickle.crypto.keyfile import (
     MEMLIMIT,
@@ -312,6 +313,63 @@ class Unlock:
         """The same master password's pair, opened by new (WrongPasswordError if
         current is not the master password)."""
         change_master(self.files, current, new, self._clock(), self._master_strength)
+
+    # The secret notes' key (stickle.crypto.secret_notes)
+
+    @property
+    def has_secret_notes(self) -> bool:
+        try:
+            return secret_notes.has_secret_notes(self.files)
+        except KeyFileError, OSError:
+            return False
+
+    @property
+    def secret_password_set_at(self) -> str | None:
+        """When the secret notes' password was set or last changed (UTC)."""
+        try:
+            return secret_notes.password_set_at(self.files) if self.has_secret_notes else None
+        except KeyFileError, OSError:
+            return None
+
+    def turn_on_secret_notes(self, password: str) -> bytes:
+        """The secret notes' key, made now and kept for password and the master
+        password, which must be set first; the key."""
+        master = self._master()
+        if master is None:
+            raise KeyFileError("a master password is set before secret notes")
+        return secret_notes.create(
+            self.files, password, master.public, self._clock(), self._strength
+        )
+
+    def open_secret_notes(self, password: str) -> bytes:
+        """The secret notes' key; WrongPasswordError if password is not theirs."""
+        return secret_notes.open_with_password(self.files, password)
+
+    def open_secret_notes_with_master(self, typed: str) -> bytes:
+        """The secret notes' key through the master password (WrongPasswordError)."""
+        master = self._master()
+        if master is None:
+            raise WrongPasswordError("no master password")
+        return secret_notes.open_with_master(self.files, master, typed)
+
+    def opens_secret_notes(self, typed: str) -> bool:
+        """Whether typed is the secret notes' password (checked, nothing changed)."""
+        if not self.has_secret_notes:
+            return False
+        try:
+            self.open_secret_notes(typed)
+        except WrongPasswordError, KeyFileError:
+            return False
+        return True
+
+    def change_secret_password(self, key: bytes, password: str) -> None:
+        secret_notes.change_password(self.files, key, password, self._clock(), self._strength)
+
+    def keep_secret_notes_for_master(self, key: bytes) -> None:
+        """After a master password set anew, the secret notes' key sealed for it."""
+        master = self._master()
+        if master is not None and self.has_secret_notes:
+            secret_notes.keep_for_master(self.files, key, master.public)
 
     def keep_copies(self, connection: apsw.Connection) -> None:
         """The notes are open: the key files they hold a copy of are kept there too,

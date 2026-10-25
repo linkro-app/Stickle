@@ -1,10 +1,10 @@
-"""Notice when a Linux desktop is unlocked, through its screen saver.
+"""Notice when a Linux desktop is locked and unlocked, through its screen saver.
 
 The screen saver says on the session bus when it starts and stops
 (ActiveChanged): GNOME as org.gnome.ScreenSaver, KDE and others as
-org.freedesktop.ScreenSaver. Its end is taken as the unlock, the screen
-being locked while it runs on most desktops. Without either, nothing is
-watched: what changed is still told at the next start.
+org.freedesktop.ScreenSaver. Its start is taken as the lock and its end as the
+unlock, the screen being locked while it runs on most desktops. Without
+either, nothing is watched: what changed is still told at the next start.
 """
 
 from collections.abc import Callable
@@ -19,10 +19,11 @@ SCREEN_SAVERS = (
 )
 
 
-class UnlockWatcher(QObject):
-    def __init__(self, on_unlock: Callable[[], object]) -> None:
+class ScreenSaverWatcher(QObject):
+    def __init__(self, on_unlock: Callable[[], object], on_lock: Callable[[], object]) -> None:
         super().__init__()
         self._on_unlock = on_unlock
+        self._on_lock = on_lock
         bus = QDBusConnection.sessionBus()
         self.connected = bus.isConnected() and any(
             [
@@ -42,5 +43,7 @@ class UnlockWatcher(QObject):
 
     @Slot(bool)
     def active_changed(self, active: bool) -> None:
-        if not active:
+        if active:
+            self._on_lock()
+        else:
             self._on_unlock()

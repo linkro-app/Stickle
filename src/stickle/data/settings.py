@@ -128,7 +128,22 @@ NEWS_SEEN = Setting[str | None]("news_seen", "shared", None, _version_or_none)
 # Notes line up with the notes and screen edges near them when moved or resized.
 MAGNET = Setting[bool]("magnet", "shared", True, _flag)
 
-CHANGE_KINDS = ("recovery_key", "master_password_set", "master_password_changed")
+
+def _minutes(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 60
+
+
+# An open secret note locks again once left alone this long (minutes).
+RELOCK_MINUTES = Setting[int]("relock_minutes", "shared", 5, _minutes)
+# It also locks as soon as another window is used, if chosen.
+LOCK_ON_LEAVE = Setting[bool]("lock_on_leave", "shared", False, _flag)
+
+CHANGE_KINDS = (
+    "recovery_key",
+    "master_password_set",
+    "master_password_changed",
+    "secret_password_changed",
+)
 
 
 def _protection_changes(value: object) -> TypeGuard[list[dict[str, object]]]:
@@ -172,6 +187,8 @@ SETTINGS: dict[str, Setting[object]] = {
         UPDATE_CHECKED_AT,
         NEWS_SEEN,
         MAGNET,
+        RELOCK_MINUTES,
+        LOCK_ON_LEAVE,
         PROTECTION_CHANGES,
     )
 }
