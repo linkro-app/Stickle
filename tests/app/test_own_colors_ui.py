@@ -9,6 +9,7 @@ import apsw
 import pytest
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 from pytestqt.qtbot import QtBot
 
@@ -164,12 +165,24 @@ def test_from_a_colour_no_longer_ones_own_the_keys_start_at_either_end(
     assert window.color == list(PALETTE)[-1]
 
 
-def test_the_keys_are_ctrl_shift_brackets(qtbot: QtBot, manager: NoteManager) -> None:
+def test_the_keys_are_ctrl_shift_brackets_and_pressing_them_works(
+    qtbot: QtBot, manager: NoteManager, caplog: pytest.LogCaptureFixture
+) -> None:
     window = a_note(manager)
-    keys = {sequence.toString() for sequence in window.next_color_action.shortcuts()}
-    assert "Ctrl+Shift+]" in keys
-    keys = {sequence.toString() for sequence in window.previous_color_action.shortcuts()}
-    assert "Ctrl+Shift+[" in keys
+    qtbot.waitExposed(window)
+    window.activateWindow()
+    qtbot.waitUntil(window.isActiveWindow)
+    # One key each: a second one for the same press (Ctrl+}, where Shift+] types })
+    # made the press ambiguous to Qt, and nothing ran.
+    assert [s.toString() for s in window.next_color_action.shortcuts()] == ["Ctrl+Shift+]"]
+    assert [s.toString() for s in window.previous_color_action.shortcuts()] == ["Ctrl+Shift+["]
+    ctrl_shift = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+
+    QTest.keyClick(window.focusWidget() or window, Qt.Key.Key_BracketRight, ctrl_shift)
+    assert window.color == "apricot"
+    QTest.keyClick(window.focusWidget() or window, Qt.Key.Key_BracketLeft, ctrl_shift)
+    assert window.color == "yellow"
+    assert "Ambiguous" not in caplog.text
 
 
 def test_at_random_never_the_colour_used_just_before(

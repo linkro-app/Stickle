@@ -661,11 +661,13 @@ class NoteWindow(QWidget):
         self._own_colors_end = self.color_menu.addSeparator()
         self.next_color_action = self.color_menu.addAction("")
         self.previous_color_action = self.color_menu.addAction("")
+        # One key each: where Shift+] types }, Qt tries Ctrl+} too by itself, and a
+        # second key for the same press made it ambiguous, so that nothing ran.
         for action, keys, step in (
-            (self.next_color_action, ("Ctrl+Shift+]", "Ctrl+}"), 1),
-            (self.previous_color_action, ("Ctrl+Shift+[", "Ctrl+{"), -1),
+            (self.next_color_action, "Ctrl+Shift+]", 1),
+            (self.previous_color_action, "Ctrl+Shift+[", -1),
         ):
-            action.setShortcuts([QKeySequence(k) for k in keys])
+            action.setShortcut(QKeySequence(keys))
             action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
             action.triggered.connect(
                 lambda _=False, step=step: self.color_step_requested.emit(step)
