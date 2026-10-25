@@ -190,8 +190,21 @@ ALTER TABLE notes ADD COLUMN secret_title TEXT;
 ALTER TABLE notes ADD COLUMN secret_body BLOB;
 """
 
+V9 = """
+-- Colours the user added to the palette, one row each, so that colours added
+-- on two devices are both kept by sync. A note stores the colour itself
+-- (#rrggbb), not this row's id: removing a colour here leaves notes as they are.
+CREATE TABLE custom_colors (
+    id TEXT PRIMARY KEY,
+    hex TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT
+);
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9]
 BACKUPS_KEPT = 3
 
 

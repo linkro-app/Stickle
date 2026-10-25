@@ -47,6 +47,7 @@ from stickle.core.layout import Place, Rect, place_of
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import WrongRecoveryKeyError
 from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
+from stickle.data.colors import ColorRepository
 from stickle.data.export import ExportResult, SecretExport, export_all
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
@@ -556,6 +557,7 @@ def run(
             settings=Settings(connection) if connection else None,
             layouts=LayoutRepository(connection) if connection else None,
             labels=LabelRepository(connection) if connection else None,
+            colors=ColorRepository(connection) if connection else None,
         )
         manager.watch_quit(app)
         app.aboutToQuit.connect(manager.save_all)

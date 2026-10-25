@@ -30,6 +30,7 @@ not stored.
 """
 
 import logging
+import random
 from collections.abc import Callable, Iterable
 from dataclasses import replace
 from typing import cast, override
@@ -51,6 +52,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 from stickle.app.category_dialog import CreateCategory, NewCategoryDialog, next_dot_color
+from stickle.app.color_dialog import ColorDialog
 from stickle.app.labels import mark_name
 from stickle.app.note_window import NoteWindow
 from stickle.app.placement import MonitorWatch, can_place_windows, monitors, qrect, rect
@@ -61,19 +63,23 @@ from stickle.app.secret_dialogs import (
     TurnOnDialog,
 )
 from stickle.app.secret_notes import Relock
+from stickle.core.colors import PALETTE
 from stickle.core.labels import DEFAULT_ICON, Category, Mark
 from stickle.core.layout import MAIN, Place, fit, monitor_at, remember, restore
 from stickle.core.note import DEFAULT_COLOR, Note
 from stickle.core.paste import pasted_text
 from stickle.core.snap import resized, snapped, together
 from stickle.crypto.secret_notes import SecretNoteError, open_text, seal_text
+from stickle.data.colors import MAX_OWN_COLORS, ColorRepository, OwnColor, OwnColorsFullError
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.settings import (
     DEFAULT_NOTE_COLOR,
+    LAST_USED_COLOR,
     LOCK_ON_LEAVE,
     MAGNET,
+    RANDOM_COLOR,
     RELOCK_MINUTES,
     Settings,
 )
@@ -195,6 +201,9 @@ def _confirm_ordinary(parent: QWidget) -> bool:
 
 confirm_ordinary: Callable[[QWidget], bool] = _confirm_ordinary  # replaced in tests
 
+# Shows the colour window and waits: whether a colour was chosen.
+ask_color: Callable[[ColorDialog], bool] = _ask  # replaced in tests
+
 
 def _wipe(key: bytearray) -> None:
     """Overwrite a key no longer needed, so its bytes do not linger in memory."""
@@ -216,6 +225,8 @@ class NoteManager(QObject):
     view_changed = Signal()
     # Lining up like a magnet was switched on or off.
     magnet_changed = Signal()
+    # The user's own colours were added, removed or put in another order.
+    own_colors_changed = Signal()
     # A note asked for the keys at a glance (F1, Ctrl+/, its menu).
     guide_requested = Signal()
 
@@ -227,12 +238,15 @@ class NoteManager(QObject):
         settings: Settings | None = None,
         layouts: LayoutRepository | None = None,
         labels: LabelRepository | None = None,
+        colors: ColorRepository | None = None,
     ) -> None:
         super().__init__()
         self._repository = repository
         self._settings = settings
         self._layouts = layouts
         self._labels = labels
+        self._colors = colors
+        self._random = random.Random()
         self._monitor_watch = MonitorWatch(self)
         self._monitor_watch.changed.connect(self.place_all)
         self._idle_ms = idle_ms
@@ -401,6 +415,13 @@ class NoteManager(QObject):
         window.lock_requested.connect(lock_requested)
 
         window.label_choices = self.label_choices
+        window.own_colors = self.own_colors
+        window.add_color_requested.connect(lambda: self.add_color(window))
+
+        def color_step_requested(step: int) -> None:
+            self.step_color(window, step)
+
+        window.color_step_requested.connect(color_step_requested)
 
         def category_requested(category_id: str | None) -> None:
             self.set_category(window, category_id)
@@ -1202,10 +1223,29 @@ class NoteManager(QObject):
         return spots[0]  # every step taken: the cascade goes on over them
 
     def _new_note_color(self) -> str:
-        return self._settings.get(DEFAULT_NOTE_COLOR) if self._settings else DEFAULT_COLOR
+        """The colour last chosen; or, at random, any but the one used just before."""
+        if self._settings is None:
+            return DEFAULT_COLOR
+        if self._settings.get(RANDOM_COLOR):
+            last = self._settings.get(LAST_USED_COLOR)
+            order = self.color_order()
+            color = self._random.choice([c for c in order if c != last] or order)
+        else:
+            color = self._settings.get(DEFAULT_NOTE_COLOR)
+        self._used(color)
+        return color
+
+    def _used(self, color: str) -> None:
+        if self._settings is None:
+            return
+        try:
+            self._settings.set(LAST_USED_COLOR, color)
+        except apsw.Error as error:
+            log.error("could not keep the colour used: %s", type(error).__name__)
 
     def set_color(self, window: NoteWindow, color: str) -> None:
-        """Give the note a palette colour, which new notes then take too.
+        """Give the note a colour (a palette key, or one of the user's own), which
+        new notes then take too.
 
         A note that is not stored yet takes the colour when it is first stored.
         If storing fails the note keeps its colour, as nothing changed.
@@ -1215,11 +1255,97 @@ class NoteManager(QObject):
                 self._repository.set_color(window.note_id, color)
             if self._settings is not None:
                 self._settings.set(DEFAULT_NOTE_COLOR, color)
+                self._settings.set(LAST_USED_COLOR, color)
         except apsw.Error as error:
             log.error("could not store a note colour: %s", type(error).__name__)
             window.set_color(window.color)  # the menu shows the colour kept
             return
         window.set_color(color)
+
+    # The user's own colours, and going through the colours by keyboard
+
+    def own_colors(self) -> list[str]:
+        """The colours the user added, in their order."""
+        return [color.hex for color in self._colors.colors()] if self._colors else []
+
+    def color_order(self) -> list[str]:
+        """The palette, then the user's own colours."""
+        return [*PALETTE, *self.own_colors()]
+
+    def step_color(self, window: NoteWindow, step: int) -> None:
+        """The next colour (step 1) or the one before (-1), round from the end
+        to the start; the new colour's name said to a screen reader."""
+        order = self.color_order()
+        # One of the user's own no longer among them: from either end.
+        start = order.index(window.color) if window.color in order else (-1 if step > 0 else 0)
+        color = order[(start + step) % len(order)]
+        self.set_color(window, color)
+        if window.color == color:
+            window.announce(window.color_label(color))
+
+    def add_color(self, window: NoteWindow) -> None:
+        """A colour chosen in the colour window: given to the note and added to
+        the user's own (if there is room, or said so)."""
+        dialog = ColorDialog(window.color, window)
+        if not ask_color(dialog):
+            return
+        color = dialog.chosen()
+        self.set_color(window, color)
+        if self._colors is None:
+            return
+        try:
+            self._colors.add(color)
+        except OwnColorsFullError:
+            QMessageBox.information(
+                window,
+                "Stickle",
+                self.tr(
+                    "My colours hold %1 at most. The note has the colour; to keep it among"
+                    " them, remove one in the settings."
+                ).replace("%1", str(MAX_OWN_COLORS)),
+            )
+            return
+        except apsw.Error as error:
+            log.error("could not keep a colour: %s", type(error).__name__)
+            return
+        self.own_colors_changed.emit()
+
+    def add_own_color(self, color: str) -> bool:
+        """From the settings; False if there is no room."""
+        if self._colors is None:
+            return False
+        try:
+            self._colors.add(color)
+        except OwnColorsFullError:
+            return False
+        self.own_colors_changed.emit()
+        return True
+
+    def own_color_entries(self) -> list[OwnColor]:
+        return self._colors.colors() if self._colors else []
+
+    def remove_own_color(self, color_id: str) -> None:
+        if self._colors is not None:
+            self._colors.remove(color_id)
+            self.own_colors_changed.emit()
+
+    def move_own_color(self, color_id: str, step: int) -> None:
+        if self._colors is not None:
+            self._colors.move(color_id, step)
+            self.own_colors_changed.emit()
+
+    @property
+    def random_color(self) -> bool:
+        """Whether new notes take a colour at random."""
+        return self._settings.get(RANDOM_COLOR) if self._settings is not None else False
+
+    def set_random_color(self, on: bool) -> None:
+        if self._settings is None:
+            return
+        try:
+            self._settings.set(RANDOM_COLOR, on)
+        except apsw.Error as error:
+            log.error("could not keep the random colour setting: %s", type(error).__name__)
 
     # Secret notes
 

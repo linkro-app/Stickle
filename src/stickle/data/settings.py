@@ -19,6 +19,7 @@ from typing import Literal, TypeGuard, cast
 import apsw
 
 from stickle.core.clock import Clock, utc_now
+from stickle.core.colors import is_hex
 from stickle.core.note import DEFAULT_COLOR
 from stickle.core.updates import version_key
 
@@ -50,7 +51,8 @@ def _usage(value: object) -> TypeGuard[str | None]:
 
 
 def _color_key(value: object) -> TypeGuard[str]:
-    return isinstance(value, str) and value.isidentifier()
+    """A palette key (one a newer version added, too) or a colour of the user's own."""
+    return isinstance(value, str) and (value.isidentifier() or is_hex(value))
 
 
 def _size_or_none(value: object) -> TypeGuard[list[int] | None]:
@@ -133,6 +135,15 @@ def _minutes(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 60
 
 
+def _color_or_none(value: object) -> TypeGuard[str | None]:
+    return value is None or _color_key(value)
+
+
+# New notes take a colour at random (from the palette and the user's own),
+# never the one used just before, which is kept too.
+RANDOM_COLOR = Setting[bool]("random_color", "shared", False, _flag)
+LAST_USED_COLOR = Setting[str | None]("last_used_color", "shared", None, _color_or_none)
+
 # An open secret note locks again once left alone this long (minutes).
 RELOCK_MINUTES = Setting[int]("relock_minutes", "shared", 5, _minutes)
 # It also locks as soon as another window is used, if chosen.
@@ -189,6 +200,8 @@ SETTINGS: dict[str, Setting[object]] = {
         MAGNET,
         RELOCK_MINUTES,
         LOCK_ON_LEAVE,
+        RANDOM_COLOR,
+        LAST_USED_COLOR,
         PROTECTION_CHANGES,
     )
 }

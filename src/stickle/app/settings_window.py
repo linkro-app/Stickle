@@ -12,14 +12,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import override
 
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QFont, QGuiApplication
+from PySide6.QtCore import QEvent, QObject, QSize, Qt
+from PySide6.QtGui import QFont, QGuiApplication, QKeyEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -29,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from stickle.app.app_list import switch_app_list
+from stickle.app.color_dialog import ColorDialog
 from stickle.app.first_run import LoginNote
 from stickle.app.i18n import LANGUAGES, Translations
 from stickle.app.in_use import OnTopWhileInUse
@@ -38,6 +41,7 @@ from stickle.app.master_password import (
     MasterPasswords,
 )
 from stickle.app.notes import NoteManager
+from stickle.app.palette import SWATCH_SIZE, own_color_name, swatch_icon
 from stickle.app.recovery_key_dialog import RecoveryKeyDialog
 from stickle.app.secret_dialogs import NewSecretPasswordDialog, OpenSecretDialog
 from stickle.app.shortcut_rows import ShortcutRows
@@ -47,6 +51,7 @@ from stickle.app.tray import switch_autostart
 from stickle.app.update_check import UpdateCheck
 from stickle.app.window_flags import set_stays_on_top, stays_on_top
 from stickle.core.updates import FEED_HOST
+from stickle.data.colors import MAX_OWN_COLORS
 from stickle.platform.autostart import Autostart
 from stickle.platform.linux.appimage import AppMenuEntry
 from stickle.platform.linux.x11 import activate
@@ -83,6 +88,8 @@ def _exec_secret(dialog: QDialog) -> bool:
 
 
 show_secret_dialog: Callable[[QDialog], bool] = _exec_secret  # replaced in tests
+show_color_dialog: Callable[[QDialog], bool] = _exec_secret  # replaced in tests
+OWN_LIST_HEIGHT = 140
 
 
 def _page(parent: QWidget) -> tuple[QWidget, QVBoxLayout]:
@@ -167,6 +174,33 @@ class SettingsWindow(QDialog):
         self.magnet_note = _hint(self.notes_page)
         notes_layout.addWidget(self.magnet_box)
         notes_layout.addWidget(self.magnet_note)
+        # New notes' colour at random, and the colours the user added.
+        self.random_box = QCheckBox(self.notes_page)
+        self.random_box.clicked.connect(notes.set_random_color)
+        notes_layout.addWidget(self.random_box)
+        self.random_note = _hint(self.notes_page)
+        notes_layout.addWidget(self.random_note)
+        self.own_label = QLabel(self.notes_page)
+        self.own_list = QListWidget(self.notes_page)
+        self.own_list.setIconSize(QSize(SWATCH_SIZE, SWATCH_SIZE))
+        self.own_list.setMaximumHeight(OWN_LIST_HEIGHT)
+        self.own_list.installEventFilter(self)  # Alt+Up and Alt+Down move a colour
+        self.own_list.currentRowChanged.connect(self._own_chosen)
+        self.own_label.setBuddy(self.own_list)
+        self.add_own_button = QPushButton(self.notes_page)
+        self.add_own_button.clicked.connect(self.add_own_color)
+        self.remove_own_button = QPushButton(self.notes_page)
+        self.remove_own_button.clicked.connect(self.remove_own_color)
+        own_buttons = QHBoxLayout()
+        own_buttons.addWidget(self.add_own_button)
+        own_buttons.addWidget(self.remove_own_button)
+        own_buttons.addStretch(1)
+        self.own_note = _hint(self.notes_page)
+        notes_layout.addWidget(self.own_label)
+        notes_layout.addWidget(self.own_list)
+        notes_layout.addLayout(own_buttons)
+        notes_layout.addWidget(self.own_note)
+        notes.own_colors_changed.connect(self._refresh_own_colors)
         notes_layout.addStretch(1)
 
         self.protection, protection = _page(self.tabs)
@@ -273,6 +307,10 @@ class SettingsWindow(QDialog):
             self.app_list_box,
             self.update_box,
             self.magnet_box,
+            self.random_box,
+            self.own_list,
+            self.add_own_button,
+            self.remove_own_button,
             self.recovery_button,
             self.master_button,
             self.check_master_button,
@@ -306,6 +344,23 @@ class SettingsWindow(QDialog):
         )
         self.magnet_note.setText(magnet)
         self.magnet_box.setAccessibleDescription(magnet)
+        self.random_box.setText(self.tr("Give new notes a &random colour"))
+        random_note = self.tr(
+            "Any of the colours, yours too, but the one used just before. A new note"
+            " made from a note (Ctrl+N) takes that note's colour."
+        )
+        self.random_note.setText(random_note)
+        self.random_box.setAccessibleDescription(random_note)
+        self.own_label.setText(self.tr("My &colours:"))
+        self.own_list.setAccessibleName(self.tr("My colours"))
+        self.add_own_button.setText(self.tr("A&dd…"))
+        self.remove_own_button.setText(self.tr("Remo&ve"))
+        own_note = self.tr(
+            "Up to %1, shown under the note menu's colours. Alt+Up and Alt+Down change"
+            " their order. Notes of a colour removed keep it."
+        ).replace("%1", str(MAX_OWN_COLORS))
+        self.own_note.setText(own_note)
+        self.own_list.setAccessibleDescription(own_note)
         self.recovery_button.setText(self.tr("Make a new &recovery key…"))
         self.check_master_button.setText(self.tr("Chec&k the master password…"))
         self.secret_password_button.setText(self.tr("Change the &secret notes' password…"))
@@ -342,6 +397,8 @@ class SettingsWindow(QDialog):
         if self._updates is not None:
             self.update_box.setChecked(self._updates.enabled)
         self.magnet_box.setChecked(self._notes.magnet)
+        self.random_box.setChecked(self._notes.random_color)
+        self._refresh_own_colors()
         master = self._master is not None and self._master.exists()
         self.master_button.setVisible(self._master is not None)
         self.master_button.setText(
@@ -462,6 +519,56 @@ class SettingsWindow(QDialog):
         if not opened.using_master:  # that way, the new one was asked for already
             show_secret_dialog(NewSecretPasswordDialog(secrets, opened.key, self))
         self.refresh()  # its date
+
+    def _refresh_own_colors(self) -> None:
+        """The user's own colours as they are now, the one chosen kept chosen."""
+        chosen_id = self._chosen_own_id()
+        self.own_list.clear()
+        for number, color in enumerate(self._notes.own_color_entries(), start=1):
+            item = QListWidgetItem(swatch_icon(color.hex), f"{own_color_name(number)}  {color.hex}")
+            item.setData(Qt.ItemDataRole.UserRole, color.id)
+            self.own_list.addItem(item)
+            if color.id == chosen_id:
+                self.own_list.setCurrentItem(item)
+        full = self.own_list.count() >= MAX_OWN_COLORS
+        self.add_own_button.setEnabled(not full)
+        self._own_chosen(self.own_list.currentRow())
+
+    def _own_chosen(self, row: int) -> None:
+        self.remove_own_button.setEnabled(row >= 0)
+
+    def _chosen_own_id(self) -> str | None:
+        row = self.own_list.currentRow()
+        value = self.own_list.item(row).data(Qt.ItemDataRole.UserRole) if row >= 0 else None
+        return value if isinstance(value, str) else None
+
+    def add_own_color(self) -> None:
+        """A colour chosen in the colour window, last among the user's own."""
+        dialog = ColorDialog("yellow", self)
+        if show_color_dialog(dialog):
+            self._notes.add_own_color(dialog.chosen())
+
+    def remove_own_color(self) -> None:
+        color_id = self._chosen_own_id()
+        if color_id is not None:
+            row = self.own_list.currentRow()
+            self._notes.remove_own_color(color_id)
+            self.own_list.setCurrentRow(min(row, self.own_list.count() - 1))
+            self.own_list.setFocus()
+
+    @override
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if (
+            watched is self.own_list
+            and isinstance(event, QKeyEvent)
+            and event.type() == QEvent.Type.KeyPress
+            and event.modifiers() == Qt.KeyboardModifier.AltModifier
+            and event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down)
+            and (color_id := self._chosen_own_id()) is not None
+        ):
+            self._notes.move_own_color(color_id, -1 if event.key() == Qt.Key.Key_Up else 1)
+            return True
+        return super().eventFilter(watched, event)
 
     def _set_relock_minutes(self, minutes: int) -> None:
         self._notes.set_relock_minutes(minutes)

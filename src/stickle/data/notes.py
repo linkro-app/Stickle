@@ -228,7 +228,8 @@ class NoteRepository:
         self._db.pragma("wal_checkpoint", "TRUNCATE")
 
     def set_color(self, note_id: str, color: str) -> Note:
-        """color is a palette key; the colours drawn are worked out from it."""
+        """color is a palette key or a colour of the user's own (#rrggbb); the
+        colours drawn are worked out from it."""
         note = self._require_live(note_id)
         if note.color == color:
             return note

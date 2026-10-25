@@ -32,7 +32,7 @@ from stickle.app.labels import category_item_icon, keyhole_item_icon, mark_item_
 from stickle.app.notes import NoteManager
 from stickle.app.palette import swatch_icon
 from stickle.app.titles import shown_title
-from stickle.core.colors import DEFAULT_COLOR, PALETTE
+from stickle.core.colors import DEFAULT_COLOR, is_color
 from stickle.core.labels import Category, Mark
 from stickle.core.note import Note
 
@@ -307,7 +307,7 @@ class NoteList(QWidget):
                 ]
         for note in notes:
             item = QListWidgetItem(self._text(note))
-            item.setIcon(swatch_icon(note.color if note.color in PALETTE else DEFAULT_COLOR))
+            item.setIcon(swatch_icon(note.color if is_color(note.color) else DEFAULT_COLOR))
             item.setData(NOTE_ID, note.id)
             self.list.addItem(item)
             if note.id == selected:

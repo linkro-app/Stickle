@@ -218,6 +218,69 @@
     </message>
 </context>
 <context>
+    <name>ColorDialog</name>
+    <message>
+        <source>Add a colour</source>
+        <translation>색 추가</translation>
+    </message>
+    <message>
+        <source>&amp;Suggestions:</source>
+        <translation>추천 색(&amp;S):</translation>
+    </message>
+    <message>
+        <source>Suggested colours</source>
+        <translation>추천 색</translation>
+    </message>
+    <message>
+        <source>&amp;Hue:</source>
+        <translation>색상(&amp;H):</translation>
+    </message>
+    <message>
+        <source>Sat&amp;uration:</source>
+        <translation>채도(&amp;U):</translation>
+    </message>
+    <message>
+        <source>&amp;Lightness:</source>
+        <translation>밝기(&amp;L):</translation>
+    </message>
+    <message>
+        <source>Hue</source>
+        <translation>색상</translation>
+    </message>
+    <message>
+        <source>Saturation</source>
+        <translation>채도</translation>
+    </message>
+    <message>
+        <source>Lightness</source>
+        <translation>밝기</translation>
+    </message>
+    <message>
+        <source>Colour &amp;code:</source>
+        <translation>색 코드(&amp;C):</translation>
+    </message>
+    <message>
+        <source>Colour code</source>
+        <translation>색 코드</translation>
+    </message>
+    <message>
+        <source>A note of this colour</source>
+        <translation>이 색의 메모</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>추가</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>취소</translation>
+    </message>
+    <message>
+        <source>Text is hard to read on this colour, so notes of it are drawn a little lighter or darker.</source>
+        <translation>이 색 위에서는 글자를 읽기 어려워, 이 색의 메모는 조금 밝거나 어둡게 그려집니다.</translation>
+    </message>
+</context>
+<context>
     <name>DataMenu</name>
     <message>
         <source>&amp;Open the folder</source>
@@ -1226,6 +1289,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <source>White</source>
         <translation>흰색</translation>
     </message>
+    <message>
+        <source>My colour %1</source>
+        <translation>내 색 %1</translation>
+    </message>
 </context>
 <context>
     <name>NoteList</name>
@@ -1399,6 +1466,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>비밀 메모</translation>
     </message>
     <message>
+        <source>My colours hold %1 at most. The note has the colour; to keep it among them, remove one in the settings.</source>
+        <translation>내 색은 %1개까지입니다. 메모에는 이 색을 칠했습니다. 내 색에 두려면 설정에서 하나를 지우세요.</translation>
+    </message>
+    <message>
         <source>The note could not be made secret.</source>
         <translation>비밀 메모로 바꾸지 못했습니다.</translation>
     </message>
@@ -1528,6 +1599,18 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Collapse note</source>
         <translation>메모 접기</translation>
+    </message>
+    <message>
+        <source>Next colour</source>
+        <translation>다음 색</translation>
+    </message>
+    <message>
+        <source>Previous colour</source>
+        <translation>이전 색</translation>
+    </message>
+    <message>
+        <source>Add a colour…</source>
+        <translation>색 추가…</translation>
     </message>
     <message>
         <source>Delete note</source>
@@ -2235,6 +2318,34 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>메모를 옮기거나 크기를 바꿔 다른 메모나 화면 가장자리 가까이에 놓으면 거기에 맞춰 붙습니다. 놓을 때 Alt를 누르고 있으면 그대로 둡니다.</translation>
     </message>
     <message>
+        <source>Give new notes a &amp;random colour</source>
+        <translation>새 메모를 랜덤 색으로(&amp;R)</translation>
+    </message>
+    <message>
+        <source>Any of the colours, yours too, but the one used just before. A new note made from a note (Ctrl+N) takes that note&apos;s colour.</source>
+        <translation>기본 색과 내 색 가운데 바로 전에 쓴 색만 빼고 고릅니다. 메모에서 Ctrl+N으로 만든 메모는 그 메모의 색입니다.</translation>
+    </message>
+    <message>
+        <source>My &amp;colours:</source>
+        <translation>내 색(&amp;C):</translation>
+    </message>
+    <message>
+        <source>My colours</source>
+        <translation>내 색</translation>
+    </message>
+    <message>
+        <source>A&amp;dd…</source>
+        <translation>더하기(&amp;D)…</translation>
+    </message>
+    <message>
+        <source>Remo&amp;ve</source>
+        <translation>지우기(&amp;V)</translation>
+    </message>
+    <message>
+        <source>Up to %1, shown under the note menu&apos;s colours. Alt+Up and Alt+Down change their order. Notes of a colour removed keep it.</source>
+        <translation>%1개까지, 메모 메뉴의 색 아래에 보입니다. Alt+↑·Alt+↓로 순서를 바꿉니다. 지운 색을 쓰던 메모는 그 색 그대로입니다.</translation>
+    </message>
+    <message>
         <source>Make a new &amp;recovery key…</source>
         <translation>새 복구 키 만들기(&amp;R)…</translation>
     </message>
@@ -2352,6 +2463,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>To the next note, or the one before</source>
         <translation>다음 메모로, 또는 이전 메모로</translation>
+    </message>
+    <message>
+        <source>The next colour, or the one before</source>
+        <translation>다음 색, 이전 색</translation>
     </message>
     <message>
         <source>Edit the text</source>

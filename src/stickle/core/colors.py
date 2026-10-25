@@ -1,6 +1,7 @@
 """Note colours: the palette, and every other colour worked out from a background.
 
-Only the background's key is stored ("yellow"), never the colours drawn:
+Only the background's key is stored ("yellow"), or for a colour the user
+added, that colour itself ("#a3c9f0"), never the colours drawn:
 the title bar, border, text and highlight colours follow from it, so a
 later change to these rules (or a dark theme) applies to existing notes as
 well. Text gets whichever of dark or light contrasts more, at least 4.5:1
@@ -10,9 +11,12 @@ until it does.
 
 import colorsys
 import math
+import re
 from dataclasses import dataclass
 
 DEFAULT_COLOR = "yellow"
+# A colour the user added, stored as itself rather than a key: lower case only.
+HEX = re.compile(r"#[0-9a-f]{6}")
 MIN_CONTRAST = 4.5
 ICON_CONTRAST = 3.0  # WCAG for icons and other graphics
 QUIET_ICON = 0.6  # title bar icons at rest: this much of the text colour, if it reads
@@ -196,7 +200,31 @@ def colors_for(background: Rgb) -> NoteColors:
     )
 
 
+def is_hex(value: str) -> bool:
+    """Whether value is a colour of the user's own as stored: #rrggbb, lower case."""
+    return HEX.fullmatch(value) is not None
+
+
+def is_color(value: str) -> bool:
+    """A palette key or a colour of the user's own."""
+    return value in PALETTE or is_hex(value)
+
+
+def background_of(key: str) -> Rgb:
+    """The background a note stored with key asks for: a palette colour, or one
+    of the user's own. An unknown key (written by a newer version, say) asks
+    for the default colour; the stored key is left as it is."""
+    if is_hex(key):
+        return Rgb.from_hex(key)
+    return PALETTE.get(key, PALETTE[DEFAULT_COLOR])
+
+
+def needs_moving(background: Rgb) -> bool:
+    """Whether text cannot reach 4.5:1 on background as it is, so that the note
+    is drawn a little lighter or darker than chosen."""
+    return readable(background) != background
+
+
 def note_colors(key: str) -> NoteColors:
-    """The colours of a note stored with key. An unknown key (written by a newer
-    version, say) shows as the default colour; the stored key is left as it is."""
-    return colors_for(PALETTE.get(key, PALETTE[DEFAULT_COLOR]))
+    """The colours of a note stored with key (see background_of)."""
+    return colors_for(background_of(key))

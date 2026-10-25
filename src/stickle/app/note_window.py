@@ -25,6 +25,8 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import (
+    QAccessible,
+    QAccessibleAnnouncementEvent,
     QAction,
     QActionGroup,
     QCloseEvent,
@@ -69,7 +71,7 @@ from shiboken6 import Shiboken
 from stickle.app.labels import CategoryTag, MarksBadge, mark_name
 from stickle.app.note_highlight import MarkdownHighlighter
 from stickle.app.note_view import NoteView, from_utf16, utf16_length
-from stickle.app.palette import color_name, qcolor, swatch_icon
+from stickle.app.palette import color_name, own_color_name, qcolor, swatch_icon
 from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.titles import secret_name
 from stickle.app.window_flags import keep_stays_on_top, set_stays_on_top, stays_on_top
@@ -547,6 +549,8 @@ class NoteWindow(QWidget):
     new_category_requested = Signal()
     mark_requested = Signal(str, bool)  # a mark id; True: put it on
     guide_requested = Signal()  # the keys at a glance
+    add_color_requested = Signal()  # a colour of the user's own, chosen and added
+    color_step_requested = Signal(int)  # 1: the next colour, -1: the one before
     secret_requested = Signal()  # to be made a secret note
     open_secret_requested = Signal()  # locked: to be opened with the password
     lock_secret_requested = Signal()  # open: to be locked now
@@ -641,13 +645,35 @@ class NoteWindow(QWidget):
         self.menu = QMenu(self)
         self.color_menu = self.menu.addMenu("")
         self.color_actions: dict[str, QAction] = {}
-        colors = QActionGroup(self)
+        self._color_group = QActionGroup(self)
         for key in PALETTE:
             action = self.color_menu.addAction(swatch_icon(key), "")
             action.setCheckable(True)
             action.triggered.connect(lambda _=False, key=key: self.color_requested.emit(key))
-            colors.addAction(action)
+            self._color_group.addAction(action)
             self.color_actions[key] = action
+        # The user's own colours, filled each time the menu opens (see own_colors),
+        # between two separators; then the next and previous colour (with their
+        # keys, which work without the menu) and adding a colour.
+        self.own_colors: Callable[[], list[str]] = lambda: []
+        self.own_color_actions: dict[str, QAction] = {}
+        self._own_colors_start = self.color_menu.addSeparator()
+        self._own_colors_end = self.color_menu.addSeparator()
+        self.next_color_action = self.color_menu.addAction("")
+        self.previous_color_action = self.color_menu.addAction("")
+        for action, keys, step in (
+            (self.next_color_action, ("Ctrl+Shift+]", "Ctrl+}"), 1),
+            (self.previous_color_action, ("Ctrl+Shift+[", "Ctrl+{"), -1),
+        ):
+            action.setShortcuts([QKeySequence(k) for k in keys])
+            action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+            action.triggered.connect(
+                lambda _=False, step=step: self.color_step_requested.emit(step)
+            )
+            self.addAction(action)
+        self.add_color_action = self.color_menu.addAction("")
+        self.add_color_action.triggered.connect(self.add_color_requested)
+        self.color_menu.aboutToShow.connect(self._fill_own_colors)
         # Filled each time the menu opens, from what exists then (see label_choices).
         self.category: Category | None = None
         self.marks: list[Mark] = []
@@ -839,6 +865,9 @@ class NoteWindow(QWidget):
         self._update_title()
         for key, action in self.color_actions.items():
             action.setText(color_name(key))
+        self.next_color_action.setText(self.tr("Next colour"))
+        self.previous_color_action.setText(self.tr("Previous colour"))
+        self.add_color_action.setText(self.tr("Add a colour…"))
         self.delete_action.setText(self.tr("Delete note"))
         self.guide_action.setText(self.tr("Keyboard shortcuts"))
         self.new_note_action.setText(self.tr("New note"))
@@ -1242,9 +1271,37 @@ class NoteWindow(QWidget):
         self.title_bar.category_tag.set_background(qcolor(self.colors.title_bar))
         self.view.set_colors(self.colors)
         self.highlighter.set_colors(self.colors)
-        for key, action in self.color_actions.items():
+        for key, action in (self.color_actions | self.own_color_actions).items():
             action.setChecked(key == color)
         self.update()
+
+    def _fill_own_colors(self) -> None:
+        """The user's own colours as they are now, between their separators."""
+        for action in self.own_color_actions.values():
+            self.color_menu.removeAction(action)
+            self._color_group.removeAction(action)
+            action.deleteLater()
+        self.own_color_actions = {}
+        for number, value in enumerate(self.own_colors(), start=1):
+            action = QAction(swatch_icon(value), own_color_name(number), self.color_menu)
+            action.setCheckable(True)
+            action.setChecked(value == self.color)
+            action.setToolTip(value)
+            action.triggered.connect(lambda _=False, value=value: self.color_requested.emit(value))
+            self.color_menu.insertAction(self._own_colors_end, action)
+            self._color_group.addAction(action)
+            self.own_color_actions[value] = action
+        self._own_colors_end.setVisible(bool(self.own_color_actions))
+
+    def color_label(self, color: str) -> str:
+        """What the colour is called: its name, or "My colour N" for one of the
+        user's own (its code, once no longer among them)."""
+        own = self.own_colors()
+        return own_color_name(own.index(color) + 1) if color in own else color_name(color)
+
+    def announce(self, text: str) -> None:
+        """Said by a screen reader now, without moving the keyboard."""
+        QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, text))
 
     @override
     def paintEvent(self, event: QPaintEvent) -> None:

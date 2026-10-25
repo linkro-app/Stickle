@@ -5,7 +5,7 @@ from functools import cache
 from PySide6.QtCore import QCoreApplication, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 
-from stickle.core.colors import PALETTE, Rgb, colors_for
+from stickle.core.colors import Rgb, note_colors
 
 SWATCH_SIZE = 14
 
@@ -37,10 +37,16 @@ def color_name(key: str) -> str:
     return names.get(key, key)
 
 
-@cache  # every note's menu shows the same twelve
+def own_color_name(number: int) -> str:
+    """The name of the user's own colour at number (from 1) in their order."""
+    return QCoreApplication.translate("NoteColor", "My colour %1").replace("%1", str(number))
+
+
+@cache  # every note's menu shows the same ones
 def swatch_icon(key: str) -> QIcon:
-    """A small square of the colour with its border, drawn at 1x and 2x."""
-    colors = colors_for(PALETTE[key])
+    """A small square of the colour (a palette key, or #rrggbb) with its border,
+    as a note of it is drawn, at 1x and 2x."""
+    colors = note_colors(key)
     icon = QIcon()
     for scale in (1, 2):
         size = SWATCH_SIZE * scale
