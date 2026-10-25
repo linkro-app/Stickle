@@ -1294,7 +1294,10 @@ class NoteManager(QObject):
 
     def lock_secret_notes(self) -> None:
         """Every open secret note (the computer locked, asleep, its screen saver on)."""
-        for window in self._relock.open_windows:
+        opened = self._relock.open_windows
+        if opened:
+            log.info("locking open secret notes: %d", len(opened))
+        for window in opened:
             self.lock_secret(window)
 
     def _forget_key(self, window: NoteWindow) -> None:
