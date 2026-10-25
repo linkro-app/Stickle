@@ -10,6 +10,7 @@ from pytestqt.qtbot import QtBot
 
 from stickle.app.first_run import FirstRunDialog, sample_note, welcome
 from stickle.app.i18n import Translations
+from stickle.crypto.key_files import KeyFiles
 from stickle.crypto.recovery import generate, read_recovery, unwrap, write_recovery
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -42,7 +43,7 @@ class Place:
 
     def make_recovery_key(self) -> str:
         recovery_key = generate()
-        write_recovery(self.folder, KEY, recovery_key)
+        write_recovery(KeyFiles(self.folder), KEY, recovery_key, "2026-10-26T00:00:00.000Z")
         return recovery_key
 
     def welcome(
@@ -102,7 +103,7 @@ def test_going_through_sets_everything_up(place: Place) -> None:
     assert place.settings.get(APP_MENU_ASKED)
     assert place.settings.get(RECOVERY_KEY_KEPT)
     # The key shown is the one that opens the notes.
-    slot = read_recovery(place.folder)
+    slot = read_recovery(KeyFiles(place.folder))
     assert slot is not None
     assert unwrap(slot, place.shown[0]) == KEY
 

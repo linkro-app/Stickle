@@ -183,8 +183,8 @@ class RecoveryDialog(QDialog):
             return self.tr("The key file could not be read"), " ".join(
                 [
                     self.tr(
-                        "The file that holds the key to your notes (keys.json) is damaged or"
-                        " was written by an unknown version of Stickle."
+                        "The file that holds the key to your notes is damaged or was"
+                        " written by an unknown version of Stickle."
                     ),
                     unchanged,
                 ]

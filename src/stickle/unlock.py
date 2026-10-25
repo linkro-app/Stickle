@@ -1,10 +1,11 @@
 """Find the key that opens the notes database.
 
 The key is random and lives either in the OS credential store or, where there
-is none, in keys.json wrapped with the user's password. Which one is decided
-from files alone, so the credential store (and its unlock prompt) is never
-touched in password mode. Portable notes (stickle.platform.paths) are always
-in password mode: they go from computer to computer.
+is none, in the key file A wrapped with the user's password (stickle.crypto.
+key_files). Which one is decided from files alone, so the credential store
+(and its unlock prompt) is never touched in password mode. Portable notes
+(stickle.platform.paths) are always in password mode: they go from computer
+to computer.
 
 A new key is created only while no database exists. With a database present,
 a key that cannot be found or read is reported, never replaced: a new key
@@ -19,15 +20,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+import apsw
+
+from stickle.core.clock import Clock, utc_now
+from stickle.crypto.key_files import A, KeyFiles
 from stickle.crypto.keyfile import (
     MEMLIMIT,
     OPSLIMIT,
     KeyFile,
     KeyFileError,
-    read_key_file,
+    PasswordSlot,
+    key_file_of,
+    key_file_slots,
     unwrap_with_password,
     wrap_with_password,
-    write_key_file,
 )
 from stickle.crypto.recovery import (
     WrongRecoveryKeyError,
@@ -36,6 +42,7 @@ from stickle.crypto.recovery import (
 )
 from stickle.crypto.recovery import generate as generate_recovery_key
 from stickle.crypto.recovery import unwrap as unwrap_recovery
+from stickle.data.key_copies import KeyCopies
 from stickle.platform.credentials import (
     DATABASE_KEY,
     KEY_BYTES,
@@ -46,7 +53,6 @@ from stickle.platform.credentials import (
 )
 
 DATABASE = "notes.db"
-KEY_FILE = "keys.json"
 MIN_PASSWORD_LENGTH = 8
 
 log = logging.getLogger(__name__)
@@ -86,10 +92,13 @@ class Unlock:
         store: Callable[[], CredentialStore] = CredentialStore,
         strength: tuple[int, int] = (OPSLIMIT, MEMLIMIT),  # lowered in tests
         portable: bool = False,
+        clock: Clock = utc_now,
     ) -> None:
         self.folder = folder
+        self.files = KeyFiles(folder)
         self._store = store
         self._strength = strength
+        self._clock = clock
         # Carried from computer to computer: always a password, and the
         # credential store of the computer it is on is never read or written.
         self.portable = portable
@@ -105,7 +114,7 @@ class Unlock:
 
     @property
     def key_file(self) -> Path:
-        return self.folder / KEY_FILE
+        return self.files.path(A)
 
     def start(self) -> None:
         """(Re)read the files and, unless in password mode, ask the store for the key."""
@@ -113,8 +122,10 @@ class Unlock:
         self._key_file: KeyFile | None = None
         self._unreadable = False
         self._database_existed = self.database.exists()
+        self.files.prepare()
         try:
-            self._key_file = read_key_file(self.key_file)
+            slots = self.files.load(A)
+            self._key_file = None if slots is None else key_file_of(slots)
         except KeyFileError, OSError:
             self._unreadable = True
             return
@@ -156,18 +167,23 @@ class Unlock:
         key = secrets.token_bytes(KEY_BYTES)
         others = self._key_file.other_slots if self._key_file is not None else {}
         # Written before the database, so a database never exists without its key.
-        write_key_file(
-            self.key_file, KeyFile(wrap_with_password(key, password, *self._strength), others)
-        )
-        self._key_file = read_key_file(self.key_file)
+        self._write_password(KeyFile(self._wrap(key, password), others))
         return key
+
+    def _wrap(self, key: bytes, password: str) -> PasswordSlot:
+        return wrap_with_password(key, password, *self._strength, set_at=self._clock())
+
+    def _write_password(self, key_file: KeyFile) -> None:
+        self.files.save(A, key_file_slots(key_file))
+        slots = self.files.load(A)
+        self._key_file = None if slots is None else key_file_of(slots)
 
     # The recovery key (stickle.crypto.recovery)
 
     @property
     def has_recovery_key(self) -> bool:
         try:
-            return read_recovery(self.folder) is not None
+            return read_recovery(self.files) is not None
         except KeyFileError, OSError:
             return False
 
@@ -177,7 +193,7 @@ class Unlock:
         Nothing is written here: the key is kept (keep_recovered_key or
         set_password) only once it has opened the database.
         """
-        slot = read_recovery(self.folder)
+        slot = read_recovery(self.files)
         if slot is None:
             raise WrongRecoveryKeyError("no recovery key was made for these notes")
         return unwrap_recovery(slot, typed)
@@ -202,24 +218,26 @@ class Unlock:
     def set_password(self, key: bytes, password: str) -> None:
         """Protect an existing key (known to open the database) with a new password.
 
-        A damaged keys.json is set aside, never deleted: it may hold something
+        A damaged key file is set aside, never deleted: it may hold something
         a newer version understands.
         """
         if password_length(password) < MIN_PASSWORD_LENGTH:
             raise ValueError("password too short")
         others: dict[str, object] = {}
-        if self._unreadable and self.key_file.exists():
-            self.key_file.replace(self.key_file.with_name(f"{KEY_FILE}.damaged"))
+        if self._unreadable:
+            self.files.set_aside(A)
         elif self._key_file is not None:
             others = self._key_file.other_slots
-        write_key_file(
-            self.key_file, KeyFile(wrap_with_password(key, password, *self._strength), others)
-        )
+        self._write_password(KeyFile(self._wrap(key, password), others))
         self._unreadable = False
-        self._key_file = read_key_file(self.key_file)
 
     def make_recovery_key(self, key: bytes) -> str:
         """A new recovery key for key (known to open the database); the old one stops working."""
         recovery_key = generate_recovery_key()
-        write_recovery(self.folder, key, recovery_key)
+        write_recovery(self.files, key, recovery_key, self._clock())
         return recovery_key
+
+    def keep_copies(self, connection: apsw.Connection) -> None:
+        """The notes are open: the key files they hold a copy of are kept there too,
+        and come back from there if both of their files were lost."""
+        self.files.keep_in(KeyCopies(connection))

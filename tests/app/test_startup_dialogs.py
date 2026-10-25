@@ -14,6 +14,7 @@ from pytestqt.qtbot import QtBot
 from stickle.app.password_dialog import PasswordDialog
 from stickle.app.recovery_dialog import Choice, Problem, RecoveryDialog, diagnostics
 from stickle.app.startup import open_notes
+from stickle.crypto.key_files import A
 from stickle.data import schema
 from stickle.data.database import open_database
 from stickle.data.notes import NoteRepository
@@ -100,7 +101,7 @@ def test_first_start_asks_nothing(qtbot: QtBot, tmp_path: Path) -> None:
     assert schema_version(connection) == schema.latest_version()
     connection.close()
     assert backend.writes == 1
-    assert not (tmp_path / "keys.json").exists()
+    assert not (tmp_path / A).exists()
 
 
 # C. Locked store with notes present: explained, then retried after unlocking.
@@ -154,7 +155,7 @@ def test_first_start_without_a_store_creates_a_password(qtbot: QtBot, tmp_path: 
 
     assert connection is not None
     connection.close()
-    assert (tmp_path / "keys.json").exists()
+    assert (tmp_path / A).exists()
 
 
 def test_quitting_at_the_first_password_leaves_no_files(qtbot: QtBot, tmp_path: Path) -> None:

@@ -174,8 +174,15 @@ CREATE TABLE import_records (
 );
 """
 
+V7 = """
+-- A third copy of the key files that the notes do not need to be opened (the
+-- recovery key's, the secret notes'), as they are byte for byte: they come back
+-- from here if both copies of a file are lost. See stickle.crypto.key_files.
+CREATE TABLE key_copies (name TEXT PRIMARY KEY, content BLOB NOT NULL);
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7]
 BACKUPS_KEPT = 3
 
 

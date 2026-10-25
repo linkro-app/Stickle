@@ -28,6 +28,7 @@ from stickle.app.recovery_dialog import Choice, RecoveryDialog
 from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, KeptBox, RecoveryKeyDialog
 from stickle.app.settings_window import RecoveryKeys, SettingsWindow
 from stickle.app.startup import open_notes
+from stickle.crypto.key_files import A, KeyFiles
 from stickle.crypto.recovery import generate
 from stickle.data.notes import NoteRepository
 from stickle.platform.credentials import DATABASE_KEY, SERVICE
@@ -209,7 +210,9 @@ def test_a_forgotten_password_is_replaced_after_the_recovery_key(
 
 def test_a_damaged_key_file_is_set_aside_not_lost(qtbot: QtBot, tmp_path: Path) -> None:
     text, recovery_key = notes_with_recovery_key(tmp_path, None)
-    (tmp_path / "keys.json").write_text("{ damaged")
+    key_files = KeyFiles(tmp_path)
+    for path in (key_files.path(A), key_files.second_path(A)):  # both copies
+        path.write_text("{ damaged")
 
     def new_password(dialog: PasswordDialog) -> bool:
         assert dialog.after_recovery
@@ -224,7 +227,24 @@ def test_a_damaged_key_file_is_set_aside_not_lost(qtbot: QtBot, tmp_path: Path) 
     )
 
     assert only_note(connection) == text
-    assert (tmp_path / "keys.json.damaged").read_text() == "{ damaged"
+    assert (tmp_path / f"{A}.damaged").read_text() == "{ damaged"
+    assert (tmp_path / "backups" / f"{A}.damaged").read_text() == "{ damaged"
+
+
+def test_with_one_copy_damaged_the_notes_open_with_the_password(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    text, _recovery_key = notes_with_recovery_key(tmp_path, None)
+    KeyFiles(tmp_path).path(A).write_text("{ damaged")
+
+    def enter_password(dialog: PasswordDialog) -> bool:
+        type_and_accept(dialog, PASSWORD)
+        return True
+
+    connection = open_notes(Unlock(tmp_path, store_of(None), FAST), enter_password, never)
+
+    assert only_note(connection) == text  # put back from its second copy, nothing asked
+    assert (tmp_path / f"{A}.damaged").read_text() == "{ damaged"
 
 
 def test_the_store_key_is_not_touched_by_a_new_recovery_key(qtbot: QtBot, tmp_path: Path) -> None:

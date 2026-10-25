@@ -9,6 +9,7 @@ from pytestqt.qtbot import QtBot
 from test_unlock import FAST, PASSWORD, Store
 
 from stickle import __main__ as entry
+from stickle.crypto.key_files import KeyFiles
 from stickle.crypto.keyfile import WrongPasswordError
 from stickle.crypto.recovery import generate, write_recovery
 from stickle.data.notes import NoteRepository
@@ -113,7 +114,7 @@ def test_notes_brought_from_a_computer_that_kept_the_key_open_with_the_recovery_
     NoteRepository(connection).create("옮긴 메모")
     connection.close()
     recovery_key = generate()
-    write_recovery(tmp_path, key, recovery_key)
+    write_recovery(KeyFiles(tmp_path), key, recovery_key, "2026-10-26T00:00:00.000Z")
 
     portable = Unlock(tmp_path, Store("empty"), FAST, portable=True)
     assert portable.outcome() == Blocked("key_missing")

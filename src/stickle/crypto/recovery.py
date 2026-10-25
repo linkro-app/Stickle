@@ -1,9 +1,10 @@
 """The recovery key: a way back to the notes when the usual key is lost.
 
-The notes database key is wrapped a second time, with a recovery key shown
-to the user once, in recovery.json next to the database. The recovery key
-itself is never stored or logged: whoever has it can open the notes, and
-only the user keeps it.
+It opens a key pair whose public key the notes database key is sealed for
+(stickle.crypto.sealed), in the key file B (stickle.crypto.key_files). The
+recovery key itself is never stored or logged: whoever has it can open the
+notes, and only the user keeps it. Recovery keys made before 0.6 wrapped the
+database key directly; they still open it, until a new one is made.
 
 It reads like K7QM-2HXP-…: 32 characters in groups of four, from an
 alphabet without look-alikes (Crockford's base 32: no I, L, O or U).
@@ -12,27 +13,31 @@ dashes do not matter, and the last character checks the others, so a
 mistyped key is told apart from a wrong one. 31 characters carry 155
 random bits.
 
-Making a new recovery key replaces the file, so the old key stops working.
+Making a new recovery key replaces the earlier one's slot (a new key pair),
+so the old key stops working; the file's other slots stay.
 """
 
 import hashlib
 import secrets
-from pathlib import Path
 
+from stickle.crypto.key_files import B, KeyFiles
 from stickle.crypto.keyfile import (
     KeyFileError,
     PasswordSlot,
     WrongPasswordError,
     decode_slot,
-    encode_slot,
-    read_key_file,
     unwrap_with_password,
-    wrap_with_password,
-    write_slots,
+)
+from stickle.crypto.sealed import (
+    SealedSlot,
+    decode_sealed_slot,
+    encode_sealed_slot,
+    make_sealed_slot,
+    open_sealed_slot,
 )
 
-FILE_NAME = "recovery.json"
-SLOT = "recovery"
+SLOT = "recovery_key"  # a key pair (0.6)
+OLD_SLOT = "recovery"  # the database key wrapped directly (until 0.5)
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 DATA_CHARS = 31
 GROUP = 4
@@ -74,26 +79,41 @@ def canonical(typed: str) -> str:
     return text
 
 
-def write_recovery(folder: Path, database_key: bytes, recovery_key: str) -> None:
-    """Wrap database_key with recovery_key into recovery.json, replacing any earlier one."""
-    slot = wrap_with_password(
-        database_key, canonical(recovery_key), OPSLIMIT, MEMLIMIT, slot_name=SLOT
-    )
-    write_slots(folder / FILE_NAME, {SLOT: encode_slot(slot)})
+type RecoverySlot = SealedSlot | PasswordSlot  # the latter from before 0.6
 
 
-def read_recovery(folder: Path) -> PasswordSlot | None:
-    """The wrapped key, or None without a recovery key (KeyFileError if damaged)."""
-    key_file = read_key_file(folder / FILE_NAME)
-    if key_file is None or SLOT not in key_file.other_slots:
+def write_recovery(files: KeyFiles, database_key: bytes, recovery_key: str, set_at: str) -> None:
+    """A new key pair opened by recovery_key, with database_key sealed for it,
+    in place of any earlier recovery key. A damaged file is set aside first."""
+    try:
+        slots = dict(files.load(B) or {})
+    except KeyFileError:
+        files.set_aside(B)
+        slots = {}
+    slots.pop(OLD_SLOT, None)
+    slot = make_sealed_slot(database_key, canonical(recovery_key), OPSLIMIT, MEMLIMIT, SLOT, set_at)
+    slots[SLOT] = encode_sealed_slot(slot)
+    files.save(B, slots)
+
+
+def read_recovery(files: KeyFiles) -> RecoverySlot | None:
+    """The recovery key's slot, or None without one (KeyFileError if damaged)."""
+    slots = files.load(B)
+    if slots is None:
         return None
-    return decode_slot(key_file.other_slots[SLOT])
+    if SLOT in slots:
+        return decode_sealed_slot(slots[SLOT])
+    if OLD_SLOT in slots:
+        return decode_slot(slots[OLD_SLOT])
+    return None
 
 
-def unwrap(slot: PasswordSlot, typed: str) -> bytes:
+def unwrap(slot: RecoverySlot, typed: str) -> bytes:
     """The database key; RecoveryKeyTypoError or WrongRecoveryKeyError otherwise."""
     try:
-        return unwrap_with_password(slot, canonical(typed), slot_name=SLOT)
+        if isinstance(slot, SealedSlot):
+            return open_sealed_slot(slot, canonical(typed), SLOT)
+        return unwrap_with_password(slot, canonical(typed), slot_name=OLD_SLOT)
     except WrongPasswordError as error:
         raise WrongRecoveryKeyError from error
     except KeyFileError as error:

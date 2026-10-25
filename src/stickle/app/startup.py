@@ -197,4 +197,5 @@ def open_notes(
             if recovered:
                 _keep_recovered_key(unlock, key, ask_password)
             unlock.opened_key = key
+            unlock.keep_copies(connection)
             return connection

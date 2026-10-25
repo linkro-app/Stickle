@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "slots": {
+    "password": {
+      "kdf": "argon2id",
+      "opslimit": 1,
+      "memlimit": 8192,
+      "salt": "LvFpZII/jUST0CaltSX3Jw==",
+      "box": "JL61ZyE8PyrQIUspjehTcDoxPV0wNvLIxpIdcHZEDjLzUr43ilZ6V+QRSif6iNJlT4NXrGnKDQnwh3ccJ67ETv3IisMSkwMH"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "slots": {
+    "recovery": {
+      "kdf": "argon2id",
+      "opslimit": 2,
+      "memlimit": 67108864,
+      "salt": "HZ2GR/Oa6cOPwdX696j53w==",
+      "box": "HIXcTA6KtIbMJHZfpANrj5W/XfLIKGv0YDEmqhBm3p7MzZI5u6svisWsbBev0tVtSjl3jLyvQV7TlakFmevLxSKppfMsTNOa"
+    }
+  }
+}

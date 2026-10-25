@@ -9,9 +9,11 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from stickle.crypto.key_files import B, KeyFiles
+from stickle.crypto.keyfile import PasswordSlot, encode_slot, wrap_with_password, write_slots
 from stickle.crypto.recovery import (
     ALPHABET,
-    FILE_NAME,
+    OLD_SLOT,
     RecoveryKeyTypoError,
     WrongRecoveryKeyError,
     canonical,
@@ -20,8 +22,10 @@ from stickle.crypto.recovery import (
     unwrap,
     write_recovery,
 )
+from stickle.crypto.sealed import SealedSlot, make_sealed_slot
 
 KEY = secrets.token_bytes(32)
+NOW = "2026-10-26T01:02:03.000Z"
 
 
 def test_it_reads_as_eight_groups_of_four() -> None:
@@ -76,42 +80,102 @@ def test_mistyped_keys_are_told_apart(mangle: Callable[[str], str]) -> None:
         canonical(mangle(generate()))
 
 
+# What it opens, in the key file B
+
+
+def files_in(folder: Path) -> KeyFiles:
+    return KeyFiles(folder)
+
+
 def test_the_right_key_opens_and_another_does_not(tmp_path: Path) -> None:
+    files = files_in(tmp_path)
     recovery_key = generate()
-    write_recovery(tmp_path, KEY, recovery_key)
-    slot = read_recovery(tmp_path)
-    assert slot is not None
+    write_recovery(files, KEY, recovery_key, NOW)
+    slot = read_recovery(files)
+    assert isinstance(slot, SealedSlot)
 
     assert unwrap(slot, recovery_key.lower()) == KEY
     with pytest.raises(WrongRecoveryKeyError):
         unwrap(slot, generate())
+    assert slot.set_at == NOW
 
 
 def test_a_new_key_replaces_the_old_one(tmp_path: Path) -> None:
+    files = files_in(tmp_path)
     old, new = generate(), generate()
-    write_recovery(tmp_path, KEY, old)
-    write_recovery(tmp_path, KEY, new)
-    slot = read_recovery(tmp_path)
-    assert slot is not None
+    write_recovery(files, KEY, old, NOW)
+    first = read_recovery(files)
+    write_recovery(files, KEY, new, NOW)
+    slot = read_recovery(files)
+    assert isinstance(first, SealedSlot) and isinstance(slot, SealedSlot)
 
     assert unwrap(slot, new) == KEY
     with pytest.raises(WrongRecoveryKeyError):
         unwrap(slot, old)
+    assert slot.public != first.public  # a new key pair: the old one opens nothing
+
+
+def test_a_recovery_key_from_before_0_6_still_opens_until_replaced(tmp_path: Path) -> None:
+    # Until 0.5 the database key was wrapped with the recovery key directly.
+    files = files_in(tmp_path)
+    old = generate()
+    wrapped = wrap_with_password(KEY, canonical(old), 2, 8192, slot_name=OLD_SLOT)
+    write_slots(tmp_path / "recovery.json", {OLD_SLOT: encode_slot(wrapped)})
+    files.prepare()
+
+    slot = read_recovery(files)
+    assert isinstance(slot, PasswordSlot)
+    assert unwrap(slot, old) == KEY
+
+    new = generate()
+    write_recovery(files, KEY, new, NOW)
+    slots = files.load(B)
+    assert slots is not None and OLD_SLOT not in slots
+    replaced = read_recovery(files)
+    assert replaced is not None
+    with pytest.raises(WrongRecoveryKeyError):
+        unwrap(replaced, old)
+    assert unwrap(replaced, new) == KEY
+
+
+def test_a_new_key_keeps_the_files_other_slots(tmp_path: Path) -> None:
+    # The master password will keep its own slot in the same file.
+    files = files_in(tmp_path)
+    files.save(B, {"later": {"x": 1}})
+
+    write_recovery(files, KEY, generate(), NOW)
+
+    slots = files.load(B)
+    assert slots is not None and slots["later"] == {"x": 1}
+
+
+def test_a_public_key_swapped_in_the_file_opens_nothing(tmp_path: Path) -> None:
+    # Whoever can write the file could seal a key of their own for a pair of their own.
+    files = files_in(tmp_path)
+    recovery_key = generate()
+    write_recovery(files, KEY, recovery_key, NOW)
+    slot = read_recovery(files)
+    assert isinstance(slot, SealedSlot)
+    other = make_sealed_slot(secrets.token_bytes(32), canonical(generate()), 2, 8192, "x", NOW)
+
+    swapped = SealedSlot(slot.secret, other.public, other.sealed)
+    with pytest.raises(WrongRecoveryKeyError):
+        unwrap(swapped, recovery_key)
 
 
 def test_the_recovery_key_itself_is_never_written(tmp_path: Path) -> None:
+    files = files_in(tmp_path)
     recovery_key = generate()
-    write_recovery(tmp_path, KEY, recovery_key)
+    write_recovery(files, KEY, recovery_key, NOW)
 
-    written = b"".join(path.read_bytes() for path in tmp_path.iterdir())
+    written = b"".join(path.read_bytes() for path in tmp_path.rglob("*") if path.is_file())
     for form in (recovery_key, recovery_key.replace("-", ""), recovery_key.lower()):
         assert form.encode() not in written
     assert KEY not in written
-    assert sorted(path.name for path in tmp_path.iterdir()) == [FILE_NAME]
 
 
 def test_no_file_means_no_recovery_key(tmp_path: Path) -> None:
-    assert read_recovery(tmp_path) is None
+    assert read_recovery(files_in(tmp_path)) is None
 
 
 @settings(max_examples=20, deadline=None)
@@ -120,8 +184,9 @@ def test_any_key_comes_back_intact(key: bytes) -> None:
     import tempfile
 
     with tempfile.TemporaryDirectory() as folder:
+        files = files_in(Path(folder))
         recovery_key = generate()
-        write_recovery(Path(folder), key, recovery_key)
-        slot = read_recovery(Path(folder))
+        write_recovery(files, key, recovery_key, NOW)
+        slot = read_recovery(files)
         assert slot is not None
         assert unwrap(slot, recovery_key) == key

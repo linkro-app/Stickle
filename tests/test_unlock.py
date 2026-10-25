@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from stickle.crypto.key_files import A, B
 from stickle.crypto.keyfile import KeyFile, WrongPasswordError, wrap_with_password, write_key_file
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -142,7 +143,7 @@ def test_first_start_with_a_password_then_every_later_start(tmp_path: Path) -> N
     assert first.outcome() == NeedPassword(create=True)
 
     key = first.create_password(PASSWORD)
-    assert (tmp_path / "keys.json").exists()
+    assert (tmp_path / A).exists() and (tmp_path / "backups" / A).exists()
     connection = open_store(first.database, key)
     note = NoteRepository(connection).create("회의록")
     connection.close()
@@ -178,7 +179,7 @@ def test_no_password_is_created_over_an_existing_database(tmp_path: Path) -> Non
 
     with pytest.raises(RuntimeError):
         unlock.create_password(PASSWORD)
-    assert not (tmp_path / "keys.json").exists()
+    assert not (tmp_path / A).exists()
 
 
 def test_short_passwords_are_refused_and_nothing_is_written(tmp_path: Path) -> None:
@@ -187,7 +188,7 @@ def test_short_passwords_are_refused_and_nothing_is_written(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="short"):
         unlock.create_password("1234567")
-    assert not (tmp_path / "keys.json").exists()
+    assert not (tmp_path / A).exists()
     assert len(unlock.create_password("12345678")) == 32
 
 
@@ -198,6 +199,27 @@ def test_creating_a_password_keeps_other_slots(tmp_path: Path) -> None:
 
     unlock.create_password(PASSWORD)
 
-    saved = json.loads((tmp_path / "keys.json").read_text())
+    saved = json.loads((tmp_path / A).read_text(encoding="utf-8"))
     assert saved["slots"]["future"] == {"x": 1}
     assert "password" in saved["slots"]
+
+
+def test_a_recovery_file_lost_from_both_places_comes_back_from_the_notes(tmp_path: Path) -> None:
+    first = Unlock(tmp_path, Store("absent"), FAST)
+    first.outcome()
+    key = first.create_password(PASSWORD)
+    connection = open_store(first.database, key)
+    first.keep_copies(connection)
+    recovery_key = first.make_recovery_key(key)  # kept in the notes as it is made
+    connection.close()
+    for path in (tmp_path / B, tmp_path / "backups" / B):
+        path.unlink()
+
+    later = Unlock(tmp_path, Store("absent"), FAST)
+    assert not later.has_recovery_key
+    connection = open_store(later.database, later.enter_password(PASSWORD))
+    later.keep_copies(connection)
+    connection.close()
+
+    assert later.has_recovery_key
+    assert later.open_with_recovery_key(recovery_key) == key

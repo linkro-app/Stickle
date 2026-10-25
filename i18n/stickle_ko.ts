@@ -1417,8 +1417,8 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>키 파일을 읽을 수 없습니다</translation>
     </message>
     <message>
-        <source>The file that holds the key to your notes (keys.json) is damaged or was written by an unknown version of Stickle.</source>
-        <translation>메모를 여는 키가 든 파일(keys.json)이 손상되었거나, 알 수 없는 버전의 Stickle이 만든 파일입니다.</translation>
+        <source>The file that holds the key to your notes is damaged or was written by an unknown version of Stickle.</source>
+        <translation>메모를 여는 키가 든 파일이 손상되었거나, 알 수 없는 버전의 Stickle이 만든 파일입니다.</translation>
     </message>
     <message>
         <source>The key does not open these notes</source>
