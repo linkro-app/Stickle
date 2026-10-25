@@ -323,6 +323,18 @@ def write(folder: Path, version: str) -> None:
             ),
         )
     )
+    components.append(
+        Component(
+            "SecLists' list of common passwords (refused as a master password)",
+            "",
+            "MIT",
+            copy_into(
+                licenses / "seclists",
+                [SRC / "core" / "common_passwords" / "LICENSE"],
+                licenses,
+            ),
+        )
+    )
     fonts = sorted((SRC / "fonts").glob("*-OFL.txt")) if (SRC / "fonts").is_dir() else []
     if fonts:
         components.append(

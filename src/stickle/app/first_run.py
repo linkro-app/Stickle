@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QRadioButton,
     QStackedWidget,
     QVBoxLayout,
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from stickle.app.app_list import switch_app_list
 from stickle.app.i18n import LANGUAGES, Translations
+from stickle.app.master_password import MasterPasswordDialog, MasterPasswords
 from stickle.app.recovery_key_dialog import RecoveryKeyPanel
 from stickle.app.support import site_page
 from stickle.app.tray import switch_autostart
@@ -48,6 +50,13 @@ from stickle.platform.autostart import Autostart, may_be_blocked
 from stickle.platform.linux.appimage import AppMenuEntry
 
 log = logging.getLogger(__name__)
+
+
+def _exec_master(dialog: MasterPasswordDialog) -> object:
+    return dialog.exec()
+
+
+show_master_dialog: Callable[[MasterPasswordDialog], object] = _exec_master  # replaced in tests
 
 
 def sample_note() -> str:
@@ -118,10 +127,15 @@ class FirstRunDialog(QDialog):
         translations: Translations | None = None,
         parent: QWidget | None = None,
         login_may_be_blocked: bool = False,
+        master: MasterPasswords | None = None,
+        later_allowed: bool = True,
     ) -> None:
         super().__init__(parent)
         self._offers = (offer_start_at_login, offer_app_list)
         self._translations = translations
+        self._master = master
+        # Notes locked with a password have no other way back: the key must be kept now.
+        self._later_allowed = later_allowed
         self.heading = QLabel()
         font = QFont(self.heading.font())
         font.setBold(True)
@@ -180,12 +194,30 @@ class FirstRunDialog(QDialog):
         welcome_layout.addWidget(self.app_list)
         welcome_layout.addStretch()
 
-        # Page two: the recovery key.
+        # Page two: the recovery key, and below it a master password to add, in
+        # case the place it is kept is forgotten (not instead of it).
         self.recovery = RecoveryKeyPanel(recovery_key)
+        self.master_note = QLabel()
+        self.master_note.setWordWrap(True)
+        self.master_button = QPushButton()
+        self.master_button.setAutoDefault(False)
+        self.master_button.clicked.connect(self.set_master_password)
+        for part in (self.master_note, self.master_button):
+            part.setVisible(master is not None)
+        master_row = QHBoxLayout()
+        master_row.addWidget(self.master_button)
+        master_row.addStretch()
+        keeping = QWidget()
+        keeping_layout = QVBoxLayout(keeping)
+        keeping_layout.setContentsMargins(0, 0, 0, 0)
+        keeping_layout.addWidget(self.recovery)
+        keeping_layout.addSpacing(8)
+        keeping_layout.addWidget(self.master_note)
+        keeping_layout.addLayout(master_row)
 
         self.pages = QStackedWidget()
         self.pages.addWidget(welcome)
-        self.pages.addWidget(self.recovery)
+        self.pages.addWidget(keeping)
 
         self.buttons = QDialogButtonBox()
         self.next_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
@@ -235,6 +267,17 @@ class FirstRunDialog(QDialog):
         self.next_button.setText(self.tr("&Next"))
         self.done_button.setText(self.tr("Done"))
         self.later_button.setText(self.tr("Later"))
+        self.master_note.setText(
+            self.tr(
+                "Keep the recovery key somewhere other than this computer. In case you"
+                " forget where you put it, you can also set a master password to remember."
+            )
+        )
+        master_set = self._master is not None and self._master.exists()
+        self.master_button.setText(
+            self.tr("Master password set") if master_set else self.tr("Set a &master password…")
+        )
+        self.master_button.setEnabled(not master_set)
 
     @override
     def changeEvent(self, event: QEvent) -> None:
@@ -258,9 +301,22 @@ class FirstRunDialog(QDialog):
         self.next_button.hide()
         self.next_button.setDefault(False)
         self.done_button.show()
-        self.later_button.show()
+        self.later_button.setVisible(self._later_allowed)
         self.recovery.kept.setFocus()
         self.retranslate()
+
+    @override
+    def reject(self) -> None:
+        # Esc and the close button are "Later" too: not where there is no later.
+        if self.went_on and not self._later_allowed:
+            return
+        super().reject()
+
+    def set_master_password(self) -> None:
+        """Added beside the recovery key; the button then says it is set."""
+        if self._master is not None:
+            show_master_dialog(MasterPasswordDialog(self._master, self))
+            self.retranslate()
 
     def choices(self) -> FirstRunChoices:
         """What was chosen; nothing at all if the window was closed on page one."""
@@ -285,6 +341,8 @@ def welcome(
     ask: Callable[[FirstRunDialog], object] = FirstRunDialog.exec,
     translations: Translations | None = None,
     login_may_be_blocked: bool | None = None,
+    master: MasterPasswords | None = None,
+    later_allowed: bool = True,
 ) -> FirstRunChoices:
     """The first start: the choices, carried out, then the sample note."""
     try:
@@ -300,6 +358,8 @@ def welcome(
         app_list is not None,
         translations,
         login_may_be_blocked=login_may_be_blocked,
+        master=master,
+        later_allowed=later_allowed,
     )
     ask(dialog)
     choices = dialog.choices()

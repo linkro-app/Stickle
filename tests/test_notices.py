@@ -249,5 +249,7 @@ def test_the_folder_lists_qt_python_and_every_shipped_package(tmp_path: Path) ->
             for path in line.removeprefix("  Text: ").split(", "):
                 assert (licenses / path).is_file(), path
     assert (licenses / "GPL-3.0.txt").is_file()
+    # Data shipped in the package: the common passwords refused as a master password.
+    assert "SecLists" in index and (licenses / "seclists" / "LICENSE").is_file()
     assert (fcitx / "BSD-3-Clause.txt").read_text() == "kept"
     assert not (licenses / "stale.txt").exists()

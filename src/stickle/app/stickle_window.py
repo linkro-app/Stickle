@@ -52,6 +52,7 @@ from stickle.app.import_dialog import ImportDialog
 from stickle.app.in_use import OnTopWhileInUse
 from stickle.app.label_manager import LabelManager
 from stickle.app.labels import category_item_icon
+from stickle.app.master_password import MasterPasswords
 from stickle.app.note_list import NoteList
 from stickle.app.notes import NoteManager, clipboard_text
 from stickle.app.settings_window import RecoveryKeys, SettingsWindow
@@ -121,6 +122,7 @@ class StickleWindow(QWidget):
         portable_folder: Path | None = None,
         data: DataAccess | None = None,
         updates: UpdateCheck | None = None,
+        master: MasterPasswords | None = None,
     ) -> None:
         super().__init__()
         self._notes = notes
@@ -147,6 +149,7 @@ class StickleWindow(QWidget):
             shortcuts=shortcuts,
             portable=portable_folder is not None,
             updates=updates,
+            master=master,
         )
         self.settings_button = QPushButton(self)
         self.settings_button.clicked.connect(lambda: self.open_settings())

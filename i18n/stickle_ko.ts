@@ -167,6 +167,49 @@
     </message>
 </context>
 <context>
+    <name>CheckMasterPasswordDialog</name>
+    <message>
+        <source>Check the master password</source>
+        <translation>마스터 암호 확인해 보기</translation>
+    </message>
+    <message>
+        <source>Type the master password to see whether you still remember it. Nothing changes.</source>
+        <translation>마스터 암호를 아직 기억하는지 입력해 보세요. 아무것도 바뀌지 않습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Master password:</source>
+        <translation>마스터 암호(&amp;M):</translation>
+    </message>
+    <message>
+        <source>Master password</source>
+        <translation>마스터 암호</translation>
+    </message>
+    <message>
+        <source>Check</source>
+        <translation>확인</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>닫기</translation>
+    </message>
+    <message>
+        <source>Checking…</source>
+        <translation>확인하는 중…</translation>
+    </message>
+    <message>
+        <source>The master password could not be checked (%1).</source>
+        <translation>마스터 암호를 확인하지 못했습니다(%1).</translation>
+    </message>
+    <message>
+        <source>That is the master password.</source>
+        <translation>마스터 암호가 맞습니다.</translation>
+    </message>
+    <message>
+        <source>That is not the master password.</source>
+        <translation>마스터 암호가 아닙니다.</translation>
+    </message>
+</context>
+<context>
     <name>DataMenu</name>
     <message>
         <source>&amp;Open the folder</source>
@@ -249,6 +292,10 @@ These files are not encrypted: keep them somewhere safe.</source>
     <message>
         <source>Back</source>
         <translation>뒤로</translation>
+    </message>
+    <message>
+        <source>Use the &amp;master password instead</source>
+        <translation>마스터 암호로 열기(&amp;M)</translation>
     </message>
     <message>
         <source>This is not a recovery key as written: a character may be missing, extra or mistyped. Please check it again.</source>
@@ -351,6 +398,18 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Later</source>
         <translation>나중에</translation>
+    </message>
+    <message>
+        <source>Keep the recovery key somewhere other than this computer. In case you forget where you put it, you can also set a master password to remember.</source>
+        <translation>복구 키는 꼭 이 PC가 아닌 곳에 따로 보관하세요. 보관한 곳을 잊을 때를 대비해, 외워 둘 마스터 암호도 함께 정해 둘 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>Master password set</source>
+        <translation>마스터 암호를 정했습니다</translation>
+    </message>
+    <message>
+        <source>Set a &amp;master password…</source>
+        <translation>마스터 암호 정하기(&amp;M)…</translation>
     </message>
 </context>
 <context>
@@ -900,6 +959,105 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
 </context>
 <context>
+    <name>MasterPasswordDialog</name>
+    <message>
+        <source>Change the master password</source>
+        <translation>마스터 암호 바꾸기</translation>
+    </message>
+    <message>
+        <source>Enter the master password you have now, then the new one.</source>
+        <translation>지금 마스터 암호를 입력한 다음 새 마스터 암호를 입력하세요.</translation>
+    </message>
+    <message>
+        <source>&amp;New master password:</source>
+        <translation>새 마스터 암호(&amp;N):</translation>
+    </message>
+    <message>
+        <source>Change</source>
+        <translation>바꾸기</translation>
+    </message>
+    <message>
+        <source>Set a master password</source>
+        <translation>마스터 암호 정하기</translation>
+    </message>
+    <message>
+        <source>A master password you remember is a second way back to your notes, in case you cannot find the recovery key. Once set it is never removed, only changed.</source>
+        <translation>외워 둔 마스터 암호는 복구 키를 찾지 못할 때 메모로 돌아오는 또 하나의 길입니다. 한 번 정하면 없앨 수 없고 바꿀 수만 있습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Master password:</source>
+        <translation>마스터 암호(&amp;M):</translation>
+    </message>
+    <message>
+        <source>Set</source>
+        <translation>정하기</translation>
+    </message>
+    <message>
+        <source>&amp;Current master password:</source>
+        <translation>지금 마스터 암호(&amp;C):</translation>
+    </message>
+    <message>
+        <source>C&amp;onfirm:</source>
+        <translation>한 번 더(&amp;O):</translation>
+    </message>
+    <message>
+        <source>Current master password</source>
+        <translation>지금 마스터 암호</translation>
+    </message>
+    <message>
+        <source>New master password</source>
+        <translation>새 마스터 암호</translation>
+    </message>
+    <message>
+        <source>Confirm the master password</source>
+        <translation>마스터 암호 한 번 더</translation>
+    </message>
+    <message>
+        <source>At least 12 characters, or 4 words or more, and not a common password. It cannot be the password that opens your notes.</source>
+        <translation>12자 이상이거나 띄어 쓴 낱말 4개 이상이고, 흔한 암호가 아니어야 합니다. 메모를 열 때 쓰는 암호와 같으면 안 됩니다.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>취소</translation>
+    </message>
+    <message>
+        <source>I &amp;forgot it</source>
+        <translation>잊었어요(&amp;F)</translation>
+    </message>
+    <message>
+        <source>Use at least 12 characters, or 4 words or more.</source>
+        <translation>12자 이상이나 띄어 쓴 낱말 4개 이상으로 정하세요.</translation>
+    </message>
+    <message>
+        <source>That is one of the most common passwords. Choose another.</source>
+        <translation>아주 흔히 쓰는 암호입니다. 다른 것으로 정하세요.</translation>
+    </message>
+    <message>
+        <source>Repeated characters or a run of the keyboard are easy to guess. Choose another.</source>
+        <translation>같은 글자를 되풀이하거나 자판을 차례로 누른 것은 알아맞히기 쉽습니다. 다른 것으로 정하세요.</translation>
+    </message>
+    <message>
+        <source>The two passwords are not the same.</source>
+        <translation>두 암호가 서로 다릅니다.</translation>
+    </message>
+    <message>
+        <source>Choose a master password other than the password that opens your notes.</source>
+        <translation>메모를 열 때 쓰는 암호와 다른 마스터 암호로 정하세요.</translation>
+    </message>
+    <message>
+        <source>Checking…</source>
+        <translation>확인하는 중…</translation>
+    </message>
+    <message>
+        <source>The current master password is not correct.</source>
+        <translation>지금 마스터 암호가 맞지 않습니다.</translation>
+    </message>
+    <message>
+        <source>The master password could not be kept (%1).</source>
+        <translation>마스터 암호를 저장하지 못했습니다(%1).</translation>
+    </message>
+</context>
+<context>
     <name>NewCategoryDialog</name>
     <message>
         <source>New category</source>
@@ -1323,6 +1481,18 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>암호 만들기</translation>
     </message>
     <message>
+        <source>Open with the master password</source>
+        <translation>마스터 암호로 열기</translation>
+    </message>
+    <message>
+        <source>Enter the master password you set in Stickle&apos;s settings.</source>
+        <translation>Stickle 설정에서 정한 마스터 암호를 입력하세요.</translation>
+    </message>
+    <message>
+        <source>Open notes</source>
+        <translation>메모 열기</translation>
+    </message>
+    <message>
         <source>Unlock your notes</source>
         <translation>메모 잠금 해제</translation>
     </message>
@@ -1339,8 +1509,16 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>끝내기</translation>
     </message>
     <message>
+        <source>Back</source>
+        <translation>뒤로</translation>
+    </message>
+    <message>
         <source>&amp;Password:</source>
         <translation>암호(&amp;P):</translation>
+    </message>
+    <message>
+        <source>&amp;Master password:</source>
+        <translation>마스터 암호(&amp;M):</translation>
     </message>
     <message>
         <source>&amp;Confirm password:</source>
@@ -1351,12 +1529,20 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>암호</translation>
     </message>
     <message>
+        <source>Master password</source>
+        <translation>마스터 암호</translation>
+    </message>
+    <message>
         <source>Confirm password</source>
         <translation>암호 확인</translation>
     </message>
     <message>
         <source>Input methods, such as a Korean keyboard, are turned off in password fields.</source>
         <translation>암호 입력란에서는 한글 입력기가 꺼집니다.</translation>
+    </message>
+    <message>
+        <source>The master password is not correct.</source>
+        <translation>마스터 암호가 맞지 않습니다.</translation>
     </message>
     <message>
         <source>The password is not correct.</source>
@@ -1495,6 +1681,10 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     <message>
         <source>Use the &amp;recovery key…</source>
         <translation>복구 키로 열기(&amp;R)…</translation>
+    </message>
+    <message>
+        <source>Use the &amp;master password…</source>
+        <translation>마스터 암호로 열기(&amp;M)…</translation>
     </message>
     <message>
         <source>&amp;Export notes…</source>
@@ -1740,6 +1930,18 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Make a new &amp;recovery key…</source>
         <translation>새 복구 키 만들기(&amp;R)…</translation>
+    </message>
+    <message>
+        <source>Chec&amp;k the master password…</source>
+        <translation>마스터 암호 확인해 보기(&amp;K)…</translation>
+    </message>
+    <message>
+        <source>Change the &amp;master password…</source>
+        <translation>마스터 암호 바꾸기(&amp;M)…</translation>
+    </message>
+    <message>
+        <source>Set a &amp;master password…</source>
+        <translation>마스터 암호 정하기(&amp;M)…</translation>
     </message>
     <message>
         <source>Stickle connects to nothing on the internet.</source>

@@ -57,6 +57,7 @@ class Choice(Enum):
     RETRY = auto()
     QUIT = auto()
     RECOVER = auto()  # open with the recovery key
+    MASTER = auto()  # open with the master password
 
 
 def diagnostics(problem: Problem) -> str:
@@ -85,6 +86,7 @@ class RecoveryDialog(QDialog):
         export: Callable[[Path], ExportResult] | None = None,
         parent: QWidget | None = None,
         can_recover: bool = False,
+        can_use_master: bool = False,
     ) -> None:
         super().__init__(parent)
         self.problem = problem
@@ -116,6 +118,10 @@ class RecoveryDialog(QDialog):
         self.recover_button = QPushButton()
         self.recover_button.clicked.connect(self._recover)
         self.recover_button.setVisible(can_recover and problem.kind in RECOVERABLE)
+        # Beside it, the master password, where one was set.
+        self.master_button = QPushButton()
+        self.master_button.clicked.connect(self._use_master)
+        self.master_button.setVisible(can_use_master and problem.kind in RECOVERABLE)
         # Helpers for a problem report, kept small below the real choices.
         self.report_label = QLabel()
         self.copy_button = QPushButton()
@@ -133,6 +139,7 @@ class RecoveryDialog(QDialog):
         buttons.addWidget(self.export_button)
         buttons.addStretch()
         buttons.addWidget(self.quit_button)
+        buttons.addWidget(self.master_button)
         buttons.addWidget(self.recover_button)
         buttons.addWidget(self.retry_button)
         report = QHBoxLayout()
@@ -239,6 +246,7 @@ class RecoveryDialog(QDialog):
         self.notes.setAccessibleName(self.tr("Affected notes"))
         self.retry_button.setText(self.tr("&Try again"))
         self.recover_button.setText(self.tr("Use the &recovery key…"))
+        self.master_button.setText(self.tr("Use the &master password…"))
         self.export_button.setText(self.tr("&Export notes…"))
         self.report_label.setText(self.tr("For a problem report:"))
         self.log_button.setText(self.tr("Open the log folder"))
@@ -267,6 +275,10 @@ class RecoveryDialog(QDialog):
 
     def _recover(self) -> None:
         self.choice = Choice.RECOVER
+        self.accept()
+
+    def _use_master(self) -> None:
+        self.choice = Choice.MASTER
         self.accept()
 
     def _export_notes(self) -> None:

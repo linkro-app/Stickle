@@ -72,8 +72,11 @@ def _password_key(unlock: Unlock, create: bool, ask: AskPassword) -> tuple[bytes
     return (key if accepted else None), dialog.forgot
 
 
-def _recovery_key(unlock: Unlock, ask: AskRecoveryKey) -> bytes | None:
-    """The key from the recovery key, or None if the user went back."""
+def _recovery_key(
+    unlock: Unlock, ask: AskRecoveryKey, ask_password: AskPassword
+) -> tuple[bytes, str] | None:
+    """The key and what opened it, from the recovery key or, chosen there
+    instead, the master password; None if the user went back."""
     key: bytes | None = None
     dialog: EnterRecoveryKeyDialog
 
@@ -90,8 +93,35 @@ def _recovery_key(unlock: Unlock, ask: AskRecoveryKey) -> bytes | None:
             return dialog.no_recovery_key()
         return None
 
-    dialog = EnterRecoveryKeyDialog(submit)
-    return key if ask(dialog) else None
+    dialog = EnterRecoveryKeyDialog(submit, can_use_master=unlock.has_master_password)
+    if ask(dialog) and key is not None:
+        return key, "recovery key"
+    if dialog.use_master:
+        return _master_password_key(unlock, ask_password)
+    return None
+
+
+def _master_password_key(unlock: Unlock, ask: AskPassword) -> tuple[bytes, str] | None:
+    """The key from the master password, or None if the user went back."""
+    key: bytes | None = None
+    dialog: PasswordDialog
+
+    def submit(password: str) -> str | None:
+        nonlocal key
+        try:
+            key = unlock.open_with_master_password(password)
+        except WrongPasswordError:
+            return dialog.wrong_password()
+        except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
+            # RuntimeError: the key could not be derived (too little memory for it).
+            log.error("master password failed: %s", _describe(error))
+            return dialog.key_file_failed(type(error).__name__)
+        return None
+
+    dialog = PasswordDialog(False, submit, master=True)
+    if ask(dialog) and key is not None:
+        return key, "master password"
+    return None
 
 
 def _keep_recovered_key(unlock: Unlock, key: bytes, ask_password: AskPassword) -> None:
@@ -148,7 +178,10 @@ def open_notes(
         if isinstance(outcome, Blocked):
             log.warning("notes cannot be unlocked: %s", outcome.problem)
             dialog = RecoveryDialog(
-                Problem(outcome.problem), folder, can_recover=unlock.has_recovery_key
+                Problem(outcome.problem),
+                folder,
+                can_recover=unlock.has_recovery_key,
+                can_use_master=unlock.has_master_password,
             )
             choice = ask_recovery(dialog)
             if choice == Choice.QUIT:
@@ -156,21 +189,26 @@ def open_notes(
             if choice == Choice.RETRY:
                 unlock.start()
                 continue
-            found = _recovery_key(unlock, ask_recovery_key)
-            if found is None:
+            way_back = (
+                _master_password_key(unlock, ask_password)
+                if choice == Choice.MASTER
+                else _recovery_key(unlock, ask_recovery_key, ask_password)
+            )
+            if way_back is None:
                 continue
-            key, source, recovered = found, "recovery key", True
+            (key, source), recovered = way_back, True
         elif isinstance(outcome, NeedPassword):
             found, forgot = _password_key(unlock, outcome.create, ask_password)
             if forgot:
-                found = _recovery_key(unlock, ask_recovery_key)
-                if found is None:
+                way_back = _recovery_key(unlock, ask_recovery_key, ask_password)
+                if way_back is None:
                     continue
-                recovered = True
+                (key, source), recovered = way_back, True
             elif found is None:
                 log.info("quit at the password prompt")
                 return None
-            key, source = found, "recovery key" if recovered else "password"
+            else:
+                key, source = found, "password"
         else:
             assert isinstance(outcome, Unlocked)
             key, source = outcome.key, outcome.source

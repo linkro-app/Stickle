@@ -27,6 +27,7 @@ from stickle.app.fonts import ensure_korean_font
 from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportAccess
 from stickle.app.instance_server import InstanceServer
+from stickle.app.master_password import MasterPasswords
 from stickle.app.notes import NoteManager
 from stickle.app.perf import SAMPLE_NOTE, PerfMode, open_storage_like_startup
 from stickle.app.placement import monitors
@@ -41,6 +42,8 @@ from stickle.app.update_check import UpdateCheck
 from stickle.app.whats_new import give_news
 from stickle.core.clock import Clock, utc_now
 from stickle.core.layout import Place, Rect, place_of
+from stickle.crypto.keyfile import KeyFileError
+from stickle.crypto.recovery import WrongRecoveryKeyError
 from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
 from stickle.data.export import ExportResult, export_all
 from stickle.data.labels import LabelRepository
@@ -255,6 +258,29 @@ def recovery_keys(unlock: Unlock | None, settings: Settings | None) -> RecoveryK
         exists=lambda: unlock.has_recovery_key,
         make=lambda: unlock.make_recovery_key(key),
         kept=lambda: settings.set(RECOVERY_KEY_KEPT, True),
+    )
+
+
+def master_passwords(unlock: Unlock | None) -> MasterPasswords | None:
+    """The master password for the key that opened the notes (none in measurement mode)."""
+    if unlock is None or unlock.opened_key is None:
+        return None
+    key = unlock.opened_key
+
+    def recovery_key_opens(typed: str) -> bool:
+        """RecoveryKeyTypoError for a mistyped one."""
+        try:
+            return unlock.open_with_recovery_key(typed) == key
+        except WrongRecoveryKeyError, KeyFileError, OSError:
+            return False
+
+    return MasterPasswords(
+        exists=lambda: unlock.has_master_password,
+        set=lambda password: unlock.set_master_password(key, password),
+        change=unlock.change_master_password,
+        check=unlock.is_master_password,
+        opens_notes=unlock.opens_with_password,
+        recovery_key_opens=recovery_key_opens,
     )
 
 
@@ -510,6 +536,7 @@ def run(
             portable_folder=instance if portable else None,
             data=access,
             updates=updates,
+            master=master_passwords(unlock),
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
 
@@ -535,6 +562,9 @@ def run(
                     autostart,
                     app_list,
                     translations=translations,
+                    master=master_passwords(opened),
+                    # A forgotten password has no way back but the recovery key.
+                    later_allowed=not opened.uses_password,
                 )
             if connection is not None:
                 give_news(NoteRepository(connection), Settings(connection), first_start)

@@ -26,11 +26,16 @@ type Submit = Callable[[str], str | None]
 
 
 class EnterRecoveryKeyDialog(QDialog):
-    """Asks for the recovery key; submit decides whether it opens the notes."""
+    """Asks for the recovery key; submit decides whether it opens the notes.
+    Where a master password was set, it can be used instead: the window then
+    closes with use_master set."""
 
-    def __init__(self, submit: Submit, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, submit: Submit, parent: QWidget | None = None, can_use_master: bool = False
+    ) -> None:
         super().__init__(parent)
         self._submit = submit
+        self.use_master = False
         self.intro = QLabel()
         self.intro.setWordWrap(True)
         self.label = QLabel()
@@ -47,6 +52,9 @@ class EnterRecoveryKeyDialog(QDialog):
         self.ok_button.setDefault(True)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
+        self.master_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
+        self.master_button.setVisible(can_use_master)
+        self.master_button.clicked.connect(self._use_master)
         layout = QVBoxLayout(self)
         layout.addWidget(self.intro)
         layout.addWidget(self.label)
@@ -69,12 +77,17 @@ class EnterRecoveryKeyDialog(QDialog):
         self.key.setAccessibleName(self.tr("Recovery key"))
         self.ok_button.setText(self.tr("Open notes"))
         self.cancel_button.setText(self.tr("Back"))
+        self.master_button.setText(self.tr("Use the &master password instead"))
 
     @override
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.LanguageChange:
             self.retranslate()
         super().changeEvent(event)
+
+    def _use_master(self) -> None:
+        self.use_master = True
+        self.reject()
 
     def typo(self) -> str:
         return self.tr(

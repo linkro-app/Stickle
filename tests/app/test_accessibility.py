@@ -34,6 +34,11 @@ from stickle.app.first_run import FirstRunDialog
 from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportAccess, ImportDialog
 from stickle.app.label_manager import LabelManager
+from stickle.app.master_password import (
+    CheckMasterPasswordDialog,
+    MasterPasswordDialog,
+    MasterPasswords,
+)
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.app.password_dialog import PasswordDialog
@@ -85,6 +90,26 @@ def import_dialog() -> ImportDialog:
     )
     dialog.refresh()
     return dialog
+
+
+def master_dialogs() -> list[QWidget]:
+    """Setting (none yet), changing (one set) and checking the master password."""
+
+    def passwords(exists: bool) -> MasterPasswords:
+        return MasterPasswords(
+            exists=lambda: exists,
+            set=lambda _: None,
+            change=lambda _current, _new: None,
+            check=lambda _: True,
+            opens_notes=lambda _: False,
+            recovery_key_opens=lambda _: True,
+        )
+
+    return [
+        MasterPasswordDialog(passwords(False)),
+        MasterPasswordDialog(passwords(True)),
+        CheckMasterPasswordDialog(passwords(True)),
+    ]
 
 
 def restore_dialog(folder: Path) -> RestoreDialog:
@@ -182,6 +207,7 @@ def test_the_dialogs_name_all_they_offer(qtbot: QtBot, tmp_path: Path) -> None:
         EnterRecoveryKeyDialog(lambda _: None),
         RecoveryKeyDialog(RECOVERY_KEY),
         FirstRunDialog(RECOVERY_KEY, True, True),
+        *master_dialogs(),
     ]
     dialogs += [
         RecoveryDialog(Problem(kind, diff=diff), tmp_path, export=lambda _: None)  # pyright: ignore[reportArgumentType]
@@ -345,12 +371,20 @@ def test_tab_goes_round_the_dialogs_as_they_read(qtbot: QtBot, tmp_path: Path) -
     dialogs: list[QWidget] = [
         PasswordDialog(True, lambda _: None),
         PasswordDialog(False, lambda _: None, can_recover=True),
-        EnterRecoveryKeyDialog(lambda _: None),
+        PasswordDialog(False, lambda _: None, master=True),
+        EnterRecoveryKeyDialog(lambda _: None, can_use_master=True),
         RecoveryKeyDialog(RECOVERY_KEY),
         FirstRunDialog(RECOVERY_KEY, True, True),
+        *master_dialogs(),
     ]
     dialogs += [
-        RecoveryDialog(Problem(kind, diff=diff), tmp_path, export=lambda _: None)  # pyright: ignore[reportArgumentType]
+        RecoveryDialog(
+            Problem(kind, diff=diff),
+            tmp_path,
+            export=lambda _: None,  # pyright: ignore[reportArgumentType]
+            can_recover=True,
+            can_use_master=True,
+        )
         for kind in KINDS
     ]
     dialogs += [

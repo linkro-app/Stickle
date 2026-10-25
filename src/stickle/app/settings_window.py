@@ -31,6 +31,11 @@ from stickle.app.app_list import switch_app_list
 from stickle.app.first_run import LoginNote
 from stickle.app.i18n import LANGUAGES, Translations
 from stickle.app.in_use import OnTopWhileInUse
+from stickle.app.master_password import (
+    CheckMasterPasswordDialog,
+    MasterPasswordDialog,
+    MasterPasswords,
+)
 from stickle.app.notes import NoteManager
 from stickle.app.recovery_key_dialog import RecoveryKeyDialog
 from stickle.app.shortcut_rows import ShortcutRows
@@ -60,6 +65,13 @@ def _exec(dialog: RecoveryKeyDialog) -> bool:
 
 
 show_recovery_key: Callable[[RecoveryKeyDialog], bool] = _exec  # replaced in tests
+
+
+def _exec_master(dialog: QDialog) -> object:
+    return dialog.exec()
+
+
+show_master_dialog: Callable[[QDialog], object] = _exec_master  # replaced in tests
 
 
 def _page(parent: QWidget) -> tuple[QWidget, QVBoxLayout]:
@@ -92,6 +104,7 @@ class SettingsWindow(QDialog):
         shortcuts: GlobalShortcuts | None = None,
         portable: bool = False,
         updates: UpdateCheck | None = None,
+        master: MasterPasswords | None = None,
     ) -> None:
         super().__init__(parent)
         self._notes = notes
@@ -148,10 +161,17 @@ class SettingsWindow(QDialog):
         self.protection, protection = _page(self.tabs)
         self.recovery_button = QPushButton(self.protection)
         self.recovery_button.clicked.connect(self.new_recovery_key)
-        recovery_row = QHBoxLayout()
-        recovery_row.addWidget(self.recovery_button)
-        recovery_row.addStretch(1)
-        protection.addLayout(recovery_row)
+        # A second way back, which the user remembers: set once, changed, never removed.
+        self._master = master
+        self.master_button = QPushButton(self.protection)
+        self.master_button.clicked.connect(self.set_master_password)
+        self.check_master_button = QPushButton(self.protection)
+        self.check_master_button.clicked.connect(self.check_master_password)
+        for button in (self.recovery_button, self.master_button, self.check_master_button):
+            row = QHBoxLayout()
+            row.addWidget(button)
+            row.addStretch(1)
+            protection.addLayout(row)
         protection.addStretch(1)
 
         self.shortcuts_page, shortcuts_layout = _page(self.tabs)
@@ -179,7 +199,10 @@ class SettingsWindow(QDialog):
             self.connections_page,
         ):
             self.tabs.addTab(page, "")
-        self.tabs.setTabVisible(self.tabs.indexOf(self.protection), recovery is not None)
+        self.recovery_button.setVisible(recovery is not None)
+        self.tabs.setTabVisible(
+            self.tabs.indexOf(self.protection), recovery is not None or master is not None
+        )
         self.tabs.setTabVisible(self.tabs.indexOf(self.shortcuts_page), shortcuts is not None)
 
         if updates is not None:
@@ -207,6 +230,8 @@ class SettingsWindow(QDialog):
             self.update_box,
             self.magnet_box,
             self.recovery_button,
+            self.master_button,
+            self.check_master_button,
             *(self.shortcut_rows.tab_order() if self.shortcut_rows is not None else []),
         ]
         for before, after in itertools.pairwise(order):
@@ -235,6 +260,7 @@ class SettingsWindow(QDialog):
         self.magnet_note.setText(magnet)
         self.magnet_box.setAccessibleDescription(magnet)
         self.recovery_button.setText(self.tr("Make a new &recovery key…"))
+        self.check_master_button.setText(self.tr("Chec&k the master password…"))
         self.refresh()
 
     @override
@@ -262,6 +288,14 @@ class SettingsWindow(QDialog):
         if self._updates is not None:
             self.update_box.setChecked(self._updates.enabled)
         self.magnet_box.setChecked(self._notes.magnet)
+        master = self._master is not None and self._master.exists()
+        self.master_button.setVisible(self._master is not None)
+        self.master_button.setText(
+            self.tr("Change the &master password…")
+            if master
+            else self.tr("Set a &master password…")
+        )
+        self.check_master_button.setVisible(master)
         if self._updates is None:
             self.connections.setText(self.tr("Stickle connects to nothing on the internet."))
         elif self._updates.enabled:
@@ -322,6 +356,16 @@ class SettingsWindow(QDialog):
             return
         if show_recovery_key(RecoveryKeyDialog(recovery_key, self)):
             self._recovery.kept()
+
+    def set_master_password(self) -> None:
+        """Set it, or change it when there is one."""
+        if self._master is not None:
+            show_master_dialog(MasterPasswordDialog(self._master, self))
+            self.refresh()
+
+    def check_master_password(self) -> None:
+        if self._master is not None:
+            show_master_dialog(CheckMasterPasswordDialog(self._master, self))
 
     def _choose_language(self, index: int) -> None:
         code = self.language_box.itemData(index)

@@ -24,7 +24,8 @@ type Submit = Callable[[str], str | None]
 class PasswordDialog(QDialog):
     """Enter the password, or create one: at first start, or after the recovery key
     opened the notes (after_recovery). While unlocking, "I forgot the password"
-    closes it with forgot set, where a recovery key exists."""
+    closes it with forgot set, where a recovery key exists. With master, it asks
+    for the master password instead, to open the notes when the key is lost."""
 
     def __init__(
         self,
@@ -34,9 +35,11 @@ class PasswordDialog(QDialog):
         can_recover: bool = False,
         after_recovery: bool = False,
         portable: bool = False,
+        master: bool = False,
     ) -> None:
         super().__init__(parent)
         self.creating = create
+        self.master = master and not create
         self.after_recovery = after_recovery
         self.portable = portable  # notes in a stickle-data folder, carried between computers
         self.forgot = False
@@ -118,14 +121,22 @@ class PasswordDialog(QDialog):
                 )
             self.intro.setText(intro)
             self.ok_button.setText(self.tr("Create password"))
+        elif self.master:
+            self.setWindowTitle(self.tr("Open with the master password"))
+            self.intro.setText(self.tr("Enter the master password you set in Stickle's settings."))
+            self.ok_button.setText(self.tr("Open notes"))
         else:
             self.setWindowTitle(self.tr("Unlock your notes"))
             self.intro.setText(self.tr("Enter the password that protects your notes."))
             self.ok_button.setText(self.tr("Unlock"))
-        self.cancel_button.setText(self.tr("Quit"))
-        self.password_label.setText(self.tr("&Password:"))
+        self.cancel_button.setText(self.tr("Back") if self.master else self.tr("Quit"))
+        self.password_label.setText(
+            self.tr("&Master password:") if self.master else self.tr("&Password:")
+        )
         self.confirm_label.setText(self.tr("&Confirm password:"))
-        self.password.setAccessibleName(self.tr("Password"))
+        self.password.setAccessibleName(
+            self.tr("Master password") if self.master else self.tr("Password")
+        )
         self.confirm.setAccessibleName(self.tr("Confirm password"))
         self.input_note.setText(
             self.tr("Input methods, such as a Korean keyboard, are turned off in password fields.")
@@ -138,6 +149,8 @@ class PasswordDialog(QDialog):
         super().changeEvent(event)
 
     def wrong_password(self) -> str:
+        if self.master:
+            return self.tr("The master password is not correct.")
         return self.tr("The password is not correct.")
 
     def key_file_failed(self, reason: str) -> str:

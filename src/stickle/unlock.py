@@ -30,11 +30,15 @@ from stickle.crypto.keyfile import (
     KeyFile,
     KeyFileError,
     PasswordSlot,
+    WrongPasswordError,
     key_file_of,
     key_file_slots,
     unwrap_with_password,
     wrap_with_password,
 )
+from stickle.crypto.master import MEMLIMIT as MASTER_MEMLIMIT
+from stickle.crypto.master import OPSLIMIT as MASTER_OPSLIMIT
+from stickle.crypto.master import change_master, open_with_master, read_master, set_master
 from stickle.crypto.recovery import (
     WrongRecoveryKeyError,
     read_recovery,
@@ -42,6 +46,7 @@ from stickle.crypto.recovery import (
 )
 from stickle.crypto.recovery import generate as generate_recovery_key
 from stickle.crypto.recovery import unwrap as unwrap_recovery
+from stickle.crypto.sealed import SealedSlot
 from stickle.data.key_copies import KeyCopies
 from stickle.platform.credentials import (
     DATABASE_KEY,
@@ -93,11 +98,13 @@ class Unlock:
         strength: tuple[int, int] = (OPSLIMIT, MEMLIMIT),  # lowered in tests
         portable: bool = False,
         clock: Clock = utc_now,
+        master_strength: tuple[int, int] = (MASTER_OPSLIMIT, MASTER_MEMLIMIT),  # lowered in tests
     ) -> None:
         self.folder = folder
         self.files = KeyFiles(folder)
         self._store = store
         self._strength = strength
+        self._master_strength = master_strength
         self._clock = clock
         # Carried from computer to computer: always a password, and the
         # credential store of the computer it is on is never read or written.
@@ -199,9 +206,15 @@ class Unlock:
         return unwrap_recovery(slot, typed)
 
     @property
+    def uses_password(self) -> bool:
+        """Whether the notes open with a password rather than the credential store."""
+        return self.portable or (self._key_file is not None and self._key_file.has_password)
+
+    @property
     def recovered_key_needs_password(self) -> bool:
-        """Whether a key opened with the recovery key needs a new password to be kept:
-        in password mode (the password was forgotten) or with keys.json damaged."""
+        """Whether a key opened with the recovery key (or the master password)
+        needs a new password to be kept: in password mode (the password was
+        forgotten) or with its key file damaged."""
         if self._unreadable or self.portable:
             return True
         return self._key_file is not None and self._key_file.has_password
@@ -236,6 +249,60 @@ class Unlock:
         recovery_key = generate_recovery_key()
         write_recovery(self.files, key, recovery_key, self._clock())
         return recovery_key
+
+    # The master password (stickle.crypto.master)
+
+    def _master(self) -> SealedSlot | None:
+        try:
+            return read_master(self.files)
+        except KeyFileError, OSError:
+            return None
+
+    @property
+    def has_master_password(self) -> bool:
+        return self._master() is not None
+
+    @property
+    def master_password_set_at(self) -> str | None:
+        """When it was set or last changed (UTC), None without one."""
+        slot = self._master()
+        return None if slot is None else slot.set_at
+
+    def open_with_master_password(self, typed: str) -> bytes:
+        """The key, or WrongPasswordError. Nothing is written, as with the recovery key."""
+        slot = self._master()
+        if slot is None:
+            raise WrongPasswordError("no master password was set for these notes")
+        return open_with_master(slot, typed)
+
+    def is_master_password(self, typed: str) -> bool:
+        """Whether typed is the master password (checked, nothing changed)."""
+        try:
+            self.open_with_master_password(typed)
+        except WrongPasswordError, KeyFileError:
+            return False
+        return True
+
+    def opens_with_password(self, typed: str) -> bool:
+        """Whether typed is the password that opens the notes (none on a computer
+        whose credential store keeps the key)."""
+        if self._key_file is None or self._key_file.password is None:
+            return False
+        try:
+            unwrap_with_password(self._key_file.password, typed)
+        except WrongPasswordError, KeyFileError:
+            return False
+        return True
+
+    def set_master_password(self, key: bytes, password: str) -> None:
+        """A master password for key (known to open the database), in place of
+        one forgotten; the key file's other slots stay."""
+        set_master(self.files, key, password, self._clock(), self._master_strength)
+
+    def change_master_password(self, current: str, new: str) -> None:
+        """The same master password's pair, opened by new (WrongPasswordError if
+        current is not the master password)."""
+        change_master(self.files, current, new, self._clock(), self._master_strength)
 
     def keep_copies(self, connection: apsw.Connection) -> None:
         """The notes are open: the key files they hold a copy of are kept there too,
