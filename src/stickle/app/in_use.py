@@ -42,8 +42,18 @@ class OnTopWhileInUse(QObject):
                 self._let_go_soon()
             elif event.type() == QEvent.Type.Show and not event.spontaneous():
                 # Once shown: Qt may have put back an on-top state since changed.
-                QTimer.singleShot(0, window, lambda: keep_stays_on_top(window))
+                QTimer.singleShot(0, self, self._keep)
         return False
+
+    def _keep(self) -> None:
+        """Above the others or not, as meant. Windows takes the window this one
+        belongs to out of the top along with it (the settings, shown from Stickle
+        Manager, sent it below the pinned notes): that one is put back, and its
+        windows with it."""
+        keep_stays_on_top(self._window)
+        owner = self._window.parentWidget()
+        if owner is not None and stays_on_top(owner.window()):
+            keep_stays_on_top(owner.window())
 
     def _let_go_soon(self) -> None:
         # Once the keyboard has landed, not on the way: in one of its own
@@ -67,3 +77,4 @@ class OnTopWhileInUse(QObject):
                 return
             widget = widget.parentWidget()
         set_stays_on_top(self._window, False)
+        self._keep()  # left for the window it belongs to, which is still above

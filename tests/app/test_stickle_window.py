@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 from pytestqt.qtbot import QtBot
 
-from stickle.app import file_dialogs
+from stickle.app import file_dialogs, in_use
 from stickle.app.application import connect_stickle_window, open_at_start
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
@@ -207,6 +207,24 @@ def test_from_the_stickle_window_the_settings_stay_above_pinned_notes_with_it(
     assert not stays_on_top(app.window.settings)  # kept above it by the system
     move_to(qtbot, note)
     assert not stays_on_top(app.window)
+
+
+def test_shown_from_it_the_settings_put_it_back_on_top(
+    qtbot: QtBot, app: App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Telling Windows the settings are not on top took the Stickle window, which
+    # they belong to, out of the top too: both went below the pinned notes.
+    kept: list[QWidget] = []
+    monkeypatch.setattr(in_use, "keep_stays_on_top", kept.append)
+    app.window.open()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
+    kept.clear()
+
+    app.window.settings_button.click()
+    qtbot.waitUntil(lambda: app.window.settings in kept)
+
+    assert kept[kept.index(app.window.settings) + 1 :] == [app.window]
+    assert stays_on_top(app.window)
 
 
 def test_from_the_tray_the_settings_stay_above_pinned_notes_until_left(
