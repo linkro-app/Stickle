@@ -1342,9 +1342,11 @@ class NoteWindow(QWidget):
         self._show_secret_state()
 
     def set_secret_title(self, title: str | None) -> None:
-        """A secret note by this title, open as it is; None: an ordinary note again."""
+        """A secret note by this title, open or locked as it is; None: an ordinary
+        note again (it was open)."""
         self.secret_title = title
-        self.secret_locked = False
+        if title is None:
+            self.secret_locked = False
         self._show_secret_state()
 
     def _show_secret_state(self) -> None:

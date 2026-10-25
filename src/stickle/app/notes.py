@@ -1261,6 +1261,9 @@ class NoteManager(QObject):
         if not ask_secret(dialog) or dialog.key is None:
             return
         key = bytearray(dialog.key)
+        if window not in self._windows or not window.secret_locked:
+            _wipe(key)  # closed meanwhile (or opened already): nothing to hold it for
+            return
         try:
             note = self._repository.get(window.note_id)
             if note is None or note.sealed is None:
@@ -1313,8 +1316,9 @@ class NoteManager(QObject):
         if window.secret_title is None:
             return
         dialog = SecretTitleDialog(window.secret_title, window)
-        if not ask_secret(dialog):
+        if not ask_secret(dialog) or window not in self._windows or not window.secret:
             return
+        # Kept even if the note locked meanwhile: a title needs no key.
         title = dialog.chosen()
         try:
             self._repository.set_secret_title(window.note_id, title)
@@ -1334,7 +1338,13 @@ class NoteManager(QObject):
             or window.note_id is None
         ):
             return
-        if not confirm_ordinary(window) or not self.flush(window, closing=True):
+        if not confirm_ordinary(window):
+            return
+        # Locked by itself while asked, its text is no longer in the window: what
+        # it holds then must not become the note's text.
+        if window not in self._windows or window.secret_locked:
+            return
+        if not self.flush(window, closing=True):
             return
         try:
             self._repository.make_ordinary(window.note_id, window.text)

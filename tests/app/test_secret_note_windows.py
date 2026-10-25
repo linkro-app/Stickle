@@ -811,3 +811,47 @@ def test_a_master_password_like_their_password_is_refused(
     assert dialog.message.text() == (
         "Choose a master password other than the secret notes' password."
     )
+
+
+# Locked by itself while one of its windows asks
+
+
+def test_locked_while_asked_to_make_it_ordinary_its_text_stays(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+
+    def locked_meanwhile(_parent: object) -> bool:
+        manager.lock_secret_notes()  # left alone too long, or the computer locked
+        return True
+
+    monkeypatch.setattr(notes, "confirm_ordinary", locked_meanwhile)
+    window.ordinary_action.trigger()
+
+    assert window.secret and window.secret_locked
+    assert opened_text(connection, unlock, window) == TEXT  # not the empty window's text
+
+
+def test_locked_while_its_title_is_changed_it_stays_locked(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+
+    def locked_meanwhile(dialog: QDialog) -> bool:
+        manager.lock_secret_notes()
+        return title("통장")(dialog)
+
+    answers.queue.append(locked_meanwhile)
+    window.secret_title_action.trigger()
+
+    assert window.secret_locked and window.stack.currentWidget() is window.locked_face
+    assert window.open_secret_action.isVisible()
+    assert stored(connection, window).secret_title == "통장"
