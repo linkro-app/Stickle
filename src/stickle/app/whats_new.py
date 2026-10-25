@@ -57,7 +57,7 @@ def news(version: str) -> str | None:
             "- A double click on the Stickle icon makes a new note, where the system "
             "allows it\n"
             "\n"
-            "Data is in the Stickle window and in the Stickle icon's menu. "
+            "Data is in Stickle Manager and in the Stickle icon's menu. "
             "[Everything Stickle does](%1)",
         )
         return text.replace("%1", site_page("guide"))

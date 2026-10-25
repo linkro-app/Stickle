@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     # if it runs already; otherwise it starts, then does it.
     requests = parser.add_mutually_exclusive_group()
     requests.add_argument("--new-note", action="store_true", help="open a new note to type in")
-    requests.add_argument("--show", action="store_true", help="open the Stickle window")
+    requests.add_argument("--show", action="store_true", help="open Stickle Manager")
     requests.add_argument(
         "--hide-all", action="store_true", help="hide all notes for now, or show them again"
     )

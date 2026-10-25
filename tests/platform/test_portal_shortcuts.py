@@ -33,7 +33,7 @@ from stickle.platform.linux.portal_shortcuts import (
 SESSION = f"{DESKTOP_PATH}/session/1_42/stickle"
 WANTED = [
     ("new-note", "New note", "CTRL+ALT+n"),
-    ("show", "Open the Stickle window", "CTRL+ALT+s"),
+    ("show", "Open Stickle Manager", "CTRL+ALT+s"),
     ("hide-all", "Hide all notes for now", ""),
 ]
 

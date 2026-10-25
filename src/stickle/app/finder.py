@@ -134,7 +134,7 @@ class DesktopFinder(QWidget):
             self.elsewhere.setText(
                 self.tr(
                     "Also in %1 hidden note(s) and %2 in the trash: Ctrl+Enter shows them "
-                    "in the Stickle window."
+                    "in Stickle Manager."
                 )
                 .replace("%1", str(hidden))
                 .replace("%2", str(trashed))

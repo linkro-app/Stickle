@@ -656,9 +656,9 @@ class StickleWindow(QWidget):
 
     def _set_title(self) -> None:
         if self.notice_shown:
-            self.setWindowTitle(self.tr("All notes are hidden - Stickle"))
+            self.setWindowTitle(self.tr("All notes are hidden - Stickle Manager"))
         else:
-            self.setWindowTitle("Stickle")
+            self.setWindowTitle(self.tr("Stickle Manager"))
 
     def open(self, notice: bool = False) -> None:
         """Show the window in front, with the "all notes are hidden" notice or not."""

@@ -258,7 +258,7 @@ class ImportDialog(QDialog):
         self.outcome.setText(
             self.tr(
                 "%n note(s) brought in. They are on the desktop; hidden ones are listed "
-                "in the Stickle window.",
+                "in Stickle Manager.",
                 "",
                 len(brought.note_ids),
             )

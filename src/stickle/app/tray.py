@@ -331,7 +331,7 @@ class Tray(QSystemTrayIcon):
             self._notes.raise_all()
 
     def retranslate(self) -> None:
-        self.open_window_action.setText(self.tr("&Open Stickle"))
+        self.open_window_action.setText(self.tr("&Open Stickle Manager"))
         self.new_note_action.setText(self.tr("&New note"))
         self.hidden_menu.setTitle(self.tr("&Hidden notes"))
         self.raise_action.setText(self.tr("&Bring all notes to front"))

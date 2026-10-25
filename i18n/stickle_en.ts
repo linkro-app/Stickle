@@ -75,10 +75,10 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) brought in. They are on the desktop; hidden ones are listed in the Stickle window.</source>
+        <source>%n note(s) brought in. They are on the desktop; hidden ones are listed in Stickle Manager.</source>
         <translation>
-            <numerusform>%n note brought in. It is on the desktop, or listed in the Stickle window if it was hidden.</numerusform>
-            <numerusform>%n notes brought in. They are on the desktop; hidden ones are listed in the Stickle window.</numerusform>
+            <numerusform>%n note brought in. It is on the desktop, or listed in Stickle Manager if it was hidden.</numerusform>
+            <numerusform>%n notes brought in. They are on the desktop; hidden ones are listed in Stickle Manager.</numerusform>
         </translation>
     </message>
 </context>

@@ -101,7 +101,7 @@ class ShortcutRows(QWidget):
         self.unavailable.setText(unavailable)
         names = {
             "new-note": self.tr("New not&e:"),  # N is the list of notes'
-            "show": self.tr("Stickle &window:"),
+            "show": self.tr("&Open Stickle Manager:"),
             "hide-all": self.tr("&Hide all notes for now:"),
             "next-category": self.tr("Next categor&y only:"),
             "find": self.tr("&Find on the desktop:"),

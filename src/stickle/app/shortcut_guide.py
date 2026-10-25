@@ -44,7 +44,7 @@ RADIUS = 12
 def _global_names() -> dict[str, str]:
     return {
         "new-note": QCoreApplication.translate("ShortcutGuide", "New note"),
-        "show": QCoreApplication.translate("ShortcutGuide", "Open the Stickle window"),
+        "show": QCoreApplication.translate("ShortcutGuide", "Open Stickle Manager"),
         "hide-all": QCoreApplication.translate(
             "ShortcutGuide", "Hide all notes for now, or show them again"
         ),
@@ -104,7 +104,7 @@ def guide() -> list[tuple[str, list[tuple[str, str]]]]:
             ],
         ),
         (
-            QCoreApplication.translate("ShortcutGuide", "In the Stickle window"),
+            QCoreApplication.translate("ShortcutGuide", "In Stickle Manager"),
             [
                 (QCoreApplication.translate("ShortcutGuide", "Search the notes"), "Ctrl+F"),
                 (

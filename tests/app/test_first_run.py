@@ -224,7 +224,7 @@ def test_the_sample_note_leads_to_the_whole_guide(translations: Translations) ->
     note = sample_note()
 
     assert "**F1**" in note
-    assert "Stickle window" in note
+    assert "Stickle Manager" in note
     assert note.endswith("[Everything Stickle does](https://stickle.linkro.co/en/guide)")
 
 

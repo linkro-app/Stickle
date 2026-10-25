@@ -436,7 +436,7 @@ def test_without_a_tray_hiding_the_last_note_opens_it_with_a_notice(trayless: Ap
     assert trayless.quits == []
     # Says why it opened, in the window and its title, with the two ways on.
     assert trayless.window.notice_heading.text()
-    assert trayless.window.windowTitle() != "Stickle"
+    assert trayless.window.windowTitle() == "All notes are hidden - Stickle Manager"
     assert trayless.window.notice_show_button.isVisible()
     assert trayless.window.notice_quit_button.isVisible()
 
@@ -473,7 +473,7 @@ def test_the_notice_buttons_bring_the_notes_back_or_quit(trayless: App) -> None:
 
     assert len(trayless.manager.windows) == 1
     assert not trayless.window.notice_shown
-    assert trayless.window.windowTitle() == "Stickle"
+    assert trayless.window.windowTitle() == "Stickle Manager"
 
     trayless.manager.hide(trayless.manager.windows[0])
     trayless.window.notice_quit_button.click()

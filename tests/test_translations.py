@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,21 @@ def test_korean_translations_are_not_garbled() -> None:
         and any("\x80" <= char <= "\x9f" or "\xc0" <= char <= "\xff" for char in text)
     ]
     assert garbled == []
+
+
+def test_stickle_manager_goes_by_its_name_with_the_right_particles() -> None:
+    # Called "the Stickle window" until 0.6: every window of Stickle is one. In
+    # Korean the particle after 관리자 (ending in a vowel) is not the one after 창.
+    root = ET.parse(KOREAN).getroot()
+    sources = ["".join(element.itertext()) for element in root.iter("source")]
+    korean = ["".join(element.itertext()) for element in root.iter("translation")]
+    english = ET.parse(KOREAN.with_name("stickle_en.ts")).getroot()
+    plurals = ["".join(element.itertext()) for element in english.iter("translation")]
+    assert [text for text in sources + plurals if "Stickle window" in text] == []
+    assert [text for text in korean if "Stickle 창" in text] == []
+    wrong = re.compile(r"Stickle 관리자(을|은|이|과|으로)(?![가-힣])")
+    assert [text for text in korean if wrong.search(text)] == []
+    assert any("Stickle 관리자" in text for text in korean)
 
 
 def test_every_ui_string_has_a_korean_translation(tmp_path: Path) -> None:

@@ -228,8 +228,8 @@ These files are not encrypted: keep them somewhere safe.</source>
         <translation>맞는 메모가 바탕화면에 없습니다.</translation>
     </message>
     <message>
-        <source>Also in %1 hidden note(s) and %2 in the trash: Ctrl+Enter shows them in the Stickle window.</source>
-        <translation>숨긴 메모 %1개, 휴지통 %2개에도 있습니다. Ctrl+Enter로 Stickle 창에서 봅니다.</translation>
+        <source>Also in %1 hidden note(s) and %2 in the trash: Ctrl+Enter shows them in Stickle Manager.</source>
+        <translation>숨긴 메모 %1개, 휴지통 %2개에도 있습니다. Ctrl+Enter로 Stickle 관리자에서 봅니다.</translation>
     </message>
 </context>
 <context>
@@ -285,7 +285,7 @@ Double-click this note to edit it; click elsewhere to see it formatted again.
 - [ ] **F1** shows every keyboard shortcut
 
 The **X** hides a note: bring it back from the Stickle icon. **Ctrl+N** makes a new note.
-Search, the trash and your data (backups, export, notes from other apps) are in the Stickle window, opened from the Stickle icon.
+Search, the trash and your data (backups, export, notes from other apps) are in Stickle Manager, opened from the Stickle icon.
 [Everything Stickle does](%1)</source>
         <translation># Stickle에 오신 것을 환영합니다
 이 메모를 더블클릭하면 편집할 수 있고, 다른 곳을 클릭하면 다시 서식이 입혀진 모습으로 보입니다.
@@ -298,7 +298,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
 - [ ] **F1**을 누르면 모든 단축키가 보입니다
 
 **X**는 메모를 숨깁니다. Stickle 아이콘에서 다시 꺼낼 수 있습니다. **Ctrl+N**으로 새 메모를 만듭니다.
-검색·휴지통·데이터(백업, 내보내기, 다른 앱에서 가져오기)는 Stickle 아이콘에서 여는 Stickle 창에 있습니다.
+검색·휴지통·데이터(백업, 내보내기, 다른 앱에서 가져오기)는 Stickle 아이콘에서 여는 Stickle 관리자에 있습니다.
 [모든 기능 안내](%1)</translation>
     </message>
 </context>
@@ -368,8 +368,8 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>새 메모</translation>
     </message>
     <message>
-        <source>Open the Stickle window</source>
-        <translation>Stickle 창 열기</translation>
+        <source>Open Stickle Manager</source>
+        <translation>Stickle 관리자 열기</translation>
     </message>
     <message>
         <source>Hide all notes for now, or show them again</source>
@@ -525,9 +525,9 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>메모를 가져오지 못했습니다. 아무것도 바뀌지 않았습니다.</translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) brought in. They are on the desktop; hidden ones are listed in the Stickle window.</source>
+        <source>%n note(s) brought in. They are on the desktop; hidden ones are listed in Stickle Manager.</source>
         <translation>
-            <numerusform>메모 %n개를 가져왔습니다. 바탕화면에 있고, 숨긴 메모는 Stickle 창 목록에 있습니다.</numerusform>
+            <numerusform>메모 %n개를 가져왔습니다. 바탕화면에 있고, 숨긴 메모는 Stickle 관리자 목록에 있습니다.</numerusform>
         </translation>
     </message>
 </context>
@@ -1690,8 +1690,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>새 메모</translation>
     </message>
     <message>
-        <source>Open the Stickle window</source>
-        <translation>Stickle 창 열기</translation>
+        <source>Open Stickle Manager</source>
+        <translation>Stickle 관리자 열기</translation>
     </message>
     <message>
         <source>Hide all notes for now, or show them again</source>
@@ -1766,8 +1766,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>코드 블록</translation>
     </message>
     <message>
-        <source>In the Stickle window</source>
-        <translation>Stickle 창에서</translation>
+        <source>In Stickle Manager</source>
+        <translation>Stickle 관리자에서</translation>
     </message>
     <message>
         <source>Search the notes</source>
@@ -1838,8 +1838,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>새 메모(&amp;E):</translation>
     </message>
     <message>
-        <source>Stickle &amp;window:</source>
-        <translation>Stickle 창(&amp;W):</translation>
+        <source>&amp;Open Stickle Manager:</source>
+        <translation>Stickle 관리자 열기(&amp;O):</translation>
     </message>
     <message>
         <source>&amp;Hide all notes for now:</source>
@@ -1994,6 +1994,14 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>(빈 메모)</translation>
     </message>
     <message>
+        <source>All notes are hidden - Stickle Manager</source>
+        <translation>메모를 모두 숨김 - Stickle 관리자</translation>
+    </message>
+    <message>
+        <source>Stickle Manager</source>
+        <translation>Stickle 관리자</translation>
+    </message>
+    <message>
         <source>Restore the note just deleted</source>
         <translation>방금 지운 메모 되살리기</translation>
     </message>
@@ -2040,10 +2048,6 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>The recovery key could not be saved.</source>
         <translation>복구 키를 저장하지 못했습니다.</translation>
-    </message>
-    <message>
-        <source>All notes are hidden - Stickle</source>
-        <translation>메모를 모두 숨김 - Stickle</translation>
     </message>
 </context>
 <context>
@@ -2108,8 +2112,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>Stickle %1 받기(&amp;G)…</translation>
     </message>
     <message>
-        <source>&amp;Open Stickle</source>
-        <translation>Stickle 창 열기(&amp;O)</translation>
+        <source>&amp;Open Stickle Manager</source>
+        <translation>Stickle 관리자 열기(&amp;O)</translation>
     </message>
     <message>
         <source>&amp;New note</source>
@@ -2224,7 +2228,7 @@ Your notes as they are now are backed up first, so you can come back to them the
 - **Report a problem or idea** from the Stickle icon&apos;s menu
 - A double click on the Stickle icon makes a new note, where the system allows it
 
-Data is in the Stickle window and in the Stickle icon&apos;s menu. [Everything Stickle does](%1)</source>
+Data is in Stickle Manager and in the Stickle icon&apos;s menu. [Everything Stickle does](%1)</source>
         <translation># Stickle 0.5에서 바뀐 점
 - **날마다 백업**: 하루에 한 번 메모를 백업해 일주일 동안 보관합니다. 데이터 → 백업에서 되돌리기…에서 그 시점으로 돌아갈 수 있습니다
 - **내보내기**: 모든 메모를 마크다운으로, 또는 전부를 JSON으로 (데이터 → 모든 메모 내보내기…)
@@ -2234,7 +2238,7 @@ Data is in the Stickle window and in the Stickle icon&apos;s menu. [Everything S
 - **문제·제안 보내기**: Stickle 아이콘 메뉴에서
 - Stickle 아이콘을 두 번 클릭하면 새 메모가 생깁니다(시스템이 허용하는 곳에서)
 
-데이터 메뉴는 Stickle 창과 Stickle 아이콘 메뉴에 있습니다. [모든 기능 안내](%1)</translation>
+데이터 메뉴는 Stickle 관리자와 Stickle 아이콘 메뉴에 있습니다. [모든 기능 안내](%1)</translation>
     </message>
 </context>
 </TS>

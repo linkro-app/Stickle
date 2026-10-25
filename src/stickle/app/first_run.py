@@ -68,7 +68,7 @@ def sample_note() -> str:
         "The **X** hides a note: bring it back from the Stickle icon. "
         "**Ctrl+N** makes a new note.\n"
         "Search, the trash and your data (backups, export, notes from other apps) "
-        "are in the Stickle window, opened from the Stickle icon.\n"
+        "are in Stickle Manager, opened from the Stickle icon.\n"
         "[Everything Stickle does](%1)",
     )
     return text.replace("%1", site_page("guide"))

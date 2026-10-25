@@ -138,7 +138,7 @@ class GlobalShortcuts(QObject):
             return
         descriptions = {
             "new-note": self.tr("New note"),
-            "show": self.tr("Open the Stickle window"),
+            "show": self.tr("Open Stickle Manager"),
             "hide-all": self.tr("Hide all notes for now, or show them again"),
             "next-category": self.tr("Show only the notes of the next category"),
             "find": self.tr("Find notes on the desktop"),
