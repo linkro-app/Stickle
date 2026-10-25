@@ -329,7 +329,7 @@ def test_tab_goes_round_the_stickle_window_as_it_reads(
         shortcuts=shortcuts,
         data=DataAccess(
             BackupAccess(lambda: [], lambda _: None, lambda _: False),
-            lambda folder: ExportResult(folder, 0, 0),
+            lambda folder, _secret: ExportResult(folder, 0, 0),
             no_imports(),
         ),
     )

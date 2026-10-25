@@ -44,10 +44,10 @@ from stickle.app.update_check import UpdateCheck
 from stickle.app.whats_new import give_news
 from stickle.core.clock import Clock, utc_now
 from stickle.core.layout import Place, Rect, place_of
-from stickle.crypto.keyfile import KeyFileError
+from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import WrongRecoveryKeyError
 from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
-from stickle.data.export import ExportResult, export_all
+from stickle.data.export import ExportResult, SecretExport, export_all
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
@@ -132,12 +132,21 @@ def data_access(
     database: Path,
     key: bytes,
     quit_app: Callable[[], object],
+    secret_key_copies: Callable[[], dict[str, object] | None] = lambda: None,
 ) -> DataAccess:
     """What the Data menu does with the notes database."""
 
-    def export(folder: Path) -> ExportResult:
+    def export(folder: Path, secret: SecretExport) -> ExportResult:
         manager.save_all()  # what is being typed goes out too
-        return export_all(connection, folder, __version__)
+        return export_all(connection, folder, __version__, secret=secret)
+
+    def secret_notes() -> int:
+        return sum(note.secret for note in manager.listed_notes() + manager.trash_notes())
+
+    def open_secret_notes(password: str) -> bytes:
+        if manager.secrets is None:
+            raise WrongPasswordError("no secret notes here")
+        return manager.secrets.open(password)
 
     def place_for(rect: Rect) -> Place | None:
         """Where a note brought in goes: where it was, if that is on a screen now."""
@@ -166,6 +175,9 @@ def data_access(
             new_notes=lambda source, result: new_notes(source.name, result, connection),
             bring_in=bring,
         ),
+        secret_notes=secret_notes,
+        open_secret_notes=open_secret_notes,
+        secret_key_copies=secret_key_copies,
     )
 
 
@@ -608,7 +620,14 @@ def run(
         access: DataAccess | None = None
         if unlock is not None and connection is not None and unlock.opened_key is not None:
             daily_backups = DailyBackups(connection, unlock.database)
-            access = data_access(manager, connection, unlock.database, unlock.opened_key, app.quit)
+            access = data_access(
+                manager,
+                connection,
+                unlock.database,
+                unlock.opened_key,
+                app.quit,
+                unlock.secret_key_copies,
+            )
         master = master_passwords(unlock, changes)
         # Before any note opens: each offers to become a secret note.
         manager.secrets = secret_passwords(unlock, master, changes)

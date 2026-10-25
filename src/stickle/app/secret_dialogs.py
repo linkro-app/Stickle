@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -477,6 +478,94 @@ class SecretTitleDialog(_PasswordWindow):
 
     def chosen(self) -> str:
         return self.title.text().strip()
+
+
+class SecretExportDialog(_PasswordWindow):
+    """How the secret notes go out with the rest of the notes: encrypted, as they
+    are, or in the clear once their password shows it is the user's. key holds
+    their key once accepted that way."""
+
+    def __init__(
+        self, count: int, open_notes: Callable[[str], bytes], parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self._count = count
+        self._open = open_notes
+        self.key: bytes | None = None
+        self.encrypted = QRadioButton()
+        self.encrypted.setChecked(True)  # what they are: chosen until the user says otherwise
+        self.encrypted_note = QLabel()
+        self.encrypted_note.setWordWrap(True)
+        self.plain = QRadioButton()
+        for place, widget in enumerate((self.encrypted, self.encrypted_note, self.plain), 1):
+            self.layout_parts.insertWidget(place, widget)
+        self.password = _password_field()
+        self.password_label = QLabel()
+        self.password_label.setBuddy(self.password)
+        self.form.addRow(self.password_label, self.password)
+        self.plain_note = QLabel()
+        self.plain_note.setWordWrap(True)
+        self.layout_parts.addWidget(self.plain_note)
+        self.plain.toggled.connect(self._show_choice)
+        self.finish_layout()
+        self.retranslate()
+        self._show_choice()
+        self.encrypted.setFocus()
+
+    def _show_choice(self) -> None:
+        plain = self.plain.isChecked()
+        for part in (self.password, self.password_label, self.plain_note):
+            part.setEnabled(plain)
+        if plain:
+            self.password.setFocus()
+
+    @override
+    def retranslate(self) -> None:
+        super().retranslate()
+        self.setWindowTitle(self.tr("Export secret notes"))
+        self.intro.setText(
+            self.tr("How should the %n secret note(s) be exported?", "", self._count)
+        )
+        self.encrypted.setText(self.tr("&Encrypted, as they are"))
+        self.encrypted_note.setText(
+            self.tr("Their text stays encrypted: only the titles typed for them can be read.")
+        )
+        self.plain.setText(self.tr("In the &clear"))
+        self.password_label.setText(self.tr("Secret notes' &password:"))
+        self.password.setAccessibleName(self.tr("Secret notes' password"))
+        self.plain_note.setText(
+            self.tr(
+                "The exported files hold no password: anyone who has them can read these notes."
+            )
+        )
+        self.ok_button.setText(self.tr("Next"))
+
+    @override
+    def accept(self) -> None:
+        if self.encrypted.isChecked():
+            super().accept()
+            return
+        self.working()
+        QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            key = self._open(self.password.text())
+        except WrongPasswordError:
+            self.password.clear()
+            self.show_error(self.tr("The password is not correct."), self.password)
+            return
+        except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
+            log.error("secret notes not opened to export: %s", type(error).__name__)
+            self.show_error(
+                self.tr("The secret notes' key could not be used (%1).").replace(
+                    "%1", type(error).__name__
+                ),
+                self.password,
+            )
+            return
+        finally:
+            QGuiApplication.restoreOverrideCursor()
+        self.key = key
+        super().accept()
 
 
 def _exec(dialog: QDialog) -> bool:

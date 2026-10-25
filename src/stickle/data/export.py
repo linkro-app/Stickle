@@ -11,6 +11,12 @@ files (the trash's in "trash"), and stickle-export.json with every row of
 every table the user's data is kept in, so that nothing stays behind, data
 added by later versions included. Only what is derived from other data (the
 search index) is left out. Nothing is encrypted: the user is told so.
+
+Secret notes go out as the user chooses (SecretExport): encrypted as they are
+stored, their Markdown file holding only their title and a line saying so,
+with the locked copies of their key beside them in the JSON (opened again with
+their password or the master password); or opened with their key, their text
+in place of the encrypted one. Their files are named after their titles.
 """
 
 import base64
@@ -23,6 +29,7 @@ from pathlib import Path
 import apsw
 
 from stickle.core.clock import Clock, utc_now
+from stickle.crypto.secret_notes import open_text
 from stickle.data.database import open_database
 from stickle.data.schema import first_line
 
@@ -40,6 +47,22 @@ class ExportResult:
     folder: Path
     notes: int
     deleted: int
+    still_encrypted: int = 0  # secret notes left as they are stored
+
+
+@dataclass(frozen=True)
+class SecretExport:
+    """How secret notes go out."""
+
+    key: bytes | None = None  # theirs, to open them; None: left encrypted
+    locked_line: str = "Locked secret note"  # a locked one's Markdown, below its title
+    key_copies: dict[str, object] | None = None  # their key's locked copies, if left so
+
+
+@dataclass(frozen=True)
+class _Secret:
+    title: str
+    sealed: bytes
 
 
 def file_stem(body: str, note_id: str) -> str:
@@ -128,15 +151,46 @@ def _tables(connection: apsw.Connection) -> dict[str, list[dict[str, object]]]:
     return tables
 
 
+def _secrets(connection: apsw.Connection) -> dict[str, _Secret]:
+    """The secret notes (none before the database had them), by id."""
+    columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(notes)")}
+    if "secret_body" not in columns:
+        return {}
+    rows = connection.execute(
+        "SELECT id, secret_title, secret_body FROM notes WHERE secret_body IS NOT NULL"
+    )
+    return {str(i): _Secret(str(t or ""), bytes(b)) for i, t, b in rows}
+
+
 def _read_all(
     connection: apsw.Connection,
-) -> tuple[int, dict[str, list[dict[str, object]]], list[tuple[str, str, bool]]]:
+) -> tuple[
+    int, dict[str, list[dict[str, object]]], list[tuple[str, str, bool]], dict[str, _Secret]
+]:
     """One consistent reading, even if a note is saved meanwhile."""
     connection.execute("BEGIN")
     try:
-        return int(str(connection.pragma("user_version"))), _tables(connection), _rows(connection)
+        return (
+            int(str(connection.pragma("user_version"))),
+            _tables(connection),
+            _rows(connection),
+            _secrets(connection),
+        )
     finally:
         connection.execute("COMMIT")
+
+
+def _opened(
+    tables: dict[str, list[dict[str, object]]], texts: dict[str, str]
+) -> dict[str, list[dict[str, object]]]:
+    """The tables with each secret note's text in place of its encrypted one."""
+    notes = [
+        {**row, "body": texts[str(row["id"])], "secret_body": None}
+        if str(row.get("id")) in texts
+        else row
+        for row in tables.get("notes", [])
+    ]
+    return {**tables, "notes": notes}
 
 
 def export_all(
@@ -144,9 +198,20 @@ def export_all(
     target: Path,
     app_version: str,
     clock: Clock = utc_now,
+    secret: SecretExport | None = None,
 ) -> ExportResult:
-    """Write everything into a new folder inside target; nothing is overwritten."""
-    version, tables, rows = _read_all(connection)
+    """Write everything into a new folder inside target; nothing is overwritten.
+
+    With secret notes and their key, every one is opened first: SecretNoteError
+    (from stickle.crypto.secret_notes) before anything is written if one does
+    not open with it.
+    """
+    secret = secret or SecretExport()
+    version, tables, rows, secrets = _read_all(connection)
+    texts: dict[str, str] = {}
+    if secret.key is not None:
+        texts = {i: open_text(secret.key, i, s.sealed) for i, s in secrets.items()}
+        tables = _opened(tables, texts)
     moment = datetime.fromisoformat(clock().replace("Z", "+00:00")).astimezone()
     folder = _free(target / f"Stickle export {moment:%Y-%m-%d %H%M}")
     folder.mkdir(parents=True)
@@ -154,11 +219,17 @@ def export_all(
     for note_id, body, deleted in rows:
         place = folder / TRASH_FOLDER if deleted else folder
         place.mkdir(exist_ok=True)
-        path = _free(place / f"{file_stem(body, note_id)}.md")
+        locked = secrets.get(note_id)
+        if locked is not None:
+            # Named after the title typed for it: its text, if opened, may say more.
+            text = texts.get(note_id, f"# {locked.title}\n\n{secret.locked_line}\n")
+            path = _free(place / f"{file_stem(locked.title, note_id)}.md")
+        else:
+            text, path = body, _free(place / f"{file_stem(body, note_id)}.md")
         with path.open("x", encoding="utf-8", newline="") as file:
-            file.write(body)
+            file.write(text)
         deleted_count += deleted
-    document = {
+    document: dict[str, object] = {
         "format": EXPORT_FORMAT,
         "app": "Stickle",
         "app_version": app_version,
@@ -166,7 +237,10 @@ def export_all(
         "exported_at": clock(),
         "tables": tables,
     }
+    if secrets and secret.key is None and secret.key_copies is not None:
+        document["secret_notes_key"] = secret.key_copies
     with (folder / JSON_NAME).open("x", encoding="utf-8", newline="\n") as file:
         json.dump(document, file, ensure_ascii=False, indent=1)
         file.write("\n")
-    return ExportResult(folder, len(rows) - deleted_count, deleted_count)
+    still = 0 if secret.key is not None else len(secrets)
+    return ExportResult(folder, len(rows) - deleted_count, deleted_count, still)

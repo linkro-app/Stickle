@@ -21,6 +21,13 @@
 <context>
     <name>DataMenu</name>
     <message numerus="yes">
+        <source>%n secret note(s) stayed encrypted: only their titles can be read.</source>
+        <translation>
+            <numerusform>%n secret note stayed encrypted: only its title can be read.</numerusform>
+            <numerusform>%n secret notes stayed encrypted: only their titles can be read.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <source>%n note(s) exported to %1, each as a Markdown file, with everything in stickle-export.json. Notes in the trash are in its trash folder.
 
 These files are not encrypted: keep them somewhere safe.</source>
@@ -136,6 +143,16 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
         <translation>
             <numerusform>%1 — %n note</numerusform>
             <numerusform>%1 — %n notes</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>SecretExportDialog</name>
+    <message numerus="yes">
+        <source>How should the %n secret note(s) be exported?</source>
+        <translation>
+            <numerusform>How should the %n secret note be exported?</numerusform>
+            <numerusform>How should the %n secret notes be exported?</numerusform>
         </translation>
     </message>
 </context>

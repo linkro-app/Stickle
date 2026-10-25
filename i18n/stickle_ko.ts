@@ -231,6 +231,20 @@
         <source>The notes could not be exported. Check that the folder can be written to.</source>
         <translation>메모를 내보내지 못했습니다. 그 폴더에 쓸 수 있는지 확인하세요.</translation>
     </message>
+    <message>
+        <source>A secret note could not be opened with their key, so nothing was exported. Export them encrypted instead.</source>
+        <translation>비밀 메모 하나를 키로 열지 못해 아무것도 내보내지 않았습니다. 암호화된 채로 내보내 보세요.</translation>
+    </message>
+    <message>
+        <source>Locked secret note</source>
+        <translation>잠긴 비밀 메모</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n secret note(s) stayed encrypted: only their titles can be read.</source>
+        <translation>
+            <numerusform>비밀 메모 %n개는 암호화된 채로 내보냈습니다. 제목만 읽을 수 있습니다.</numerusform>
+        </translation>
+    </message>
     <message numerus="yes">
         <source>%n note(s) exported to %1, each as a Markdown file, with everything in stickle-export.json. Notes in the trash are in its trash folder.
 
@@ -2069,6 +2083,55 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>The notes could not be restored. Nothing was changed.</source>
         <translation>메모를 되돌리지 못했습니다. 아무것도 바뀌지 않았습니다.</translation>
+    </message>
+</context>
+<context>
+    <name>SecretExportDialog</name>
+    <message>
+        <source>Export secret notes</source>
+        <translation>비밀 메모 내보내기</translation>
+    </message>
+    <message numerus="yes">
+        <source>How should the %n secret note(s) be exported?</source>
+        <translation>
+            <numerusform>비밀 메모 %n개를 어떻게 내보낼까요?</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>&amp;Encrypted, as they are</source>
+        <translation>암호화된 채로(&amp;E)</translation>
+    </message>
+    <message>
+        <source>Their text stays encrypted: only the titles typed for them can be read.</source>
+        <translation>내용은 암호화된 채로 두고, 따로 입력한 제목만 읽을 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>In the &amp;clear</source>
+        <translation>평문으로(&amp;C)</translation>
+    </message>
+    <message>
+        <source>Secret notes&apos; &amp;password:</source>
+        <translation>비밀 메모 암호(&amp;P):</translation>
+    </message>
+    <message>
+        <source>Secret notes&apos; password</source>
+        <translation>비밀 메모 암호</translation>
+    </message>
+    <message>
+        <source>The exported files hold no password: anyone who has them can read these notes.</source>
+        <translation>내보낸 파일에는 암호가 없습니다. 파일을 가진 사람은 누구나 이 메모를 읽을 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>다음</translation>
+    </message>
+    <message>
+        <source>The password is not correct.</source>
+        <translation>암호가 맞지 않습니다.</translation>
+    </message>
+    <message>
+        <source>The secret notes&apos; key could not be used (%1).</source>
+        <translation>비밀 메모 키를 쓰지 못했습니다(%1).</translation>
     </message>
 </context>
 <context>

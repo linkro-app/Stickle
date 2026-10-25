@@ -10,12 +10,20 @@ import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QWidget
 from pytestqt.qtbot import QtBot
 from test_autosave import compose
 from test_startup_dialogs import FAST, Backend, store_of
 
-from stickle.app import application, notes, secret_dialogs, secret_notes, settings_window
+from stickle.app import (
+    application,
+    data_menu,
+    file_dialogs,
+    notes,
+    secret_dialogs,
+    secret_notes,
+    settings_window,
+)
 from stickle.app.i18n import Translations
 from stickle.app.master_password import MasterPasswordDialog
 from stickle.app.note_list import ANY, NoteList
@@ -26,6 +34,7 @@ from stickle.app.protection_changes import ProtectionChanges
 from stickle.app.secret_dialogs import (
     NewSecretPasswordDialog,
     OpenSecretDialog,
+    SecretExportDialog,
     SecretTitleDialog,
     TurnOnDialog,
 )
@@ -34,6 +43,7 @@ from stickle.app.titles import shown_title
 from stickle.app.tray import menu_title
 from stickle.core.note import Note
 from stickle.crypto.secret_notes import open_text
+from stickle.data.export import ExportResult
 from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -1019,3 +1029,142 @@ def test_without_secret_notes_there_is_no_secret_view(manager: NoteManager) -> N
     assert SECRET_NOTES not in [view for view, _ in manager.view_choices()]
     manager.set_view(SECRET_NOTES)
     assert manager.view is None
+
+
+# Exported with the rest: encrypted as they are, or in the clear
+
+
+exporting_told: list[str] = []  # what the last export told the user
+
+
+@pytest.fixture
+def exporting(
+    qtbot: QtBot,
+    manager: NoteManager,
+    connection: apsw.Connection,
+    unlock: Unlock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[], ExportResult | None]:
+    out = tmp_path / "out"
+    out.mkdir()
+
+    def existing_folder(_parent: QWidget, _title: str) -> Path:
+        return out
+
+    def tell_exported(_parent: QWidget, _title: str, text: str, _folder: Path) -> None:
+        exporting_told.append(text)
+
+    def tell_failed(_parent: QWidget, _title: str, text: str) -> None:
+        exporting_told.append(text)
+
+    monkeypatch.setattr(file_dialogs, "existing_folder", existing_folder)
+    monkeypatch.setattr(data_menu, "tell_exported", tell_exported)
+    monkeypatch.setattr(data_menu, "tell_failed", tell_failed)
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    access = application.data_access(
+        manager, connection, tmp_path / "notes.db", KEY, lambda: None, unlock.secret_key_copies
+    )
+    exporting_told.clear()
+    return lambda: data_menu.export_everything(parent, access)
+
+
+def export_answer(monkeypatch: pytest.MonkeyPatch, answer: Callable[[QDialog], bool]) -> None:
+    asked: list[QDialog] = []
+
+    def ask(dialog: QDialog) -> bool:
+        asked.append(dialog)
+        return answer(dialog)
+
+    monkeypatch.setattr(data_menu, "ask_secret_export", ask)
+
+
+def test_exported_left_encrypted_as_chosen_first(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    exporting: Callable[[], ExportResult | None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    seen: list[str] = []
+
+    def keep_encrypted(dialog: QDialog) -> bool:
+        assert isinstance(dialog, SecretExportDialog) and dialog.encrypted.isChecked()
+        seen.append(dialog.intro.text())
+        return accepted(dialog)
+
+    export_answer(monkeypatch, keep_encrypted)
+    result = exporting()
+
+    assert seen == ["How should the 1 secret note(s) be exported?"]
+    assert result is not None and result.still_encrypted == 1
+    written = "".join(p.read_text(encoding="utf-8") for p in result.folder.rglob("*.*"))
+    assert "plorbit" not in written and "Locked secret note" in written
+    assert "secret_notes_key" in written  # their key, locked, goes along
+    assert "1 secret note(s) stayed encrypted" in exporting_told[0]
+    assert window.text == TEXT  # still open, as it was
+
+
+def test_exported_in_the_clear_once_their_password_is_typed(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    exporting: Callable[[], ExportResult | None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret_note(qtbot, manager, answers)
+    refused: list[str] = []
+
+    def in_the_clear(dialog: QDialog) -> bool:
+        assert isinstance(dialog, SecretExportDialog)
+        dialog.plain.setChecked(True)
+        assert dialog.password.isEnabled()
+        dialog.password.setText("not their password")
+        if not accepted(dialog):
+            refused.append(dialog.message.text())
+        dialog.password.setText(SECRET)
+        return accepted(dialog)
+
+    export_answer(monkeypatch, in_the_clear)
+    result = exporting()
+
+    assert refused == ["The password is not correct."]
+    assert result is not None and result.still_encrypted == 0
+    texts = [p.read_text(encoding="utf-8") for p in result.folder.glob("*.md")]
+    assert TEXT in texts
+    assert "stayed encrypted" not in exporting_told[0]
+
+
+def test_cancelled_nothing_is_exported_nor_a_folder_asked(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    exporting: Callable[[], ExportResult | None],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    secret_note(qtbot, manager, answers)
+    export_answer(monkeypatch, cancel)
+
+    assert exporting() is None
+    assert list((tmp_path / "out").iterdir()) == []
+
+
+def test_without_secret_notes_nothing_is_asked(
+    qtbot: QtBot,
+    manager: NoteManager,
+    exporting: Callable[[], ExportResult | None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = manager.new_note()
+    window.editor.insertPlainText("장보기")
+
+    def never(_dialog: QDialog) -> bool:
+        raise AssertionError("asked")
+
+    export_answer(monkeypatch, never)
+    result = exporting()
+
+    assert result is not None and result.notes == 1 and result.still_encrypted == 0

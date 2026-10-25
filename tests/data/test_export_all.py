@@ -1,5 +1,6 @@
 """Exporting everything: Markdown files to read anywhere, and JSON with all the data."""
 
+import base64
 import json
 import secrets
 from collections.abc import Iterator
@@ -10,8 +11,9 @@ import apsw
 import pytest
 
 from stickle.core.layout import Place
+from stickle.crypto.secret_notes import SecretNoteError, open_text, seal_text
 from stickle.data.database import KEY_BYTES
-from stickle.data.export import JSON_NAME, export_all
+from stickle.data.export import JSON_NAME, SecretExport, export_all
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
@@ -119,3 +121,75 @@ def test_nothing_is_overwritten(connection: apsw.Connection, tmp_path: Path) -> 
 
     assert first != second
     assert second.name == f"{first.name} 2"
+
+
+# Secret notes: as they are stored, or opened with their key
+
+SECRET_KEY = secrets.token_bytes(32)
+SECRET_TEXT = "통장 비밀번호 힌트 zqxjkv"
+KEY_COPIES: dict[str, object] = {"format": 1, "slots": {"secret_password": {"sealed": "…"}}}
+
+
+def with_a_secret_note(connection: apsw.Connection) -> str:
+    notes = NoteRepository(connection)
+    note = notes.create(SECRET_TEXT)
+    notes.make_secret(note.id, "은행", seal_text(SECRET_KEY, note.id, SECRET_TEXT))
+    notes.create("장보기")
+    return note.id
+
+
+def everything_written(folder: Path) -> str:
+    return "".join(p.read_bytes().decode("utf-8") for p in folder.rglob("*") if p.is_file())
+
+
+def test_left_encrypted_only_its_title_shows_and_its_key_goes_along(
+    connection: apsw.Connection, tmp_path: Path
+) -> None:
+    note_id = with_a_secret_note(connection)
+    secret = SecretExport(locked_line="잠긴 비밀 메모", key_copies=KEY_COPIES)
+
+    result = export_all(connection, tmp_path, "0.6.0", clock=lambda: NOW, secret=secret)
+
+    assert result.still_encrypted == 1
+    files = markdown(result.folder)
+    assert files[f"은행 ({note_id[:8]}).md"] == "# 은행\n\n잠긴 비밀 메모\n"
+    assert "zqxjkv" not in everything_written(result.folder)
+    document = exported(result.folder)
+    assert document["secret_notes_key"] == KEY_COPIES
+    (row,) = [r for r in tables_of(document)["notes"] if r["id"] == note_id]
+    assert row["body"] == "" and row["secret_title"] == "은행"
+    sealed = base64.b64decode(cast(dict[str, str], row["secret_body"])["base64"])
+    assert open_text(SECRET_KEY, note_id, sealed) == SECRET_TEXT  # opens later as stored
+
+
+def test_opened_its_text_is_written_in_the_clear(
+    connection: apsw.Connection, tmp_path: Path
+) -> None:
+    note_id = with_a_secret_note(connection)
+
+    result = export_all(
+        connection, tmp_path, "0.6.0", clock=lambda: NOW, secret=SecretExport(key=SECRET_KEY)
+    )
+
+    assert result.still_encrypted == 0
+    assert markdown(result.folder)[f"은행 ({note_id[:8]}).md"] == SECRET_TEXT
+    document = exported(result.folder)
+    assert "secret_notes_key" not in document
+    (row,) = [r for r in tables_of(document)["notes"] if r["id"] == note_id]
+    assert row["body"] == SECRET_TEXT and row["secret_body"] is None
+    assert row["secret_title"] == "은행"  # it was a secret note
+
+
+def test_with_the_wrong_key_nothing_is_written(connection: apsw.Connection, tmp_path: Path) -> None:
+    with_a_secret_note(connection)
+
+    with pytest.raises(SecretNoteError):
+        export_all(
+            connection,
+            tmp_path / "out",
+            "0.6.0",
+            clock=lambda: NOW,
+            secret=SecretExport(key=secrets.token_bytes(32)),
+        )
+
+    assert not (tmp_path / "out").exists()

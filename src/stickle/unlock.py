@@ -24,7 +24,7 @@ import apsw
 
 from stickle.core.clock import Clock, utc_now
 from stickle.crypto import secret_notes
-from stickle.crypto.key_files import A, KeyFiles
+from stickle.crypto.key_files import A, C, KeyFiles
 from stickle.crypto.keyfile import (
     MEMLIMIT,
     OPSLIMIT,
@@ -34,6 +34,7 @@ from stickle.crypto.keyfile import (
     WrongPasswordError,
     key_file_of,
     key_file_slots,
+    parse_document,
     unwrap_with_password,
     wrap_with_password,
 )
@@ -364,6 +365,15 @@ class Unlock:
 
     def change_secret_password(self, key: bytes, password: str) -> None:
         secret_notes.change_password(self.files, key, password, self._clock(), self._strength)
+
+    def secret_key_copies(self) -> dict[str, object] | None:
+        """The secret notes' key file as it is (their key, locked), to go out with
+        them when they are exported encrypted; None without one."""
+        try:
+            raw = self.files.raw(C)
+            return None if raw is None else parse_document(raw)
+        except KeyFileError, OSError:
+            return None
 
     def keep_secret_notes_for_master(self, key: bytes) -> None:
         """After a master password set anew, the secret notes' key sealed for it."""
