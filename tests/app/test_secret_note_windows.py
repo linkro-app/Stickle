@@ -1168,3 +1168,16 @@ def test_without_secret_notes_nothing_is_asked(
     result = exporting()
 
     assert result is not None and result.notes == 1 and result.still_encrypted == 0
+
+
+def test_enter_on_a_choice_goes_on_to_next(qtbot: QtBot) -> None:
+    # Some desktops (GNOME) have Enter press the focused button instead.
+    dialog = SecretExportDialog(2, lambda _password: b"")
+    qtbot.addWidget(dialog)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+    dialog.encrypted.setFocus()
+
+    QTest.keyClick(dialog.encrypted, Qt.Key.Key_Return)
+
+    assert dialog.result() == QDialog.DialogCode.Accepted.value and dialog.key is None

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Literal, override
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QKeyEvent
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -480,6 +480,26 @@ class SecretTitleDialog(_PasswordWindow):
         return self.title.text().strip()
 
 
+class _Choice(QRadioButton):
+    """One of the ways to choose: the arrows move between them, and Enter goes on
+    to the window's default button. Some desktops (GNOME) have Enter press the
+    button with the keyboard instead, as for KeptBox."""
+
+    @override
+    def keyPressEvent(self, e: QKeyEvent) -> None:
+        if e.key() in KeptBox.ENTER_KEYS:
+            e.ignore()
+            return
+        super().keyPressEvent(e)
+
+    @override
+    def keyReleaseEvent(self, e: QKeyEvent) -> None:
+        if e.key() in KeptBox.ENTER_KEYS:
+            e.ignore()
+            return
+        super().keyReleaseEvent(e)
+
+
 class SecretExportDialog(_PasswordWindow):
     """How the secret notes go out with the rest of the notes: encrypted, as they
     are, or in the clear once their password shows it is the user's. key holds
@@ -492,11 +512,11 @@ class SecretExportDialog(_PasswordWindow):
         self._count = count
         self._open = open_notes
         self.key: bytes | None = None
-        self.encrypted = QRadioButton()
+        self.encrypted = _Choice()
         self.encrypted.setChecked(True)  # what they are: chosen until the user says otherwise
         self.encrypted_note = QLabel()
         self.encrypted_note.setWordWrap(True)
-        self.plain = QRadioButton()
+        self.plain = _Choice()
         for place, widget in enumerate((self.encrypted, self.encrypted_note, self.plain), 1):
             self.layout_parts.insertWidget(place, widget)
         self.password = _password_field()
