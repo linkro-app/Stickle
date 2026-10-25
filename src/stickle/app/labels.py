@@ -7,7 +7,7 @@ icons, as many as fit, then a count of the rest; clicking them opens
 the note menu.
 """
 
-from typing import override
+from typing import Literal, override
 
 from PySide6.QtCore import QCoreApplication, QLocale, QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import (
@@ -19,7 +19,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QSizePolicy, QToolButton, QWidget
 
-from stickle.app.label_icons import label_icon, paint_label, state_pixmap
+from stickle.app.label_icons import LIST_ICON_SIZE, label_icon, paint_label, state_pixmap
 from stickle.app.palette import qcolor, rgb
 from stickle.core.colors import PALETTE, clear_on, colors_for
 from stickle.core.labels import Category, Mark
@@ -67,6 +67,14 @@ def mark_item_icon(mark: Mark, ink: QColor) -> QIcon:
     return mark_icon(mark.icon, ink)
 
 
+def keyhole_item_icon(ink: QColor) -> QIcon:
+    """The secret notes' keyhole beside their name in a list or menu."""
+    icon = QIcon()
+    for scale in (1.0, 2.0):
+        icon.addPixmap(state_pixmap(None, ink, None, LIST_ICON_SIZE, scale, secret="locked"))
+    return icon
+
+
 def draw_mark(painter: QPainter, icon: str, x: float, y: float, color: QColor) -> None:
     """The mark's icon, ICON across, with its top left at (x, y): its lines a
     little heavier than a category's, so that it stands out at this size."""
@@ -93,12 +101,15 @@ class CategoryTag(_TitleBarPart):
     """The note's state at the left of its title bar: its category's icon (the
     app's own for none), with a strip of tape across it while the note stays
     on top. As large as the title's letters. It only shows the state: the
-    category is changed from the note menu, staying on top with the pin."""
+    category is changed from the note menu, staying on top with the pin. A
+    secret note shows a keyhole instead, and not its category: filled while
+    locked, in outline while open."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.category: Category | None = None
         self.on_top = False
+        self.secret: Literal["locked", "open"] | None = None
         self.background = QColor(Qt.GlobalColor.white)
         # Not a button: a press here starts moving the note, as on the bar.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -115,12 +126,23 @@ class CategoryTag(_TitleBarPart):
         self.retranslate()
         self.update()
 
+    def set_secret(self, secret: Literal["locked", "open"] | None) -> None:
+        self.secret = secret
+        self.retranslate()
+        self.update()
+
     def set_background(self, background: QColor) -> None:
         self.background = background
         self.update()
 
     def retranslate(self) -> None:
-        if self.category is None:
+        if self.secret == "locked":
+            text = QCoreApplication.translate("CategoryTag", "Secret note, locked")
+        elif self.secret == "open":
+            text = QCoreApplication.translate(
+                "CategoryTag", "Secret note, open: it locks again by itself"
+            )
+        elif self.category is None:
             text = QCoreApplication.translate("CategoryTag", "No category")
         else:
             text = QCoreApplication.translate("CategoryTag", "Category: %1").replace(
@@ -137,8 +159,8 @@ class CategoryTag(_TitleBarPart):
 
     def icon_color(self) -> QColor:
         """The category's colour, deepened until it shows on the note; the
-        title's colour for the app's own icon."""
-        if self.category is None:
+        title's colour for the app's own icon and the keyhole."""
+        if self.category is None or self.secret is not None:
             return self.color
         shown = clear_on(rgb(dot_color(self.category.color)), rgb(self.background))
         return qcolor(shown)
@@ -160,6 +182,7 @@ class CategoryTag(_TitleBarPart):
             self.color if self.on_top else None,
             size,
             self.devicePixelRatioF(),
+            self.secret,
         )
         painter = QPainter(self)
         painter.drawPixmap(QPointF(PADDING, (self.height() - size) / 2), icon)

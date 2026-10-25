@@ -11,6 +11,7 @@ note's state: it is changed from the note's menu and the pin.
 
 from functools import cache
 from pathlib import Path
+from typing import Literal
 
 from PySide6.QtCore import QByteArray, QCoreApplication, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -147,6 +148,30 @@ def paint_app_mark(painter: QPainter, color: QColor, area: QRectF) -> None:
     painter.restore()
 
 
+def paint_keyhole(painter: QPainter, color: QColor, area: QRectF, filled: bool) -> None:
+    """A keyhole, a secret note's sign: filled while it is locked, in outline
+    while it is open (it locks again by itself)."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.translate(area.topLeft())
+    size = min(area.width(), area.height())
+    painter.scale(size / 24, size / 24)  # Lucide's 24-unit grid, as the app's icon
+    shape = QPainterPath()
+    shape.addEllipse(QPointF(12, 8.5), 5, 5)
+    stem = QPainterPath()
+    stem.moveTo(10, 11)
+    stem.lineTo(8, 21)
+    stem.lineTo(16, 21)
+    stem.lineTo(14, 11)
+    stem.closeSubpath()
+    pen = QPen(color, 2)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(color if filled else Qt.BrushStyle.NoBrush)
+    painter.drawPath(shape.united(stem))
+    painter.restore()
+
+
 def paint_tape(painter: QPainter, color: QColor, area: QRectF) -> None:
     """A strip of tape across the icon's top left corner, a little past it,
     as one holding the icon on: the note stays on top."""
@@ -178,9 +203,11 @@ def state_pixmap(
     tape: QColor | None,
     size: int,
     scale: float = 1.0,
+    secret: Literal["locked", "open"] | None = None,
 ) -> QPixmap:
     """The title bar's left icon at size logical pixels: the category's (or the
-    app's, for None) in color, with tape in the tape colour when on top."""
+    app's, for None) in color, with tape in the tape colour when on top. A
+    secret note shows a keyhole instead, whatever its category."""
     pixels = round(size * scale)
     pixmap = QPixmap(pixels, pixels)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -188,7 +215,9 @@ def state_pixmap(
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     # Room around the icon for the tape to reach past its corner.
     inner = QRectF(pixels * 0.12, pixels * 0.12, pixels * 0.88, pixels * 0.88)
-    if category is None:
+    if secret is not None:
+        paint_keyhole(painter, color, inner, filled=secret == "locked")
+    elif category is None:
         paint_app_mark(painter, color, inner)
     else:
         paint_label(painter, category, color, inner)

@@ -18,8 +18,10 @@ from test_startup_dialogs import FAST, Backend, store_of
 from stickle.app import application, notes, secret_dialogs, secret_notes, settings_window
 from stickle.app.i18n import Translations
 from stickle.app.master_password import MasterPasswordDialog
+from stickle.app.note_list import ANY, NoteList
+from stickle.app.note_list import SECRET as SECRET_FILTER
 from stickle.app.note_window import NoteWindow
-from stickle.app.notes import NoteManager
+from stickle.app.notes import NO_CATEGORY, SECRET_NOTES, NoteManager
 from stickle.app.protection_changes import ProtectionChanges
 from stickle.app.secret_dialogs import (
     NewSecretPasswordDialog,
@@ -28,8 +30,11 @@ from stickle.app.secret_dialogs import (
     TurnOnDialog,
 )
 from stickle.app.settings_window import SettingsWindow
+from stickle.app.titles import shown_title
+from stickle.app.tray import menu_title
 from stickle.core.note import Note
 from stickle.crypto.secret_notes import open_text
+from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.search import search
@@ -126,7 +131,12 @@ def answers(monkeypatch: pytest.MonkeyPatch) -> Answers:
 def manager(
     qtbot: QtBot, connection: apsw.Connection, unlock: Unlock, answers: Answers
 ) -> Iterator[NoteManager]:
-    manager = NoteManager(NoteRepository(connection), idle_ms=50, settings=Settings(connection))
+    manager = NoteManager(
+        NoteRepository(connection),
+        idle_ms=50,
+        settings=Settings(connection),
+        labels=LabelRepository(connection),
+    )
     manager.secrets = application.secret_passwords(unlock, application.master_passwords(unlock))
     yield manager
     for window in manager.windows:
@@ -877,3 +887,135 @@ def test_enter_after_ticking_i_understand_turns_them_on(qtbot: QtBot, manager: N
     assert dialog.understood.isChecked()
     qtbot.waitUntil(lambda: dialog.result() == QDialog.DialogCode.Accepted.value)
     assert dialog.key is not None
+
+
+# How it looks, and where it is listed: by its title only
+
+
+def listed_texts(note_list: NoteList) -> list[str]:
+    return [note_list.list.item(row).text() for row in range(note_list.list.count())]
+
+
+def test_it_shows_a_keyhole_and_not_its_category_or_marks(
+    qtbot: QtBot, manager: NoteManager, answers: Answers
+) -> None:
+    work = manager.create_category("회사", "blue")
+    urgent = manager.create_mark("급함", "star")
+    window = manager.new_note()
+    window.editor.insertPlainText(TEXT)
+    manager.save(window)
+    manager.set_category(window, work.id)
+    manager.set_mark(window, urgent.id, True)
+    qtbot.waitExposed(window)
+    tag, badge = window.title_bar.category_tag, window.title_bar.marks_badge
+    assert badge.isVisible()
+    answers.queue += [turn_on(), title("은행")]
+
+    window.secret_action.trigger()
+
+    assert tag.secret == "open"
+    assert tag.accessibleName() == "Secret note, open: it locks again by itself, stays on top"
+    assert not badge.isVisible()
+    assert not window.category_menu.menuAction().isVisible()
+    manager.lock_secret(window)
+    assert tag.secret == "locked"
+    assert tag.accessibleName() == "Secret note, locked, stays on top"
+    assert window.category is not None and window.category.id == work.id  # kept for later
+
+
+def test_lists_and_menus_show_its_title_only(
+    qtbot: QtBot, manager: NoteManager, answers: Answers, connection: apsw.Connection
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    note = stored(connection, window)
+    note_list = NoteList(manager)
+    qtbot.addWidget(note_list)
+
+    note_list.refresh()
+
+    assert any(text.startswith("은행 · secret note") for text in listed_texts(note_list))
+    assert not any("plorbit" in text for text in listed_texts(note_list))
+    assert menu_title(note) == "은행"
+    assert shown_title(note) == "은행"
+
+
+def test_it_is_found_by_its_title_never_its_text(
+    qtbot: QtBot, manager: NoteManager, answers: Answers, connection: apsw.Connection
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+
+    assert manager.matching("은행") == {window.note_id}
+    assert manager.matching("plorbit") == set()  # open, still not searched
+
+
+def test_category_views_leave_it_out_and_the_secret_view_gathers_them(
+    qtbot: QtBot, manager: NoteManager, answers: Answers
+) -> None:
+    work = manager.create_category("회사", "blue")
+    ordinary = manager.new_note()
+    ordinary.editor.insertPlainText("회의")
+    manager.save(ordinary)
+    manager.set_category(ordinary, work.id)
+    assert [view for view, _ in manager.view_choices()] == [None, NO_CATEGORY, work.id]
+    window = secret_note(qtbot, manager, answers)
+    manager.set_category(window, work.id)  # kept, while secret, for later
+
+    assert manager.view_choices()[-1] == (SECRET_NOTES, "Secret notes")
+    manager.set_view(work.id)
+    assert ordinary.isVisible() and not window.isVisible()
+    manager.next_view()
+    assert manager.view == SECRET_NOTES
+    assert window.isVisible() and not ordinary.isVisible()
+    made = manager.new_note()  # while the secret notes are in view: ordinary, no category
+    assert made.category is None and made.isVisible() and not made.secret
+    manager.next_view()
+    assert manager.view is None and ordinary.isVisible() and window.isVisible()
+
+
+def test_made_secret_while_its_category_is_in_view_it_stays_until_the_view_ends(
+    qtbot: QtBot, manager: NoteManager, answers: Answers
+) -> None:
+    work = manager.create_category("회사", "blue")
+    window = manager.new_note()
+    window.editor.insertPlainText(TEXT)
+    manager.save(window)
+    manager.set_category(window, work.id)
+    manager.set_view(work.id)
+    answers.queue += [turn_on(), title("은행")]
+
+    window.secret_action.trigger()
+
+    assert window.secret and window.isVisible()
+    manager.set_view(work.id)  # the view chosen again: now left out
+    assert not window.isVisible()
+
+
+def test_the_list_gathers_them_apart_from_categories_and_marks(
+    qtbot: QtBot, manager: NoteManager, answers: Answers
+) -> None:
+    work = manager.create_category("회사", "blue")
+    window = secret_note(qtbot, manager, answers)
+    manager.set_category(window, work.id)
+    plain = manager.new_note()
+    plain.editor.insertPlainText("회의")
+    manager.save(plain)
+    manager.set_category(plain, work.id)
+    note_list = NoteList(manager)
+    qtbot.addWidget(note_list)
+    note_list.refresh()
+    box = note_list.category_box
+
+    last = box.count() - 1
+    assert box.itemData(last) == SECRET_FILTER and box.itemText(last) == "Secret notes"
+    box.setCurrentIndex(box.findData(work.id))
+    assert [text.split(" · ")[0] for text in listed_texts(note_list)] == ["회의"]
+    box.setCurrentIndex(box.findData(SECRET_FILTER))
+    assert [text.split(" · ")[0] for text in listed_texts(note_list)] == ["은행"]
+    box.setCurrentIndex(box.findData(ANY))
+    assert len(listed_texts(note_list)) == 2
+
+
+def test_without_secret_notes_there_is_no_secret_view(manager: NoteManager) -> None:
+    assert SECRET_NOTES not in [view for view, _ in manager.view_choices()]
+    manager.set_view(SECRET_NOTES)
+    assert manager.view is None

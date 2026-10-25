@@ -13,8 +13,8 @@ from stickle.app.app_icon import make_icon
 from stickle.app.i18n import Translations
 from stickle.app.notes import HIDDEN_LISTED, NoteManager, clipboard_text
 from stickle.app.support import open_support
+from stickle.app.titles import shown_title
 from stickle.app.update_check import UpdateCheck
-from stickle.core.markdown import note_title
 from stickle.core.note import Note
 from stickle.platform.autostart import Autostart
 
@@ -37,7 +37,7 @@ def switch_autostart(autostart: Autostart, on: bool) -> bool:
 
 def menu_title(note: Note) -> str:
     """The note's title, shortened, with & kept literal (Qt reads it as a shortcut mark)."""
-    title = note_title(note.body)
+    title = shown_title(note)
     if len(title) > TITLE_LENGTH:
         title = title[: TITLE_LENGTH - 1] + "…"
     return title.replace("&", "&&")

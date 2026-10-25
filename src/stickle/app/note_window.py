@@ -71,6 +71,7 @@ from stickle.app.note_highlight import MarkdownHighlighter
 from stickle.app.note_view import NoteView, from_utf16, utf16_length
 from stickle.app.palette import color_name, qcolor, swatch_icon
 from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
+from stickle.app.titles import secret_name
 from stickle.app.window_flags import keep_stays_on_top, set_stays_on_top, stays_on_top
 from stickle.core.colors import DARK_TEXT, DEFAULT_COLOR, PALETTE, note_colors
 from stickle.core.editing import on_close_bracket, on_enter, on_tab
@@ -898,6 +899,7 @@ class NoteWindow(QWidget):
         self.marks = marks
         self.title_bar.category_tag.set_category(category)
         self.title_bar.marks_badge.set_marks(marks)
+        self.title_bar.marks_badge.setVisible(not self.secret and bool(marks))
 
     def _fill_label_menus(self) -> None:
         categories, marks = self.label_choices()
@@ -1313,7 +1315,7 @@ class NoteWindow(QWidget):
     @property
     def secret_name(self) -> str:
         """The title it is shown by: the one typed, or a name for none."""
-        return self.secret_title or self.tr("Secret note")
+        return secret_name(self.secret_title)
 
     def show_secret_locked(self, title: str) -> None:
         """Locked, by its title: none of its text left in the window, nor in
@@ -1351,6 +1353,14 @@ class NoteWindow(QWidget):
 
     def _show_secret_state(self) -> None:
         secret, opened = self.secret, self.secret and not self.secret_locked
+        # A keyhole where its category's icon was; its category and marks kept
+        # (for when it is ordinary again), not shown.
+        self.title_bar.category_tag.set_secret(
+            None if not secret else "open" if opened else "locked"
+        )
+        self.title_bar.marks_badge.setVisible(not secret and bool(self.marks))
+        for menu in (self.category_menu, self.marks_menu):
+            menu.menuAction().setVisible(not secret)
         self.secret_action.setVisible(self.can_be_secret and not secret)
         self.open_secret_action.setVisible(self.secret_locked)
         for action in (self.lock_secret_action, self.secret_title_action, self.ordinary_action):

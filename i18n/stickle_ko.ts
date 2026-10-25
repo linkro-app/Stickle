@@ -154,6 +154,14 @@
 <context>
     <name>CategoryTag</name>
     <message>
+        <source>Secret note, locked</source>
+        <translation>비밀 메모, 잠김</translation>
+    </message>
+    <message>
+        <source>Secret note, open: it locks again by itself</source>
+        <translation>비밀 메모, 열림: 저절로 다시 잠깁니다</translation>
+    </message>
+    <message>
         <source>No category</source>
         <translation>카테고리 없음</translation>
     </message>
@@ -1276,8 +1284,16 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>카테고리 없음</translation>
     </message>
     <message>
+        <source>Secret notes</source>
+        <translation>비밀 메모</translation>
+    </message>
+    <message>
         <source>All marks</source>
         <translation>모든 표시</translation>
+    </message>
+    <message>
+        <source>secret note</source>
+        <translation>비밀 메모</translation>
     </message>
     <message>
         <source>(empty note)</source>
@@ -1363,6 +1379,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Notes with no category</source>
         <translation>카테고리 없는 메모</translation>
+    </message>
+    <message>
+        <source>Secret notes</source>
+        <translation>비밀 메모</translation>
     </message>
     <message>
         <source>The note could not be made secret.</source>
@@ -1539,10 +1559,6 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Folded note: %1</source>
         <translation>접힌 메모: %1</translation>
-    </message>
-    <message>
-        <source>Secret note</source>
-        <translation>비밀 메모</translation>
     </message>
     <message>
         <source>Enter unfolds it.</source>
@@ -2053,6 +2069,13 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>The notes could not be restored. Nothing was changed.</source>
         <translation>메모를 되돌리지 못했습니다. 아무것도 바뀌지 않았습니다.</translation>
+    </message>
+</context>
+<context>
+    <name>SecretNote</name>
+    <message>
+        <source>Secret note</source>
+        <translation>비밀 메모</translation>
     </message>
 </context>
 <context>

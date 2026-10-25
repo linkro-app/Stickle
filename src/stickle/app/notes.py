@@ -94,6 +94,8 @@ log = logging.getLogger(__name__)
 
 # The view of the notes with no category (not an id: no category is stored with it).
 NO_CATEGORY = "*none*"
+# The view of the secret notes, which no category's view shows.
+SECRET_NOTES = "*secret*"
 # A note lined up where it was dropped slides there this quickly.
 SNAP_SLIDE_MS = 100
 
@@ -413,7 +415,7 @@ class NoteManager(QObject):
         window.guide_requested.connect(self.guide_requested)
         if note is not None:
             self._show_labels(window, note.label, note.marks)
-        elif self._view is not None and self._view != NO_CATEGORY:
+        elif self._view not in (None, NO_CATEGORY, SECRET_NOTES):
             # Made while one category is in view: of it, so that it stays in sight.
             self._show_labels(window, self._view, ())
 
@@ -765,12 +767,15 @@ class NoteManager(QObject):
     @property
     def view(self) -> str | None:
         """The category whose notes alone are on the desktop, NO_CATEGORY for the
-        notes with none, or None for every note."""
+        notes with none, SECRET_NOTES for the secret notes, or None for every note."""
         return self._view
 
     def _in_view(self, window: NoteWindow) -> bool:
         if self._view is None:
             return True
+        if self._view == SECRET_NOTES or window.secret:
+            # Kept apart: not in the view of the category they keep for later.
+            return self._view == SECRET_NOTES and window.secret
         category = window.category.id if window.category is not None else None
         return category is None if self._view == NO_CATEGORY else category == self._view
 
@@ -785,6 +790,8 @@ class NoteManager(QObject):
         # The window the view was chosen in (the Stickle window, as a rule).
         chosen_in = QApplication.activeWindow()
         known = {c.id for c in self.label_choices()[0]}
+        if self.has_secret_notes():
+            known.add(SECRET_NOTES)
         if view is not None and view != NO_CATEGORY and view not in known:
             view = None  # deleted meanwhile
         back, self._out_of_view = self._out_of_view, []
@@ -873,11 +880,12 @@ class NoteManager(QObject):
 
     def view_choices(self) -> list[tuple[str | None, str]]:
         """(view, name) for each view there is: every note, the notes with no
-        category, then each category in its order."""
+        category, each category in its order, then the secret notes if any."""
         return [
             (None, self.tr("All notes")),
             (NO_CATEGORY, self.tr("Notes with no category")),
             *((c.id, c.name) for c in self.label_choices()[0]),
+            *([(SECRET_NOTES, self.tr("Secret notes"))] if self.has_secret_notes() else []),
         ]
 
     def view_name(self) -> str:
@@ -885,8 +893,11 @@ class NoteManager(QObject):
         return dict(self.view_choices()).get(self._view, "")
 
     def next_view(self) -> None:
-        """Every note, then each category in its order, then every note again."""
+        """Every note, then each category in its order, the secret notes if any,
+        then every note again."""
         order: list[str | None] = [None, *(c.id for c in self.label_choices()[0])]
+        if self.has_secret_notes():
+            order.append(SECRET_NOTES)
         current = order.index(self._view) if self._view in order else 0
         self.set_view(order[(current + 1) % len(order)])
 
@@ -1456,6 +1467,11 @@ class NoteManager(QObject):
     def listed_notes(self) -> list[Note]:
         """Every note not deleted, shown or hidden; most recently changed first."""
         return self._repository.live() if self._repository else []
+
+    def has_secret_notes(self, in_trash: bool = False) -> bool:
+        """Whether a note shown or hidden (or, with in_trash, deleted) is secret."""
+        notes = self.listed_notes() + (self.trash_notes() if in_trash else [])
+        return any(note.secret for note in notes)
 
     def matching(self, term: str) -> set[str]:
         """Ids of stored notes whose text contains term (as last saved)."""

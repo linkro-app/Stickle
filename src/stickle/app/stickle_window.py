@@ -51,10 +51,10 @@ from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportDialog
 from stickle.app.in_use import OnTopWhileInUse
 from stickle.app.label_manager import LabelManager
-from stickle.app.labels import category_item_icon
+from stickle.app.labels import category_item_icon, keyhole_item_icon
 from stickle.app.master_password import MasterPasswords
 from stickle.app.note_list import NoteList
-from stickle.app.notes import NoteManager, clipboard_text
+from stickle.app.notes import SECRET_NOTES, NoteManager, clipboard_text
 from stickle.app.protection_changes import Change, ProtectionChanges
 from stickle.app.settings_window import RecoveryKeys, SettingsWindow
 from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
@@ -62,9 +62,9 @@ from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
 from stickle.app.times import local_time
+from stickle.app.titles import shown_title
 from stickle.app.update_check import UpdateCheck
 from stickle.app.window_flags import set_stays_on_top
-from stickle.core.markdown import note_title
 from stickle.data.settings import LIST_WINDOW_SIZE, Settings
 from stickle.platform.autostart import Autostart, may_be_blocked
 from stickle.platform.linux.appimage import AppMenuEntry
@@ -483,7 +483,7 @@ class StickleWindow(QWidget):
         if deleted is None:
             self.restore_button.set_full_text(self.tr("Restore the note just deleted"))
         else:
-            title = note_title(deleted.body) or self.tr("(empty note)")
+            title = shown_title(deleted) or self.tr("(empty note)")
             self.restore_button.set_full_text(
                 self.tr("Restore the note just deleted: %1").replace("%1", title)
             )
@@ -494,9 +494,13 @@ class StickleWindow(QWidget):
         self.view_box.clear()
         categories = {c.id: c for c in self._notes.label_choices()[0]}
         background = self.view_box.palette().base().color()
+        ink = self.view_box.palette().text().color()
         for view, name in self._notes.view_choices():
             category = categories.get(view) if view is not None else None
-            icon = category_item_icon(category, background) if category else QIcon()
+            if category is not None:
+                icon = category_item_icon(category, background)
+            else:
+                icon = keyhole_item_icon(ink) if view == SECRET_NOTES else QIcon()
             self.view_box.addItem(icon, name, view)
         self.view_box.setCurrentIndex(max(0, self.view_box.findData(self._notes.view)))
         one = self._notes.view is not None

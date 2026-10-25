@@ -81,3 +81,16 @@ def test_made_ordinary_again_it_is_found_again(connection: apsw.Connection) -> N
 
     assert not back.secret and back.body == TEXT and back.secret_title is None
     assert search(connection, "plorbit") == [note.id]
+
+
+def test_found_by_its_title_while_secret_only(connection: apsw.Connection) -> None:
+    notes = NoteRepository(connection)
+    note = notes.create(TEXT)
+    notes.make_secret(note.id, "통장 100%_", seal_text(SECRET_KEY, note.id, TEXT))
+
+    assert search(connection, "통장") == [note.id]
+    assert search(connection, "100%_") == [note.id]  # found as typed, not as a pattern
+    assert search(connection, "10_") == []
+
+    notes.make_ordinary(note.id, TEXT)
+    assert search(connection, "통장") == []  # its title went with it

@@ -28,18 +28,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stickle.app.labels import category_item_icon, mark_item_icon, mark_name
+from stickle.app.labels import category_item_icon, keyhole_item_icon, mark_item_icon, mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.palette import swatch_icon
+from stickle.app.titles import shown_title
 from stickle.core.colors import DEFAULT_COLOR, PALETTE
 from stickle.core.labels import Category, Mark
-from stickle.core.markdown import note_title
 from stickle.core.note import Note
 
 NOTE_ID = Qt.ItemDataRole.UserRole
 ALL, SHOWN, HIDDEN, TRASH = "all", "shown", "hidden", "trash"
 # Not ids: no category or mark is stored with these.
-ANY, NONE = "*any*", "*none*"
+ANY, NONE, SECRET = "*any*", "*none*", "*secret*"
 # A note's text is stored a second after typing stops; the list follows a moment later.
 REFRESH_DELAY_MS = 300
 # Typing on narrows the list once the keys pause, not on every letter.
@@ -194,7 +194,13 @@ class NoteList(QWidget):
             (
                 self.category_box,
                 [(ANY, self.tr("All categories"), none), (NONE, self.tr("No category"), none)]
-                + [(c.id, c.name, category_item_icon(c, background)) for c in self._categories],
+                + [(c.id, c.name, category_item_icon(c, background)) for c in self._categories]
+                # Secret notes are not found by their categories: gathered here instead.
+                + (
+                    [(SECRET, self.tr("Secret notes"), keyhole_item_icon(ink))]
+                    if self._notes.has_secret_notes(in_trash=True)
+                    else []
+                ),
             ),
             (
                 self.mark_box,
@@ -220,9 +226,13 @@ class NoteList(QWidget):
             self.category_box.setCurrentIndex(index)
 
     def _labelled(self, note: Note) -> bool:
-        """Whether the note is in the category and has the mark chosen."""
+        """Whether the note is in the category and has the mark chosen. A secret
+        note is in "Secret notes" only (its category and marks are kept for when
+        it is ordinary again)."""
         category = self.category_box.currentData()
         mark = self.mark_box.currentData()
+        if category == SECRET or note.secret:
+            return note.secret and category in (ANY, SECRET) and mark == ANY
         if category == NONE and note.label is not None:
             return False
         if category not in (ANY, NONE) and note.label != category:
@@ -238,12 +248,14 @@ class NoteList(QWidget):
         return note.hidden if shown == HIDDEN else not note.hidden
 
     def _labels(self, note: Note) -> list[str]:
-        """The note's category and marks, by name."""
+        """The note's category and marks, by name (none shown for a secret note)."""
+        if note.secret:
+            return [self.tr("secret note")]
         names = [c.name for c in self._categories if c.id == note.label]
         return names + [mark_name(m) for m in self._marks if m.id in note.marks]
 
     def _text(self, note: Note) -> str:
-        title = note_title(note.body) or self.tr("(empty note)")
+        title = shown_title(note) or self.tr("(empty note)")
         if self.in_trash:
             deleted = self.tr("deleted %1").replace("%1", deleted_on(note))
             return " · ".join([title, *self._labels(note), deleted])

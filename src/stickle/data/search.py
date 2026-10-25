@@ -10,7 +10,8 @@ import apsw
 
 
 def search(connection: apsw.Connection, term: str) -> list[str]:
-    """Ids of notes containing term, in no particular order.
+    """Ids of notes containing term, in no particular order. A secret note's
+    text is not in the index: it is found by the title typed for it only.
 
     ASCII letters ignore case; other scripts match case exactly (é is not É).
     Korean has no case. Accented languages would need a case-folded column.
@@ -18,9 +19,11 @@ def search(connection: apsw.Connection, term: str) -> list[str]:
     if not term or "\x00" in term:  # notes never contain NUL (see the schema)
         return []
     escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
     rows = connection.execute(
         "SELECT notes.id FROM notes_fts JOIN notes ON notes.seq = notes_fts.rowid"
-        " WHERE notes_fts.body LIKE ? ESCAPE '\\'",
-        (f"%{escaped}%",),
+        " WHERE notes_fts.body LIKE ? ESCAPE '\\'"
+        " UNION SELECT id FROM notes WHERE secret_title LIKE ? ESCAPE '\\'",
+        (pattern, pattern),
     )
     return [str(row[0]) for row in rows]
