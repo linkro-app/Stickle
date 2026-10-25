@@ -4,7 +4,18 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from PySide6.QtWidgets import QDialog
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QProxyStyle,
+    QPushButton,
+    QStyle,
+    QStyleHintReturn,
+    QStyleOption,
+    QWidget,
+)
 from pytestqt.qtbot import QtBot
 from test_startup_dialogs import FAST, PASSWORD, Backend, Recovery, never, store_of, type_and_accept
 
@@ -297,3 +308,51 @@ def test_from_the_recovery_key_window_the_master_password_instead(
 
     assert connection is not None and unlock.opened_key == key
     connection.close()
+
+
+class GnomeButtons(QProxyStyle):
+    """Dialog buttons as GNOME lays them out: Cancel before the button that acts."""
+
+    def styleHint(  # noqa: N802
+        self,
+        hint: QStyle.StyleHint,
+        option: QStyleOption | None = None,
+        widget: QWidget | None = None,
+        returnData: QStyleHintReturn | None = None,  # noqa: N803
+    ) -> int:
+        if hint == QStyle.StyleHint.SH_DialogButtonLayout:
+            return QDialogButtonBox.ButtonLayout.GnomeLayout.value
+        return super().styleHint(hint, option, widget, returnData)
+
+
+class GnomeButtonBox(QDialogButtonBox):
+    """A button row laid out as on GNOME from the start, whatever this system does."""
+
+    def __init__(self, *args: object) -> None:
+        super().__init__()
+        self.gnome = GnomeButtons()  # kept: the row does not own its style
+        self.setStyle(self.gnome)
+
+
+def test_enter_sets_it_wherever_the_desktop_puts_cancel(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Made the default before it was in the window, the button was not: Qt took
+    # the first one of the Tab order instead, Cancel on GNOME, and Enter closed it.
+    monkeypatch.setattr(master_password, "QDialogButtonBox", GnomeButtonBox)
+    master = Master()
+    dialog = MasterPasswordDialog(master.passwords())
+    qtbot.addWidget(dialog)
+    dialog.show()
+    qtbot.waitExposed(dialog)
+    layout = dialog.buttons.layout()
+    assert layout is not None
+    shown = [item.widget() for i in range(layout.count()) if (item := layout.itemAt(i))]
+    first = next(w for w in shown if isinstance(w, QPushButton) and w.isVisible())
+    assert first is dialog.cancel_button  # laid out as on GNOME
+
+    dialog.new.setText(GOOD)
+    dialog.confirm.setText(GOOD)
+    QTest.keyClick(dialog.confirm, Qt.Key.Key_Return)
+
+    assert master.current == GOOD

@@ -97,7 +97,6 @@ class MasterPasswordDialog(QDialog):
         self.ok_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.AcceptRole)
         self.cancel_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.RejectRole)
         self.forgot_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
-        self.ok_button.setDefault(True)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         self.forgot_button.clicked.connect(self.forgot)
@@ -112,6 +111,9 @@ class MasterPasswordDialog(QDialog):
         layout.addWidget(self.rules)
         layout.addWidget(self.message)
         layout.addWidget(self.buttons)
+        # Once in this window, or it never learns: Qt then made the first button of
+        # the Tab order the default, Cancel where the desktop puts it first (GNOME).
+        self.ok_button.setDefault(True)
         self.setMinimumWidth(460)
         self._show_mode()
         self.retranslate()
@@ -274,7 +276,6 @@ class CheckMasterPasswordDialog(QDialog):
         self.buttons = QDialogButtonBox()
         self.check_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
         self.close_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.RejectRole)
-        self.check_button.setDefault(True)
         self.check_button.clicked.connect(self.check)
         self.buttons.rejected.connect(self.reject)
         form = QFormLayout()
@@ -284,6 +285,7 @@ class CheckMasterPasswordDialog(QDialog):
         layout.addLayout(form)
         layout.addWidget(self.answer)
         layout.addWidget(self.buttons)
+        self.check_button.setDefault(True)  # once in this window (see MasterPasswordDialog)
         self.setMinimumWidth(420)
         self.retranslate()
         self.password.setFocus()
