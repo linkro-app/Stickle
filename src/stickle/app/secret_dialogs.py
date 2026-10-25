@@ -8,6 +8,7 @@ and has the user say they know that losing both locks the notes away for
 good. Each secret note opens on its own, with the password.
 """
 
+import itertools
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -88,6 +90,17 @@ class _PasswordWindow(QDialog):
         self.layout_parts.addWidget(self.buttons)
         self.ok_button.setDefault(True)
         self.setMinimumWidth(460)
+        # The buttons in the order the system lays them out (GNOME: Cancel first).
+        layout = self.buttons.layout()
+        if layout is not None:
+            shown = [
+                widget
+                for index in range(layout.count())
+                if (item := layout.itemAt(index)) is not None
+                and isinstance(widget := item.widget(), QPushButton)
+            ]
+            for before, after in itertools.pairwise(shown):
+                QWidget.setTabOrder(before, after)
 
     def show_error(self, message: str, field: QLineEdit) -> None:
         self.message.setStyleSheet(ERROR_STYLE)
