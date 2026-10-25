@@ -5,7 +5,15 @@ from pathlib import Path
 from typing import override
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QKeyEvent
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QGuiApplication,
+    QKeyEvent,
+    QPainter,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -147,8 +155,40 @@ class KeptBox(QCheckBox):
         super().keyReleaseEvent(e)
 
 
+QR_MODULE = 4  # pixels for each square of the code
+QR_BORDER = 4  # squares of white around it, as readers need
+
+
+def qr_squares(text: str) -> list[list[bool]]:
+    """The QR code of text (error correction M), its white border included:
+    True for each dark square."""
+    import segno  # only when a recovery key is shown, not at every start
+
+    code = segno.make_qr(text, error="m")
+    return [[bool(square) for square in row] for row in code.matrix_iter(border=QR_BORDER)]
+
+
+def qr_pixmap(text: str) -> QPixmap:
+    """Black on white whatever the colours of the desktop: a dark theme's light
+    squares on dark were not read by phones."""
+    squares = qr_squares(text)
+    pixmap = QPixmap(len(squares) * QR_MODULE, len(squares) * QR_MODULE)
+    pixmap.fill(QColor("white"))
+    painter = QPainter(pixmap)
+    for y, row in enumerate(squares):
+        for x, dark in enumerate(row):
+            if dark:
+                painter.fillRect(
+                    x * QR_MODULE, y * QR_MODULE, QR_MODULE, QR_MODULE, QColor("black")
+                )
+    painter.end()
+    return pixmap
+
+
 class RecoveryKeyPanel(QWidget):
-    """A new recovery key, with ways to keep it; used in its own window and at first start."""
+    """A new recovery key, with ways to keep it; used in its own window and at first start.
+    Beside the characters, the same key as a QR code to keep on a phone: it holds
+    the key alone (no address), so scanning it opens nothing."""
 
     def __init__(self, recovery_key: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -162,6 +202,13 @@ class RecoveryKeyPanel(QWidget):
         self.key.setFont(font)
         self.key.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.key.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.qr = QLabel()
+        self.qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if recovery_key:
+            self.qr.setPixmap(qr_pixmap(recovery_key))
+        self.qr_note = QLabel()
+        self.qr_note.setWordWrap(True)
+        self.qr_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.copy_button = QPushButton()
         self.copy_button.clicked.connect(self._copy)
         self.save_button = QPushButton()
@@ -178,6 +225,8 @@ class RecoveryKeyPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.intro)
         layout.addWidget(self.key)
+        layout.addWidget(self.qr)
+        layout.addWidget(self.qr_note)
         layout.addLayout(actions)
         layout.addWidget(self.status)
         layout.addWidget(self.kept)
@@ -193,6 +242,13 @@ class RecoveryKeyPanel(QWidget):
             )
         )
         self.key.setAccessibleName(self.tr("Recovery key"))
+        self.qr.setAccessibleName(self.tr("The recovery key as a QR code"))
+        self.qr_note.setText(
+            self.tr(
+                "The same key as a QR code, to keep on a phone. It holds only the key:"
+                " scanning it opens nothing."
+            )
+        )
         self.copy_button.setText(self.tr("&Copy"))
         self.save_button.setText(self.tr("&Save to a file…"))
         self.kept.setText(self.tr("I have &kept the recovery key somewhere safe"))

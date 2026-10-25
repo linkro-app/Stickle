@@ -1759,6 +1759,14 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>복구 키</translation>
     </message>
     <message>
+        <source>The recovery key as a QR code</source>
+        <translation>복구 키 QR 코드</translation>
+    </message>
+    <message>
+        <source>The same key as a QR code, to keep on a phone. It holds only the key: scanning it opens nothing.</source>
+        <translation>휴대폰에 보관할 수 있게 같은 키를 QR 코드로 보여 줍니다. 키 글자만 들어 있어 찍어도 아무것도 열리지 않습니다.</translation>
+    </message>
+    <message>
         <source>&amp;Copy</source>
         <translation>복사(&amp;C)</translation>
     </message>

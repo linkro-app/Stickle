@@ -358,3 +358,32 @@ def test_enter_on_the_kept_box_never_unticks_it(qtbot: QtBot) -> None:
         box.keyReleaseEvent(release)
         assert not press.isAccepted() and not release.isAccepted()
     assert box.isChecked()
+
+
+# The recovery key as a QR code
+
+
+def test_the_qr_code_holds_the_key_alone_black_on_white(qtbot: QtBot) -> None:
+    import segno
+
+    from stickle.app.recovery_key_dialog import QR_BORDER, QR_MODULE, qr_pixmap, qr_squares
+
+    key = generate()
+    code = segno.make_qr(key, error="m")
+    assert code.mode == "alphanumeric"  # the key's characters, nothing else
+    squares = qr_squares(key)
+    assert len(squares) == code.symbol_size(scale=1, border=QR_BORDER)[0] <= 37
+    image = qr_pixmap(key).toImage()
+    for y, row in enumerate(squares):
+        for x, dark in enumerate(row):
+            pixel = image.pixelColor(x * QR_MODULE + 1, y * QR_MODULE + 1).name()
+            assert pixel == ("#000000" if dark else "#ffffff"), (x, y)
+
+
+def test_the_recovery_key_window_shows_it_named(qtbot: QtBot) -> None:
+    dialog = RecoveryKeyDialog(generate())
+    qtbot.addWidget(dialog)
+
+    assert not dialog.panel.qr.pixmap().isNull()
+    assert dialog.panel.qr.accessibleName() == "The recovery key as a QR code"
+    assert "opens nothing" in dialog.panel.qr_note.text()
