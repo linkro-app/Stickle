@@ -63,9 +63,10 @@ def open_text(key: bytes, note_id: str, sealed: bytes) -> str:
 
 
 def has_secret_notes(files: KeyFiles) -> bool:
-    """Whether secret notes were turned on here (KeyFileError if C is damaged)."""
-    slots = files.load(C)
-    return slots is not None and PASSWORD_SLOT in slots
+    """Whether secret notes were turned on here: C is there in some copy, even
+    one that cannot be read. Never "not yet" for a key that is only damaged or
+    out of reach, or turning them on again would put a new key over it."""
+    return files.raw(C) is not None
 
 
 def _master_seal(master_public: bytes, key: bytes) -> dict[str, Any]:

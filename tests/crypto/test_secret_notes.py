@@ -79,6 +79,31 @@ def test_there_is_only_ever_one_key(tmp_path: Path) -> None:
         create(files, "another password", master_public(files), NOW, FAST)
 
 
+def test_a_key_file_gone_while_running_is_never_made_anew(tmp_path: Path) -> None:
+    # Taken away by a clean-up tool or a sync while Stickle runs: a new key
+    # would have been written over its other copies, and the notes lost.
+    files = with_master(tmp_path)
+    key = create(files, PASSWORD, master_public(files), NOW, FAST)
+    files.path(C).unlink()
+
+    assert has_secret_notes(files)
+    with pytest.raises(KeyFileError):
+        create(files, "another password", master_public(files), NOW, FAST)
+    assert open_with_password(files, PASSWORD) == key
+    assert files.path(C).read_bytes() == files.second_path(C).read_bytes()
+
+
+def test_a_damaged_key_file_still_counts_as_there(tmp_path: Path) -> None:
+    files = with_master(tmp_path)
+    create(files, PASSWORD, master_public(files), NOW, FAST)
+    files.path(C).write_bytes(b"not a key file")
+    files.second_path(C).write_bytes(b"not a key file")
+
+    assert has_secret_notes(files)
+    with pytest.raises(KeyFileError):
+        create(files, "another password", master_public(files), NOW, FAST)
+
+
 def test_a_new_password_opens_the_same_key(tmp_path: Path) -> None:
     files = with_master(tmp_path)
     key = create(files, PASSWORD, master_public(files), NOW, FAST)

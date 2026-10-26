@@ -136,11 +136,35 @@ class KeyFiles:
     # Reading and writing
 
     def raw(self, name: str) -> bytes | None:
-        """The file as it is, or None when there is none (nor under its old name)."""
+        """The file as it is, or None when there is none (nor under its old name).
+
+        A copy gone while Stickle runs (a clean-up tool, a sync) is put back from
+        the second one, or for B and C from the database's: never taken for
+        "none", which would let a new key be written over the others."""
         found = _read(self.path(name))
         if found is None and name in OLD_NAMES:
             found = _read(self.folder / OLD_NAMES[name])  # not renamed (yet)
+        if found is None:
+            found = self._put_back(name)
         return found
+
+    def _put_back(self, name: str) -> bytes | None:
+        try:
+            stored = self.copies.get(name) if self.copies and name in IN_DATABASE else None
+        except OSError as error:
+            log.warning("could not read the %s: %s", WHAT[name], type(error).__name__)
+            stored = None
+        for kept in (_read(self.second_path(name)), stored):
+            if kept is not None and _sound(kept):
+                try:
+                    write_bytes(self.path(name), kept)
+                    if _read(self.second_path(name)) is None:
+                        self._write_second(name, kept)
+                    log.info("%s gone while running: put back", WHAT[name])
+                except OSError as error:
+                    log.warning("could not put back the %s: %s", WHAT[name], type(error).__name__)
+                return kept
+        return None
 
     def load(self, name: str) -> dict[str, object] | None:
         """The file's slots, None without one, KeyFileError if it cannot be read."""

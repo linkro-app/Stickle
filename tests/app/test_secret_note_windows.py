@@ -42,6 +42,7 @@ from stickle.app.settings_window import SettingsWindow
 from stickle.app.titles import shown_title
 from stickle.app.tray import menu_title
 from stickle.core.note import Note
+from stickle.crypto.key_files import C
 from stickle.crypto.secret_notes import open_text
 from stickle.data.export import ExportResult
 from stickle.data.labels import LabelRepository
@@ -221,6 +222,54 @@ def test_the_second_one_asks_only_their_password(
     assert isinstance(answers.asked[-2], OpenSecretDialog)
     assert answers.asked[-2].purpose == "make"
     assert opened_text(connection, unlock, second) == "두 번째"
+
+
+def test_their_key_file_gone_while_running_the_next_one_still_asks_their_password(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+) -> None:
+    # Taken away by a clean-up tool: once, turning them on again put a new key
+    # over the other copies, and the notes made before opened nowhere.
+    first = secret_note(qtbot, manager, answers)
+    unlock.files.path(C).unlink()
+
+    second = secret_note(qtbot, manager, answers, "두 번째", first=False)
+
+    assert isinstance(answers.asked[-2], OpenSecretDialog)
+    assert opened_text(connection, unlock, first) == TEXT
+    assert opened_text(connection, unlock, second) == "두 번째"
+
+
+def test_with_every_copy_of_their_key_gone_they_are_not_turned_on_anew(
+    qtbot: QtBot, manager: NoteManager, answers: Answers, unlock: Unlock
+) -> None:
+    # A key made anew would follow into the database and, written over the copy
+    # there, leave nothing a backup could bring back.
+    secret_note(qtbot, manager, answers)
+    unlock.files.path(C).unlink()
+    unlock.files.second_path(C).unlink()
+    other = manager.new_note()
+    other.editor.insertPlainText("다른 메모")
+    answers.queue.append(cancel)
+
+    other.secret_action.trigger()
+
+    assert isinstance(answers.asked[-1], OpenSecretDialog)
+    assert not unlock.files.path(C).exists()
+
+
+def test_a_key_file_that_cannot_be_read_counts_as_there(
+    unlock: Unlock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unreadable(_name: str) -> bytes | None:
+        raise PermissionError
+
+    monkeypatch.setattr(unlock.files, "raw", unreadable)
+
+    assert unlock.has_secret_notes
 
 
 def test_cancelled_nothing_changes(

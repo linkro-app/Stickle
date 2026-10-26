@@ -319,10 +319,12 @@ class Unlock:
 
     @property
     def has_secret_notes(self) -> bool:
+        """Whether their key file is there (in some copy, even damaged). One that
+        cannot be read at all counts as there: never offer to turn them on over it."""
         try:
             return secret_notes.has_secret_notes(self.files)
-        except KeyFileError, OSError:
-            return False
+        except OSError:
+            return True
 
     @property
     def secret_password_set_at(self) -> str | None:

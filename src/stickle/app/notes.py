@@ -1357,9 +1357,11 @@ class NoteManager(QObject):
             return
         if not self.flush(window, closing=True):
             return
+        # With secret notes stored but their key file out of reach, never turned
+        # on anew: that new key would replace the one a backup could bring back.
         dialog = (
             OpenSecretDialog(passwords, parent=window, purpose="make")
-            if passwords.turned_on()
+            if passwords.turned_on() or self.has_secret_notes(in_trash=True)
             else TurnOnDialog(passwords, window)
         )
         if not ask_secret(dialog) or dialog.key is None:

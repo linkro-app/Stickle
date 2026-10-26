@@ -85,6 +85,35 @@ def test_a_lost_copy_comes_back_from_the_other(tmp_path: Path) -> None:
     assert files.second_path(B).read_bytes() == files.path(B).read_bytes()
 
 
+def test_a_copy_gone_while_running_comes_back_from_the_other(tmp_path: Path) -> None:
+    files = files_with(tmp_path, A, C)
+    files.path(A).unlink()
+    files.path(C).unlink()
+
+    assert files.load(A) == {A: {"x": 1}}  # never taken for "none"
+    assert files.load(C) == {C: {"x": 1}}
+    assert files.path(C).read_bytes() == files.second_path(C).read_bytes()  # put back
+
+
+def test_with_both_files_gone_while_running_the_notes_copy_is_read(tmp_path: Path) -> None:
+    files = files_with(tmp_path, C)
+    files.keep_in(Database())
+    files.path(C).unlink()
+    files.second_path(C).unlink()
+
+    assert files.load(C) == {C: {"x": 1}}
+    assert files.path(C).exists() and files.second_path(C).exists()
+
+
+def test_a_damaged_copy_while_running_is_not_put_back_from_the_other(tmp_path: Path) -> None:
+    # Reading stays as it was: the damaged file is what is there (set aside at start).
+    files = files_with(tmp_path, C)
+    files.path(C).write_bytes(b"damaged")
+
+    assert files.raw(C) == b"damaged"
+    assert files.second_path(C).read_bytes() != b"damaged"
+
+
 def test_the_second_copy_follows_the_data_folders(tmp_path: Path) -> None:
     files = files_with(tmp_path, A)
     files.second_path(A).write_bytes(document_bytes({"older": {}}))
