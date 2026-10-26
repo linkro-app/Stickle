@@ -745,6 +745,7 @@ class NoteWindow(QWidget):
         self.title_bar.menu_button.setMenu(self.menu)
 
         self.editor = NoteEditor(self)
+        self._ordinary_hints = self.editor.inputMethodHints()
         self.editor.setFrameShape(QPlainTextEdit.Shape.NoFrame)
         self.editor.setPlainText(text)
         self.highlighter = MarkdownHighlighter(self.editor.document(), self.colors)
@@ -1429,6 +1430,13 @@ class NoteWindow(QWidget):
         self.open_secret_action.setVisible(self.secret_locked)
         for action in (self.lock_secret_action, self.secret_title_action, self.ordinary_action):
             action.setVisible(opened)
+        # What is typed in it is not kept by the input method (its word lists).
+        hints = self._ordinary_hints
+        if secret:
+            hints = hints | Qt.InputMethodHint.ImhSensitiveData
+        if self.editor.inputMethodHints() != hints:
+            self.editor.setInputMethodHints(hints)
+            QGuiApplication.inputMethod().update(Qt.InputMethodQuery.ImHints)
         self._update_title()
 
     def toggle_checkbox(self, line: int) -> None:

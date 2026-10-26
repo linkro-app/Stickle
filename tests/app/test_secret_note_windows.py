@@ -715,6 +715,28 @@ def test_made_ordinary_it_is_found_again(
     assert window.secret_action.isVisible()
 
 
+def sensitive(window: NoteWindow) -> bool:
+    hint = Qt.InputMethodHint.ImhSensitiveData
+    return window.editor.inputMethodHints() & hint == hint
+
+
+def test_the_input_method_is_told_to_keep_nothing_typed_while_secret(
+    qtbot: QtBot, manager: NoteManager, answers: Answers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ordinary = manager.new_note()
+    window = secret_note(qtbot, manager, answers)
+    assert sensitive(window) and not sensitive(ordinary)
+    manager.lock_secret(window)
+    assert sensitive(window)
+
+    answers.queue.append(password())
+    window.open_secret_action.trigger()
+    monkeypatch.setattr(notes, "confirm_ordinary", always)
+    window.ordinary_action.trigger()
+
+    assert not window.secret and not sensitive(window)
+
+
 def test_its_title_can_be_changed_while_open(
     qtbot: QtBot,
     manager: NoteManager,
