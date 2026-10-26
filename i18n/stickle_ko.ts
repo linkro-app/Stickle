@@ -2034,8 +2034,8 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>복구 키 QR 코드</translation>
     </message>
     <message>
-        <source>If the key that opens your notes is ever lost (a new computer, a reset keychain, a forgotten password), this recovery key opens them again, secret notes included. Stickle does not keep it: write it down or save it somewhere safe, away from this computer. Avoid places that go up to the cloud by themselves, such as a photo app or a folder synced with OneDrive, iCloud, Google Drive or Dropbox. Anyone with it can read your notes.</source>
-        <translation>메모를 여는 키를 잃어버렸을 때(새 컴퓨터, 초기화된 키 저장소, 잊어버린 암호) 이 복구 키로 메모를 다시 열 수 있습니다. 비밀 메모까지 엽니다. Stickle은 복구 키를 보관하지 않습니다. 적어 두거나 이 컴퓨터가 아닌 안전한 곳에 저장하세요. 사진 앱이나 OneDrive·iCloud·Google Drive·Dropbox와 동기화되는 폴더처럼 저절로 클라우드에 올라가는 곳은 피하세요. 복구 키가 있으면 누구나 메모를 읽을 수 있습니다.</translation>
+        <source>If the key that opens your notes is ever lost (a new computer, a reset keychain, a forgotten password), this recovery key opens them again, secret notes included. Stickle does not keep it: write it down or save it somewhere safe, away from this computer. Avoid places that may go up by themselves to the cloud you have set up, such as a photo app or a folder synced with OneDrive, iCloud, Google Drive or Dropbox. Anyone with it can read your notes.</source>
+        <translation>메모를 여는 키를 잃어버렸을 때(새 컴퓨터, 초기화된 키 저장소, 잊어버린 암호) 이 복구 키로 메모를 다시 열 수 있습니다. 비밀 메모까지 엽니다. Stickle은 복구 키를 보관하지 않습니다. 적어 두거나 이 컴퓨터가 아닌 안전한 곳에 저장하세요. 사진 앱이나 OneDrive·iCloud·Google Drive·Dropbox와 동기화되는 폴더처럼 본인이 설정해 둔 클라우드로 저절로 올라갈 수 있는 곳은 피하세요. 복구 키가 있으면 누구나 메모를 읽을 수 있습니다.</translation>
     </message>
     <message>
         <source>The same key as a QR code: scan it into a password manager on your phone. Do not take a photo of it, as photos may go up by themselves to the cloud you have set up. It holds only the key: scanning it opens nothing.</source>

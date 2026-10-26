@@ -267,9 +267,10 @@ class RecoveryKeyPanel(QWidget):
                 "If the key that opens your notes is ever lost (a new computer, a reset "
                 "keychain, a forgotten password), this recovery key opens them again, "
                 "secret notes included. Stickle does not keep it: write it down or save it "
-                "somewhere safe, away from this computer. Avoid places that go up to the "
-                "cloud by themselves, such as a photo app or a folder synced with OneDrive, "
-                "iCloud, Google Drive or Dropbox. Anyone with it can read your notes."
+                "somewhere safe, away from this computer. Avoid places that may go up by "
+                "themselves to the cloud you have set up, such as a photo app or a folder "
+                "synced with OneDrive, iCloud, Google Drive or Dropbox. Anyone with it can "
+                "read your notes."
             )
         )
         self.key.setAccessibleName(self.tr("Recovery key"))
