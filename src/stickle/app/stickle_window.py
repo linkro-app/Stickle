@@ -546,9 +546,9 @@ class StickleWindow(QWidget):
         when = local_time(change.at)
         texts = {
             "recovery_key": self.tr("On %1 a new recovery key was made on this computer."),
-            "master_password_set": self.tr("On %1 a master password was set on this computer."),
+            "master_password_set": self.tr("On %1 a spare password was set on this computer."),
             "master_password_changed": self.tr(
-                "On %1 the master password was changed on this computer."
+                "On %1 the spare password was changed on this computer."
             ),
             "secret_password_changed": self.tr(
                 "On %1 the secret notes' password was changed on this computer."

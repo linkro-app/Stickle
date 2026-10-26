@@ -108,7 +108,7 @@ def test_stickle_manager_says_so_at_the_top_until_the_user_has_seen_it(
         changes.due()
         window.refresh_changes()
         assert window.changes_label.isVisibleTo(window)
-        assert "master password was set on this computer" in window.changes_label.text()
+        assert "spare password was set on this computer" in window.changes_label.text()
         assert "If it was not you" in window.changes_label.text()
 
         window.changes_again_button.click()  # to the place to set it again
@@ -172,8 +172,7 @@ def test_the_settings_say_when_each_was_made_or_set(
 
     text = window.protection_dates.text()
     assert (
-        text.startswith("Recovery key: made October 3")
-        and "Master password: set October 25" in text
+        text.startswith("Recovery key: made October 3") and "Spare password: set October 25" in text
     )
 
     old = SettingsWindow(

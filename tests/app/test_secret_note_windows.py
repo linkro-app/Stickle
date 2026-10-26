@@ -434,7 +434,7 @@ def test_locked_it_cannot_be_edited_until_opened(
     window.edit()
 
     assert window.stack.currentWidget() is window.locked_face
-    assert window.locked_face.accessibleName() == "Secret note, locked: 은행"
+    assert window.locked_face.accessibleName() == "Secret note, covered: 은행"
 
 
 def test_opened_with_the_password_its_text_comes_back(
@@ -1058,7 +1058,7 @@ def test_their_password_cannot_be_the_master_password(
     answers.queue.append(refuse)
     window.secret_action.trigger()
 
-    assert refused == ["Choose a password other than the master password."]
+    assert refused == ["Choose a password other than the spare password."]
 
 
 def test_nothing_of_its_text_is_logged(
@@ -1265,7 +1265,7 @@ def test_a_master_password_like_their_password_is_refused(
     dialog.accept()
 
     assert dialog.message.text() == (
-        "Choose a master password other than the secret notes' password."
+        "Choose a spare password other than the secret notes' password."
     )
 
 
@@ -1354,12 +1354,12 @@ def test_it_shows_a_keyhole_and_not_its_category_or_marks(
     window.secret_action.trigger()
 
     assert tag.secret == "open"
-    assert tag.accessibleName() == "Secret note, open: it locks again by itself, stays on top"
+    assert tag.accessibleName() == "Secret note, shown: it is covered again by itself, stays on top"
     assert not badge.isVisible()
     assert not window.category_menu.menuAction().isVisible()
     manager.lock_secret(window)
     assert tag.secret == "locked"
-    assert tag.accessibleName() == "Secret note, locked, stays on top"
+    assert tag.accessibleName() == "Secret note, covered, stays on top"
     assert window.category is not None and window.category.id == work.id  # kept for later
 
 
@@ -1531,7 +1531,7 @@ def test_exported_left_encrypted_as_chosen_first(
     assert seen == ["How should the 1 secret note(s) be exported?"]
     assert result is not None and result.still_encrypted == 1
     written = "".join(p.read_text(encoding="utf-8") for p in result.folder.rglob("*.*"))
-    assert "plorbit" not in written and "Locked secret note" in written
+    assert "plorbit" not in written and "Encrypted secret note" in written
     assert "secret_notes_key" in written  # their key, locked, goes along
     assert "1 secret note(s) stayed encrypted" in exporting_told[0]
     assert window.text == TEXT  # still open, as it was

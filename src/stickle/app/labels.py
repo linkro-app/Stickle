@@ -137,10 +137,10 @@ class CategoryTag(_TitleBarPart):
 
     def retranslate(self) -> None:
         if self.secret == "locked":
-            text = QCoreApplication.translate("CategoryTag", "Secret note, locked")
+            text = QCoreApplication.translate("CategoryTag", "Secret note, covered")
         elif self.secret == "open":
             text = QCoreApplication.translate(
-                "CategoryTag", "Secret note, open: it locks again by itself"
+                "CategoryTag", "Secret note, shown: it is covered again by itself"
             )
         elif self.category is None:
             text = QCoreApplication.translate("CategoryTag", "No category")

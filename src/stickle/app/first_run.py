@@ -270,12 +270,12 @@ class FirstRunDialog(QDialog):
         self.master_note.setText(
             self.tr(
                 "Keep the recovery key somewhere other than this computer. In case you"
-                " forget where you put it, you can also set a master password to remember."
+                " forget where you put it, you can also set a spare password to remember."
             )
         )
         master_set = self._master is not None and self._master.exists()
         self.master_button.setText(
-            self.tr("Master password set") if master_set else self.tr("Set a &master password…")
+            self.tr("Spare password set") if master_set else self.tr("Set a s&pare password…")
         )
         self.master_button.setEnabled(not master_set)
 

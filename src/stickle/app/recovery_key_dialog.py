@@ -109,7 +109,7 @@ class EnterRecoveryKeyDialog(QDialog):
         self.key.setAccessibleName(self.tr("Recovery key"))
         self.ok_button.setText(self.tr("Open notes"))
         self.cancel_button.setText(self.tr("Back"))
-        self.master_button.setText(self.tr("Use the &master password instead"))
+        self.master_button.setText(self.tr("Use the s&pare password instead"))
 
     @override
     def done(self, result: int, /) -> None:

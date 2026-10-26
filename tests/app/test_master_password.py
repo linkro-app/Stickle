@@ -169,10 +169,10 @@ def test_checking_it_says_whether_it_is_and_changes_nothing(qtbot: QtBot) -> Non
 
     dialog.password.setText("not it")
     dialog.check()
-    assert dialog.answer.text() == "That is not the master password."
+    assert dialog.answer.text() == "That is not the spare password."
     dialog.password.setText(GOOD)
     dialog.check()
-    assert dialog.answer.text() == "That is the master password."
+    assert dialog.answer.text() == "That is the spare password."
     assert master.current == GOOD
 
 
@@ -193,13 +193,13 @@ def test_the_settings_offer_to_set_it_then_to_change_and_check_it(
     qtbot.addWidget(window)
     window.present(window.protection)
     assert window.tabs.isTabVisible(window.tabs.indexOf(window.protection))
-    assert window.master_button.text() == "Set a &master password…"
+    assert window.master_button.text() == "Set a s&pare password…"
     assert not window.check_master_button.isVisibleTo(window)
 
     window.master_button.click()
 
     assert master.current == GOOD
-    assert window.master_button.text() == "Change the &master password…"
+    assert window.master_button.text() == "Change the s&pare password…"
     assert window.check_master_button.isVisibleTo(window)
     window.check_master_button.click()
     assert isinstance(shown[-1], CheckMasterPasswordDialog)

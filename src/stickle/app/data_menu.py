@@ -58,7 +58,7 @@ class DataMenu(QObject):
 
     def locked_line(self) -> str:
         """A secret note's Markdown file, left encrypted, below its title."""
-        return self.tr("Locked secret note")
+        return self.tr("Encrypted secret note")
 
     def stayed_encrypted(self, notes: int) -> str:
         return self.tr(

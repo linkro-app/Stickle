@@ -157,27 +157,27 @@ class MasterPasswordDialog(QDialog):
             QWidget.setTabOrder(before, after)
 
     def retranslate(self) -> None:
-        self.current_label.setText(self.tr("&Current master password:"))
-        self.current.setAccessibleName(self.tr("Current master password"))
+        self.current_label.setText(self.tr("&Current spare password:"))
+        self.current.setAccessibleName(self.tr("Current spare password"))
         if self.changing:
-            self.setWindowTitle(self.tr("Change the master password"))
-            self.intro.setText(self.tr("Enter the master password you have now, then the new one."))
-            self.new_label.setText(self.tr("&New master password:"))
+            self.setWindowTitle(self.tr("Change the spare password"))
+            self.intro.setText(self.tr("Enter the spare password you have now, then the new one."))
+            self.new_label.setText(self.tr("&New spare password:"))
             self.ok_button.setText(self.tr("Change"))
         else:
-            self.setWindowTitle(self.tr("Set a master password"))
+            self.setWindowTitle(self.tr("Set a spare password"))
             self.intro.setText(
                 self.tr(
-                    "A master password you remember is a second way back to your notes, in"
+                    "A spare password you remember is a second way back to your notes, in"
                     " case you cannot find the recovery key. Once set it is never removed,"
                     " only changed."
                 )
             )
-            self.new_label.setText(self.tr("&Master password:"))
+            self.new_label.setText(self.tr("&Spare password:"))
             self.ok_button.setText(self.tr("Set"))
         self.confirm_label.setText(self.tr("C&onfirm:"))
-        self.new.setAccessibleName(self.tr("New master password"))
-        self.confirm.setAccessibleName(self.tr("Confirm the master password"))
+        self.new.setAccessibleName(self.tr("New spare password"))
+        self.confirm.setAccessibleName(self.tr("Confirm the spare password"))
         self.rules.setText(
             self.tr(
                 "At least 12 characters, or 4 words or more, and not a common password."
@@ -206,11 +206,9 @@ class MasterPasswordDialog(QDialog):
         if password != self.confirm.text():
             return self.tr("The two passwords are not the same.")
         if self._passwords.opens_notes(password):
-            return self.tr(
-                "Choose a master password other than the password that opens your notes."
-            )
+            return self.tr("Choose a spare password other than the password that opens your notes.")
         if self._passwords.is_secret_password(password):
-            return self.tr("Choose a master password other than the secret notes' password.")
+            return self.tr("Choose a spare password other than the secret notes' password.")
         return None
 
     def show_error(self, message: str, field: QLineEdit) -> None:
@@ -238,13 +236,13 @@ class MasterPasswordDialog(QDialog):
                 self._passwords.set(new)
         except WrongPasswordError:
             self.current.clear()
-            self.show_error(self.tr("The current master password is not correct."), self.current)
+            self.show_error(self.tr("The current spare password is not correct."), self.current)
             return
         except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
             # RuntimeError: the key could not be derived (too little memory for it).
             log.error("master password not kept: %s", type(error).__name__)
             self.show_error(
-                self.tr("The master password could not be kept (%1).").replace(
+                self.tr("The spare password could not be kept (%1).").replace(
                     "%1", type(error).__name__
                 ),
                 self.new,
@@ -313,14 +311,14 @@ class CheckMasterPasswordDialog(QDialog):
         self.password.setFocus()
 
     def retranslate(self) -> None:
-        self.setWindowTitle(self.tr("Check the master password"))
+        self.setWindowTitle(self.tr("Check the spare password"))
         self.intro.setText(
             self.tr(
-                "Type the master password to see whether you still remember it. Nothing changes."
+                "Type the spare password to see whether you still remember it. Nothing changes."
             )
         )
-        self.label.setText(self.tr("&Master password:"))
-        self.password.setAccessibleName(self.tr("Master password"))
+        self.label.setText(self.tr("&Spare password:"))
+        self.password.setAccessibleName(self.tr("Spare password"))
         self.check_button.setText(self.tr("Check"))
         self.close_button.setText(self.tr("Close"))
 
@@ -343,7 +341,7 @@ class CheckMasterPasswordDialog(QDialog):
         except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
             log.error("master password not checked: %s", type(error).__name__)
             self.answer.setText(
-                self.tr("The master password could not be checked (%1).").replace(
+                self.tr("The spare password could not be checked (%1).").replace(
                     "%1", type(error).__name__
                 )
             )
@@ -352,9 +350,9 @@ class CheckMasterPasswordDialog(QDialog):
         finally:
             QGuiApplication.restoreOverrideCursor()
         self.answer.setText(
-            self.tr("That is the master password.")
+            self.tr("That is the spare password.")
             if right
-            else self.tr("That is not the master password.")
+            else self.tr("That is not the spare password.")
         )
         self.answer.setStyleSheet("" if right else ERROR_STYLE)
         self.password.setAccessibleDescription(self.answer.text())

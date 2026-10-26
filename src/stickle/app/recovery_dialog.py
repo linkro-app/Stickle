@@ -246,7 +246,7 @@ class RecoveryDialog(QDialog):
         self.notes.setAccessibleName(self.tr("Affected notes"))
         self.retry_button.setText(self.tr("&Try again"))
         self.recover_button.setText(self.tr("Use the &recovery key…"))
-        self.master_button.setText(self.tr("Use the &master password…"))
+        self.master_button.setText(self.tr("Use the s&pare password…"))
         self.export_button.setText(self.tr("&Export notes…"))
         self.report_label.setText(self.tr("For a problem report:"))
         self.log_button.setText(self.tr("Open the log folder"))

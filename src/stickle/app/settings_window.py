@@ -352,14 +352,14 @@ class SettingsWindow(QDialog):
         self.own_note.setText(own_note)
         self.own_list.setAccessibleDescription(own_note)
         self.recovery_button.setText(self.tr("Make a new &recovery key…"))
-        self.check_master_button.setText(self.tr("Chec&k the master password…"))
+        self.check_master_button.setText(self.tr("Chec&k the spare password…"))
         self.secret_password_button.setText(self.tr("Change the &secret notes' password…"))
-        self.relock_before.setText(self.tr("Lock an open secret note again a&fter"))
+        self.relock_before.setText(self.tr("Cover a shown secret note again a&fter"))
         self.relock_after.setText(self.tr("minutes left alone"))
         self.relock_box.setAccessibleName(
-            self.tr("Minutes an open secret note is left alone before it locks again")
+            self.tr("Minutes a shown secret note is left alone before it is covered again")
         )
-        self.leave_box.setText(self.tr("Also lock it as soon as I &use another window"))
+        self.leave_box.setText(self.tr("Also cover it as soon as I &use another window"))
         self.refresh()
 
     @override
@@ -392,9 +392,7 @@ class SettingsWindow(QDialog):
         master = self._master is not None and self._master.exists()
         self.master_button.setVisible(self._master is not None)
         self.master_button.setText(
-            self.tr("Change the &master password…")
-            if master
-            else self.tr("Set a &master password…")
+            self.tr("Change the s&pare password…") if master else self.tr("Set a s&pare password…")
         )
         self.check_master_button.setVisible(master)
         secrets = self._notes.secrets
@@ -493,9 +491,9 @@ class SettingsWindow(QDialog):
                 parts.append(self.tr("Recovery key: made %1").replace("%1", local_time(made)))
         if self._master is not None:
             if not self._master.exists():
-                parts.append(self.tr("No master password"))
+                parts.append(self.tr("No spare password"))
             elif (set_at := self._master.set_at()) is not None:
-                parts.append(self.tr("Master password: set %1").replace("%1", local_time(set_at)))
+                parts.append(self.tr("Spare password: set %1").replace("%1", local_time(set_at)))
         secrets = self._notes.secrets
         if secrets is not None and secrets.turned_on() and (set_at := secrets.set_at()):
             parts.append(

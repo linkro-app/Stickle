@@ -148,7 +148,7 @@ class _PasswordWindow(QDialog):
         if passwords.master.opens_notes(password):
             return self.tr("Choose a password other than the one that opens your notes.")
         if passwords.master.exists() and passwords.master.check(password):
-            return self.tr("Choose a password other than the master password.")
+            return self.tr("Choose a password other than the spare password.")
         return None
 
     def take_key(self) -> bytes | None:
@@ -385,14 +385,14 @@ class OpenSecretDialog(_PasswordWindow):
     def retranslate(self) -> None:
         super().retranslate()
         titles = {
-            "open": self.tr("Open a secret note"),
+            "open": self.tr("Show a secret note"),
             "make": self.tr("Make it a secret note"),
             "change": self.tr("Change the secret notes' password"),
             "recovery": self.tr("Make a new recovery key"),
         }
         self.setWindowTitle(titles[self.purpose])
         intros = {
-            "open": self.tr("Type the secret notes' password to open “%1”.").replace(
+            "open": self.tr("Type the secret notes' password to show “%1”.").replace(
                 "%1", self._title
             ),
             "make": self.tr("Type the secret notes' password to make this note one of them."),
@@ -405,7 +405,7 @@ class OpenSecretDialog(_PasswordWindow):
         self.password_label.setText(self.tr("Secret notes' &password:"))
         self.password.setAccessibleName(self.tr("Secret notes' password"))
         self.forgot_button.setText(self.tr("I &forgot the password"))
-        self.ok_button.setText(self.tr("Open") if self.purpose == "open" else self.tr("Next"))
+        self.ok_button.setText(self.tr("Show") if self.purpose == "open" else self.tr("Next"))
 
     def use_recovery_key(self) -> None:
         """Forgotten: the recovery key opens them, and a new password is set
@@ -566,12 +566,12 @@ class SecretTitleDialog(_PasswordWindow):
     def retranslate(self) -> None:
         super().retranslate()
         self.setWindowTitle(self.tr("Secret note's title"))
-        self.intro.setText(self.tr("The note is shown by this title while it is locked."))
+        self.intro.setText(self.tr("The note is shown by this title while its text is covered."))
         self.title_label.setText(self.tr("&Title:"))
         self.title.setAccessibleName(self.tr("Title"))
         self.title.setPlaceholderText(self.tr("Secret note"))
         self.note.setText(
-            self.tr("The title shows even while the note is locked. Do not put its content in it.")
+            self.tr("The title shows even while the text is covered. Do not put the text in it.")
         )
         self.ok_button.setText(self.tr("OK"))
 

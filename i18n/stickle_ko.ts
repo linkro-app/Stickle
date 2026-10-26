@@ -154,12 +154,12 @@
 <context>
     <name>CategoryTag</name>
     <message>
-        <source>Secret note, locked</source>
-        <translation>비밀 메모, 잠김</translation>
+        <source>Secret note, covered</source>
+        <translation>비밀 메모, 가려짐</translation>
     </message>
     <message>
-        <source>Secret note, open: it locks again by itself</source>
-        <translation>비밀 메모, 열림: 저절로 다시 잠깁니다</translation>
+        <source>Secret note, shown: it is covered again by itself</source>
+        <translation>비밀 메모, 보임: 저절로 다시 가려집니다</translation>
     </message>
     <message>
         <source>No category</source>
@@ -177,20 +177,20 @@
 <context>
     <name>CheckMasterPasswordDialog</name>
     <message>
-        <source>Check the master password</source>
-        <translation>마스터 암호 확인해 보기</translation>
+        <source>Check the spare password</source>
+        <translation>예비 암호 확인해 보기</translation>
     </message>
     <message>
-        <source>Type the master password to see whether you still remember it. Nothing changes.</source>
-        <translation>마스터 암호를 아직 기억하는지 입력해 보세요. 아무것도 바뀌지 않습니다.</translation>
+        <source>Type the spare password to see whether you still remember it. Nothing changes.</source>
+        <translation>예비 암호를 아직 기억하는지 입력해 보세요. 아무것도 바뀌지 않습니다.</translation>
     </message>
     <message>
-        <source>&amp;Master password:</source>
-        <translation>마스터 암호(&amp;M):</translation>
+        <source>&amp;Spare password:</source>
+        <translation>예비 암호(&amp;S):</translation>
     </message>
     <message>
-        <source>Master password</source>
-        <translation>마스터 암호</translation>
+        <source>Spare password</source>
+        <translation>예비 암호</translation>
     </message>
     <message>
         <source>Check</source>
@@ -205,16 +205,16 @@
         <translation>확인하는 중…</translation>
     </message>
     <message>
-        <source>The master password could not be checked (%1).</source>
-        <translation>마스터 암호를 확인하지 못했습니다(%1).</translation>
+        <source>The spare password could not be checked (%1).</source>
+        <translation>예비 암호를 확인하지 못했습니다(%1).</translation>
     </message>
     <message>
-        <source>That is the master password.</source>
-        <translation>마스터 암호가 맞습니다.</translation>
+        <source>That is the spare password.</source>
+        <translation>예비 암호가 맞습니다.</translation>
     </message>
     <message>
-        <source>That is not the master password.</source>
-        <translation>마스터 암호가 아닙니다.</translation>
+        <source>That is not the spare password.</source>
+        <translation>예비 암호가 아닙니다.</translation>
     </message>
 </context>
 <context>
@@ -299,8 +299,8 @@
         <translation>비밀 메모 하나를 키로 열지 못해 아무것도 내보내지 않았습니다. 암호화된 채로 내보내 보세요.</translation>
     </message>
     <message>
-        <source>Locked secret note</source>
-        <translation>잠긴 비밀 메모</translation>
+        <source>Encrypted secret note</source>
+        <translation>암호화된 비밀 메모</translation>
     </message>
     <message numerus="yes">
         <source>%n secret note(s) stayed encrypted: only their titles can be read.</source>
@@ -379,8 +379,8 @@ These files are not encrypted: keep them somewhere safe.</source>
         <translation>뒤로</translation>
     </message>
     <message>
-        <source>Use the &amp;master password instead</source>
-        <translation>마스터 암호로 열기(&amp;M)</translation>
+        <source>Use the s&amp;pare password instead</source>
+        <translation>예비 암호로 열기(&amp;P)</translation>
     </message>
     <message>
         <source>This is not a recovery key as written: a character may be missing, extra or mistyped. Please check it again.</source>
@@ -485,16 +485,16 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>나중에</translation>
     </message>
     <message>
-        <source>Keep the recovery key somewhere other than this computer. In case you forget where you put it, you can also set a master password to remember.</source>
-        <translation>복구 키는 꼭 이 PC가 아닌 곳에 따로 보관하세요. 보관한 곳을 잊을 때를 대비해, 외워 둘 마스터 암호도 함께 정해 둘 수 있습니다.</translation>
+        <source>Keep the recovery key somewhere other than this computer. In case you forget where you put it, you can also set a spare password to remember.</source>
+        <translation>복구 키는 꼭 이 PC가 아닌 곳에 따로 보관하세요. 보관한 곳을 잊을 때를 대비해, 외워 둘 예비 암호도 함께 정해 둘 수 있습니다.</translation>
     </message>
     <message>
-        <source>Master password set</source>
-        <translation>마스터 암호를 정했습니다</translation>
+        <source>Spare password set</source>
+        <translation>예비 암호를 정했습니다</translation>
     </message>
     <message>
-        <source>Set a &amp;master password…</source>
-        <translation>마스터 암호 정하기(&amp;M)…</translation>
+        <source>Set a s&amp;pare password…</source>
+        <translation>예비 암호 정하기(&amp;P)…</translation>
     </message>
 </context>
 <context>
@@ -1046,56 +1046,16 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
 <context>
     <name>MasterPasswordDialog</name>
     <message>
-        <source>Change the master password</source>
-        <translation>마스터 암호 바꾸기</translation>
-    </message>
-    <message>
-        <source>Enter the master password you have now, then the new one.</source>
-        <translation>지금 마스터 암호를 입력한 다음 새 마스터 암호를 입력하세요.</translation>
-    </message>
-    <message>
-        <source>&amp;New master password:</source>
-        <translation>새 마스터 암호(&amp;N):</translation>
-    </message>
-    <message>
         <source>Change</source>
         <translation>바꾸기</translation>
-    </message>
-    <message>
-        <source>Set a master password</source>
-        <translation>마스터 암호 정하기</translation>
-    </message>
-    <message>
-        <source>A master password you remember is a second way back to your notes, in case you cannot find the recovery key. Once set it is never removed, only changed.</source>
-        <translation>외워 둔 마스터 암호는 복구 키를 찾지 못할 때 메모로 돌아오는 또 하나의 길입니다. 한 번 정하면 없앨 수 없고 바꿀 수만 있습니다.</translation>
-    </message>
-    <message>
-        <source>&amp;Master password:</source>
-        <translation>마스터 암호(&amp;M):</translation>
     </message>
     <message>
         <source>Set</source>
         <translation>정하기</translation>
     </message>
     <message>
-        <source>&amp;Current master password:</source>
-        <translation>지금 마스터 암호(&amp;C):</translation>
-    </message>
-    <message>
         <source>C&amp;onfirm:</source>
         <translation>한 번 더(&amp;O):</translation>
-    </message>
-    <message>
-        <source>Current master password</source>
-        <translation>지금 마스터 암호</translation>
-    </message>
-    <message>
-        <source>New master password</source>
-        <translation>새 마스터 암호</translation>
-    </message>
-    <message>
-        <source>Confirm the master password</source>
-        <translation>마스터 암호 한 번 더</translation>
     </message>
     <message>
         <source>At least 12 characters, or 4 words or more, and not a common password. It cannot be the password that opens your notes.</source>
@@ -1122,28 +1082,68 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>같은 글자를 되풀이하거나 자판을 차례로 누른 것은 알아맞히기 쉽습니다. 다른 것으로 정하세요.</translation>
     </message>
     <message>
+        <source>&amp;Current spare password:</source>
+        <translation>지금 예비 암호(&amp;C):</translation>
+    </message>
+    <message>
+        <source>Current spare password</source>
+        <translation>지금 예비 암호</translation>
+    </message>
+    <message>
+        <source>Change the spare password</source>
+        <translation>예비 암호 바꾸기</translation>
+    </message>
+    <message>
+        <source>Enter the spare password you have now, then the new one.</source>
+        <translation>지금 예비 암호를 입력한 다음 새 예비 암호를 입력하세요.</translation>
+    </message>
+    <message>
+        <source>&amp;New spare password:</source>
+        <translation>새 예비 암호(&amp;N):</translation>
+    </message>
+    <message>
+        <source>Set a spare password</source>
+        <translation>예비 암호 정하기</translation>
+    </message>
+    <message>
+        <source>A spare password you remember is a second way back to your notes, in case you cannot find the recovery key. Once set it is never removed, only changed.</source>
+        <translation>외워 둔 예비 암호는 복구 키를 찾지 못할 때 메모로 돌아오는 또 하나의 길입니다. 한 번 정하면 없앨 수 없고 바꿀 수만 있습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Spare password:</source>
+        <translation>예비 암호(&amp;S):</translation>
+    </message>
+    <message>
+        <source>New spare password</source>
+        <translation>새 예비 암호</translation>
+    </message>
+    <message>
+        <source>Confirm the spare password</source>
+        <translation>예비 암호 한 번 더</translation>
+    </message>
+    <message>
         <source>The two passwords are not the same.</source>
         <translation>두 암호가 서로 다릅니다.</translation>
     </message>
     <message>
-        <source>Choose a master password other than the password that opens your notes.</source>
-        <translation>메모를 열 때 쓰는 암호와 다른 마스터 암호로 정하세요.</translation>
+        <source>Choose a spare password other than the password that opens your notes.</source>
+        <translation>메모를 열 때 쓰는 암호와 다른 예비 암호로 정하세요.</translation>
     </message>
     <message>
-        <source>Choose a master password other than the secret notes&apos; password.</source>
-        <translation>비밀 메모 암호와 다른 마스터 암호로 정하세요.</translation>
+        <source>Choose a spare password other than the secret notes&apos; password.</source>
+        <translation>비밀 메모 암호와 다른 예비 암호로 정하세요.</translation>
+    </message>
+    <message>
+        <source>The current spare password is not correct.</source>
+        <translation>지금 예비 암호가 맞지 않습니다.</translation>
+    </message>
+    <message>
+        <source>The spare password could not be kept (%1).</source>
+        <translation>예비 암호를 저장하지 못했습니다(%1).</translation>
     </message>
     <message>
         <source>Checking…</source>
         <translation>확인하는 중…</translation>
-    </message>
-    <message>
-        <source>The current master password is not correct.</source>
-        <translation>지금 마스터 암호가 맞지 않습니다.</translation>
-    </message>
-    <message>
-        <source>The master password could not be kept (%1).</source>
-        <translation>마스터 암호를 저장하지 못했습니다(%1).</translation>
     </message>
 </context>
 <context>
@@ -1541,15 +1541,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>Make it a secret note…</source>
-        <translation>비밀 메모로…</translation>
-    </message>
-    <message>
-        <source>Open the secret note…</source>
-        <translation>비밀 메모 열기…</translation>
-    </message>
-    <message>
-        <source>Lock the secret note now</source>
-        <translation>비밀 메모 지금 잠그기</translation>
+        <translation>비밀 메모로 바꾸기…</translation>
     </message>
     <message>
         <source>Secret note&apos;s title…</source>
@@ -1557,11 +1549,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>Make it an ordinary note…</source>
-        <translation>보통 메모로…</translation>
-    </message>
-    <message>
-        <source>Double-click or press Enter to open it.</source>
-        <translation>더블클릭하거나 Enter를 눌러 엽니다.</translation>
+        <translation>보통 메모로 바꾸기…</translation>
     </message>
     <message>
         <source>Locked: it cannot be moved or changed. Unlock it in the note menu.</source>
@@ -1626,10 +1614,6 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>새 카테고리…</translation>
     </message>
     <message>
-        <source>Secret note, locked: %1</source>
-        <translation>비밀 메모, 잠김: %1</translation>
-    </message>
-    <message>
         <source>Secret note: %1</source>
         <translation>비밀 메모: %1</translation>
     </message>
@@ -1646,6 +1630,22 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>Enter를 누르면 펼칩니다.</translation>
     </message>
     <message>
+        <source>Show its text…</source>
+        <translation>내용 보기…</translation>
+    </message>
+    <message>
+        <source>Cover its text</source>
+        <translation>내용 가리기</translation>
+    </message>
+    <message>
+        <source>Double-click or press Enter to show its text.</source>
+        <translation>더블클릭하거나 Enter를 눌러 내용을 봅니다.</translation>
+    </message>
+    <message>
+        <source>Secret note, covered: %1</source>
+        <translation>비밀 메모, 가려짐: %1</translation>
+    </message>
+    <message>
         <source>Moving: arrow keys, then Enter (Esc puts it back)</source>
         <translation>옮기는 중: 방향키, 끝나면 Enter (Esc는 되돌리기)</translation>
     </message>
@@ -1656,10 +1656,6 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
 </context>
 <context>
     <name>OpenSecretDialog</name>
-    <message>
-        <source>Open a secret note</source>
-        <translation>비밀 메모 열기</translation>
-    </message>
     <message>
         <source>Make it a secret note</source>
         <translation>비밀 메모로</translation>
@@ -1673,8 +1669,12 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>새 복구 키 만들기</translation>
     </message>
     <message>
-        <source>Type the secret notes&apos; password to open “%1”.</source>
-        <translation>비밀 메모 암호를 입력하면 ‘%1’ 메모가 열립니다.</translation>
+        <source>Show a secret note</source>
+        <translation>비밀 메모 내용 보기</translation>
+    </message>
+    <message>
+        <source>Type the secret notes&apos; password to show “%1”.</source>
+        <translation>비밀 메모 암호를 입력하면 ‘%1’ 메모의 내용이 보입니다.</translation>
     </message>
     <message>
         <source>Type the secret notes&apos; password to make this note one of them.</source>
@@ -1701,12 +1701,12 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>암호를 잊었어요(&amp;F)</translation>
     </message>
     <message>
-        <source>Open</source>
-        <translation>열기</translation>
-    </message>
-    <message>
         <source>Next</source>
         <translation>다음</translation>
+    </message>
+    <message>
+        <source>Show</source>
+        <translation>보기</translation>
     </message>
     <message>
         <source>This recovery key does not open the secret notes.</source>
@@ -1756,12 +1756,24 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>암호 만들기</translation>
     </message>
     <message>
-        <source>Open with the master password</source>
-        <translation>마스터 암호로 열기</translation>
+        <source>Open with the spare password</source>
+        <translation>예비 암호로 열기</translation>
     </message>
     <message>
-        <source>Enter the master password you set in Stickle&apos;s settings.</source>
-        <translation>Stickle 설정에서 정한 마스터 암호를 입력하세요.</translation>
+        <source>Enter the spare password you set in Stickle&apos;s settings.</source>
+        <translation>Stickle 설정에서 정한 예비 암호를 입력하세요.</translation>
+    </message>
+    <message>
+        <source>&amp;Spare password:</source>
+        <translation>예비 암호(&amp;S):</translation>
+    </message>
+    <message>
+        <source>Spare password</source>
+        <translation>예비 암호</translation>
+    </message>
+    <message>
+        <source>The spare password is not correct.</source>
+        <translation>예비 암호가 맞지 않습니다.</translation>
     </message>
     <message>
         <source>Open notes</source>
@@ -1792,10 +1804,6 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>암호(&amp;P):</translation>
     </message>
     <message>
-        <source>&amp;Master password:</source>
-        <translation>마스터 암호(&amp;M):</translation>
-    </message>
-    <message>
         <source>&amp;Confirm password:</source>
         <translation>암호 확인(&amp;C):</translation>
     </message>
@@ -1804,20 +1812,12 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>암호</translation>
     </message>
     <message>
-        <source>Master password</source>
-        <translation>마스터 암호</translation>
-    </message>
-    <message>
         <source>Confirm password</source>
         <translation>암호 확인</translation>
     </message>
     <message>
         <source>Input methods, such as a Korean keyboard, are turned off in password fields.</source>
         <translation>암호 입력란에서는 한글 입력기가 꺼집니다.</translation>
-    </message>
-    <message>
-        <source>The master password is not correct.</source>
-        <translation>마스터 암호가 맞지 않습니다.</translation>
     </message>
     <message>
         <source>The password is not correct.</source>
@@ -1958,8 +1958,8 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>복구 키로 열기(&amp;R)…</translation>
     </message>
     <message>
-        <source>Use the &amp;master password…</source>
-        <translation>마스터 암호로 열기(&amp;M)…</translation>
+        <source>Use the s&amp;pare password…</source>
+        <translation>예비 암호로 열기(&amp;P)…</translation>
     </message>
     <message>
         <source>&amp;Export notes…</source>
@@ -2211,8 +2211,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>비밀 메모 제목</translation>
     </message>
     <message>
-        <source>The note is shown by this title while it is locked.</source>
-        <translation>잠겨 있는 동안 메모는 이 제목으로 보입니다.</translation>
+        <source>The note is shown by this title while its text is covered.</source>
+        <translation>내용이 가려져 있는 동안 메모는 이 제목으로 보입니다.</translation>
     </message>
     <message>
         <source>&amp;Title:</source>
@@ -2227,8 +2227,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>비밀 메모</translation>
     </message>
     <message>
-        <source>The title shows even while the note is locked. Do not put its content in it.</source>
-        <translation>제목은 잠겨 있어도 보입니다. 내용은 적지 마세요.</translation>
+        <source>The title shows even while the text is covered. Do not put the text in it.</source>
+        <translation>제목은 내용이 가려져 있어도 보입니다. 내용은 적지 마세요.</translation>
     </message>
     <message>
         <source>OK</source>
@@ -2330,36 +2330,44 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>새 복구 키 만들기(&amp;R)…</translation>
     </message>
     <message>
-        <source>Chec&amp;k the master password…</source>
-        <translation>마스터 암호 확인해 보기(&amp;K)…</translation>
+        <source>Chec&amp;k the spare password…</source>
+        <translation>예비 암호 확인해 보기(&amp;K)…</translation>
+    </message>
+    <message>
+        <source>Cover a shown secret note again a&amp;fter</source>
+        <translation>보이는 비밀 메모는(&amp;F)</translation>
+    </message>
+    <message>
+        <source>Minutes a shown secret note is left alone before it is covered again</source>
+        <translation>보이는 비밀 메모를 쓰지 않으면 다시 가리기까지의 시간(분)</translation>
+    </message>
+    <message>
+        <source>Also cover it as soon as I &amp;use another window</source>
+        <translation>다른 창으로 옮기면 바로 가리기(&amp;U)</translation>
+    </message>
+    <message>
+        <source>Change the s&amp;pare password…</source>
+        <translation>예비 암호 바꾸기(&amp;P)…</translation>
+    </message>
+    <message>
+        <source>Set a s&amp;pare password…</source>
+        <translation>예비 암호 정하기(&amp;P)…</translation>
+    </message>
+    <message>
+        <source>No spare password</source>
+        <translation>예비 암호 없음</translation>
+    </message>
+    <message>
+        <source>Spare password: set %1</source>
+        <translation>예비 암호: %1 정함</translation>
     </message>
     <message>
         <source>Change the &amp;secret notes&apos; password…</source>
         <translation>비밀 메모 암호 바꾸기(&amp;S)…</translation>
     </message>
     <message>
-        <source>Lock an open secret note again a&amp;fter</source>
-        <translation>열어 둔 비밀 메모는(&amp;F)</translation>
-    </message>
-    <message>
         <source>minutes left alone</source>
-        <translation>분 동안 쓰지 않으면 다시 잠급니다</translation>
-    </message>
-    <message>
-        <source>Minutes an open secret note is left alone before it locks again</source>
-        <translation>열어 둔 비밀 메모를 쓰지 않으면 다시 잠그기까지의 시간(분)</translation>
-    </message>
-    <message>
-        <source>Also lock it as soon as I &amp;use another window</source>
-        <translation>다른 창으로 옮기면 바로 잠그기(&amp;U)</translation>
-    </message>
-    <message>
-        <source>Change the &amp;master password…</source>
-        <translation>마스터 암호 바꾸기(&amp;M)…</translation>
-    </message>
-    <message>
-        <source>Set a &amp;master password…</source>
-        <translation>마스터 암호 정하기(&amp;M)…</translation>
+        <translation>분 동안 쓰지 않으면 다시 가립니다</translation>
     </message>
     <message>
         <source>Stickle connects to nothing on the internet.</source>
@@ -2392,14 +2400,6 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Recovery key: made %1</source>
         <translation>복구 키: %1 만듦</translation>
-    </message>
-    <message>
-        <source>No master password</source>
-        <translation>마스터 암호 없음</translation>
-    </message>
-    <message>
-        <source>Master password: set %1</source>
-        <translation>마스터 암호: %1 정함</translation>
     </message>
     <message>
         <source>Secret notes&apos; password: set %1</source>
@@ -2710,12 +2710,12 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>%1에 이 PC에서 새 복구 키를 만들었습니다.</translation>
     </message>
     <message>
-        <source>On %1 a master password was set on this computer.</source>
-        <translation>%1에 이 PC에서 마스터 암호를 새로 정했습니다.</translation>
+        <source>On %1 a spare password was set on this computer.</source>
+        <translation>%1에 이 PC에서 예비 암호를 새로 정했습니다.</translation>
     </message>
     <message>
-        <source>On %1 the master password was changed on this computer.</source>
-        <translation>%1에 이 PC에서 마스터 암호를 바꿨습니다.</translation>
+        <source>On %1 the spare password was changed on this computer.</source>
+        <translation>%1에 이 PC에서 예비 암호를 바꿨습니다.</translation>
     </message>
     <message>
         <source>On %1 the secret notes&apos; password was changed on this computer.</source>
@@ -3055,8 +3055,8 @@ Data is in Stickle Manager and in the Stickle icon&apos;s menu. [Everything Stic
         <translation>메모를 열 때 쓰는 암호와 다른 암호로 정하세요.</translation>
     </message>
     <message>
-        <source>Choose a password other than the master password.</source>
-        <translation>마스터 암호와 다른 암호로 정하세요.</translation>
+        <source>Choose a password other than the spare password.</source>
+        <translation>예비 암호와 다른 암호로 정하세요.</translation>
     </message>
     <message>
         <source>Cancel</source>

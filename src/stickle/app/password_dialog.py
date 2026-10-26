@@ -123,8 +123,8 @@ class PasswordDialog(QDialog):
             self.intro.setText(intro)
             self.ok_button.setText(self.tr("Create password"))
         elif self.master:
-            self.setWindowTitle(self.tr("Open with the master password"))
-            self.intro.setText(self.tr("Enter the master password you set in Stickle's settings."))
+            self.setWindowTitle(self.tr("Open with the spare password"))
+            self.intro.setText(self.tr("Enter the spare password you set in Stickle's settings."))
             self.ok_button.setText(self.tr("Open notes"))
         else:
             self.setWindowTitle(self.tr("Unlock your notes"))
@@ -132,11 +132,11 @@ class PasswordDialog(QDialog):
             self.ok_button.setText(self.tr("Unlock"))
         self.cancel_button.setText(self.tr("Back") if self.master else self.tr("Quit"))
         self.password_label.setText(
-            self.tr("&Master password:") if self.master else self.tr("&Password:")
+            self.tr("&Spare password:") if self.master else self.tr("&Password:")
         )
         self.confirm_label.setText(self.tr("&Confirm password:"))
         self.password.setAccessibleName(
-            self.tr("Master password") if self.master else self.tr("Password")
+            self.tr("Spare password") if self.master else self.tr("Password")
         )
         self.confirm.setAccessibleName(self.tr("Confirm password"))
         self.input_note.setText(
@@ -156,7 +156,7 @@ class PasswordDialog(QDialog):
 
     def wrong_password(self) -> str:
         if self.master:
-            return self.tr("The master password is not correct.")
+            return self.tr("The spare password is not correct.")
         return self.tr("The password is not correct.")
 
     def key_file_failed(self, reason: str) -> str:
