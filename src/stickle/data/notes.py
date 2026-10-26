@@ -14,6 +14,7 @@ import apsw
 
 from stickle.core.clock import Clock, days_before, utc_now
 from stickle.core.note import DEFAULT_COLOR, Note, content_hash
+from stickle.data.imports import hide_text_hashes
 from stickle.data.search import search
 
 log = logging.getLogger(__name__)
@@ -195,6 +196,7 @@ class NoteRepository:
                     "content_hash": content_hash(sealed.hex()),
                 },
             )
+            hide_text_hashes(self._db, note_id)  # brought in from another app
             self._db.execute(
                 "INSERT INTO local_counters (key, value) VALUES (?, 1)"
                 " ON CONFLICT (key) DO UPDATE SET value = 1",
@@ -211,15 +213,17 @@ class NoteRepository:
         """In a backup being gone back to: a note secret now, its text there
         replaced by sealed, in the trash or not. Its old text is cleared away by
         forget_old_text, once for all of them."""
-        self._change(
-            note_id,
-            {
-                "body": "",
-                "secret_body": sealed,
-                "secret_title": title,
-                "content_hash": content_hash(sealed.hex()),
-            },
-        )
+        with self._db:
+            self._change(
+                note_id,
+                {
+                    "body": "",
+                    "secret_body": sealed,
+                    "secret_title": title,
+                    "content_hash": content_hash(sealed.hex()),
+                },
+            )
+            hide_text_hashes(self._db, note_id)
 
     def leave_out(self, note_id: str) -> None:
         """In a backup being gone back to: a note secret once and gone since, its
@@ -228,6 +232,7 @@ class NoteRepository:
             self._db.execute("DELETE FROM note_layouts WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+            hide_text_hashes(self._db, note_id)
 
     def remember_once_secret(self, note_ids: Iterable[str]) -> None:
         """Notes secret elsewhere (in the notes before going back) that this copy

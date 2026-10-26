@@ -210,6 +210,16 @@ V10 = """
 -- this computer only (sync has the deletion records), ids alone, for good: the
 -- copies made before an upgrade can be older than a year.
 CREATE TABLE once_secret (note_id TEXT PRIMARY KEY, recorded_at TEXT NOT NULL);
+
+-- A note brought in from another app and made secret keeps no hash of its text
+-- there (it would tell whether a guess of the text is right): one record per
+-- note of that app, marked, stops it coming in again (stickle.data.imports).
+INSERT OR IGNORE INTO import_records (source, source_id, content_hash, note_id, imported_at)
+    SELECT source, source_id, 'secret', note_id, min(imported_at) FROM import_records
+    WHERE note_id IN (SELECT id FROM notes WHERE secret_body IS NOT NULL)
+    GROUP BY source, source_id, note_id;
+DELETE FROM import_records WHERE content_hash != 'secret'
+    AND note_id IN (SELECT id FROM notes WHERE secret_body IS NOT NULL);
 """
 
 # MIGRATIONS[n] brings the database from version n to version n + 1.
