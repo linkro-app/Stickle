@@ -73,13 +73,28 @@ def file_stem(body: str, note_id: str) -> str:
     return f"{title} ({suffix})" if suffix else title
 
 
-def _rows(connection: apsw.Connection) -> list[tuple[str, str, bool]]:
+def _locked_markdown(title: str, locked_line: str) -> str:
+    """A secret note left encrypted: the title typed for it (if any) and a line
+    saying it is encrypted."""
+    return f"# {title}\n\n{locked_line}\n" if title else f"{locked_line}\n"
+
+
+def _rows(connection: apsw.Connection) -> list[tuple[str, str, bool, str | None]]:
+    """(id, body, deleted, the title of a secret one, None if it is not)."""
     columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(notes)")}
     if not {"id", "body"} <= columns:
         raise ExportError("no notes table")
     deleted = "deleted_at IS NOT NULL" if "deleted_at" in columns else "0"
-    query = f"SELECT id, body, {deleted} FROM notes"
-    return [(str(i), str(b), bool(d)) for i, b, d in connection.execute(query)]
+    secret = (
+        "CASE WHEN secret_body IS NULL THEN NULL ELSE coalesce(secret_title, '') END"
+        if "secret_body" in columns
+        else "NULL"
+    )
+    query = f"SELECT id, body, {deleted}, {secret} FROM notes"
+    return [
+        (str(i), str(b), bool(d), None if t is None else str(t))
+        for i, b, d, t in connection.execute(query)
+    ]
 
 
 def _free(path: Path) -> Path:
@@ -91,9 +106,15 @@ def _free(path: Path) -> Path:
 
 
 def export_markdown(
-    database: Path, key: bytes, target: Path, clock: Clock = utc_now
+    database: Path,
+    key: bytes,
+    target: Path,
+    clock: Clock = utc_now,
+    locked_line: str = "Encrypted secret note",
 ) -> ExportResult:
-    """Write every note into a new folder inside target; nothing is overwritten."""
+    """Write every note into a new folder inside target; nothing is overwritten.
+    A secret note, still encrypted (its key is not at hand here), is written as
+    its title and locked_line, as the full export does."""
     connection = open_database(database, key)
     try:
         rows = _rows(connection)
@@ -103,13 +124,17 @@ def export_markdown(
     folder = _free(target / f"Stickle notes {stamp}")
     folder.mkdir(parents=True)
     deleted_count = 0
-    for note_id, body, deleted in rows:
+    for note_id, body, deleted, secret_title in rows:
         place = folder / "deleted" if deleted else folder
         place.mkdir(exist_ok=True)
-        path = _free(place / f"{file_stem(body, note_id)}.md")
+        if secret_title is not None:
+            text = _locked_markdown(secret_title, locked_line)
+            path = _free(place / f"{file_stem(secret_title, note_id)}.md")
+        else:
+            text, path = body, _free(place / f"{file_stem(body, note_id)}.md")
         # newline="" keeps the text exactly as stored.
         with path.open("x", encoding="utf-8", newline="") as file:
-            file.write(body)
+            file.write(text)
         deleted_count += deleted
     return ExportResult(folder, len(rows) - deleted_count, deleted_count)
 
@@ -165,7 +190,10 @@ def _secrets(connection: apsw.Connection) -> dict[str, _Secret]:
 def _read_all(
     connection: apsw.Connection,
 ) -> tuple[
-    int, dict[str, list[dict[str, object]]], list[tuple[str, str, bool]], dict[str, _Secret]
+    int,
+    dict[str, list[dict[str, object]]],
+    list[tuple[str, str, bool, str | None]],
+    dict[str, _Secret],
 ]:
     """One consistent reading, even if a note is saved meanwhile."""
     connection.execute("BEGIN")
@@ -216,13 +244,13 @@ def export_all(
     folder = _free(target / f"Stickle export {moment:%Y-%m-%d %H%M}")
     folder.mkdir(parents=True)
     deleted_count = 0
-    for note_id, body, deleted in rows:
+    for note_id, body, deleted, _secret_title in rows:
         place = folder / TRASH_FOLDER if deleted else folder
         place.mkdir(exist_ok=True)
         locked = secrets.get(note_id)
         if locked is not None:
             # Named after the title typed for it: its text, if opened, may say more.
-            text = texts.get(note_id, f"# {locked.title}\n\n{secret.locked_line}\n")
+            text = texts.get(note_id, _locked_markdown(locked.title, secret.locked_line))
             path = _free(place / f"{file_stem(locked.title, note_id)}.md")
         else:
             text, path = body, _free(place / f"{file_stem(body, note_id)}.md")

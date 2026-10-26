@@ -40,6 +40,24 @@ def test_every_note_becomes_a_file_with_its_exact_text(tmp_path: Path) -> None:
     assert db.read_bytes() == database_before
 
 
+def test_a_secret_note_is_written_as_its_title_still_encrypted(tmp_path: Path) -> None:
+    db = tmp_path / "notes.db"
+    connection = open_store(db, KEY)
+    repo = NoteRepository(connection)
+    secret = repo.create("통장 비밀번호")
+    repo.make_secret(secret.id, "은행", b"sealed")
+    untitled = repo.create("다른 글")
+    repo.make_secret(untitled.id, "", b"sealed")
+    connection.close()
+
+    result = export_markdown(db, KEY, tmp_path, clock=lambda: NOW, locked_line="암호화된 비밀 메모")
+
+    assert files(result.folder) == {
+        f"은행 ({secret.id[:8]}).md": "# 은행\n\n암호화된 비밀 메모\n",
+        f"note ({untitled.id[:8]}).md": "암호화된 비밀 메모\n",
+    }
+
+
 def test_exporting_twice_never_overwrites(tmp_path: Path) -> None:
     db = tmp_path / "notes.db"
     connection = open_store(db, KEY)

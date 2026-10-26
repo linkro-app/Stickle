@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import apsw
+from PySide6.QtCore import QCoreApplication
 
 from stickle.app.password_dialog import PasswordDialog
 from stickle.app.recovery_dialog import Choice, Problem, RecoveryDialog
@@ -222,7 +223,17 @@ def open_notes(
                 dialog = RecoveryDialog(
                     problem,
                     folder,
-                    (lambda target, key=key: export_markdown(unlock.database, key, target))
+                    (
+                        lambda target, key=key: export_markdown(
+                            unlock.database,
+                            key,
+                            target,
+                            # As the full export says it (stickle.app.data_menu).
+                            locked_line=QCoreApplication.translate(
+                                "DataMenu", "Encrypted secret note"
+                            ),
+                        )
+                    )
                     if can_export and unlock.database.exists()
                     else None,
                 )
