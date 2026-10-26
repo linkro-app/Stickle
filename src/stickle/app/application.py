@@ -52,6 +52,7 @@ from stickle.data.backups import (
     backups,
     cancel_restore,
     contents,
+    keep_key_state,
     keep_secret_notes_secret,
     old_secret_texts,
     secret_notes_known,
@@ -127,8 +128,9 @@ def go_back_to(
 ) -> bool:
     """Back up the notes as they are, stage the backup and quit to put it in place.
     The notes secret now stay secret in it: their earlier text there sealed with
-    secret_key, or, without it, their text as it is now. False, with nothing
-    changed, if the copies could not be made."""
+    secret_key, or, without it, their text as it is now; what goes with the key
+    files stays as it is now. False, with nothing changed, if the copies could
+    not be made."""
     global _restore_staged
     manager.save_all()
     seal = None if secret_key is None else functools.partial(seal_text, secret_key)
@@ -136,6 +138,7 @@ def go_back_to(
         take(connection, database, clock, before_restore=True)
         stage_restore(database, backup)
         kept = keep_secret_notes_secret(database, key, secret_notes_known(connection), seal)
+        keep_key_state(database, key, connection)
     except (OSError, apsw.Error, WrongKeyError, MigrationError) as error:
         cancel_restore(database)
         log.error("could not go back to a backup: %s", type(error).__name__)

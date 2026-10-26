@@ -13,14 +13,17 @@ from stickle.data.backups import (
     contents,
     due,
     finish_restore,
+    keep_key_state,
     prune,
     stage_restore,
     take,
     take_daily,
 )
 from stickle.data.database import KEY_BYTES, WrongKeyError, open_database
+from stickle.data.key_copies import KeyCopies
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import latest_version, open_store
+from stickle.data.settings import PROTECTION_CHANGES, RECOVERY_KEY_KEPT, Settings
 
 KEY = secrets.token_bytes(KEY_BYTES)
 
@@ -184,6 +187,39 @@ def test_going_back_to_a_backup(database: Path) -> None:
     reopened.close()
     assert key_file.read_text() == "{}"
     assert backup.exists()
+
+
+def test_going_back_keeps_what_goes_with_the_key_files_as_it_is_now(database: Path) -> None:
+    connection = open_store(database, KEY)
+    NoteRepository(connection).create("그때 메모")
+    settings = Settings(connection)
+    copies = KeyCopies(connection)
+    copies.put("STK_STRUCTURE_INTEGRITY_B", b"recovery key then")
+    copies.put("STK_STRUCTURE_INTEGRITY_C", b"secret notes then")
+    settings.set(RECOVERY_KEY_KEPT, True)
+    backup = take(connection, database, FakeClock())
+    copies.put("STK_STRUCTURE_INTEGRITY_B", b"recovery key now")
+    connection.execute("DELETE FROM key_copies WHERE name = 'STK_STRUCTURE_INTEGRITY_C'")
+    settings.set(RECOVERY_KEY_KEPT, False)  # a new one made, not kept yet
+    told: list[dict[str, object]] = [
+        {"what": "master_password_set", "at": "2026-10-27T09:00:00.000Z", "told": False}
+    ]
+    settings.set(PROTECTION_CHANGES, told)
+    NoteRepository(connection).create("나중에 쓴 메모")
+
+    stage_restore(database, backup)
+    keep_key_state(database, KEY, connection)
+    connection.close()
+    assert finish_restore(database)
+
+    reopened = open_store(database, KEY)
+    assert bodies(reopened) == ["그때 메모"]
+    kept = KeyCopies(reopened)
+    assert kept.get("STK_STRUCTURE_INTEGRITY_B") == b"recovery key now"
+    assert kept.get("STK_STRUCTURE_INTEGRITY_C") is None
+    assert not Settings(reopened).get(RECOVERY_KEY_KEPT)
+    assert Settings(reopened).get(PROTECTION_CHANGES) == told
+    reopened.close()
 
 
 def test_nothing_staged_nothing_restored(database: Path) -> None:

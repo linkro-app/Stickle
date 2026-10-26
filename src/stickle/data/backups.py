@@ -13,6 +13,12 @@ same way. The copy is written in two steps: next to the database while the
 app runs (so a failure changes nothing and can be told), then put in place
 once the database is closed.
 
+What goes with the key files rather than with the notes stays as it is now
+in the copy put in place: the key files' copies in the database, whether the
+recovery key was kept, and the changes to what protects the notes not yet
+told. A backup's would bring back an older key, or a word about one: with
+both copies of a key file lost, its older copy would come back at start.
+
 A backup may hold, in the clear, the earlier text of a note made secret
 since. Going back never brings that text back plain: in the copy put in
 place, it is sealed with the secret notes' key when their password is given,
@@ -37,8 +43,11 @@ from stickle.core.clock import Clock, utc_now
 from stickle.data.database import WrongKeyError, open_database
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import latest_version, schema_version, upgrade
+from stickle.data.settings import PROTECTION_CHANGES, RECOVERY_KEY_KEPT
 
 KEPT_DAYS = 7
+# Settings of this computer about its key files, kept as they are now.
+KEY_SETTINGS = (RECOVERY_KEY_KEPT.key, PROTECTION_CHANGES.key)
 BEFORE_RESTORE = "-before-restore"
 PARTIAL = ".partial"
 RESTORING = ".restoring"
@@ -261,6 +270,35 @@ def keep_secret_notes_secret(
         if found:
             notes.forget_old_text()
         return len(found)
+    finally:
+        connection.close()
+
+
+def keep_key_state(database: Path, key: bytes, now: apsw.Connection) -> None:
+    """The staged backup given what goes with the key files as it is in now (the
+    database open): their copies, and this computer's settings about them."""
+    copies = now.execute("SELECT name, content FROM key_copies").fetchall()
+    marks = ", ".join("?" * len(KEY_SETTINGS))
+    settings = now.execute(
+        f"SELECT key, value FROM device_settings WHERE key IN ({marks})", KEY_SETTINGS
+    ).fetchall()
+    staged = database.with_name(database.name + RESTORING)
+    looked = open_database(staged, key, read_only=True)
+    try:
+        version = schema_version(looked)
+    finally:
+        looked.close()
+    if version < latest_version():
+        upgrade(staged, key, version)  # a table for the copies first, no copy kept aside
+    connection = open_database(staged, key)
+    try:
+        with connection:
+            connection.execute("DELETE FROM key_copies")
+            connection.executemany("INSERT INTO key_copies (name, content) VALUES (?, ?)", copies)
+            connection.execute(f"DELETE FROM device_settings WHERE key IN ({marks})", KEY_SETTINGS)
+            connection.executemany(
+                "INSERT INTO device_settings (key, value) VALUES (?, ?)", settings
+            )
     finally:
         connection.close()
 
