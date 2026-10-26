@@ -54,7 +54,7 @@ from stickle.data.backups import (
     contents,
     keep_secret_notes_secret,
     old_secret_texts,
-    secret_notes_now,
+    secret_notes_known,
     stage_restore,
     take,
 )
@@ -135,7 +135,7 @@ def go_back_to(
     try:
         take(connection, database, clock, before_restore=True)
         stage_restore(database, backup)
-        kept = keep_secret_notes_secret(database, key, secret_notes_now(connection), seal)
+        kept = keep_secret_notes_secret(database, key, secret_notes_known(connection), seal)
     except (OSError, apsw.Error, WrongKeyError, MigrationError) as error:
         cancel_restore(database)
         log.error("could not go back to a backup: %s", type(error).__name__)
@@ -169,7 +169,7 @@ def data_access(
     def old_texts(backup: Path) -> int:
         """Not known, 0: going back then keeps those notes as they are now."""
         try:
-            return old_secret_texts(backup, key, secret_notes_now(connection))
+            return old_secret_texts(backup, key, secret_notes_known(connection))
         except (OSError, apsw.Error, WrongKeyError) as error:
             log.warning("could not look into a backup: %s", type(error).__name__)
             return 0

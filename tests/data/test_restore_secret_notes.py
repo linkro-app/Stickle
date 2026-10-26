@@ -15,10 +15,11 @@ from preview_fixture_0_5 import FIXTURE, NOTES, STORE_KEY
 from stickle.crypto.secret_notes import open_text, seal_text
 from stickle.data.backups import (
     RESTORING,
+    SecretNow,
     finish_restore,
     keep_secret_notes_secret,
     old_secret_texts,
-    secret_notes_now,
+    secret_notes_known,
     stage_restore,
     take,
 )
@@ -101,7 +102,7 @@ def test_only_notes_secret_now_and_plain_in_the_backup_are_counted(
     notes.update_body(empty_then.id, "나중에 쓴 글")
     made_secret(notes, empty_then.id, "나중에 쓴 글")
 
-    now = secret_notes_now(connection)
+    now = secret_notes_known(connection)
 
     assert set(now) == {plain_then.id, secret_then.id, empty_then.id}
     assert ordinary.id not in now
@@ -120,7 +121,7 @@ def test_with_the_key_their_earlier_text_comes_back_sealed_and_out_of_search(
     before = digest(backup)
     stage_restore(database, backup)
 
-    kept = keep_secret_notes_secret(database, KEY, secret_notes_now(connection), seal)
+    kept = keep_secret_notes_secret(database, KEY, secret_notes_known(connection), seal)
 
     assert kept == 1
     body, sealed, title = row(staged(database), KEY, note.id)
@@ -140,14 +141,15 @@ def test_without_the_key_they_keep_their_text_as_now(
     note = notes.create(EARLIER)
     backup = take(connection, database, FakeClock())
     made_secret(notes, note.id, "지금 글", title="새 제목")
-    now = secret_notes_now(connection)
+    now = secret_notes_known(connection)
     stage_restore(database, backup)
 
     assert keep_secret_notes_secret(database, KEY, now, None) == 1
 
     body, sealed, title = row(staged(database), KEY, note.id)
-    assert (body, sealed, title) == ("", now[note.id].sealed, "새 제목")
-    assert open_text(SECRET_KEY, note.id, now[note.id].sealed) == "지금 글"
+    assert (body, title) == ("", "새 제목")
+    assert sealed is not None and sealed == now[note.id].sealed
+    assert open_text(SECRET_KEY, note.id, sealed) == "지금 글"
     assert found_in(staged(database), KEY, "PLAINWORD") == []
 
 
@@ -161,10 +163,87 @@ def test_one_in_the_trash_is_kept_secret_too(connection: apsw.Connection, databa
     notes.delete(note.id)
     stage_restore(database, backup)
 
-    assert keep_secret_notes_secret(database, KEY, secret_notes_now(connection), seal) == 1
+    assert keep_secret_notes_secret(database, KEY, secret_notes_known(connection), seal) == 1
 
     body, sealed, _title = row(staged(database), KEY, note.id)
     assert body == "" and sealed is not None
+
+
+def once_secret(path: Path, key: bytes) -> set[str]:
+    copy = open_database(path, key, read_only=True)
+    try:
+        return {str(row[0]) for row in copy.execute("SELECT note_id FROM once_secret")}
+    finally:
+        copy.close()
+
+
+def test_emptied_from_the_trash_while_secret_it_is_remembered(
+    connection: apsw.Connection,
+) -> None:
+    notes = NoteRepository(connection)
+    secret = notes.create(EARLIER)
+    made_secret(notes, secret.id, EARLIER)
+    ordinary = notes.create("보통 메모")
+    for note in (secret, ordinary):
+        notes.delete(note.id)
+    notes.empty_trash()
+
+    known = secret_notes_known(connection)
+
+    assert known == {secret.id: SecretNow()}  # gone: no title, nothing sealed
+
+
+def test_emptied_since_it_comes_back_sealed_or_stays_out(
+    connection: apsw.Connection, database: Path
+) -> None:
+    notes = NoteRepository(connection)
+    note = notes.create(EARLIER)
+    backup = take(connection, database, FakeClock())
+    made_secret(notes, note.id, EARLIER)
+    notes.delete(note.id)
+    notes.empty_trash()
+    known = secret_notes_known(connection)
+    assert old_secret_texts(backup, KEY, known) == 1
+
+    stage_restore(database, backup)
+    assert keep_secret_notes_secret(database, KEY, known, seal) == 1
+    body, sealed, title = row(staged(database), KEY, note.id)
+    assert body == "" and title == ""  # shown as "Secret note"
+    assert sealed is not None and open_text(SECRET_KEY, note.id, sealed) == EARLIER
+
+    stage_restore(database, backup)  # again, without their password
+    assert keep_secret_notes_secret(database, KEY, known, None) == 1
+    copy = open_database(staged(database), KEY, read_only=True)
+    assert copy.execute("SELECT count(*) FROM notes WHERE id = ?", (note.id,)).fetchall() == [(0,)]
+    copy.close()
+    assert found_in(staged(database), KEY, "PLAINWORD") == []
+    assert once_secret(staged(database), KEY) == {note.id}  # for a later going back
+
+
+def test_going_back_twice_still_keeps_it_secret(
+    connection: apsw.Connection, database: Path
+) -> None:
+    notes = NoteRepository(connection)
+    before_it = take(connection, database, FakeClock("2026-10-20T09:00:00.000Z"))
+    note = notes.create(EARLIER)
+    with_it = take(connection, database, FakeClock("2026-10-23T09:00:00.000Z"))
+    made_secret(notes, note.id, EARLIER)
+
+    # Back to before the note was written: the notes then have none of it...
+    stage_restore(database, before_it)
+    keep_secret_notes_secret(database, KEY, secret_notes_known(connection), None)
+    connection.close()
+    assert finish_restore(database)
+    connection = open_store(database, KEY)
+    assert NoteRepository(connection).get(note.id) is None
+
+    # ...yet going back again, to a backup with its earlier text, keeps that sealed.
+    known = secret_notes_known(connection)
+    assert old_secret_texts(with_it, KEY, known) == 1
+    stage_restore(database, with_it)
+    assert keep_secret_notes_secret(database, KEY, known, None) == 1
+    assert found_in(staged(database), KEY, "PLAINWORD") == []
+    connection.close()
 
 
 def test_nothing_to_keep_leaves_the_copy_as_the_backup(
@@ -174,7 +253,7 @@ def test_nothing_to_keep_leaves_the_copy_as_the_backup(
     backup = take(connection, database, FakeClock())
     stage_restore(database, backup)
 
-    assert keep_secret_notes_secret(database, KEY, secret_notes_now(connection), seal) == 0
+    assert keep_secret_notes_secret(database, KEY, secret_notes_known(connection), seal) == 0
     assert digest(staged(database)) == digest(backup)
 
 
@@ -190,7 +269,7 @@ def test_a_backup_from_before_secret_notes_is_upgraded_in_the_copy_only(
     notes = NoteRepository(connection)
     note = next(n for n in notes.visible() if n.body == NOTES[0])
     made_secret(notes, note.id, NOTES[0])
-    now = secret_notes_now(connection)
+    now = secret_notes_known(connection)
     before = digest(backup)
 
     assert old_secret_texts(backup, STORE_KEY, now) == 1

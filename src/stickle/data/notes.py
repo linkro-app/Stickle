@@ -8,6 +8,7 @@ next change number, which never goes backwards even if the clock does.
 
 import logging
 import uuid
+from collections.abc import Iterable
 
 import apsw
 
@@ -218,6 +219,22 @@ class NoteRepository:
                 "secret_title": title,
                 "content_hash": content_hash(sealed.hex()),
             },
+        )
+
+    def leave_out(self, note_id: str) -> None:
+        """In a backup being gone back to: a note secret once and gone since, its
+        earlier text there not opened, left out with its places and marks."""
+        with self._db:
+            self._db.execute("DELETE FROM note_layouts WHERE note_id = ?", (note_id,))
+            self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
+            self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+
+    def remember_once_secret(self, note_ids: Iterable[str]) -> None:
+        """Notes secret elsewhere (in the notes before going back) that this copy
+        has no note for: a backup's earlier text of them stays sealed later too."""
+        self._db.executemany(
+            "INSERT OR IGNORE INTO once_secret (note_id, recorded_at) VALUES (?, ?)",
+            [(note_id, self._clock()) for note_id in note_ids],
         )
 
     def update_secret_body(self, note_id: str, sealed: bytes) -> Note:
@@ -483,6 +500,11 @@ class NoteRepository:
                 " purged_at = excluded.purged_at",
                 (note_id, note.deleted_at, self._clock()),
             )
+            if note.secret:  # a backup's earlier text of it stays sealed (stickle.data.backups)
+                self._db.execute(
+                    "INSERT OR IGNORE INTO once_secret (note_id, recorded_at) VALUES (?, ?)",
+                    (note_id, self._clock()),
+                )
             self._db.execute("DELETE FROM note_layouts WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))

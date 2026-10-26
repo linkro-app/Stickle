@@ -203,8 +203,17 @@ CREATE TABLE custom_colors (
 );
 """
 
+V10 = """
+-- Notes that were secret but are not among the notes any more: emptied from
+-- the trash while secret, or not in a backup gone back to. A backup holding the
+-- earlier text of one in the clear keeps it sealed when gone back to. Kept on
+-- this computer only (sync has the deletion records), ids alone, for good: the
+-- copies made before an upgrade can be older than a year.
+CREATE TABLE once_secret (note_id TEXT PRIMARY KEY, recorded_at TEXT NOT NULL);
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10]
 BACKUPS_KEPT = 3
 
 
