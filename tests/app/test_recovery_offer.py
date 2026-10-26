@@ -121,3 +121,17 @@ def test_a_note_stored_for_the_first_time_is_announced(connection: apsw.Connecti
 
     assert created == [None]
     window.release()
+
+
+def test_not_offered_once_there_are_secret_notes(connection: apsw.Connection) -> None:
+    # Their key is not at hand to seal for a new one, and the one it is sealed
+    # for would stop working: a new key here would leave them to their password.
+    offer = Offer(connection, answer=True)
+    offer.offer = RecoveryOffer(
+        offer.settings, offer.notes, offer.make, offer.show, secret_notes_on=lambda: True
+    )
+    notes(offer, NOTES_WORTH_KEEPING)
+
+    offer.offer.check()
+
+    assert offer.made == [] and offer.shown == []

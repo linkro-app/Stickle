@@ -154,6 +154,7 @@ CHANGE_KINDS = (
     "master_password_set",
     "master_password_changed",
     "secret_password_changed",
+    "secret_password_reset",  # set anew with the recovery key, the old one forgotten
 )
 
 

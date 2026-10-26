@@ -43,8 +43,10 @@ from stickle.crypto.master import OPSLIMIT as MASTER_OPSLIMIT
 from stickle.crypto.master import change_master, open_with_master, read_master, set_master
 from stickle.crypto.recovery import (
     WrongRecoveryKeyError,
+    make_recovery_slot,
+    open_recovery_pair,
     read_recovery,
-    write_recovery,
+    save_recovery_slot,
 )
 from stickle.crypto.recovery import generate as generate_recovery_key
 from stickle.crypto.recovery import unwrap as unwrap_recovery
@@ -255,11 +257,48 @@ class Unlock:
         self._write_password(KeyFile(self._wrap(key, password), others))
         self._unreadable = False
 
-    def make_recovery_key(self, key: bytes) -> str:
-        """A new recovery key for key (known to open the database); the old one stops working."""
+    def make_recovery_key(self, key: bytes, secret_key: bytes | None = None) -> str:
+        """A new recovery key for key (known to open the database); the old one
+        stops working. With secret notes, their key (known to open them) is
+        sealed for it too, first: should Stickle stop in between, the old pair
+        is still the one in B, and the secret notes are sealed for it again
+        once opened with their password (keep_secret_notes_for_recovery_key)."""
         recovery_key = generate_recovery_key()
-        write_recovery(self.files, key, recovery_key, self._clock())
+        slot = make_recovery_slot(key, recovery_key, self._clock())
+        if self.has_secret_notes:
+            if secret_key is not None:
+                secret_notes.keep_for_recovery_key(self.files, secret_key, slot.public)
+            else:
+                log.warning("new recovery key made without the secret notes' key")
+        save_recovery_slot(self.files, slot)
         return recovery_key
+
+    def _recovery_pair(self) -> SealedSlot | None:
+        """The recovery key's pair; None without one, or for one from before 0.6."""
+        try:
+            slot = read_recovery(self.files)
+        except KeyFileError, OSError:
+            return None
+        return slot if isinstance(slot, SealedSlot) else None
+
+    @property
+    def recovery_key_is_old(self) -> bool:
+        """Whether the recovery key was made before 0.6: it opens the notes, but
+        nothing can be sealed for it until it is typed once (upgrade_recovery_key)."""
+        return self.has_recovery_key and self._recovery_pair() is None
+
+    def upgrade_recovery_key(self, typed: str) -> None:
+        """An old recovery key, typed, made a pair: the same key opens the notes,
+        and now secret notes can be sealed for it. RecoveryKeyTypoError or
+        WrongRecoveryKeyError if it is not the one these notes have."""
+        slot = read_recovery(self.files)
+        if slot is None or isinstance(slot, SealedSlot):
+            raise WrongRecoveryKeyError("no recovery key from before 0.6")
+        key = unwrap_recovery(slot, typed)
+        if self.opened_key is not None and key != self.opened_key:
+            raise WrongRecoveryKeyError("it opens other notes")
+        # Its date unknown, as before: it was not made now.
+        save_recovery_slot(self.files, make_recovery_slot(key, typed, slot.set_at))
 
     # The master password (stickle.crypto.master)
 
@@ -335,25 +374,46 @@ class Unlock:
             return None
 
     def turn_on_secret_notes(self, password: str) -> bytes:
-        """The secret notes' key, made now and kept for password and the master
-        password, which must be set first; the key."""
-        master = self._master()
-        if master is None:
-            raise KeyFileError("a master password is set before secret notes")
-        return secret_notes.create(
-            self.files, password, master.public, self._clock(), self._strength
-        )
+        """The secret notes' key, made now and kept for password and the recovery
+        key, which must be a pair first (made, or an old one upgraded); the key."""
+        pair = self._recovery_pair()
+        if pair is None:
+            raise KeyFileError("a recovery key is made before secret notes")
+        return secret_notes.create(self.files, password, pair.public, self._clock(), self._strength)
 
     def open_secret_notes(self, password: str) -> bytes:
         """The secret notes' key; WrongPasswordError if password is not theirs."""
         return secret_notes.open_with_password(self.files, password)
 
-    def open_secret_notes_with_master(self, typed: str) -> bytes:
-        """The secret notes' key through the master password (WrongPasswordError)."""
-        master = self._master()
-        if master is None:
-            raise WrongPasswordError("no master password")
-        return secret_notes.open_with_master(self.files, master, typed)
+    def open_secret_notes_with_recovery_key(self, typed: str) -> bytes:
+        """The secret notes' key through the recovery key: RecoveryKeyTypoError,
+        WrongRecoveryKeyError, or NotKeptForRecoveryKeyError if they are not
+        sealed for the one these notes have now. Nothing is written."""
+        pair = self._recovery_pair()
+        if pair is None:
+            raise secret_notes.NotKeptForRecoveryKeyError("no recovery key pair")
+        return secret_notes.open_with_recovery_key(
+            self.files, open_recovery_pair(pair, typed), pair.public
+        )
+
+    @property
+    def secret_notes_kept_for_recovery_key(self) -> bool:
+        """Whether the secret notes open with the recovery key these notes have
+        now (True where there is nothing to seal them for: no secret notes, no pair)."""
+        pair = self._recovery_pair()
+        if pair is None or not self.has_secret_notes:
+            return True
+        try:
+            return secret_notes.recovery_public(self.files) == pair.public
+        except KeyFileError, OSError:
+            return True  # not to be written over: C is damaged or out of reach
+
+    def keep_secret_notes_for_recovery_key(self, key: bytes) -> None:
+        """The secret notes' key (known to open them) sealed for the recovery
+        key's pair: after one made without it, or before they were."""
+        pair = self._recovery_pair()
+        if pair is not None and self.has_secret_notes:
+            secret_notes.keep_for_recovery_key(self.files, key, pair.public)
 
     def opens_secret_notes(self, typed: str) -> bool:
         """Whether typed is the secret notes' password (checked, nothing changed)."""
@@ -376,12 +436,6 @@ class Unlock:
             return None if raw is None else parse_document(raw)
         except KeyFileError, OSError:
             return None
-
-    def keep_secret_notes_for_master(self, key: bytes) -> None:
-        """After a master password set anew, the secret notes' key sealed for it."""
-        master = self._master()
-        if master is not None and self.has_secret_notes:
-            secret_notes.keep_for_master(self.files, key, master.public)
 
     def keep_copies(self, connection: apsw.Connection) -> None:
         """The notes are open: the key files they hold a copy of are kept there too,

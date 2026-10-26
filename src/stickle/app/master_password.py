@@ -49,11 +49,8 @@ class MasterPasswords:
     # Whether a recovery key opens these notes; RecoveryKeyTypoError if mistyped.
     recovery_key_opens: Callable[[str], bool]
     set_at: Callable[[], str | None] = lambda: None  # when it was set or changed (UTC)
-    # Secret notes, whose key the master password opens too: forgotten, it is set
-    # again with them opened by their password (secret notes' password, new one;
-    # WrongPasswordError), never with the recovery key, which does not open them.
-    secret_notes_on: Callable[[], bool] = lambda: False
-    set_with_secret: Callable[[str, str], None] | None = None
+    # Whether it is the secret notes' password, which it must not be (it opens
+    # nothing of theirs, and is typed less often).
     is_secret_password: Callable[[str], bool] = lambda _typed: False
 
 
@@ -98,14 +95,12 @@ def _working(label: QLabel, text: str) -> None:
 
 class MasterPasswordDialog(QDialog):
     """Set the master password, or change it: then the current one is asked for
-    first, or, forgotten, the recovery key (the secret notes' password once
-    there are secret notes)."""
+    first, or, forgotten, the recovery key."""
 
     def __init__(self, passwords: MasterPasswords, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._passwords = passwords
         self.changing = passwords.exists()
-        self.via_secret = False  # forgotten: set again with the secret notes' password
         self.intro = QLabel()
         self.intro.setWordWrap(True)
         self.current = _password_field()
@@ -146,10 +141,9 @@ class MasterPasswordDialog(QDialog):
         self.retranslate()
 
     def _show_mode(self) -> None:
-        asks_first = self.changing or self.via_secret
-        self.form.setRowVisible(0, asks_first)
+        self.form.setRowVisible(0, self.changing)
         self.forgot_button.setVisible(self.changing)
-        (self.current if asks_first else self.new).setFocus()
+        (self.current if self.changing else self.new).setFocus()
         # The fields, then the buttons as the system lays them out (it orders them its way).
         layout = self.buttons.layout()
         assert layout is not None
@@ -170,18 +164,6 @@ class MasterPasswordDialog(QDialog):
             self.intro.setText(self.tr("Enter the master password you have now, then the new one."))
             self.new_label.setText(self.tr("&New master password:"))
             self.ok_button.setText(self.tr("Change"))
-        elif self.via_secret:
-            self.setWindowTitle(self.tr("Set a new master password"))
-            self.intro.setText(
-                self.tr(
-                    "Enter the secret notes' password, then a new master password. It"
-                    " will open your secret notes as the old one did."
-                )
-            )
-            self.current_label.setText(self.tr("&Secret notes' password:"))
-            self.current.setAccessibleName(self.tr("Secret notes' password"))
-            self.new_label.setText(self.tr("&New master password:"))
-            self.ok_button.setText(self.tr("Set"))
         else:
             self.setWindowTitle(self.tr("Set a master password"))
             self.intro.setText(
@@ -252,18 +234,11 @@ class MasterPasswordDialog(QDialog):
         try:
             if self.changing:
                 self._passwords.change(self.current.text(), new)
-            elif self.via_secret and self._passwords.set_with_secret is not None:
-                self._passwords.set_with_secret(self.current.text(), new)
             else:
                 self._passwords.set(new)
         except WrongPasswordError:
             self.current.clear()
-            self.show_error(
-                self.tr("The secret notes' password is not correct.")
-                if self.via_secret
-                else self.tr("The current master password is not correct."),
-                self.current,
-            )
+            self.show_error(self.tr("The current master password is not correct."), self.current)
             return
         except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
             # RuntimeError: the key could not be derived (too little memory for it).
@@ -280,15 +255,7 @@ class MasterPasswordDialog(QDialog):
         super().accept()
 
     def forgot(self) -> None:
-        """The recovery key instead of the current master password, then a new one;
-        with secret notes, their password instead (in this window)."""
-        if self._passwords.secret_notes_on():
-            self.changing, self.via_secret = False, True
-            self.current.clear()
-            self.message.hide()
-            self._show_mode()
-            self.retranslate()
-            return
+        """The recovery key instead of the current master password, then a new one."""
         dialog: EnterRecoveryKeyDialog
 
         def submit(typed: str) -> str | None:

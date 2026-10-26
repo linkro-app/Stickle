@@ -1,6 +1,6 @@
 """A key pair opened by what the user types, and keys sealed for it.
 
-The recovery key (and the master password) each have a random key pair
+The recovery key and the master password each have a random key pair
 (libsodium's crypto_box). Its secret key is wrapped with a key derived from
 what the user types (stickle.crypto.keyfile), and what it opens is sealed for
 its public key (crypto_box_seal). Sealing needs only the public key: the app
@@ -50,7 +50,7 @@ def seal(public: bytes, key: bytes) -> bytes:
 
 
 def make_sealed_slot(
-    key: bytes, typed: str, opslimit: int, memlimit: int, slot_name: str, set_at: str
+    key: bytes, typed: str, opslimit: int, memlimit: int, slot_name: str, set_at: str | None
 ) -> SealedSlot:
     """A new key pair opened by typed, with key sealed for it."""
     from nacl.public import PrivateKey

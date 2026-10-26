@@ -1,6 +1,7 @@
 """The recovery key on screen: typing it in to get back in, and showing a new one."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import override
 
@@ -32,6 +33,27 @@ from stickle.app.typed import forget_typed
 
 # Returns an error to show, or None when the key was accepted.
 type Submit = Callable[[str], str | None]
+
+
+def _no_upgrade(_typed: str) -> None:
+    raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class RecoveryKeys:
+    """Making the recovery key, without the windows knowing the notes' keys."""
+
+    exists: Callable[[], bool]
+    make: Callable[[], str]  # a new one, the old one no longer working
+    kept: Callable[[], None]  # the user said the new one is kept somewhere safe
+    made_at: Callable[[], str | None] = lambda: None  # when (UTC); unknown before 0.6
+    was_kept: Callable[[], bool] = lambda: True  # the user said they kept it (not "Later")
+    # With secret notes: a new one their key (opened by the user) is sealed for too.
+    make_with_secret: Callable[[bytes], str] | None = None
+    # Made before 0.6: nothing can be sealed for it until it is typed once, which
+    # upgrade does (RecoveryKeyTypoError, WrongRecoveryKeyError).
+    is_old: Callable[[], bool] = lambda: False
+    upgrade: Callable[[str], None] = _no_upgrade
 
 
 class EnterRecoveryKeyDialog(QDialog):

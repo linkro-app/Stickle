@@ -56,7 +56,8 @@ from stickle.app.master_password import MasterPasswords
 from stickle.app.note_list import NoteList
 from stickle.app.notes import SECRET_NOTES, NoteManager, clipboard_text
 from stickle.app.protection_changes import Change, ProtectionChanges
-from stickle.app.settings_window import RecoveryKeys, SettingsWindow
+from stickle.app.recovery_key_dialog import RecoveryKeys
+from stickle.app.settings_window import SettingsWindow
 from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
@@ -551,6 +552,10 @@ class StickleWindow(QWidget):
             ),
             "secret_password_changed": self.tr(
                 "On %1 the secret notes' password was changed on this computer."
+            ),
+            "secret_password_reset": self.tr(
+                "On %1 the secret notes' password was set anew with the recovery key"
+                " on this computer."
             ),
         }
         return texts[change.what].replace("%1", when)

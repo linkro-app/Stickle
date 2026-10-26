@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog, QWidget
+from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 from pytestqt.qtbot import QtBot
 from test_autosave import compose
 from test_startup_dialogs import FAST, Backend, store_of
@@ -19,6 +19,7 @@ from stickle.app import (
     application,
     data_menu,
     file_dialogs,
+    master_password,
     notes,
     secret_dialogs,
     secret_notes,
@@ -31,6 +32,7 @@ from stickle.app.note_list import SECRET as SECRET_FILTER
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NO_CATEGORY, SECRET_NOTES, NoteManager
 from stickle.app.protection_changes import ProtectionChanges
+from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, RecoveryKeyDialog
 from stickle.app.secret_dialogs import (
     NewSecretPasswordDialog,
     OpenSecretDialog,
@@ -39,17 +41,27 @@ from stickle.app.secret_dialogs import (
     TurnOnDialog,
 )
 from stickle.app.settings_window import SettingsWindow
+from stickle.app.times import local_time
 from stickle.app.titles import shown_title
 from stickle.app.tray import menu_title
 from stickle.core.note import Note
-from stickle.crypto.key_files import C
-from stickle.crypto.secret_notes import open_text, seal_text
+from stickle.crypto.key_files import B, C
+from stickle.crypto.keyfile import encode_slot, wrap_with_password
+from stickle.crypto.recovery import (
+    OLD_SLOT,
+    WrongRecoveryKeyError,
+    canonical,
+    generate,
+    read_recovery,
+)
+from stickle.crypto.sealed import SealedSlot
+from stickle.crypto.secret_notes import keep_for_recovery_key, open_text, seal_text
 from stickle.data.export import ExportResult
 from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.search import search
-from stickle.data.settings import Settings
+from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.unlock import Unlock
 
 KEY = secrets.token_bytes(32)
@@ -79,14 +91,11 @@ def accepted(dialog: QDialog) -> bool:
     return dialog.result() == QDialog.DialogCode.Accepted.value
 
 
-def turn_on(password: str = SECRET, master: str = MASTER) -> Answer:
+def turn_on(password: str = SECRET) -> Answer:
     def answer(dialog: QDialog) -> bool:
         assert isinstance(dialog, TurnOnDialog)
         dialog.password.setText(password)
         dialog.confirm.setText(password)
-        dialog.master.setText(master)
-        dialog.master_confirm.setText(master)
-        dialog.understood.setChecked(True)
         return accepted(dialog)
 
     return answer
@@ -148,7 +157,12 @@ def manager(
         settings=Settings(connection),
         labels=LabelRepository(connection),
     )
-    manager.secrets = application.secret_passwords(unlock, application.master_passwords(unlock))
+    manager.secrets = application.secret_passwords(
+        unlock,
+        application.master_passwords(unlock),
+        recovery=application.recovery_keys(unlock, Settings(connection)),
+        fits=manager.secret_key_fits,
+    )
     yield manager
     for window in manager.windows:
         window.release()
@@ -196,7 +210,7 @@ def test_made_secret_its_text_is_stored_encrypted_only(
 ) -> None:
     window = secret_note(qtbot, manager, answers)
 
-    assert unlock.has_secret_notes and unlock.has_master_password
+    assert unlock.has_secret_notes and not unlock.has_master_password  # not asked for
     note = stored(connection, window)
     assert note.secret_title == "은행"
     assert opened_text(connection, unlock, window) == TEXT
@@ -564,6 +578,11 @@ def test_with_it_chosen_using_another_window_locks_it(
 ) -> None:
     window = secret_note(qtbot, manager, answers)
     relock = manager._relock  # pyright: ignore[reportPrivateUsage]
+    other = QWidget()  # another app's window, in front now
+    qtbot.addWidget(other)
+    other.show()
+    other.activateWindow()
+    qtbot.waitUntil(lambda: not window.isActiveWindow())
 
     relock._left(window)  # pyright: ignore[reportPrivateUsage]
     assert not window.secret_locked  # as long as it is not chosen: off at first
@@ -696,63 +715,305 @@ def test_its_title_can_be_changed_while_open(
     assert window.title_bar.title.text() == "통장"
 
 
-# Their password
+# Their password, and the recovery key when it is forgotten
 
 
-def test_forgotten_the_master_password_opens_it_and_a_new_one_is_set(
+def new_password(typed: str) -> Callable[[NewSecretPasswordDialog], bool]:
+    def answer(dialog: NewSecretPasswordDialog) -> bool:
+        dialog.password.setText(typed)
+        dialog.confirm.setText(typed)
+        return accepted(dialog)
+
+    return answer
+
+
+def recovery_key_typed(*typed: str) -> Callable[[EnterRecoveryKeyDialog], bool]:
+    """Each in turn, until one is taken; given up (Back) if none is."""
+
+    def answer(dialog: EnterRecoveryKeyDialog) -> bool:
+        for key in typed:
+            dialog.key.setText(key)
+            if accepted(dialog):
+                return True
+        dialog.reject()
+        return False
+
+    return answer
+
+
+def with_recovery_key(manager: NoteManager, unlock: Unlock, connection: apsw.Connection) -> None:
+    """Their windows told of changes, as Stickle has them."""
+    manager.secrets = application.secret_passwords(
+        unlock,
+        application.master_passwords(unlock),
+        ProtectionChanges(Settings(connection)),
+        application.recovery_keys(unlock, Settings(connection)),
+        manager.secret_key_fits,
+    )
+
+
+def always(_window: QWidget) -> bool:
+    return True
+
+
+def yes(*_args: object) -> QMessageBox.StandardButton:
+    return QMessageBox.StandardButton.Yes
+
+
+def forgot(dialog: QDialog) -> bool:
+    assert isinstance(dialog, OpenSecretDialog)
+    dialog.forgot_button.click()
+    return dialog.result() == QDialog.DialogCode.Accepted.value
+
+
+def test_forgotten_the_recovery_key_opens_it_and_a_new_one_is_set(
     qtbot: QtBot,
     manager: NoteManager,
     answers: Answers,
     unlock: Unlock,
+    connection: apsw.Connection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    recovery_key = unlock.make_recovery_key(KEY)
+    with_recovery_key(manager, unlock, connection)
     window = secret_note(qtbot, manager, answers)
     manager.lock_secret(window)
+    typed: list[str] = []
 
-    def new_password(dialog: NewSecretPasswordDialog) -> bool:
-        dialog.password.setText("a new one 22")
-        dialog.confirm.setText("a new one 22")
-        return accepted(dialog)
+    def seen(dialog: EnterRecoveryKeyDialog) -> bool:
+        typed.append(dialog.windowTitle())
+        return recovery_key_typed("0000-0000", generate(), recovery_key)(dialog)
 
-    monkeypatch.setattr(secret_dialogs, "ask_new_password", new_password)
-
-    def with_master(dialog: QDialog) -> bool:
-        assert isinstance(dialog, OpenSecretDialog)
-        dialog.forgot_button.click()
-        dialog.password.setText(MASTER)
-        return accepted(dialog)
-
-    answers.queue.append(with_master)
+    monkeypatch.setattr(secret_dialogs, "ask_recovery_key", seen)
+    monkeypatch.setattr(secret_dialogs, "ask_new_password", new_password("a new one 22"))
+    answers.queue.append(forgot)
     window.open_secret_action.trigger()
 
     assert window.text == TEXT
     assert unlock.opens_secret_notes("a new one 22")
-    assert not unlock.opens_secret_notes(SECRET)
+    assert not unlock.opens_secret_notes(SECRET)  # the old one no longer
+    assert unlock.open_secret_notes_with_recovery_key(recovery_key) is not None
+    changes = ProtectionChanges(Settings(connection))
+    changes.due()
+    assert [c.what for c in changes.to_tell()] == ["secret_password_reset"]
 
 
-@pytest.mark.parametrize(
-    ("typed", "master", "why"),
-    [
-        ("short", MASTER, "Use at least 8 characters."),
-        (MASTER, MASTER, "Choose a master password other than the secret notes' password."),
-        (SECRET, "password", "Use at least 12 characters, or 4 words or more."),
-    ],
-)
-def test_a_weak_or_repeated_password_is_refused(
+def test_a_wrong_recovery_key_or_none_set_changes_nothing(
     qtbot: QtBot,
     manager: NoteManager,
     answers: Answers,
     unlock: Unlock,
-    typed: str,
-    master: str,
-    why: str,
+    connection: apsw.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recovery_key = unlock.make_recovery_key(KEY)
+    with_recovery_key(manager, unlock, connection)
+    window = secret_note(qtbot, manager, answers)
+    manager.lock_secret(window)
+    shown: list[str] = []
+
+    def wrong_then_back(dialog: EnterRecoveryKeyDialog) -> bool:
+        for key in ("0000", generate()):
+            dialog.key.setText(key)
+            dialog.accept()
+            shown.append(dialog.error.text())
+        dialog.reject()
+        return False
+
+    monkeypatch.setattr(secret_dialogs, "ask_recovery_key", wrong_then_back)
+    answers.queue.append(forgot)
+    window.open_secret_action.trigger()
+    assert window.secret_locked
+    assert shown[1] == "This recovery key does not open these notes."
+    assert "mistyped" in shown[0]
+
+    # The right one, but no new password set: still locked, nothing changed.
+    monkeypatch.setattr(secret_dialogs, "ask_recovery_key", recovery_key_typed(recovery_key))
+    monkeypatch.setattr(secret_dialogs, "ask_new_password", cancel)
+    answers.queue.append(forgot)
+    window.open_secret_action.trigger()
+
+    assert window.secret_locked
+    assert unlock.opens_secret_notes(SECRET)
+
+
+def test_a_recovery_key_whose_key_opens_none_of_them_is_refused(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    unlock: Unlock,
+    connection: apsw.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A key that opens no secret note, sealed for the recovery key somehow (a
+    # key file from elsewhere): never taken, nor kept for their password.
+    recovery_key = unlock.make_recovery_key(KEY)
+    with_recovery_key(manager, unlock, connection)
+    window = secret_note(qtbot, manager, answers)
+    manager.lock_secret(window)
+    pair = read_recovery(unlock.files)
+    assert isinstance(pair, SealedSlot)
+    keep_for_recovery_key(unlock.files, secrets.token_bytes(32), pair.public)
+    shown: list[str] = []
+
+    def typed(dialog: EnterRecoveryKeyDialog) -> bool:
+        dialog.key.setText(recovery_key)
+        dialog.accept()
+        shown.append(dialog.error.text())
+        dialog.reject()
+        return False
+
+    monkeypatch.setattr(secret_dialogs, "ask_recovery_key", typed)
+    answers.queue.append(forgot)
+    window.open_secret_action.trigger()
+
+    assert shown == ["This recovery key does not open the secret notes."]
+    assert window.secret_locked and unlock.opens_secret_notes(SECRET)
+
+
+def test_opened_with_their_password_they_are_kept_for_the_recovery_key_again(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    unlock: Unlock,
+    connection: apsw.Connection,
+) -> None:
+    # A recovery key made without their key (Stickle stopped in between, or an
+    # earlier build): the next time their password opens them, it opens them too.
+    with_recovery_key(manager, unlock, connection)
+    window = secret_note(qtbot, manager, answers)
+    manager.lock_secret(window)
+    recovery_key = unlock.make_recovery_key(KEY)
+    assert not unlock.secret_notes_kept_for_recovery_key
+
+    answers.queue.append(password())
+    window.open_secret_action.trigger()
+
+    assert unlock.secret_notes_kept_for_recovery_key
+    assert unlock.open_secret_notes_with_recovery_key(recovery_key) == unlock.open_secret_notes(
+        SECRET
+    )
+
+
+def test_turning_on_asks_one_password_and_says_when_the_recovery_key_was_made(
+    qtbot: QtBot, manager: NoteManager, unlock: Unlock, connection: apsw.Connection
+) -> None:
+    Settings(connection).set(RECOVERY_KEY_KEPT, True)
+    assert manager.secrets is not None
+    dialog = TurnOnDialog(manager.secrets)
+    qtbot.addWidget(dialog)
+
+    made = unlock.recovery_key_made_at
+    assert made is not None
+    assert local_time(made) in dialog.recovery_line.text()
+    assert "do not keep it on this computer" in dialog.recovery_line.text()
+    assert dialog.ok_button.isEnabled() and not dialog.type_button.isVisibleTo(dialog)
+    assert dialog.make_button.text() == "&Make a new recovery key…"
+    for field in (dialog.password, dialog.confirm):
+        field.setText(SECRET)
+    dialog.accept()
+
+    assert dialog.result() == QDialog.DialogCode.Accepted.value
+    assert unlock.has_secret_notes and not unlock.has_master_password
+
+
+def test_a_recovery_key_not_kept_is_said_and_a_new_one_can_be_made(
+    qtbot: QtBot,
+    manager: NoteManager,
+    unlock: Unlock,
+    connection: apsw.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Skipped at the first start ("Later"): the user may not have it at all.
+    assert manager.secrets is not None
+    dialog = TurnOnDialog(manager.secrets)
+    qtbot.addWidget(dialog)
+    assert "You have not kept a recovery key yet." in dialog.recovery_line.text()
+    shown: list[str] = []
+
+    def keep(window: RecoveryKeyDialog) -> bool:
+        shown.append(window.panel.recovery_key)
+        return True
+
+    monkeypatch.setattr(secret_dialogs, "confirm_new_recovery_key", always)
+    monkeypatch.setattr(secret_dialogs, "show_recovery_key", keep)
+    dialog.make_button.click()
+
+    assert "You have not kept" not in dialog.recovery_line.text()
+    assert Settings(connection).get(RECOVERY_KEY_KEPT)
+    for field in (dialog.password, dialog.confirm):
+        field.setText(SECRET)
+    dialog.accept()
+    assert dialog.key is not None
+    assert unlock.open_secret_notes_with_recovery_key(shown[0]) == dialog.key
+
+
+def test_an_old_recovery_key_is_typed_once_before_turning_on(
+    qtbot: QtBot,
+    manager: NoteManager,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old = generate()
+    wrapped = wrap_with_password(KEY, canonical(old), 2, 8192, slot_name=OLD_SLOT)
+    unlock.files.save(B, {OLD_SLOT: encode_slot(wrapped)})
+    assert manager.secrets is not None
+    dialog = TurnOnDialog(manager.secrets)
+    qtbot.addWidget(dialog)
+
+    assert "earlier Stickle" in dialog.recovery_line.text()
+    assert not dialog.ok_button.isEnabled() and dialog.type_button.isVisibleTo(dialog)
+    monkeypatch.setattr(secret_dialogs, "ask_recovery_key", recovery_key_typed(generate(), old))
+    dialog.type_button.click()
+
+    assert dialog.ok_button.isEnabled() and not dialog.type_button.isVisibleTo(dialog)
+    for field in (dialog.password, dialog.confirm):
+        field.setText(SECRET)
+    dialog.accept()
+    assert dialog.key is not None
+    assert unlock.open_secret_notes_with_recovery_key(old) == dialog.key
+    assert unlock.open_with_recovery_key(old) == KEY
+
+
+def test_without_a_recovery_key_one_is_made_before_turning_on(
+    qtbot: QtBot,
+    manager: NoteManager,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unlock.files.path(B).unlink()
+    unlock.files.second_path(B).unlink()
+    assert manager.secrets is not None
+    dialog = TurnOnDialog(manager.secrets)
+    qtbot.addWidget(dialog)
+    assert not dialog.ok_button.isEnabled()
+    assert dialog.make_button.text() == "&Make a recovery key…"
+    shown: list[str] = []
+
+    def keep(window: RecoveryKeyDialog) -> bool:
+        shown.append(window.panel.recovery_key)
+        return True
+
+    monkeypatch.setattr(secret_dialogs, "show_recovery_key", keep)
+    dialog.make_button.click()  # none to replace: not asked first
+
+    assert dialog.ok_button.isEnabled()
+    for field in (dialog.password, dialog.confirm):
+        field.setText(SECRET)
+    dialog.accept()
+    assert dialog.key is not None
+    assert unlock.open_secret_notes_with_recovery_key(shown[0]) == dialog.key
+
+
+def test_a_short_password_is_refused(
+    qtbot: QtBot, manager: NoteManager, answers: Answers, unlock: Unlock
 ) -> None:
     window = manager.new_note()
     window.editor.insertPlainText(TEXT)
     refused: list[str] = []
 
     def refuse(dialog: QDialog) -> bool:
-        if not turn_on(typed, master)(dialog):
+        if not turn_on("short")(dialog):
             assert isinstance(dialog, TurnOnDialog)
             refused.append(dialog.message.text())
         return False
@@ -760,7 +1021,7 @@ def test_a_weak_or_repeated_password_is_refused(
     answers.queue.append(refuse)
     window.secret_action.trigger()
 
-    assert refused == [why]
+    assert refused == ["Use at least 8 characters."]
     assert not window.secret and not unlock.has_secret_notes
 
 
@@ -772,8 +1033,8 @@ def test_their_password_cannot_be_the_master_password(
     refused: list[str] = []
 
     def refuse(dialog: QDialog) -> bool:
-        assert isinstance(dialog, TurnOnDialog) and dialog.has_master
-        if not turn_on(MASTER, MASTER)(dialog):
+        assert isinstance(dialog, TurnOnDialog)
+        if not turn_on(MASTER)(dialog):
             refused.append(dialog.message.text())
         return False
 
@@ -818,8 +1079,17 @@ def test_the_relock_window_hears_a_click_in_the_note(
 
 
 @pytest.fixture
-def settings(qtbot: QtBot, manager: NoteManager, unlock: Unlock) -> SettingsWindow:
-    window = SettingsWindow(manager, Translations(), master=application.master_passwords(unlock))
+def settings(
+    qtbot: QtBot, manager: NoteManager, unlock: Unlock, connection: apsw.Connection
+) -> SettingsWindow:
+    window = SettingsWindow(
+        manager,
+        Translations(),
+        recovery=application.recovery_keys(
+            unlock, Settings(connection), fits=manager.secret_key_fits
+        ),
+        master=application.master_passwords(unlock),
+    )
     qtbot.addWidget(window)
     return window
 
@@ -838,10 +1108,7 @@ def test_the_settings_offer_a_new_password_once_they_are_on(
     assert settings.relock_box.isVisible() and settings.relock_box.value() == 5
     assert not settings.leave_box.isChecked()
     window = secret_note(qtbot, manager, answers)
-    changes = ProtectionChanges(Settings(connection))
-    manager.secrets = application.secret_passwords(
-        unlock, application.master_passwords(unlock), changes
-    )
+    with_recovery_key(manager, unlock, connection)
     settings.refresh()
     assert settings.secret_password_button.isVisible()
     assert "Secret notes' password: set" in settings.protection_dates.text()
@@ -860,6 +1127,7 @@ def test_the_settings_offer_a_new_password_once_they_are_on(
     settings.secret_password_button.click()
 
     assert unlock.opens_secret_notes("a new one 22")
+    changes = ProtectionChanges(Settings(connection))
     changes.due()
     assert [c.what for c in changes.to_tell()] == ["secret_password_changed"]
     assert not window.secret_locked  # what is open stays open
@@ -876,45 +1144,97 @@ def test_the_relock_time_and_leaving_are_kept(
     assert settings.relock_box.value() == 12 and settings.leave_box.isChecked()
 
 
-def test_forgotten_the_master_password_is_set_again_with_their_password(
+def test_a_new_recovery_key_asks_their_password_and_opens_them_too(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    settings: SettingsWindow,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = unlock.make_recovery_key(KEY)
+    secret_note(qtbot, manager, answers)
+    key = unlock.open_secret_notes(SECRET)
+    shown: list[str] = []
+    asked: list[str] = []
+
+    def their_password(dialog: QDialog) -> bool:
+        assert isinstance(dialog, OpenSecretDialog)
+        asked.append(dialog.purpose)
+        dialog.password.setText(SECRET)
+        return accepted(dialog)
+
+    def keep(window: RecoveryKeyDialog) -> bool:
+        shown.append(window.panel.recovery_key)
+        return True
+
+    monkeypatch.setattr(settings_window.QMessageBox, "question", yes)
+    monkeypatch.setattr(settings_window, "show_secret_dialog", their_password)
+    monkeypatch.setattr(settings_window, "show_recovery_key", keep)
+    settings.recovery_button.click()
+
+    assert asked == ["recovery"]
+    assert unlock.open_secret_notes_with_recovery_key(shown[0]) == key
+    assert unlock.open_with_recovery_key(shown[0]) == KEY
+    with pytest.raises(WrongRecoveryKeyError):
+        unlock.open_secret_notes_with_recovery_key(first)
+
+
+def test_without_their_password_no_new_recovery_key_is_made(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    settings: SettingsWindow,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Made anyway, the one their key is sealed for would stop working, and the
+    # new one would not open them.
+    first = unlock.make_recovery_key(KEY)
+    secret_note(qtbot, manager, answers)
+    monkeypatch.setattr(settings_window.QMessageBox, "question", yes)
+    monkeypatch.setattr(settings_window, "show_secret_dialog", cancel)
+    monkeypatch.setattr(settings_window, "show_recovery_key", always)
+
+    settings.recovery_button.click()
+
+    assert unlock.open_secret_notes_with_recovery_key(first) == unlock.open_secret_notes(SECRET)
+
+
+def test_forgotten_the_master_password_the_recovery_key_sets_it_and_they_stay(
     qtbot: QtBot,
     manager: NoteManager,
     answers: Answers,
     unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Taken off the secret notes, the master password is set again the way it
+    # always is, and nothing of theirs changes.
+    recovery_key = unlock.make_recovery_key(KEY)
+    unlock.set_master_password(KEY, MASTER)
     secret_note(qtbot, manager, answers)
     key = unlock.open_secret_notes(SECRET)
     master = application.master_passwords(unlock)
     assert master is not None
     dialog = MasterPasswordDialog(master)
     qtbot.addWidget(dialog)
+    monkeypatch.setattr(master_password, "ask_recovery_key", recovery_key_typed(recovery_key))
 
-    dialog.forgot()  # with secret notes: their password, not the recovery key
-    assert dialog.via_secret and dialog.current_label.text() == "&Secret notes' password:"
-    dialog.current.setText("not their password")
-    dialog.new.setText(OTHER)
-    dialog.confirm.setText(OTHER)
-    dialog.accept()
-    assert dialog.message.text() == "The secret notes' password is not correct."
-    dialog.current.setText(SECRET)
-    dialog.new.setText(SECRET)
-    dialog.confirm.setText(SECRET)
-    dialog.accept()
-    assert dialog.message.text() == (
-        "Choose a master password other than the secret notes' password."
-    )
+    dialog.forgot()
     dialog.new.setText(OTHER)
     dialog.confirm.setText(OTHER)
     dialog.accept()
 
     assert dialog.result() == QDialog.DialogCode.Accepted.value
-    assert unlock.open_secret_notes_with_master(OTHER) == key  # opens them as before
-    assert not unlock.is_master_password(MASTER)
+    assert unlock.is_master_password(OTHER)
+    assert unlock.open_secret_notes(SECRET) == key
+    assert unlock.open_secret_notes_with_recovery_key(recovery_key) == key
 
 
 def test_a_master_password_like_their_password_is_refused(
     qtbot: QtBot, manager: NoteManager, answers: Answers, unlock: Unlock
 ) -> None:
+    unlock.set_master_password(KEY, MASTER)
     secret_note(qtbot, manager, answers, first=True)
     unlock.change_secret_password(unlock.open_secret_notes(SECRET), OTHER)
     master = application.master_passwords(unlock)
@@ -976,24 +1296,18 @@ def test_locked_while_its_title_is_changed_it_stays_locked(
     assert stored(connection, window).secret_title == "통장"
 
 
-def test_enter_after_ticking_i_understand_turns_them_on(qtbot: QtBot, manager: NoteManager) -> None:
-    # Some desktops (GNOME) have Enter tick a check box too: ticked with Space,
-    # it was unticked again instead of turning them on.
+def test_enter_in_the_password_turns_them_on(qtbot: QtBot, manager: NoteManager) -> None:
     assert manager.secrets is not None
     dialog = TurnOnDialog(manager.secrets)
     qtbot.addWidget(dialog)
     for field in (dialog.password, dialog.confirm):
         field.setText(SECRET)
-    for field in (dialog.master, dialog.master_confirm):
-        field.setText(MASTER)
     dialog.show()
     qtbot.waitExposed(dialog)
-    dialog.understood.setFocus()
+    dialog.confirm.setFocus()
 
-    QTest.keyClick(dialog.understood, Qt.Key.Key_Space)
-    QTest.keyClick(dialog.understood, Qt.Key.Key_Return)
+    QTest.keyClick(dialog.confirm, Qt.Key.Key_Return)
 
-    assert dialog.understood.isChecked()
     qtbot.waitUntil(lambda: dialog.result() == QDialog.DialogCode.Accepted.value)
     assert dialog.key is not None
 

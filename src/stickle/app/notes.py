@@ -1622,6 +1622,22 @@ class NoteManager(QObject):
         notes = self.listed_notes() + (self.trash_notes() if in_trash else [])
         return any(note.secret for note in notes)
 
+    def secret_key_fits(self, key: bytes) -> bool:
+        """Whether key opens a stored secret note (True with none to try): a key
+        is kept again for something only once it does, never one that opens
+        nothing written over the copies of the real one."""
+        if self._repository is None:
+            return True
+        try:
+            stored = next((n for n in self._repository.all() if n.sealed is not None), None)
+            if stored is None or stored.sealed is None:
+                return True
+            open_text(key, stored.id, stored.sealed)
+        except (SecretNoteError, apsw.Error) as error:
+            log.error("a secret notes' key that opens none of them: %s", type(error).__name__)
+            return False
+        return True
+
     def matching(self, term: str) -> set[str]:
         """Ids of stored notes whose text contains term (as last saved)."""
         return self._repository.matching(term) if self._repository else set()

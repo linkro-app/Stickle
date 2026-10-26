@@ -30,15 +30,22 @@ class RecoveryOffer:
         notes: NoteRepository,
         make_recovery_key: Callable[[], str],
         show: Callable[[RecoveryKeyDialog], bool] = _exec,
+        secret_notes_on: Callable[[], bool] = lambda: False,
     ) -> None:
         self._settings = settings
         self._notes = notes
         self._make = make_recovery_key
         self._show = show
+        self._secret_notes_on = secret_notes_on
 
     def check(self) -> None:
         """Offer it now if it is due; at most once, ever."""
         if self._settings.get(RECOVERY_KEY_KEPT) or self._settings.get(RECOVERY_KEY_OFFERED_AGAIN):
+            return
+        if self._secret_notes_on():
+            # A new key here would not open them (their key is not at hand to seal
+            # for it), while the one they are sealed for stopped working; turning
+            # them on spoke of the recovery key already.
             return
         if sum(1 for note in self._notes.all() if not note.deleted) < NOTES_WORTH_KEEPING:
             return

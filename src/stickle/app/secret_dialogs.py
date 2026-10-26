@@ -1,11 +1,11 @@
 """The windows of secret notes: turning them on, opening one, a new password.
 
-Secret notes have one password for all of them, and the master password opens
-them too; the recovery key never does. Turning them on the first time sets
-the password, asks for the master password (set now if there is none, typed
-again if there is, with the date it was set: someone else may have set it),
-and has the user say they know that losing both locks the notes away for
-good. Each secret note opens on its own, with the password.
+Secret notes have one password for all of them; forgotten, the recovery key
+opens them and a new one is set. Turning them on the first time sets the
+password alone, with the date the recovery key was made (someone else may
+have made it) and a way to make a new one; a recovery key from before 0.6 is
+typed once first, or one is made where there is none. Each secret note opens
+on its own, with the password.
 """
 
 import itertools
@@ -20,21 +20,28 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QRadioButton,
     QVBoxLayout,
     QWidget,
 )
 
-from stickle.app.master_password import ERROR_STYLE, MasterPasswords, weakness_reason
-from stickle.app.recovery_key_dialog import KeptBox
+from stickle.app.master_password import ERROR_STYLE, MasterPasswords
+from stickle.app.recovery_key_dialog import (
+    EnterRecoveryKeyDialog,
+    KeptBox,
+    RecoveryKeyDialog,
+    RecoveryKeys,
+)
 from stickle.app.times import local_time
 from stickle.app.typed import forget_typed
-from stickle.core.passwords import weakness
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
-from stickle.crypto.secret_notes import MIN_PASSWORD_LENGTH
+from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
+from stickle.crypto.secret_notes import MIN_PASSWORD_LENGTH, NotKeptForRecoveryKeyError
 from stickle.unlock import password_length
 
 log = logging.getLogger(__name__)
@@ -47,10 +54,14 @@ class SecretPasswords:
     turned_on: Callable[[], bool]
     turn_on: Callable[[str], bytes]  # their password: the new key
     open: Callable[[str], bytes]  # their password: the key (WrongPasswordError)
-    open_with_master: Callable[[str], bytes]  # the master password: the key
+    # The recovery key typed: the key (RecoveryKeyTypoError, WrongRecoveryKeyError,
+    # NotKeptForRecoveryKeyError).
+    open_with_recovery_key: Callable[[str], bytes]
     change_password: Callable[[bytes, str], None]  # the key known, a new password
+    reset_password: Callable[[bytes, str], None]  # a new one, the recovery key having opened them
     is_password: Callable[[str], bool]  # whether it is their password
-    master: MasterPasswords  # set, checked and told apart from theirs
+    master: MasterPasswords  # told apart from theirs
+    recovery: RecoveryKeys | None = None  # what opens them when the password is forgotten
     set_at: Callable[[], str | None] = lambda: None  # when their password was set (UTC)
 
 
@@ -66,6 +77,10 @@ def _error_label() -> QLabel:
     label.setStyleSheet(ERROR_STYLE)
     label.hide()
     return label
+
+
+def _wipe(key: bytearray) -> None:
+    key[:] = bytes(len(key))
 
 
 class _PasswordWindow(QDialog):
@@ -156,14 +171,16 @@ class _PasswordWindow(QDialog):
         self.cancel_button.setText(self.tr("Cancel"))
 
 
+type RecoveryState = Literal["ready", "old", "none"]
+
+
 class TurnOnDialog(_PasswordWindow):
-    """The first secret note: the password for all of them, the master password,
-    and that losing both locks them away. key holds the new key once accepted."""
+    """The first secret note: the password for all of them, and the recovery key
+    that sets a new one if it is forgotten. key holds the new key once accepted."""
 
     def __init__(self, passwords: SecretPasswords, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._passwords = passwords
-        self.has_master = passwords.master.exists()
         self.password = _password_field()
         self.password_label = QLabel()
         self.password_label.setBuddy(self.password)
@@ -172,29 +189,29 @@ class TurnOnDialog(_PasswordWindow):
         self.confirm_label.setBuddy(self.confirm)
         self.form.addRow(self.password_label, self.password)
         self.form.addRow(self.confirm_label, self.confirm)
-        self.master_intro = QLabel()
-        self.master_intro.setWordWrap(True)
-        self.layout_parts.addWidget(self.master_intro)
-        self.master_form = QFormLayout()
-        self.master = _password_field()
-        self.master_label = QLabel()
-        self.master_label.setBuddy(self.master)
-        self.master_confirm = _password_field()
-        self.master_confirm_label = QLabel()
-        self.master_confirm_label.setBuddy(self.master_confirm)
-        self.master_form.addRow(self.master_label, self.master)
-        self.master_form.addRow(self.master_confirm_label, self.master_confirm)
-        self.master_form.setRowVisible(1, not self.has_master)
-        self.layout_parts.addLayout(self.master_form)
-        self.understood = KeptBox()  # Enter goes on to Turn on, as Space ticks it
-        self.understood.toggled.connect(
-            lambda: self.ok_button.setEnabled(self.understood.isChecked())
-        )
-        self.layout_parts.addWidget(self.understood)
+        self.recovery_line = QLabel()
+        self.recovery_line.setWordWrap(True)
+        self.layout_parts.addWidget(self.recovery_line)
+        self.type_button = QPushButton()
+        self.type_button.clicked.connect(self.type_recovery_key)
+        self.make_button = QPushButton()
+        self.make_button.clicked.connect(self.make_recovery_key)
+        row = QHBoxLayout()
+        row.addWidget(self.type_button)
+        row.addWidget(self.make_button)
+        row.addStretch()
+        self.layout_parts.addLayout(row)
         self.finish_layout()
-        self.ok_button.setEnabled(False)
         self.retranslate()
         self.password.setFocus()
+
+    def recovery_state(self) -> RecoveryState:
+        recovery = self._passwords.recovery
+        if recovery is None:
+            return "ready"  # nothing to say (no recovery keys here: tried, and refused if so)
+        if not recovery.exists():
+            return "none"
+        return "old" if recovery.is_old() else "ready"
 
     @override
     def retranslate(self) -> None:
@@ -202,84 +219,117 @@ class TurnOnDialog(_PasswordWindow):
         self.setWindowTitle(self.tr("Turn on secret notes"))
         self.intro.setText(
             self.tr(
-                "A secret note stays locked until you open it with the secret notes'"
-                " password, one for all of them. Their text is never searched."
+                "A secret note keeps its text hidden until you open it with the secret"
+                " notes' password, one for all of them. Their text is never searched."
             )
         )
         self.password_label.setText(self.tr("Secret notes' &password:"))
         self.confirm_label.setText(self.tr("C&onfirm:"))
         self.password.setAccessibleName(self.tr("Secret notes' password"))
         self.confirm.setAccessibleName(self.tr("Confirm the secret notes' password"))
-        if self.has_master:
-            set_at = self._passwords.master.set_at()
-            when = local_time(set_at) if set_at else self.tr("earlier")
-            self.master_intro.setText(
-                self.tr(
-                    "The master password opens them too. It was set on %1: type it to"
-                    " show it is yours. If you do not know it, set it again in the"
-                    " settings with the recovery key first."
-                ).replace("%1", when)
-            )
-        else:
-            self.master_intro.setText(
-                self.tr(
-                    "Set a master password too: it opens secret notes if their password"
-                    " is forgotten. The recovery key does not open them."
-                )
-            )
-        self.master_label.setText(self.tr("&Master password:"))
-        self.master_confirm_label.setText(self.tr("Confirm the m&aster password:"))
-        self.master.setAccessibleName(self.tr("Master password"))
-        self.master_confirm.setAccessibleName(self.tr("Confirm the master password"))
-        self.understood.setText(
-            self.tr(
-                "I &understand: if I lose both the secret notes' password and the master"
-                " password, no one can open my secret notes, not even with the recovery key."
-            )
-        )
+        self.type_button.setText(self.tr("&Type the recovery key…"))
         self.ok_button.setText(self.tr("Turn on"))
+        self.show_recovery_state()
+
+    def show_recovery_state(self) -> None:
+        """The line on the recovery key, and what can be done about it now."""
+        state = self.recovery_state()
+        recovery = self._passwords.recovery
+        made_at = recovery.made_at() if recovery is not None else None
+        if state == "none":
+            line = self.tr(
+                "If you forget the password, you set a new one with the recovery key."
+                " Make one first: it opens secret notes too, so do not keep it on this"
+                " computer."
+            )
+        elif state == "old":
+            line = self.tr(
+                "Your recovery key was made with an earlier Stickle and cannot open"
+                " secret notes yet. Type it once, or make a new one if you cannot find it."
+            )
+        elif recovery is not None and not recovery.was_kept():
+            line = self.tr(
+                "You have not kept a recovery key yet. If you forget the password, only"
+                " the recovery key sets a new one: make a new one and keep it, away from"
+                " this computer."
+            )
+        elif made_at is not None:
+            line = self.tr(
+                "If you forget the password, you set a new one with the recovery key"
+                " made on %1. It opens secret notes too: do not keep it on this computer."
+            ).replace("%1", local_time(made_at))
+        else:
+            line = self.tr(
+                "If you forget the password, you set a new one with your recovery key."
+                " It opens secret notes too: do not keep it on this computer."
+            )
+        self.recovery_line.setText(line)
+        self.recovery_line.setVisible(recovery is not None)
+        self.type_button.setVisible(state == "old")
+        self.make_button.setVisible(recovery is not None)
+        self.make_button.setText(
+            self.tr("&Make a recovery key…")
+            if state == "none"
+            else self.tr("&Make a new recovery key…")
+        )
+        self.ok_button.setEnabled(state == "ready")
+        self.ok_button.setAccessibleDescription(line if state != "ready" else "")
+
+    def type_recovery_key(self) -> None:
+        """A recovery key from before 0.6, typed once: it opens secret notes too from now on."""
+        recovery = self._passwords.recovery
+        if recovery is None:
+            return
+        dialog: EnterRecoveryKeyDialog
+
+        def submit(typed: str) -> str | None:
+            try:
+                recovery.upgrade(typed)
+            except RecoveryKeyTypoError:
+                return dialog.typo()
+            except WrongRecoveryKeyError:
+                return dialog.wrong_key()
+            except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
+                log.error("recovery key not kept for secret notes: %s", type(error).__name__)
+                return self.tr("The recovery key could not be kept (%1).").replace(
+                    "%1", type(error).__name__
+                )
+            return None
+
+        dialog = EnterRecoveryKeyDialog(submit, self)
+        ask_recovery_key(dialog)
+        self.show_recovery_state()
+
+    def make_recovery_key(self) -> None:
+        """A new recovery key, shown; any earlier one stops working."""
+        recovery = self._passwords.recovery
+        if recovery is None:
+            return
+        if recovery.exists() and not confirm_new_recovery_key(self):
+            return
+        try:
+            recovery_key = recovery.make()
+        except (KeyFileError, OSError) as error:
+            log.error("could not make a recovery key: %s", type(error).__name__)
+            self.show_error(self.tr("The recovery key could not be saved."), self.password)
+            return
+        if show_recovery_key(RecoveryKeyDialog(recovery_key, self)):
+            recovery.kept()
+        self.show_recovery_state()
 
     @override
     def accept(self) -> None:
-        passwords, master = self._passwords, self.master.text()
+        passwords = self._passwords
         refused = self.password_refusal(self.password.text(), self.confirm.text(), passwords)
         if refused is not None:
             self.confirm.clear()
             self.show_error(refused, self.password)
             return
-        if not self.has_master:
-            found = weakness(master)
-            if found is not None or master != self.master_confirm.text():
-                self.master_confirm.clear()
-                self.show_error(
-                    weakness_reason(found)
-                    if found is not None
-                    else self.tr("The two master passwords are not the same."),
-                    self.master,
-                )
-                return
-            if passwords.master.opens_notes(master):
-                self.show_error(
-                    self.tr("Choose a master password other than the one that opens your notes."),
-                    self.master,
-                )
-                return
-        if master == self.password.text():
-            self.show_error(
-                self.tr("Choose a master password other than the secret notes' password."),
-                self.master,
-            )
-            return
+        if self.recovery_state() != "ready":
+            return  # its button is off until there is a recovery key to seal them for
         self.working()
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            if self.has_master:
-                if not passwords.master.check(master):
-                    self.master.clear()
-                    self.show_error(self.tr("The master password is not correct."), self.master)
-                    return
-            else:
-                passwords.master.set(master)
             self.key = passwords.turn_on(self.password.text())
         except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
             log.error("secret notes not turned on: %s", type(error).__name__)
@@ -295,14 +345,14 @@ class TurnOnDialog(_PasswordWindow):
         super().accept()
 
 
-type Purpose = Literal["open", "make", "change"]
+type Purpose = Literal["open", "make", "change", "recovery"]
 
 
 class OpenSecretDialog(_PasswordWindow):
     """The secret notes' password: to open one (titled title), to make a note
-    one of them, or before setting a new one. Forgotten, the master password
-    opens them and a new password is set (using_master). key holds the key
-    once accepted."""
+    one of them, before setting a new one, or before making a new recovery key.
+    Forgotten, the recovery key opens them and a new password is set
+    (recovered). key holds the key once accepted."""
 
     def __init__(
         self,
@@ -315,14 +365,14 @@ class OpenSecretDialog(_PasswordWindow):
         self._passwords = passwords
         self._title = title
         self.purpose: Purpose = purpose
-        self.using_master = False
+        self.recovered = False
         self.password = _password_field()
         self.password_label = QLabel()
         self.password_label.setBuddy(self.password)
         self.form.addRow(self.password_label, self.password)
         self.forgot_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
-        self.forgot_button.clicked.connect(self.use_master)
-        self.forgot_button.setVisible(passwords.master.exists())
+        self.forgot_button.clicked.connect(self.use_recovery_key)
+        self.forgot_button.setVisible(passwords.recovery is not None)
         self.finish_layout()
         self.retranslate()
         self.password.setFocus()
@@ -334,53 +384,71 @@ class OpenSecretDialog(_PasswordWindow):
             "open": self.tr("Open a secret note"),
             "make": self.tr("Make it a secret note"),
             "change": self.tr("Change the secret notes' password"),
+            "recovery": self.tr("Make a new recovery key"),
         }
         self.setWindowTitle(titles[self.purpose])
-        if self.using_master:
-            self.intro.setText(
-                self.tr("Type the master password. You will then set a new password for them.")
-            )
-            self.password_label.setText(self.tr("&Master password:"))
-            self.password.setAccessibleName(self.tr("Master password"))
-        else:
-            intros = {
-                "open": self.tr("Type the secret notes' password to open “%1”.").replace(
-                    "%1", self._title
-                ),
-                "make": self.tr("Type the secret notes' password to make this note one of them."),
-                "change": self.tr("Type the secret notes' password you have now."),
-            }
-            self.intro.setText(intros[self.purpose])
-            self.password_label.setText(self.tr("Secret notes' &password:"))
-            self.password.setAccessibleName(self.tr("Secret notes' password"))
+        intros = {
+            "open": self.tr("Type the secret notes' password to open “%1”.").replace(
+                "%1", self._title
+            ),
+            "make": self.tr("Type the secret notes' password to make this note one of them."),
+            "change": self.tr("Type the secret notes' password you have now."),
+            "recovery": self.tr(
+                "The new recovery key opens secret notes too: type their password first."
+            ),
+        }
+        self.intro.setText(intros[self.purpose])
+        self.password_label.setText(self.tr("Secret notes' &password:"))
+        self.password.setAccessibleName(self.tr("Secret notes' password"))
         self.forgot_button.setText(self.tr("I &forgot the password"))
         self.ok_button.setText(self.tr("Open") if self.purpose == "open" else self.tr("Next"))
 
-    def use_master(self) -> None:
-        self.using_master = True
-        self.forgot_button.hide()
-        self.password.clear()
-        self.message.hide()
-        self.retranslate()
-        self.password.setFocus()
+    def use_recovery_key(self) -> None:
+        """Forgotten: the recovery key opens them, and a new password is set
+        before anything else (the old one no longer opens them)."""
+        opened: list[bytearray] = []
+        dialog: EnterRecoveryKeyDialog
+
+        def submit(typed: str) -> str | None:
+            try:
+                opened.append(bytearray(self._passwords.open_with_recovery_key(typed)))
+            except RecoveryKeyTypoError:
+                return dialog.typo()
+            except WrongRecoveryKeyError:
+                return dialog.wrong_key()
+            except NotKeptForRecoveryKeyError:
+                return self.tr("This recovery key does not open the secret notes.")
+            except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
+                log.error("secret notes not opened with the recovery key: %s", type(error).__name__)
+                return self.tr("The secret notes' key could not be used (%1).").replace(
+                    "%1", type(error).__name__
+                )
+            return None
+
+        dialog = EnterRecoveryKeyDialog(submit, self)
+        if not ask_recovery_key(dialog) or not opened:
+            return
+        key = opened.pop()
+        try:
+            if not ask_new_password(
+                NewSecretPasswordDialog(self._passwords, bytes(key), self, reset=True)
+            ):
+                return  # opened only once a new password is set
+            self.recovered = True
+            self.key = bytes(key)
+        finally:
+            _wipe(key)
+        QDialog.accept(self)
 
     @override
     def accept(self) -> None:
         self.working()
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            if self.using_master:
-                key = self._passwords.open_with_master(self.password.text())
-            else:
-                key = self._passwords.open(self.password.text())
+            key = self._passwords.open(self.password.text())
         except WrongPasswordError:
             self.password.clear()
-            self.show_error(
-                self.tr("The master password is not correct.")
-                if self.using_master
-                else self.tr("The password is not correct."),
-                self.password,
-            )
+            self.show_error(self.tr("The password is not correct."), self.password)
             return
         except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
             log.error("secret note not opened: %s", type(error).__name__)
@@ -393,22 +461,24 @@ class OpenSecretDialog(_PasswordWindow):
             return
         finally:
             QGuiApplication.restoreOverrideCursor()
-        if self.using_master and not ask_new_password(
-            NewSecretPasswordDialog(self._passwords, key, self)
-        ):
-            return  # opened only once a new password is set
         self.key = key
         super().accept()
 
 
 class NewSecretPasswordDialog(_PasswordWindow):
-    """A new password for the secret notes, their key known (opened)."""
+    """A new password for the secret notes, their key known: opened with the
+    password, or (reset) with the recovery key, the old one then forgotten."""
 
     def __init__(
-        self, passwords: SecretPasswords, key: bytes, parent: QWidget | None = None
+        self,
+        passwords: SecretPasswords,
+        key: bytes,
+        parent: QWidget | None = None,
+        reset: bool = False,
     ) -> None:
         super().__init__(parent)
         self._passwords = passwords
+        self.reset = reset
         self.held_key = key  # let go of once the window closes
         self.password = _password_field()
         self.password_label = QLabel()
@@ -426,7 +496,14 @@ class NewSecretPasswordDialog(_PasswordWindow):
     def retranslate(self) -> None:
         super().retranslate()
         self.setWindowTitle(self.tr("New secret notes' password"))
-        self.intro.setText(self.tr("Choose a new password for all your secret notes."))
+        self.intro.setText(
+            self.tr(
+                "The recovery key opened your secret notes. Choose a new password for"
+                " them: the old one no longer opens them."
+            )
+            if self.reset
+            else self.tr("Choose a new password for all your secret notes.")
+        )
         self.password_label.setText(self.tr("&New password:"))
         self.confirm_label.setText(self.tr("C&onfirm:"))
         self.password.setAccessibleName(self.tr("New secret notes' password"))
@@ -443,7 +520,10 @@ class NewSecretPasswordDialog(_PasswordWindow):
         self.working()
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            self._passwords.change_password(self.held_key, self.password.text())
+            if self.reset:
+                self._passwords.reset_password(self.held_key, self.password.text())
+            else:
+                self._passwords.change_password(self.held_key, self.password.text())
         except (KeyFileError, OSError) as error:
             log.error("secret notes' password not changed: %s", type(error).__name__)
             self.show_error(
@@ -607,3 +687,22 @@ def _exec(dialog: QDialog) -> bool:
 
 
 ask_new_password: Callable[[NewSecretPasswordDialog], bool] = _exec  # replaced in tests
+ask_recovery_key: Callable[[EnterRecoveryKeyDialog], bool] = _exec  # replaced in tests
+show_recovery_key: Callable[[RecoveryKeyDialog], bool] = _exec  # replaced in tests
+
+
+def _confirm_new_recovery_key(parent: QWidget) -> bool:
+    answer = QMessageBox.question(
+        parent,
+        "Stickle",
+        QCoreApplication.translate(
+            "SettingsWindow",
+            "Make a new recovery key? The one you have now will no longer open your notes.",
+        ),
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    return answer == QMessageBox.StandardButton.Yes
+
+
+confirm_new_recovery_key: Callable[[QWidget], bool] = _confirm_new_recovery_key  # replaced in tests

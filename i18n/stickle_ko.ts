@@ -1122,22 +1122,6 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>같은 글자를 되풀이하거나 자판을 차례로 누른 것은 알아맞히기 쉽습니다. 다른 것으로 정하세요.</translation>
     </message>
     <message>
-        <source>Set a new master password</source>
-        <translation>새 마스터 암호 정하기</translation>
-    </message>
-    <message>
-        <source>Enter the secret notes&apos; password, then a new master password. It will open your secret notes as the old one did.</source>
-        <translation>비밀 메모 암호를 입력한 뒤 새 마스터 암호를 정하세요. 새 마스터 암호로도 전처럼 비밀 메모를 열 수 있습니다.</translation>
-    </message>
-    <message>
-        <source>&amp;Secret notes&apos; password:</source>
-        <translation>비밀 메모 암호(&amp;S):</translation>
-    </message>
-    <message>
-        <source>Secret notes&apos; password</source>
-        <translation>비밀 메모 암호</translation>
-    </message>
-    <message>
         <source>The two passwords are not the same.</source>
         <translation>두 암호가 서로 다릅니다.</translation>
     </message>
@@ -1152,10 +1136,6 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Checking…</source>
         <translation>확인하는 중…</translation>
-    </message>
-    <message>
-        <source>The secret notes&apos; password is not correct.</source>
-        <translation>비밀 메모 암호가 맞지 않습니다.</translation>
     </message>
     <message>
         <source>The current master password is not correct.</source>
@@ -1213,6 +1193,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>New secret notes&apos; password</source>
         <translation>새 비밀 메모 암호</translation>
+    </message>
+    <message>
+        <source>The recovery key opened your secret notes. Choose a new password for them: the old one no longer opens them.</source>
+        <translation>복구 키로 비밀 메모를 열었습니다. 새 암호를 정하세요. 옛 암호로는 더 이상 열리지 않습니다.</translation>
     </message>
     <message>
         <source>Choose a new password for all your secret notes.</source>
@@ -1685,16 +1669,8 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>비밀 메모 암호 바꾸기</translation>
     </message>
     <message>
-        <source>Type the master password. You will then set a new password for them.</source>
-        <translation>마스터 암호를 입력하세요. 그다음 비밀 메모의 새 암호를 정합니다.</translation>
-    </message>
-    <message>
-        <source>&amp;Master password:</source>
-        <translation>마스터 암호(&amp;M):</translation>
-    </message>
-    <message>
-        <source>Master password</source>
-        <translation>마스터 암호</translation>
+        <source>Make a new recovery key</source>
+        <translation>새 복구 키 만들기</translation>
     </message>
     <message>
         <source>Type the secret notes&apos; password to open “%1”.</source>
@@ -1707,6 +1683,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Type the secret notes&apos; password you have now.</source>
         <translation>지금 쓰는 비밀 메모 암호를 입력하세요.</translation>
+    </message>
+    <message>
+        <source>The new recovery key opens secret notes too: type their password first.</source>
+        <translation>새 복구 키는 비밀 메모까지 엽니다. 먼저 비밀 메모 암호를 입력하세요.</translation>
     </message>
     <message>
         <source>Secret notes&apos; &amp;password:</source>
@@ -1729,8 +1709,8 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>다음</translation>
     </message>
     <message>
-        <source>The master password is not correct.</source>
-        <translation>마스터 암호가 맞지 않습니다.</translation>
+        <source>This recovery key does not open the secret notes.</source>
+        <translation>이 복구 키로는 비밀 메모를 열 수 없습니다.</translation>
     </message>
     <message>
         <source>The password is not correct.</source>
@@ -2742,6 +2722,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>%1에 이 PC에서 비밀 메모 암호를 바꿨습니다.</translation>
     </message>
     <message>
+        <source>On %1 the secret notes&apos; password was set anew with the recovery key on this computer.</source>
+        <translation>%1에 이 PC에서 복구 키로 비밀 메모 암호를 새로 정했습니다.</translation>
+    </message>
+    <message>
         <source>If it was not you, set it again in the settings.</source>
         <translation>직접 하지 않았다면 설정에서 다시 정하세요.</translation>
     </message>
@@ -2959,8 +2943,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>비밀 메모 켜기</translation>
     </message>
     <message>
-        <source>A secret note stays locked until you open it with the secret notes&apos; password, one for all of them. Their text is never searched.</source>
-        <translation>비밀 메모는 비밀 메모 암호로 열 때까지 잠겨 있습니다. 암호는 모든 비밀 메모에 하나이고, 내용은 검색되지 않습니다.</translation>
+        <source>A secret note keeps its text hidden until you open it with the secret notes&apos; password, one for all of them. Their text is never searched.</source>
+        <translation>비밀 메모는 비밀 메모 암호로 열 때까지 내용이 가려져 있습니다. 암호 하나로 모든 비밀 메모를 열고, 내용은 검색되지 않습니다.</translation>
     </message>
     <message>
         <source>Secret notes&apos; &amp;password:</source>
@@ -2979,56 +2963,48 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>비밀 메모 암호 한 번 더</translation>
     </message>
     <message>
-        <source>earlier</source>
-        <translation>예전</translation>
+        <source>&amp;Type the recovery key…</source>
+        <translation>복구 키 입력(&amp;T)…</translation>
     </message>
     <message>
-        <source>The master password opens them too. It was set on %1: type it to show it is yours. If you do not know it, set it again in the settings with the recovery key first.</source>
-        <translation>마스터 암호로도 열 수 있습니다(정한 때: %1). 직접 정한 암호가 맞는지 입력해 확인하세요. 모르는 암호라면 먼저 설정에서 복구 키로 다시 정하세요.</translation>
+        <source>If you forget the password, you set a new one with the recovery key. Make one first: it opens secret notes too, so do not keep it on this computer.</source>
+        <translation>암호를 잊으면 복구 키로 새 암호를 정합니다. 먼저 복구 키를 만드세요. 복구 키는 비밀 메모까지 열므로 이 PC에 두지 마세요.</translation>
     </message>
     <message>
-        <source>Set a master password too: it opens secret notes if their password is forgotten. The recovery key does not open them.</source>
-        <translation>마스터 암호도 함께 정하세요. 비밀 메모 암호를 잊었을 때 마스터 암호로 열 수 있습니다. 복구 키로는 비밀 메모를 열 수 없습니다.</translation>
+        <source>Your recovery key was made with an earlier Stickle and cannot open secret notes yet. Type it once, or make a new one if you cannot find it.</source>
+        <translation>지금 복구 키는 예전 Stickle에서 만든 것이라 아직 비밀 메모를 열지 못합니다. 한 번 입력하거나, 찾을 수 없으면 새로 만드세요.</translation>
     </message>
     <message>
-        <source>&amp;Master password:</source>
-        <translation>마스터 암호(&amp;M):</translation>
+        <source>You have not kept a recovery key yet. If you forget the password, only the recovery key sets a new one: make a new one and keep it, away from this computer.</source>
+        <translation>아직 복구 키를 보관하지 않았습니다. 암호를 잊으면 복구 키로만 새 암호를 정할 수 있으니, 새 복구 키를 만들어 이 PC가 아닌 곳에 보관하세요.</translation>
     </message>
     <message>
-        <source>Confirm the m&amp;aster password:</source>
-        <translation>마스터 암호 한 번 더(&amp;A):</translation>
+        <source>If you forget the password, you set a new one with the recovery key made on %1. It opens secret notes too: do not keep it on this computer.</source>
+        <translation>암호를 잊으면 %1에 만든 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 PC에 두지 마세요.</translation>
     </message>
     <message>
-        <source>Master password</source>
-        <translation>마스터 암호</translation>
+        <source>If you forget the password, you set a new one with your recovery key. It opens secret notes too: do not keep it on this computer.</source>
+        <translation>암호를 잊으면 지금 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 PC에 두지 마세요.</translation>
     </message>
     <message>
-        <source>Confirm the master password</source>
-        <translation>마스터 암호 한 번 더</translation>
+        <source>&amp;Make a recovery key…</source>
+        <translation>복구 키 만들기(&amp;M)…</translation>
     </message>
     <message>
-        <source>I &amp;understand: if I lose both the secret notes&apos; password and the master password, no one can open my secret notes, not even with the recovery key.</source>
-        <translation>알겠습니다: 비밀 메모 암호와 마스터 암호를 모두 잃으면 복구 키로도 비밀 메모를 열 수 없습니다(&amp;U)</translation>
+        <source>&amp;Make a new recovery key…</source>
+        <translation>새 복구 키 만들기(&amp;M)…</translation>
+    </message>
+    <message>
+        <source>The recovery key could not be kept (%1).</source>
+        <translation>복구 키를 저장하지 못했습니다(%1).</translation>
+    </message>
+    <message>
+        <source>The recovery key could not be saved.</source>
+        <translation>복구 키를 저장하지 못했습니다.</translation>
     </message>
     <message>
         <source>Turn on</source>
         <translation>켜기</translation>
-    </message>
-    <message>
-        <source>The two master passwords are not the same.</source>
-        <translation>두 마스터 암호가 서로 다릅니다.</translation>
-    </message>
-    <message>
-        <source>Choose a master password other than the one that opens your notes.</source>
-        <translation>메모를 열 때 쓰는 암호와 다른 마스터 암호로 정하세요.</translation>
-    </message>
-    <message>
-        <source>Choose a master password other than the secret notes&apos; password.</source>
-        <translation>비밀 메모 암호와 다른 마스터 암호로 정하세요.</translation>
-    </message>
-    <message>
-        <source>The master password is not correct.</source>
-        <translation>마스터 암호가 맞지 않습니다.</translation>
     </message>
     <message>
         <source>Secret notes could not be turned on (%1).</source>

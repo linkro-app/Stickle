@@ -32,9 +32,9 @@ from stickle.app.notes import NoteManager
 from stickle.app.perf import SAMPLE_NOTE, PerfMode, open_storage_like_startup
 from stickle.app.placement import monitors
 from stickle.app.protection_changes import ProtectionChanges
+from stickle.app.recovery_key_dialog import RecoveryKeys
 from stickle.app.recovery_offer import RecoveryOffer
 from stickle.app.secret_dialogs import SecretPasswords
-from stickle.app.settings_window import RecoveryKeys
 from stickle.app.shortcuts import GlobalShortcuts, no_portal
 from stickle.app.signals import SignalWatcher
 from stickle.app.startup import open_notes
@@ -46,6 +46,7 @@ from stickle.core.clock import Clock, utc_now
 from stickle.core.layout import Place, Rect, place_of
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import WrongRecoveryKeyError
+from stickle.crypto.secret_notes import NotKeptForRecoveryKeyError
 from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
 from stickle.data.colors import ColorRepository
 from stickle.data.export import ExportResult, SecretExport, export_all
@@ -265,26 +266,46 @@ def answer_request(asked: bytes, manager: NoteManager, window: StickleWindow) ->
         window.open()
 
 
+def fits_any(_key: bytes) -> bool:
+    return True
+
+
 def recovery_keys(
-    unlock: Unlock | None, settings: Settings | None, changes: ProtectionChanges | None = None
+    unlock: Unlock | None,
+    settings: Settings | None,
+    changes: ProtectionChanges | None = None,
+    fits: Callable[[bytes], bool] = fits_any,
 ) -> RecoveryKeys | None:
     """Making recovery keys for the key that opened the notes (none in measurement
-    mode); each one made noted in changes, to be told later."""
+    mode); each one made noted in changes, to be told later. With secret notes,
+    their key is sealed for the new one once fits shows it opens them."""
     if unlock is None or unlock.opened_key is None or settings is None:
         return None
     key = unlock.opened_key
 
-    def make() -> str:
-        recovery_key = unlock.make_recovery_key(key)
+    def made(recovery_key: str) -> str:
         if changes is not None:
             changes.note("recovery_key")
         return recovery_key
 
+    def make_with_secret(secret_key: bytes) -> str:
+        if not fits(secret_key):
+            raise NotKeptForRecoveryKeyError("the key opens no secret note")
+        return made(unlock.make_recovery_key(key, secret_key))
+
+    def upgrade(typed: str) -> None:
+        unlock.upgrade_recovery_key(typed)
+        settings.set(RECOVERY_KEY_KEPT, True)  # typed: the user has it
+
     return RecoveryKeys(
         exists=lambda: unlock.has_recovery_key,
-        make=make,
+        make=lambda: made(unlock.make_recovery_key(key)),
         kept=lambda: settings.set(RECOVERY_KEY_KEPT, True),
         made_at=lambda: unlock.recovery_key_made_at,
+        was_kept=lambda: settings.get(RECOVERY_KEY_KEPT),
+        make_with_secret=make_with_secret,
+        is_old=lambda: unlock.recovery_key_is_old,
+        upgrade=upgrade,
     )
 
 
@@ -314,13 +335,6 @@ def master_passwords(
         except WrongRecoveryKeyError, KeyFileError, OSError:
             return False
 
-    def set_with_secret(secret_password: str, password: str) -> None:
-        """A new master password, the secret notes' key (opened with their
-        password, or WrongPasswordError) kept for it as for the old one."""
-        secret_key = unlock.open_secret_notes(secret_password)
-        set_password(password)
-        unlock.keep_secret_notes_for_master(secret_key)
-
     return MasterPasswords(
         exists=lambda: unlock.has_master_password,
         set=set_password,
@@ -329,8 +343,6 @@ def master_passwords(
         opens_notes=unlock.opens_with_password,
         recovery_key_opens=recovery_key_opens,
         set_at=lambda: unlock.master_password_set_at,
-        secret_notes_on=lambda: unlock.has_secret_notes,
-        set_with_secret=set_with_secret,
         is_secret_password=unlock.opens_secret_notes,
     )
 
@@ -339,25 +351,53 @@ def secret_passwords(
     unlock: Unlock | None,
     master: MasterPasswords | None,
     changes: ProtectionChanges | None = None,
+    recovery: RecoveryKeys | None = None,
+    fits: Callable[[bytes], bool] = fits_any,
 ) -> SecretPasswords | None:
     """The secret notes' key (none in measurement mode); their password changed
-    noted in changes, to be told later."""
+    or set anew noted in changes, to be told later. A key from anywhere but
+    their password is taken only once fits shows it opens them."""
     if unlock is None or unlock.opened_key is None or master is None:
         return None
+
+    def open_secret_notes(password: str) -> bytes:
+        """With their password; sealed again for the recovery key if it is not
+        (a new one made without it, Stickle stopped in between, an earlier build)."""
+        key = unlock.open_secret_notes(password)
+        if not unlock.secret_notes_kept_for_recovery_key and fits(key):
+            try:
+                unlock.keep_secret_notes_for_recovery_key(key)
+                log.info("secret notes kept for the recovery key again")
+            except (KeyFileError, OSError) as error:
+                log.warning("secret notes not kept for the recovery key: %s", type(error).__name__)
+        return key
+
+    def open_with_recovery_key(typed: str) -> bytes:
+        key = unlock.open_secret_notes_with_recovery_key(typed)
+        if not fits(key):
+            raise NotKeptForRecoveryKeyError("the key opens no secret note")
+        return key
 
     def change_password(key: bytes, password: str) -> None:
         unlock.change_secret_password(key, password)
         if changes is not None:
             changes.note("secret_password_changed")
 
+    def reset_password(key: bytes, password: str) -> None:
+        unlock.change_secret_password(key, password)
+        if changes is not None:
+            changes.note("secret_password_reset")
+
     return SecretPasswords(
         turned_on=lambda: unlock.has_secret_notes,
         turn_on=unlock.turn_on_secret_notes,
-        open=unlock.open_secret_notes,
-        open_with_master=unlock.open_secret_notes_with_master,
+        open=open_secret_notes,
+        open_with_recovery_key=open_with_recovery_key,
         change_password=change_password,
+        reset_password=reset_password,
         is_password=unlock.opens_secret_notes,
         master=master,
+        recovery=recovery,
         set_at=lambda: unlock.secret_password_set_at,
     )
 
@@ -611,7 +651,9 @@ def run(
             if connection is not None and perf is None
             else None
         )
-        recovery = recovery_keys(unlock, Settings(connection) if connection else None, changes)
+        recovery = recovery_keys(
+            unlock, Settings(connection) if connection else None, changes, manager.secret_key_fits
+        )
         # Measuring must not take the user's shortcuts from their own Stickle.
         shortcuts = (
             GlobalShortcuts(Settings(connection) if connection else None, make_portal=make_portal)
@@ -632,7 +674,9 @@ def run(
             )
         master = master_passwords(unlock, changes)
         # Before any note opens: each offers to become a secret note.
-        manager.secrets = secret_passwords(unlock, master, changes)
+        manager.secrets = secret_passwords(
+            unlock, master, changes, recovery, manager.secret_key_fits
+        )
         stickle_window = StickleWindow(
             manager,
             translations,
@@ -717,7 +761,10 @@ def run(
                 assert unlock is not None and unlock.opened_key is not None
                 opened_key, offering = unlock.opened_key, unlock
                 offer = RecoveryOffer(
-                    Settings(connection), repository, lambda: offering.make_recovery_key(opened_key)
+                    Settings(connection),
+                    repository,
+                    lambda: offering.make_recovery_key(opened_key),
+                    secret_notes_on=lambda: offering.has_secret_notes,
                 )
                 # Out of the saving in progress: the offer is a window of its own.
                 manager.note_created.connect(lambda: QTimer.singleShot(0, offer.check))

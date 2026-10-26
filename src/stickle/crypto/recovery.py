@@ -3,8 +3,10 @@
 It opens a key pair whose public key the notes database key is sealed for
 (stickle.crypto.sealed), in the key file B (stickle.crypto.key_files). The
 recovery key itself is never stored or logged: whoever has it can open the
-notes, and only the user keeps it. Recovery keys made before 0.6 wrapped the
-database key directly; they still open it, until a new one is made.
+notes, and only the user keeps it. The secret notes' key is sealed for the
+same pair (stickle.crypto.secret_notes). Recovery keys made before 0.6
+wrapped the database key directly; they still open it, until a new one is
+made or the old one is typed once to become a pair (upgrade).
 
 It reads like K7QM-2HXP-…: 32 characters in groups of four, from an
 alphabet without look-alikes (Crockford's base 32: no I, L, O or U).
@@ -33,7 +35,8 @@ from stickle.crypto.sealed import (
     decode_sealed_slot,
     encode_sealed_slot,
     make_sealed_slot,
-    open_sealed_slot,
+    open_pair,
+    unseal,
 )
 
 SLOT = "recovery_key"  # a key pair (0.6)
@@ -82,18 +85,28 @@ def canonical(typed: str) -> str:
 type RecoverySlot = SealedSlot | PasswordSlot  # the latter from before 0.6
 
 
-def write_recovery(files: KeyFiles, database_key: bytes, recovery_key: str, set_at: str) -> None:
-    """A new key pair opened by recovery_key, with database_key sealed for it,
-    in place of any earlier recovery key. A damaged file is set aside first."""
+def make_recovery_slot(database_key: bytes, recovery_key: str, set_at: str | None) -> SealedSlot:
+    """A new key pair opened by recovery_key, with database_key sealed for it;
+    written by save_recovery_slot, once whatever else is sealed for it is."""
+    return make_sealed_slot(database_key, canonical(recovery_key), OPSLIMIT, MEMLIMIT, SLOT, set_at)
+
+
+def save_recovery_slot(files: KeyFiles, slot: SealedSlot) -> None:
+    """slot in place of any earlier recovery key. A damaged file is set aside first."""
     try:
         slots = dict(files.load(B) or {})
     except KeyFileError:
         files.set_aside(B)
         slots = {}
     slots.pop(OLD_SLOT, None)
-    slot = make_sealed_slot(database_key, canonical(recovery_key), OPSLIMIT, MEMLIMIT, SLOT, set_at)
     slots[SLOT] = encode_sealed_slot(slot)
     files.save(B, slots)
+
+
+def write_recovery(files: KeyFiles, database_key: bytes, recovery_key: str, set_at: str) -> None:
+    """A new key pair opened by recovery_key, with database_key sealed for it,
+    in place of any earlier recovery key."""
+    save_recovery_slot(files, make_recovery_slot(database_key, recovery_key, set_at))
 
 
 def read_recovery(files: KeyFiles) -> RecoverySlot | None:
@@ -108,13 +121,23 @@ def read_recovery(files: KeyFiles) -> RecoverySlot | None:
     return None
 
 
+def open_recovery_pair(slot: SealedSlot, typed: str) -> bytes:
+    """The pair's secret key, which unseals what was sealed for the recovery key;
+    RecoveryKeyTypoError or WrongRecoveryKeyError otherwise."""
+    try:
+        return open_pair(slot, canonical(typed), SLOT)
+    except (WrongPasswordError, KeyFileError) as error:
+        raise WrongRecoveryKeyError from error
+
+
 def unwrap(slot: RecoverySlot, typed: str) -> bytes:
     """The database key; RecoveryKeyTypoError or WrongRecoveryKeyError otherwise."""
+    if isinstance(slot, SealedSlot):
+        try:
+            return unseal(open_recovery_pair(slot, typed), slot.sealed)
+        except KeyFileError as error:
+            raise WrongRecoveryKeyError from error
     try:
-        if isinstance(slot, SealedSlot):
-            return open_sealed_slot(slot, canonical(typed), SLOT)
         return unwrap_with_password(slot, canonical(typed), slot_name=OLD_SLOT)
-    except WrongPasswordError as error:
-        raise WrongRecoveryKeyError from error
-    except KeyFileError as error:
+    except (WrongPasswordError, KeyFileError) as error:
         raise WrongRecoveryKeyError from error

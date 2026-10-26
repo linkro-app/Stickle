@@ -9,7 +9,6 @@ shown.
 import itertools
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import override
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt
@@ -42,7 +41,7 @@ from stickle.app.master_password import (
 )
 from stickle.app.notes import NoteManager
 from stickle.app.palette import SWATCH_SIZE, own_color_name, swatch_icon
-from stickle.app.recovery_key_dialog import RecoveryKeyDialog
+from stickle.app.recovery_key_dialog import RecoveryKeyDialog, RecoveryKeys
 from stickle.app.secret_dialogs import NewSecretPasswordDialog, OpenSecretDialog
 from stickle.app.shortcut_rows import ShortcutRows
 from stickle.app.shortcuts import GlobalShortcuts
@@ -51,22 +50,13 @@ from stickle.app.tray import switch_autostart
 from stickle.app.update_check import UpdateCheck
 from stickle.app.window_flags import set_stays_on_top, stays_on_top
 from stickle.core.updates import FEED_HOST
+from stickle.crypto.keyfile import KeyFileError
 from stickle.data.colors import MAX_OWN_COLORS
 from stickle.platform.autostart import Autostart
 from stickle.platform.linux.appimage import AppMenuEntry
 from stickle.platform.linux.x11 import activate
 
 log = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class RecoveryKeys:
-    """Making the recovery key, without the window knowing the database key."""
-
-    exists: Callable[[], bool]
-    make: Callable[[], str]  # a new one, the old one no longer working
-    kept: Callable[[], None]  # the user said the new one is kept somewhere safe
-    made_at: Callable[[], str | None] = lambda: None  # when (UTC); unknown before 0.6
 
 
 def _exec(dialog: RecoveryKeyDialog) -> bool:
@@ -466,12 +456,27 @@ class SettingsWindow(QDialog):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
+        secrets = self._notes.secrets
+        secret_key: bytearray | None = None
+        if secrets is not None and secrets.turned_on():
+            # The new key opens them too: their key, to seal for it, is opened first.
+            opened = OpenSecretDialog(secrets, parent=self, purpose="recovery")
+            key = opened.take_key() if show_secret_dialog(opened) else None
+            if key is None or self._recovery.make_with_secret is None:
+                return
+            secret_key = bytearray(key)
         try:
-            recovery_key = self._recovery.make()
-        except OSError as error:
+            if secret_key is not None and self._recovery.make_with_secret is not None:
+                recovery_key = self._recovery.make_with_secret(bytes(secret_key))
+            else:
+                recovery_key = self._recovery.make()
+        except (OSError, KeyFileError) as error:
             log.error("could not make a recovery key: %s", type(error).__name__)
             QMessageBox.warning(self, "Stickle", self.tr("The recovery key could not be saved."))
             return
+        finally:
+            if secret_key is not None:
+                secret_key[:] = bytes(len(secret_key))
         if show_recovery_key(RecoveryKeyDialog(recovery_key, self)):
             self._recovery.kept()
         self.refresh()  # its date
@@ -509,7 +514,7 @@ class SettingsWindow(QDialog):
             show_master_dialog(CheckMasterPasswordDialog(self._master, self))
 
     def change_secret_password(self) -> None:
-        """Their password now, or the master password, then a new one."""
+        """Their password now, or the recovery key, then a new one."""
         secrets = self._notes.secrets
         if secrets is None or not secrets.turned_on():
             return
@@ -517,7 +522,7 @@ class SettingsWindow(QDialog):
         key = opened.take_key() if show_secret_dialog(opened) else None
         if key is None:
             return
-        if not opened.using_master:  # that way, the new one was asked for already
+        if not opened.recovered:  # that way, the new one was asked for already
             show_secret_dialog(NewSecretPasswordDialog(secrets, key, self))
         self.refresh()  # its date
 
