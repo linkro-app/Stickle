@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog
+from stickle.app.typed import forget_typed
 from stickle.core.passwords import Weakness, weakness
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import RecoveryKeyTypoError
@@ -205,6 +206,11 @@ class MasterPasswordDialog(QDialog):
         self.forgot_button.setText(self.tr("I &forgot it"))
 
     @override
+    def done(self, result: int, /) -> None:
+        super().done(result)
+        forget_typed(self)
+
+    @override
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.LanguageChange:
             self.retranslate()
@@ -350,6 +356,11 @@ class CheckMasterPasswordDialog(QDialog):
         self.password.setAccessibleName(self.tr("Master password"))
         self.check_button.setText(self.tr("Check"))
         self.close_button.setText(self.tr("Close"))
+
+    @override
+    def done(self, result: int, /) -> None:
+        super().done(result)
+        forget_typed(self)
 
     @override
     def changeEvent(self, event: QEvent) -> None:

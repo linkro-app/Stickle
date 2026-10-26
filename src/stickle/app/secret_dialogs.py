@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from stickle.app.master_password import ERROR_STYLE, MasterPasswords, weakness_reason
 from stickle.app.recovery_key_dialog import KeptBox
 from stickle.app.times import local_time
+from stickle.app.typed import forget_typed
 from stickle.core.passwords import weakness
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.secret_notes import MIN_PASSWORD_LENGTH
@@ -73,6 +74,7 @@ class _PasswordWindow(QDialog):
 
     def __init__(self, parent: QWidget | None) -> None:
         super().__init__(parent)
+        self.key: bytes | None = None  # the key opened, if this window opens one
         self.intro = QLabel()
         self.intro.setWordWrap(True)
         self.form = QFormLayout()
@@ -134,6 +136,16 @@ class _PasswordWindow(QDialog):
             return self.tr("Choose a password other than the master password.")
         return None
 
+    def take_key(self) -> bytes | None:
+        """The key opened, handed over once: the window keeps it no longer."""
+        key, self.key = self.key, None
+        return key
+
+    @override
+    def done(self, result: int, /) -> None:
+        super().done(result)
+        forget_typed(self)  # the window lives on, kept by the one it belongs to
+
     @override
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.LanguageChange:
@@ -151,7 +163,6 @@ class TurnOnDialog(_PasswordWindow):
     def __init__(self, passwords: SecretPasswords, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._passwords = passwords
-        self.key: bytes | None = None
         self.has_master = passwords.master.exists()
         self.password = _password_field()
         self.password_label = QLabel()
@@ -304,7 +315,6 @@ class OpenSecretDialog(_PasswordWindow):
         self._passwords = passwords
         self._title = title
         self.purpose: Purpose = purpose
-        self.key: bytes | None = None
         self.using_master = False
         self.password = _password_field()
         self.password_label = QLabel()
@@ -399,7 +409,7 @@ class NewSecretPasswordDialog(_PasswordWindow):
     ) -> None:
         super().__init__(parent)
         self._passwords = passwords
-        self._key = key
+        self.held_key = key  # let go of once the window closes
         self.password = _password_field()
         self.password_label = QLabel()
         self.password_label.setBuddy(self.password)
@@ -433,7 +443,7 @@ class NewSecretPasswordDialog(_PasswordWindow):
         self.working()
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            self._passwords.change_password(self._key, self.password.text())
+            self._passwords.change_password(self.held_key, self.password.text())
         except (KeyFileError, OSError) as error:
             log.error("secret notes' password not changed: %s", type(error).__name__)
             self.show_error(
@@ -444,6 +454,11 @@ class NewSecretPasswordDialog(_PasswordWindow):
         finally:
             QGuiApplication.restoreOverrideCursor()
         super().accept()
+
+    @override
+    def done(self, result: int, /) -> None:
+        super().done(result)
+        self.held_key = b""
 
 
 class SecretTitleDialog(_PasswordWindow):
@@ -511,7 +526,6 @@ class SecretExportDialog(_PasswordWindow):
         super().__init__(parent)
         self._count = count
         self._open = open_notes
-        self.key: bytes | None = None
         self.encrypted = _Choice()
         self.encrypted.setChecked(True)  # what they are: chosen until the user says otherwise
         self.encrypted_note = QLabel()

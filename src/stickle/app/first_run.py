@@ -363,6 +363,7 @@ def welcome(
     )
     ask(dialog)
     choices = dialog.choices()
+    dialog.recovery.forget()  # the key shown, not kept once the window is done with
     # In the language chosen in the welcome, if one was.
     notes.create(sample_note())
     if choices.usage is not None:

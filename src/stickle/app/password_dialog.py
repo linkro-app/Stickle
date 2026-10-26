@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.typed import forget_typed
 from stickle.unlock import MIN_PASSWORD_LENGTH, password_length
 
 # Returns an error to show, or None when the password was accepted.
@@ -141,6 +142,11 @@ class PasswordDialog(QDialog):
         self.input_note.setText(
             self.tr("Input methods, such as a Korean keyboard, are turned off in password fields.")
         )
+
+    @override
+    def done(self, result: int, /) -> None:
+        super().done(result)
+        forget_typed(self)
 
     @override
     def changeEvent(self, event: QEvent) -> None:

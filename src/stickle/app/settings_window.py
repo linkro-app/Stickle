@@ -514,10 +514,11 @@ class SettingsWindow(QDialog):
         if secrets is None or not secrets.turned_on():
             return
         opened = OpenSecretDialog(secrets, parent=self, purpose="change")
-        if not show_secret_dialog(opened) or opened.key is None:
+        key = opened.take_key() if show_secret_dialog(opened) else None
+        if key is None:
             return
         if not opened.using_master:  # that way, the new one was asked for already
-            show_secret_dialog(NewSecretPasswordDialog(secrets, opened.key, self))
+            show_secret_dialog(NewSecretPasswordDialog(secrets, key, self))
         self.refresh()  # its date
 
     def _refresh_own_colors(self) -> None:

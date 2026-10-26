@@ -113,8 +113,9 @@ def export_everything(parent: QWidget, access: DataAccess) -> ExportResult | Non
         dialog = SecretExportDialog(count, access.open_secret_notes, parent)
         if not ask_secret_export(dialog):
             return None
-        if dialog.key is not None:
-            secret = SecretExport(key=dialog.key)
+        key = dialog.take_key()
+        if key is not None:
+            secret = SecretExport(key=key)
     folder = file_dialogs.existing_folder(parent, title)
     if folder is None:
         return None

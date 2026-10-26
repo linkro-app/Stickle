@@ -1366,9 +1366,10 @@ class NoteManager(QObject):
             if passwords.turned_on() or self.has_secret_notes(in_trash=True)
             else TurnOnDialog(passwords, window)
         )
-        if not ask_secret(dialog) or dialog.key is None:
+        opened = dialog.take_key() if ask_secret(dialog) else None
+        if opened is None:
             return
-        key = bytearray(dialog.key)
+        key = bytearray(opened)
         titled = SecretTitleDialog(parent=window)
         if not ask_secret(titled):
             _wipe(key)
@@ -1416,9 +1417,10 @@ class NoteManager(QObject):
         ):
             return
         dialog = OpenSecretDialog(passwords, window.secret_name, window)
-        if not ask_secret(dialog) or dialog.key is None:
+        opened = dialog.take_key() if ask_secret(dialog) else None
+        if opened is None:
             return
-        key = bytearray(dialog.key)
+        key = bytearray(opened)
         if window not in self._windows or not window.secret_locked:
             _wipe(key)  # closed meanwhile (or opened already): nothing to hold it for
             return

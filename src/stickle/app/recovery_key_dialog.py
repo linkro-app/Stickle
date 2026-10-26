@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from stickle.app.file_dialogs import save_file_name
 from stickle.app.sizing import grow_to_fit
+from stickle.app.typed import forget_typed
 
 # Returns an error to show, or None when the key was accepted.
 type Submit = Callable[[str], str | None]
@@ -86,6 +87,11 @@ class EnterRecoveryKeyDialog(QDialog):
         self.ok_button.setText(self.tr("Open notes"))
         self.cancel_button.setText(self.tr("Back"))
         self.master_button.setText(self.tr("Use the &master password instead"))
+
+    @override
+    def done(self, result: int, /) -> None:
+        super().done(result)
+        forget_typed(self, self.key)
 
     @override
     def changeEvent(self, event: QEvent) -> None:
@@ -253,6 +259,12 @@ class RecoveryKeyPanel(QWidget):
         self.save_button.setText(self.tr("&Save to a file…"))
         self.kept.setText(self.tr("I have &kept the recovery key somewhere safe"))
 
+    def forget(self) -> None:
+        """The key shown no longer kept, once its window is closed."""
+        self.recovery_key = ""
+        self.key.clear()
+        self.qr.clear()
+
     @override
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.LanguageChange:
@@ -312,6 +324,11 @@ class RecoveryKeyDialog(QDialog):
         self.setWindowTitle(self.tr("Your recovery key"))
         self.done_button.setText(self.tr("Done"))
         self.later_button.setText(self.tr("Later"))
+
+    @override
+    def done(self, result: int, /) -> None:
+        super().done(result)
+        self.panel.forget()  # the window lives on, kept by the one it belongs to
 
     @override
     def changeEvent(self, event: QEvent) -> None:
