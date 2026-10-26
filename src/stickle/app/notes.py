@@ -73,7 +73,7 @@ from stickle.crypto.secret_notes import SecretNoteError, open_text, seal_text
 from stickle.data.colors import MAX_OWN_COLORS, ColorRepository, OwnColor, OwnColorsFullError
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
-from stickle.data.notes import NoteRepository
+from stickle.data.notes import NoteIsSecretError, NoteNotSecretError, NoteRepository
 from stickle.data.settings import (
     DEFAULT_NOTE_COLOR,
     LAST_USED_COLOR,
@@ -503,7 +503,9 @@ class NoteManager(QObject):
                     self._store_new(window)
             else:
                 self._repository.update_body(window.note_id, text)
-        except (apsw.Error, OSError) as error:
+        except (apsw.Error, OSError, NoteIsSecretError) as error:
+            # Secret where the window took it for ordinary: marked, never raised
+            # (raised, it stopped the other notes being saved on quitting).
             log.error("could not save a note: %s", type(error).__name__)
             window.set_unsaved(True)
             return False
@@ -544,7 +546,7 @@ class NoteManager(QObject):
             try:
                 sealed = seal_text(bytes(key), window.note_id, text)
                 self._repository.update_secret_body(window.note_id, sealed)
-            except (apsw.Error, OSError) as error:
+            except (apsw.Error, OSError, NoteNotSecretError) as error:
                 log.error("could not save a secret note: %s", type(error).__name__)
                 window.set_unsaved(True)
                 return False
@@ -1372,19 +1374,36 @@ class NoteManager(QObject):
             _wipe(key)
             return
         title, text = titled.chosen(), window.text
+        note_id = window.note_id
         try:
-            note_id = window.note_id or self._store_new(window)
+            note_id = note_id or self._store_new(window)
             self._repository.make_secret(note_id, title, seal_text(bytes(key), note_id, text))
         except (apsw.Error, OSError) as error:
-            log.error("could not make a note secret: %s", type(error).__name__)
-            _wipe(key)
-            QMessageBox.warning(window, "Stickle", self.tr("The note could not be made secret."))
-            return
+            # Failed only after it was stored secret: the window follows the note,
+            # or its later edits would be refused.
+            if not self._stored_secret_note(note_id):
+                log.error("could not make a note secret: %s", type(error).__name__)
+                _wipe(key)
+                QMessageBox.warning(
+                    window, "Stickle", self.tr("The note could not be made secret.")
+                )
+                return
+            log.warning("made a note secret, then: %s", type(error).__name__)
+            assert note_id is not None
         self._keys[window] = key
         self._stored_secret[window] = text
         window.set_secret_title(title)
         self._relock.opened(window)
         self.changed.emit()
+
+    def _stored_secret_note(self, note_id: str | None) -> bool:
+        if self._repository is None or note_id is None:
+            return False
+        try:
+            note = self._repository.get(note_id)
+        except apsw.Error, OSError:
+            return False
+        return note is not None and note.secret
 
     def open_secret(self, window: NoteWindow) -> None:
         """Open a locked secret note with the secret notes' password: this one only."""
@@ -1698,9 +1717,14 @@ class NoteManager(QObject):
         self.changed.emit()
 
     def empty_old_trash(self) -> None:
-        """At start: empty notes a year in the trash, forget old deletion records."""
+        """At start: empty notes a year in the trash, forget old deletion records,
+        and clear away old text a note made secret may have left behind."""
         if self._repository is None:
             return
+        try:
+            self._repository.forget_old_text_left()
+        except (apsw.Error, OSError) as error:
+            log.warning("old text not cleared away yet: %s", type(error).__name__)
         try:
             emptied = self._repository.purge_expired()
         except apsw.Error as error:

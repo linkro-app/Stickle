@@ -43,7 +43,7 @@ from stickle.app.titles import shown_title
 from stickle.app.tray import menu_title
 from stickle.core.note import Note
 from stickle.crypto.key_files import C
-from stickle.crypto.secret_notes import open_text
+from stickle.crypto.secret_notes import open_text, seal_text
 from stickle.data.export import ExportResult
 from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
@@ -259,6 +259,56 @@ def test_with_every_copy_of_their_key_gone_they_are_not_turned_on_anew(
 
     assert isinstance(answers.asked[-1], OpenSecretDialog)
     assert not unlock.files.path(C).exists()
+
+
+def test_its_old_text_not_cleared_away_it_is_made_secret_all_the_same(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Once, a failure clearing the search index after the change said the note
+    # was not made secret, while it was: its later edits were then refused.
+    def fails(_self: NoteRepository) -> None:
+        raise apsw.FullError("disk full")
+
+    monkeypatch.setattr(NoteRepository, "forget_old_text", fails)
+    warned: list[str] = []
+
+    def warning(_parent: QWidget, _title: str, text: str) -> None:
+        warned.append(text)
+
+    monkeypatch.setattr(notes.QMessageBox, "warning", warning)
+
+    window = secret_note(qtbot, manager, answers)
+    type_into(window, " 더")
+
+    assert manager.save(window) and not window.unsaved
+    assert opened_text(connection, unlock, window) == TEXT + " 더"
+    assert warned == []
+
+
+def test_a_window_out_of_step_with_its_note_is_marked_and_the_others_still_saved(
+    qtbot: QtBot, manager: NoteManager, connection: apsw.Connection
+) -> None:
+    # A note made secret while its window still took it for an ordinary one:
+    # its text refused, which once stopped the others being saved on quitting.
+    out_of_step, other = manager.new_note(), manager.new_note()
+    out_of_step.editor.insertPlainText("하나")
+    other.editor.insertPlainText("둘")
+    manager.save_all()
+    assert out_of_step.note_id is not None
+    sealed = seal_text(KEY, out_of_step.note_id, "하나")
+    NoteRepository(connection).make_secret(out_of_step.note_id, "t", sealed)
+    type_into(out_of_step, " 더")
+    type_into(other, " 더")
+
+    manager.prepare_to_quit()
+
+    assert out_of_step.unsaved
+    assert stored(connection, other).body == "둘 더"
 
 
 def test_a_key_file_that_cannot_be_read_counts_as_there(

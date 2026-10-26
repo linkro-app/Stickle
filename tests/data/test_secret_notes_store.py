@@ -50,6 +50,32 @@ def test_made_secret_its_text_is_only_encrypted(connection: apsw.Connection) -> 
     assert open_text(SECRET_KEY, note.id, secret.sealed or b"") == TEXT
 
 
+def test_its_old_text_not_cleared_away_it_is_secret_all_the_same_and_cleared_next_time(
+    connection: apsw.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The index merged and the log folded in after the change: if that fails (a
+    # full disk) or Stickle stops in between, the note is secret still, and what
+    # was left goes at the next start.
+    notes = NoteRepository(connection)
+    note = notes.create(TEXT)
+
+    def fails() -> None:
+        raise apsw.FullError("disk full")
+
+    monkeypatch.setattr(notes, "forget_old_text", fails)
+    secret = notes.make_secret(note.id, "은행", seal_text(SECRET_KEY, note.id, TEXT))
+
+    assert secret.secret and search(connection, "plorbit") == []
+    assert index_holds(connection, "plo")  # still in the index's old segments
+
+    NoteRepository(connection).forget_old_text_left()
+
+    assert not index_holds(connection, "plo")
+    before = connection.execute("SELECT block FROM notes_fts_data").fetchall()
+    NoteRepository(connection).forget_old_text_left()  # nothing left to do: nothing done
+    assert connection.execute("SELECT block FROM notes_fts_data").fetchall() == before
+
+
 def test_its_text_is_never_written_as_body(connection: apsw.Connection) -> None:
     notes = NoteRepository(connection)
     note = notes.make_secret(notes.create("x").id, "t", seal_text(SECRET_KEY, "n", ""))

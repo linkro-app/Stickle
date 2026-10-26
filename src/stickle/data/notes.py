@@ -6,6 +6,7 @@ text, and then a deletion record takes its place. Every change stamps the note w
 next change number, which never goes backwards even if the clock does.
 """
 
+import logging
 import uuid
 
 import apsw
@@ -13,6 +14,8 @@ import apsw
 from stickle.core.clock import Clock, days_before, utc_now
 from stickle.core.note import DEFAULT_COLOR, Note, content_hash
 from stickle.data.search import search
+
+log = logging.getLogger(__name__)
 
 COLUMNS = (
     "id, body, color, hidden, always_on_top, created_at, updated_at, content_hash, deleted_at,"
@@ -47,6 +50,8 @@ class NoteNotSecretError(ValueError):
 
 # Notes stay in the trash this long, and deletion records this long after emptying.
 KEEP_DAYS = 365
+# In local_counters while a note made secret may have left its old text behind.
+OLD_TEXT_LEFT = "old_text_left"
 
 
 def _note(row: apsw.SQLiteValues, marks: frozenset[str] = frozenset()) -> Note:
@@ -178,17 +183,27 @@ class NoteRepository:
     def make_secret(self, note_id: str, title: str, sealed: bytes) -> Note:
         """The note's text replaced by sealed (it, encrypted), in one step, and gone
         from the database: overwritten where it was, out of the search index."""
-        self._require_live(note_id)
-        note = self._change(
-            note_id,
-            {
-                "body": "",
-                "secret_body": sealed,
-                "secret_title": title,
-                "content_hash": content_hash(sealed.hex()),
-            },
-        )
-        self.forget_old_text()
+        note = self._require_live(note_id)
+        with self._db:  # secret, and its old text owed a clearing away, together
+            note = self._change(
+                note_id,
+                {
+                    "body": "",
+                    "secret_body": sealed,
+                    "secret_title": title,
+                    "content_hash": content_hash(sealed.hex()),
+                },
+            )
+            self._db.execute(
+                "INSERT INTO local_counters (key, value) VALUES (?, 1)"
+                " ON CONFLICT (key) DO UPDATE SET value = 1",
+                (OLD_TEXT_LEFT,),
+            )
+        try:
+            self.forget_old_text()
+        except (apsw.Error, OSError) as error:
+            # Secret all the same; what is left goes at the next start.
+            log.warning("old text not cleared away yet: %s", type(error).__name__)
         return note
 
     def update_secret_body(self, note_id: str, sealed: bytes) -> Note:
@@ -225,7 +240,16 @@ class NoteRepository:
         read: freed pages are overwritten (secure_delete is on), the search
         index is merged so its old entries go, and the log is folded in."""
         self._db.execute("INSERT INTO notes_fts(notes_fts) VALUES ('optimize')")
+        self._db.execute("DELETE FROM local_counters WHERE key = ?", (OLD_TEXT_LEFT,))
         self._db.pragma("wal_checkpoint", "TRUNCATE")
+
+    def forget_old_text_left(self) -> None:
+        """At start: old text a note made secret left behind (its clearing away
+        failed or was cut short), gone now; nothing done when there is none."""
+        if self._db.execute(
+            "SELECT 1 FROM local_counters WHERE key = ?", (OLD_TEXT_LEFT,)
+        ).fetchall():
+            self.forget_old_text()
 
     def set_color(self, note_id: str, color: str) -> Note:
         """color is a palette key or a colour of the user's own (#rrggbb); the
