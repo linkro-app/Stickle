@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stickle.app.master_password import ERROR_STYLE, MasterPasswords
+from stickle.app.master_password import ERROR_STYLE, MasterPasswords, weakness_reason
 from stickle.app.recovery_key_dialog import (
     EnterRecoveryKeyDialog,
     KeptBox,
@@ -39,6 +39,7 @@ from stickle.app.recovery_key_dialog import (
 )
 from stickle.app.times import local_time
 from stickle.app.typed import forget_typed
+from stickle.core.passwords import guessable
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
 from stickle.crypto.secret_notes import MIN_PASSWORD_LENGTH, NotKeptForRecoveryKeyError
@@ -135,6 +136,17 @@ class _PasswordWindow(QDialog):
         self.message.show()
         QCoreApplication.processEvents()
 
+    def add_rules(self) -> None:
+        """What a new password must be, said before one is refused."""
+        self.rules = QLabel()
+        self.rules.setWordWrap(True)
+        self.layout_parts.addWidget(self.rules)
+
+    def rules_text(self) -> str:
+        return self.tr("At least %1 characters, and not a common password.").replace(
+            "%1", str(MIN_PASSWORD_LENGTH)
+        )
+
     def password_refusal(
         self, password: str, confirm: str, passwords: SecretPasswords
     ) -> str | None:
@@ -143,6 +155,9 @@ class _PasswordWindow(QDialog):
             # Not a plural (%n): tr() on a subclass takes the English plural, its %n
             # filled in, for a translation found under the subclass's name.
             return self.tr("Use at least %1 characters.").replace("%1", str(MIN_PASSWORD_LENGTH))
+        found = guessable(password)
+        if found is not None:
+            return weakness_reason(found)
         if password != confirm:
             return self.tr("The two passwords are not the same.")
         if passwords.master.opens_notes(password):
@@ -191,6 +206,7 @@ class TurnOnDialog(_PasswordWindow):
         self.confirm_label.setBuddy(self.confirm)
         self.form.addRow(self.password_label, self.password)
         self.form.addRow(self.confirm_label, self.confirm)
+        self.add_rules()
         self.recovery_line = QLabel()
         self.recovery_line.setWordWrap(True)
         self.layout_parts.addWidget(self.recovery_line)
@@ -221,6 +237,7 @@ class TurnOnDialog(_PasswordWindow):
     def retranslate(self) -> None:
         super().retranslate()
         self.setWindowTitle(self.tr("Turn on secret notes"))
+        self.rules.setText(self.rules_text())
         self.intro.setText(
             self.tr(
                 "A secret note keeps its text hidden until you open it with the secret"
@@ -492,6 +509,7 @@ class NewSecretPasswordDialog(_PasswordWindow):
         self.confirm_label.setBuddy(self.confirm)
         self.form.addRow(self.password_label, self.password)
         self.form.addRow(self.confirm_label, self.confirm)
+        self.add_rules()
         self.finish_layout()
         self.retranslate()
         self.password.setFocus()
@@ -500,6 +518,7 @@ class NewSecretPasswordDialog(_PasswordWindow):
     def retranslate(self) -> None:
         super().retranslate()
         self.setWindowTitle(self.tr("New secret notes' password"))
+        self.rules.setText(self.rules_text())
         self.intro.setText(
             self.tr(
                 "The recovery key opened your secret notes. Choose a new password for"
@@ -646,7 +665,11 @@ class SecretExportDialog(_PasswordWindow):
         )
         self.encrypted.setText(self.tr("&Encrypted, as they are"))
         self.encrypted_note.setText(
-            self.tr("Their text stays encrypted: only the titles typed for them can be read.")
+            self.tr(
+                "Their text stays encrypted with the secret notes' password, and the titles"
+                " typed for them can be read. Anyone who has the files and guesses that"
+                " password can read the text too."
+            )
         )
         self.plain.setText(self.tr("In the &clear"))
         self.password_label.setText(self.tr("Secret notes' &password:"))

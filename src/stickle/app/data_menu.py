@@ -62,7 +62,10 @@ class DataMenu(QObject):
 
     def stayed_encrypted(self, notes: int) -> str:
         return self.tr(
-            "%n secret note(s) stayed encrypted: only their titles can be read.", "", notes
+            "%n secret note(s) stayed encrypted with the secret notes' password: their"
+            " titles can be read, and their text opens with that password.",
+            "",
+            notes,
         )
 
     def exported(self, notes: int, folder: Path) -> str:

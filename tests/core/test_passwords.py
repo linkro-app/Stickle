@@ -6,6 +6,7 @@ from stickle.core.passwords import (
     LISTS,
     Weakness,
     common_passwords,
+    guessable,
     typed_in_english,
     weakness,
 )
@@ -63,6 +64,29 @@ def test_common_ones_are_refused(password: str) -> None:
 )
 def test_repeats_and_runs_are_refused(password: str) -> None:
     assert weakness(password) == Weakness.PATTERN
+
+
+@pytest.mark.parametrize(
+    ("password", "found"),
+    [
+        ("password", Weakness.COMMON),
+        ("12345678", Weakness.COMMON),
+        ("1q2w3e4r", Weakness.COMMON),
+        ("qwer1234!", Weakness.COMMON),
+        ("tkfkdgo1", Weakness.COMMON),  # 사랑해, with a digit
+        ("abababab", Weakness.PATTERN),
+        ("hgfedcba", Weakness.PATTERN),
+        ("k9!vQ2m#", None),
+        ("plum-tree", None),
+        ("secret notes 1", None),
+    ],
+)
+def test_shorter_ones_are_checked_the_same_but_for_length(
+    password: str, found: Weakness | None
+) -> None:
+    # The secret notes' password: 8 characters, its length checked where it is set.
+    assert guessable(password) == found
+    assert weakness(password) == (Weakness.SHORT if len(password) < 12 else found)
 
 
 def test_korean_is_turned_into_the_keys_that_type_it() -> None:

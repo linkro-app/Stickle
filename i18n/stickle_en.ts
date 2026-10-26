@@ -21,10 +21,10 @@
 <context>
     <name>DataMenu</name>
     <message numerus="yes">
-        <source>%n secret note(s) stayed encrypted: only their titles can be read.</source>
+        <source>%n secret note(s) stayed encrypted with the secret notes&apos; password: their titles can be read, and their text opens with that password.</source>
         <translation>
-            <numerusform>%n secret note stayed encrypted: only its title can be read.</numerusform>
-            <numerusform>%n secret notes stayed encrypted: only their titles can be read.</numerusform>
+            <numerusform>%n secret note stayed encrypted with the secret notes&apos; password: its title can be read, and its text opens with that password.</numerusform>
+            <numerusform>%n secret notes stayed encrypted with the secret notes&apos; password: their titles can be read, and their text opens with that password.</numerusform>
         </translation>
     </message>
     <message numerus="yes">

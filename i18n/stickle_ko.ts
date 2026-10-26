@@ -303,9 +303,9 @@
         <translation>암호화된 비밀 메모</translation>
     </message>
     <message numerus="yes">
-        <source>%n secret note(s) stayed encrypted: only their titles can be read.</source>
+        <source>%n secret note(s) stayed encrypted with the secret notes&apos; password: their titles can be read, and their text opens with that password.</source>
         <translation>
-            <numerusform>비밀 메모 %n개는 암호화된 채로 내보냈습니다. 제목만 읽을 수 있습니다.</numerusform>
+            <numerusform>비밀 메모 %n개는 비밀 메모 암호로 암호화된 채 내보냈습니다. 제목은 읽을 수 있고, 내용은 그 암호로 열립니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -2165,8 +2165,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>암호화된 채로(&amp;E)</translation>
     </message>
     <message>
-        <source>Their text stays encrypted: only the titles typed for them can be read.</source>
-        <translation>내용은 암호화된 채로 두고, 따로 입력한 제목만 읽을 수 있습니다.</translation>
+        <source>Their text stays encrypted with the secret notes&apos; password, and the titles typed for them can be read. Anyone who has the files and guesses that password can read the text too.</source>
+        <translation>내용은 비밀 메모 암호로 암호화된 채 들어가고, 따로 입력한 제목은 읽을 수 있습니다. 파일을 가진 사람이 그 암호를 알아맞히면 내용도 읽을 수 있습니다.</translation>
     </message>
     <message>
         <source>In the &amp;clear</source>
@@ -3041,6 +3041,10 @@ Data is in Stickle Manager and in the Stickle icon&apos;s menu. [Everything Stic
     <message>
         <source>Checking…</source>
         <translation>확인하는 중…</translation>
+    </message>
+    <message>
+        <source>At least %1 characters, and not a common password.</source>
+        <translation>%1자 이상이고, 흔한 암호가 아니어야 합니다.</translation>
     </message>
     <message>
         <source>Use at least %1 characters.</source>

@@ -1042,6 +1042,36 @@ def test_a_short_password_is_refused(
     assert not window.secret and not unlock.has_secret_notes
 
 
+@pytest.mark.parametrize(
+    ("typed", "reason"),
+    [
+        ("password1", "That is one of the most common passwords. Choose another."),
+        ("1q2w3e4r", "That is one of the most common passwords. Choose another."),
+        ("abababab", "Repeated characters or a run of the keyboard are easy to guess."),
+    ],
+)
+def test_a_guessable_password_is_refused_with_why(
+    qtbot: QtBot, manager: NoteManager, answers: Answers, unlock: Unlock, typed: str, reason: str
+) -> None:
+    window = manager.new_note()
+    refused: list[str] = []
+    rules: list[str] = []
+
+    def refuse(dialog: QDialog) -> bool:
+        assert isinstance(dialog, TurnOnDialog)
+        rules.append(dialog.rules.text())
+        if not turn_on(typed)(dialog):
+            refused.append(dialog.message.text())
+        return False
+
+    answers.queue.append(refuse)
+    window.secret_action.trigger()
+
+    assert rules == ["At least 8 characters, and not a common password."]
+    assert len(refused) == 1 and refused[0].startswith(reason)
+    assert not window.secret and not unlock.has_secret_notes
+
+
 def test_their_password_cannot_be_the_master_password(
     qtbot: QtBot, manager: NoteManager, answers: Answers, unlock: Unlock
 ) -> None:

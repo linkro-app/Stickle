@@ -1,14 +1,17 @@
-"""Whether a password is strong enough to be a master password.
+"""Whether a password is strong enough to be a master password, or the secret
+notes' password.
 
-The master password opens everything, the secret notes included, so a
-guessable one is refused, with the reason in one line (no strength meter):
+Either can be tried against copies of the files it opens, so a guessable one
+is refused, with the reason in one line (no strength meter):
 
-- shorter than 12 characters, unless it is 4 words or more;
 - among the most common passwords (common_passwords/), also with digits or
   symbols added at the end, and Korean ones also as typed on an English
   keyboard with the Korean input off;
 - one character, or a few, over and over, or a run of the keyboard or the
-  alphabet.
+  alphabet;
+- a master password shorter than 12 characters, unless it is 4 words or more.
+  The secret notes' password, typed more often, needs 8 characters
+  (stickle.crypto.secret_notes).
 
 Being the same as another password of Stickle's is checked where those are
 known (stickle.unlock).
@@ -88,11 +91,19 @@ def _run(text: str) -> bool:
 
 
 def weakness(password: str) -> Weakness | None:
-    """Why the password would be easy to guess, or None if it is not."""
+    """Why the password would be easy to guess as a master password, or None
+    if it is not."""
     text = unicodedata.normalize("NFC", password)
     words = [word for word in text.split() if len(word) >= WORD_LENGTH]
     if len(text) < MIN_LENGTH and len(words) < MIN_WORDS:
         return Weakness.SHORT
+    return guessable(text)
+
+
+def guessable(password: str) -> Weakness | None:
+    """Why the password would be guessed first whatever its length (common, or a
+    pattern), or None if it would not."""
+    text = unicodedata.normalize("NFC", password)
     plain = _comparable("".join(text.split()))
     common = common_passwords()
     if plain in common or _bare(plain) in common or _comparable(text) in common:
