@@ -2975,10 +2975,6 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>지금 복구 키는 예전 Stickle에서 만든 것이라 아직 비밀 메모를 열지 못합니다. 한 번 입력하거나, 찾을 수 없으면 새로 만드세요.</translation>
     </message>
     <message>
-        <source>You have not kept a recovery key yet. If you forget the password, only the recovery key sets a new one: make a new one and keep it, away from this computer.</source>
-        <translation>아직 복구 키를 보관하지 않았습니다. 암호를 잊으면 복구 키로만 새 암호를 정할 수 있으니, 새 복구 키를 만들어 이 PC가 아닌 곳에 보관하세요.</translation>
-    </message>
-    <message>
         <source>If you forget the password, you set a new one with the recovery key made on %1. It opens secret notes too: do not keep it on this computer.</source>
         <translation>암호를 잊으면 %1에 만든 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 PC에 두지 마세요.</translation>
     </message>
@@ -3005,6 +3001,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Turn on</source>
         <translation>켜기</translation>
+    </message>
+    <message>
+        <source>You have not kept a recovery key yet. If you forget the password, only the recovery key sets a new one: make a new one and keep it, away from this computer, then turn them on.</source>
+        <translation>아직 복구 키를 보관하지 않았습니다. 암호를 잊으면 복구 키로만 새 암호를 정할 수 있으니, 새 복구 키를 만들어 이 PC가 아닌 곳에 보관한 뒤 켜세요.</translation>
     </message>
     <message>
         <source>Secret notes could not be turned on (%1).</source>

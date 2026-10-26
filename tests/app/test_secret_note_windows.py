@@ -157,6 +157,7 @@ def manager(
         settings=Settings(connection),
         labels=LabelRepository(connection),
     )
+    Settings(connection).set(RECOVERY_KEY_KEPT, True)  # its recovery key, kept at the first start
     manager.secrets = application.secret_passwords(
         unlock,
         application.master_passwords(unlock),
@@ -917,35 +918,51 @@ def test_turning_on_asks_one_password_and_says_when_the_recovery_key_was_made(
     assert unlock.has_secret_notes and not unlock.has_master_password
 
 
-def test_a_recovery_key_not_kept_is_said_and_a_new_one_can_be_made(
+def test_not_turned_on_until_a_recovery_key_is_kept(
     qtbot: QtBot,
     manager: NoteManager,
     unlock: Unlock,
     connection: apsw.Connection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Skipped at the first start ("Later"): the user may not have it at all.
+    # Skipped at the first start ("Later"): the user may not have it at all, and
+    # a forgotten password would lock the secret notes away for good.
+    Settings(connection).set(RECOVERY_KEY_KEPT, False)
     assert manager.secrets is not None
     dialog = TurnOnDialog(manager.secrets)
     qtbot.addWidget(dialog)
     assert "You have not kept a recovery key yet." in dialog.recovery_line.text()
+    assert not dialog.ok_button.isEnabled()
+    for field in (dialog.password, dialog.confirm):
+        field.setText(SECRET)
+    dialog.accept()  # Enter, with the button off
+    assert dialog.key is None and not unlock.has_secret_notes
     shown: list[str] = []
+
+    def later(window: RecoveryKeyDialog) -> bool:
+        shown.append(window.panel.recovery_key)
+        return False
+
+    monkeypatch.setattr(secret_dialogs, "confirm_new_recovery_key", always)
+    monkeypatch.setattr(secret_dialogs, "show_recovery_key", later)
+    dialog.make_button.click()
+    assert not dialog.ok_button.isEnabled()  # made, but "Later" again
 
     def keep(window: RecoveryKeyDialog) -> bool:
         shown.append(window.panel.recovery_key)
         return True
 
-    monkeypatch.setattr(secret_dialogs, "confirm_new_recovery_key", always)
     monkeypatch.setattr(secret_dialogs, "show_recovery_key", keep)
     dialog.make_button.click()
 
+    assert dialog.ok_button.isEnabled()
     assert "You have not kept" not in dialog.recovery_line.text()
     assert Settings(connection).get(RECOVERY_KEY_KEPT)
     for field in (dialog.password, dialog.confirm):
         field.setText(SECRET)
     dialog.accept()
     assert dialog.key is not None
-    assert unlock.open_secret_notes_with_recovery_key(shown[0]) == dialog.key
+    assert unlock.open_secret_notes_with_recovery_key(shown[-1]) == dialog.key
 
 
 def test_an_old_recovery_key_is_typed_once_before_turning_on(

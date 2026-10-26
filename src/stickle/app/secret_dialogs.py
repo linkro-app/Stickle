@@ -171,7 +171,9 @@ class _PasswordWindow(QDialog):
         self.cancel_button.setText(self.tr("Cancel"))
 
 
-type RecoveryState = Literal["ready", "old", "none"]
+# Turned on only when ready: without a recovery key the user keeps, a forgotten
+# password would leave the secret notes closed for good.
+type RecoveryState = Literal["ready", "not_kept", "old", "none"]
 
 
 class TurnOnDialog(_PasswordWindow):
@@ -211,7 +213,9 @@ class TurnOnDialog(_PasswordWindow):
             return "ready"  # nothing to say (no recovery keys here: tried, and refused if so)
         if not recovery.exists():
             return "none"
-        return "old" if recovery.is_old() else "ready"
+        if recovery.is_old():
+            return "old"
+        return "ready" if recovery.was_kept() else "not_kept"  # "Later" at the first start
 
     @override
     def retranslate(self) -> None:
@@ -247,11 +251,11 @@ class TurnOnDialog(_PasswordWindow):
                 "Your recovery key was made with an earlier Stickle and cannot open"
                 " secret notes yet. Type it once, or make a new one if you cannot find it."
             )
-        elif recovery is not None and not recovery.was_kept():
+        elif state == "not_kept":
             line = self.tr(
                 "You have not kept a recovery key yet. If you forget the password, only"
                 " the recovery key sets a new one: make a new one and keep it, away from"
-                " this computer."
+                " this computer, then turn them on."
             )
         elif made_at is not None:
             line = self.tr(
