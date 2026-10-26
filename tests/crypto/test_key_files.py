@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from stickle.crypto.key_files import NAMES, A, B, C, KeyFiles
-from stickle.crypto.keyfile import WARNING, document_bytes, write_slots
+from stickle.crypto.keyfile import WARNING, KeyFileError, document_bytes, write_slots
+from stickle.crypto.master import set_master
 
 SLOTS = {"password": {"kdf": "argon2id", "opslimit": 1, "memlimit": 8192, "salt": "", "box": ""}}
 
@@ -105,13 +106,65 @@ def test_with_both_files_gone_while_running_the_notes_copy_is_read(tmp_path: Pat
     assert files.path(C).exists() and files.second_path(C).exists()
 
 
-def test_a_damaged_copy_while_running_is_not_put_back_from_the_other(tmp_path: Path) -> None:
-    # Reading stays as it was: the damaged file is what is there (set aside at start).
+def test_a_damaged_copy_while_running_is_set_aside_and_put_back_from_the_other(
+    tmp_path: Path,
+) -> None:
     files = files_with(tmp_path, C)
     files.path(C).write_bytes(b"damaged")
 
-    assert files.raw(C) == b"damaged"
-    assert files.second_path(C).read_bytes() != b"damaged"
+    assert files.load(C) == {C: {"x": 1}}
+    assert files.path(C).read_bytes() == files.second_path(C).read_bytes()
+    assert (tmp_path / f"{C}.damaged").read_bytes() == b"damaged"
+
+
+def test_the_slots_only_a_sound_copy_holds_stay_when_one_is_damaged(tmp_path: Path) -> None:
+    # A new master password, written while the data folder's copy of B is damaged,
+    # keeps the recovery key's slot the second copy holds.
+    files = KeyFiles(tmp_path)
+    files.save(B, {"recovery": {"x": 1}})
+    files.path(B).write_bytes(b"{ damaged")
+
+    set_master(files, bytes(32), "a spare password 1", "2026-10-27T09:00:00Z", strength=(1, 8192))
+
+    slots = files.load(B)
+    assert slots is not None and "recovery" in slots and len(slots) == 2
+    assert files.second_path(B).read_bytes() == files.path(B).read_bytes()
+    assert (tmp_path / f"{B}.damaged").read_bytes() == b"{ damaged"
+
+
+def test_with_both_files_damaged_the_notes_copy_is_read(tmp_path: Path) -> None:
+    files = files_with(tmp_path, B)
+    files.keep_in(Database())
+    for path in (files.path(B), files.second_path(B)):
+        path.write_bytes(b"{ damaged")
+
+    assert files.load(B) == {B: {"x": 1}}
+    assert files.second_path(B).read_bytes() == files.path(B).read_bytes()
+    assert (tmp_path / f"{B}.damaged").exists()
+    assert (tmp_path / "backups" / f"{B}.damaged").exists()
+
+
+def test_with_no_copy_sound_it_is_what_is_there_and_set_aside_whole(tmp_path: Path) -> None:
+    files = files_with(tmp_path, A)
+    for path in (files.path(A), files.second_path(A)):
+        path.write_bytes(b"{ damaged")
+
+    with pytest.raises(KeyFileError):
+        files.load(A)
+    files.set_aside(A)
+
+    assert not files.path(A).exists() and not files.second_path(A).exists()
+    assert (tmp_path / f"{A}.damaged").read_bytes() == b"{ damaged"
+
+
+def test_a_copy_set_aside_before_stays_when_another_is(tmp_path: Path) -> None:
+    files = files_with(tmp_path, C)
+    for damage in (b"first", b"second"):
+        files.path(C).write_bytes(damage)
+        assert files.load(C) == {C: {"x": 1}}
+
+    assert (tmp_path / f"{C}.damaged").read_bytes() == b"first"
+    assert (tmp_path / f"{C}.damaged-2").read_bytes() == b"second"
 
 
 def test_the_second_copy_follows_the_data_folders(tmp_path: Path) -> None:

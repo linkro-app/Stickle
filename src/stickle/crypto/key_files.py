@@ -16,7 +16,9 @@ from the other and the other is brought in line; a damaged one is set aside
 (never deleted) and put back from the other, never copied over it. B and C
 are also kept in the database (stickle.data.key_copies): with both files
 gone, they come back from there once the notes are open. A is not: it is
-needed to open them.
+needed to open them. While Stickle runs it is the same: a copy gone or
+damaged is put back from a sound one (the second, then the database's), and
+set aside only when none can be read.
 
 The old names are renamed the first time; while one cannot be, it is read as
 it is. File names and folders are never logged.
@@ -68,10 +70,21 @@ def _sound(data: bytes | None) -> bool:
     if data is None:
         return False
     try:
-        parse_document(data)
-    except KeyFileError:
+        slots = slots_of(parse_document(data))
+    except KeyFileError, KeyError, TypeError:
         return False
-    return True
+    return isinstance(slots, dict)  # pyright: ignore[reportUnnecessaryIsInstance]
+
+
+def _aside(path: Path) -> None:
+    """A damaged copy moved out of the way, never deleted: it may hold what a newer
+    version understands. One set aside before stays too."""
+    target = path.with_name(path.name + DAMAGED)
+    number = 1
+    while target.exists():
+        number += 1
+        target = path.with_name(f"{path.name}{DAMAGED}-{number}")
+    path.replace(target)
 
 
 class KeyFiles:
@@ -117,7 +130,7 @@ class KeyFiles:
         if not _sound(first_bytes):
             if _sound(second_bytes):
                 assert second_bytes is not None
-                data.replace(data.with_name(data.name + DAMAGED))
+                _aside(data)
                 write_bytes(data, second_bytes)
                 log.warning("%s damaged: set aside, put back from its second copy", WHAT[name])
             return  # never copied over the other
@@ -140,27 +153,43 @@ class KeyFiles:
 
         A copy gone while Stickle runs (a clean-up tool, a sync) is put back from
         the second one, or for B and C from the database's: never taken for
-        "none", which would let a new key be written over the others."""
+        "none", which would let a new key be written over the others. A damaged
+        one is set aside and put back the same way, when another copy can be
+        read: never taken for one to set aside with the others, which would let
+        the slots only those hold be left out of the next writing. With none, it
+        is what is there (KeyFileError when read)."""
         found = _read(self.path(name))
         if found is None and name in OLD_NAMES:
             found = _read(self.folder / OLD_NAMES[name])  # not renamed (yet)
+            if found is not None:
+                return found
         if found is None:
-            found = self._put_back(name)
+            return self._put_back(name)
+        if not _sound(found):
+            return self._put_back(name, damaged=True) or found
         return found
 
-    def _put_back(self, name: str) -> bytes | None:
+    def _put_back(self, name: str, damaged: bool = False) -> bytes | None:
+        """A sound copy in place of the data folder's, gone or (damaged) set
+        aside first; None, with nothing changed, without one."""
         try:
             stored = self.copies.get(name) if self.copies and name in IN_DATABASE else None
         except OSError as error:
             log.warning("could not read the %s: %s", WHAT[name], type(error).__name__)
             stored = None
-        for kept in (_read(self.second_path(name)), stored):
+        second = _read(self.second_path(name))
+        for kept in (second, stored):
             if kept is not None and _sound(kept):
                 try:
+                    if damaged:
+                        _aside(self.path(name))
+                    if second is not None and not _sound(second):
+                        _aside(self.second_path(name))
                     write_bytes(self.path(name), kept)
                     if _read(self.second_path(name)) is None:
                         self._write_second(name, kept)
-                    log.info("%s gone while running: put back", WHAT[name])
+                    how = "damaged: set aside" if damaged else "gone"
+                    log.warning("%s %s while running, put back", WHAT[name], how)
                 except OSError as error:
                     log.warning("could not put back the %s: %s", WHAT[name], type(error).__name__)
                 return kept
@@ -190,14 +219,14 @@ class KeyFiles:
 
     def set_aside(self, name: str) -> None:
         """A damaged file moved out of the way (both copies), never deleted: it may
-        hold what a newer version understands."""
-        for path in (self.path(name), self.second_path(name)):
-            if path.exists():
-                path.replace(path.with_name(path.name + DAMAGED))
+        hold what a newer version understands. Only once no copy of it can be read
+        (raw puts a sound one back)."""
+        paths = [self.path(name), self.second_path(name)]
         if name in OLD_NAMES:
-            old = self.folder / OLD_NAMES[name]
-            if old.exists():
-                old.replace(old.with_name(old.name + DAMAGED))
+            paths.append(self.folder / OLD_NAMES[name])
+        for path in paths:
+            if path.exists():
+                _aside(path)
 
     # The database's copies
 
