@@ -115,6 +115,8 @@ class EnterRecoveryKeyDialog(QDialog):
     def done(self, result: int, /) -> None:
         super().done(result)
         forget_typed(self, self.key)
+        # Used once: not kept, hidden, by the window it belongs to until that closes.
+        self.deleteLater()
 
     @override
     def changeEvent(self, event: QEvent) -> None:
@@ -360,7 +362,8 @@ class RecoveryKeyDialog(QDialog):
     @override
     def done(self, result: int, /) -> None:
         super().done(result)
-        self.panel.forget()  # the window lives on, kept by the one it belongs to
+        self.panel.forget()  # at once: deleting it waits for the event loop
+        self.deleteLater()  # used once, as the window above
 
     @override
     def changeEvent(self, event: QEvent) -> None:

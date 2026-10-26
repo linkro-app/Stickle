@@ -7,7 +7,7 @@ from pathlib import Path
 
 import apsw
 import pytest
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtGui import QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
@@ -435,6 +435,20 @@ def test_locked_it_cannot_be_edited_until_opened(
 
     assert window.stack.currentWidget() is window.locked_face
     assert window.locked_face.accessibleName() == "Secret note, covered: 은행"
+
+
+def test_its_windows_are_not_kept_once_used(
+    qtbot: QtBot, manager: NoteManager, answers: Answers
+) -> None:
+    window = secret_note(qtbot, manager, answers)  # its password and title asked
+    for _ in range(2):
+        manager.lock_secret(window)
+        answers.queue.append(password())
+        window.open_secret_action.trigger()
+        assert not window.secret_locked
+
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)  # as the event loop
+    assert window.findChildren(QDialog) == []
 
 
 def test_opened_with_the_password_its_text_comes_back(

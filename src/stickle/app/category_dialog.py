@@ -221,6 +221,12 @@ class NewCategoryDialog(QDialog):
         self.icon.retranslate()
 
     @override
+    def done(self, result: int, /) -> None:
+        super().done(result)
+        # Used once: not kept, hidden, by the window it belongs to until that closes.
+        self.deleteLater()
+
+    @override
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.LanguageChange:
             self.retranslate()

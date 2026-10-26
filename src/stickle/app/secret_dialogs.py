@@ -174,7 +174,9 @@ class _PasswordWindow(QDialog):
     @override
     def done(self, result: int, /) -> None:
         super().done(result)
-        forget_typed(self)  # the window lives on, kept by the one it belongs to
+        forget_typed(self)
+        # Used once: not kept, hidden, by the window it belongs to until that closes.
+        self.deleteLater()
 
     @override
     def changeEvent(self, event: QEvent) -> None:

@@ -191,6 +191,8 @@ class MasterPasswordDialog(QDialog):
     def done(self, result: int, /) -> None:
         super().done(result)
         forget_typed(self)
+        # Used once: not kept, hidden, by the window it belongs to until that closes.
+        self.deleteLater()
 
     @override
     def changeEvent(self, event: QEvent) -> None:
@@ -326,6 +328,7 @@ class CheckMasterPasswordDialog(QDialog):
     def done(self, result: int, /) -> None:
         super().done(result)
         forget_typed(self)
+        self.deleteLater()  # used once, as the window above
 
     @override
     def changeEvent(self, event: QEvent) -> None:
