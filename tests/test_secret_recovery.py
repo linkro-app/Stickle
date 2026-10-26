@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from test_unlock import FAST, Store
 
+from stickle.app import application
 from stickle.crypto import recovery
 from stickle.crypto.key_files import B, C
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError, encode_slot, wrap_with_password
@@ -19,6 +20,8 @@ from stickle.crypto.recovery import (
     generate,
 )
 from stickle.crypto.secret_notes import NotKeptForRecoveryKeyError
+from stickle.data.schema import open_store
+from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.unlock import Unlock
 
 KEY = secrets.token_bytes(32)
@@ -178,6 +181,34 @@ def test_their_key_not_sealed_for_the_new_one_nothing_changes(
 
     assert (unlock.files.raw(B), unlock.files.raw(C)) == before
     assert unlock.open_secret_notes_with_recovery_key(first) == key
+
+
+@pytest.mark.parametrize("secret_notes", [False, True])
+def test_a_new_recovery_key_counts_as_kept_only_once_the_user_says_so(
+    tmp_path: Path, secret_notes: bool
+) -> None:
+    # Stopped once it is written, or its window closed without saying so, the
+    # user has not got it, and the one before opens nothing any more.
+    unlock = unlocked(tmp_path)
+    connection = open_store(tmp_path / "notes.db", KEY)
+    settings = Settings(connection)
+    keys = application.recovery_keys(unlock, settings)
+    assert keys is not None and keys.make_with_secret is not None
+    first = keys.make()
+    keys.kept()
+    assert settings.get(RECOVERY_KEY_KEPT)
+
+    if secret_notes:
+        keys.make_with_secret(unlock.turn_on_secret_notes(SECRET))
+    else:
+        keys.make()
+
+    assert not settings.get(RECOVERY_KEY_KEPT)
+    with pytest.raises(WrongRecoveryKeyError):
+        unlock.open_with_recovery_key(first)
+    keys.kept()
+    assert settings.get(RECOVERY_KEY_KEPT)
+    connection.close()
 
 
 def test_a_damaged_key_file_is_never_sealed_over(tmp_path: Path) -> None:

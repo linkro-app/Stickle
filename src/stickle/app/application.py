@@ -311,7 +311,9 @@ def recovery_keys(
 ) -> RecoveryKeys | None:
     """Making recovery keys for the key that opened the notes (none in measurement
     mode); each one made noted in changes, to be told later. With secret notes,
-    their key is sealed for the new one once fits shows it opens them."""
+    their key is sealed for the new one once fits shows it opens them. A new one
+    counts as kept only once the user says so (kept): stopped on the way, or its
+    window closed without it, the one before may open nothing any more."""
     if unlock is None or unlock.opened_key is None or settings is None:
         return None
     key = unlock.opened_key
@@ -321,9 +323,14 @@ def recovery_keys(
             changes.note("recovery_key")
         return recovery_key
 
+    def make() -> str:
+        settings.set(RECOVERY_KEY_KEPT, False)
+        return made(unlock.make_recovery_key(key))
+
     def make_with_secret(secret_key: bytes) -> str:
         if not fits(secret_key):
             raise NotKeptForRecoveryKeyError("the key opens no secret note")
+        settings.set(RECOVERY_KEY_KEPT, False)
         return made(unlock.make_recovery_key(key, secret_key))
 
     def upgrade(typed: str) -> None:
@@ -332,7 +339,7 @@ def recovery_keys(
 
     return RecoveryKeys(
         exists=lambda: unlock.has_recovery_key,
-        make=lambda: made(unlock.make_recovery_key(key)),
+        make=make,
         kept=lambda: settings.set(RECOVERY_KEY_KEPT, True),
         made_at=lambda: unlock.recovery_key_made_at,
         was_kept=lambda: settings.get(RECOVERY_KEY_KEPT),
