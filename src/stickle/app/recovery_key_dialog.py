@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from stickle.app.file_dialogs import save_file_name
 from stickle.app.sizing import grow_to_fit
 from stickle.app.typed import forget_typed
+from stickle.platform.clipboard import copy_secret
 
 # Returns an error to show, or None when the key was accepted.
 type Submit = Callable[[str], str | None]
@@ -264,17 +265,20 @@ class RecoveryKeyPanel(QWidget):
         self.intro.setText(
             self.tr(
                 "If the key that opens your notes is ever lost (a new computer, a reset "
-                "keychain, a forgotten password), this recovery key opens them again. "
-                "Stickle does not keep it: write it down or save it somewhere safe, away "
-                "from this computer. Anyone with it can read your notes."
+                "keychain, a forgotten password), this recovery key opens them again, "
+                "secret notes included. Stickle does not keep it: write it down or save it "
+                "somewhere safe, away from this computer. Avoid places that go up to the "
+                "cloud by themselves, such as a photo app or a folder synced with OneDrive, "
+                "iCloud, Google Drive or Dropbox. Anyone with it can read your notes."
             )
         )
         self.key.setAccessibleName(self.tr("Recovery key"))
         self.qr.setAccessibleName(self.tr("The recovery key as a QR code"))
         self.qr_note.setText(
             self.tr(
-                "The same key as a QR code, to keep on a phone. It holds only the key:"
-                " scanning it opens nothing."
+                "The same key as a QR code: scan it into a password manager on your phone."
+                " Do not take a photo of it, as photos may go up by themselves to the cloud"
+                " you have set up. It holds only the key: scanning it opens nothing."
             )
         )
         self.copy_button.setText(self.tr("&Copy"))
@@ -294,8 +298,8 @@ class RecoveryKeyPanel(QWidget):
         super().changeEvent(event)
 
     def _copy(self) -> None:
-        clipboard = QGuiApplication.clipboard()
-        clipboard.setText(self.recovery_key)
+        # Left out of clipboard histories and the cloud clipboard, where the system reads it.
+        copy_secret(self.recovery_key)
         self.status.setText(self.tr("Copied. Paste it somewhere safe, then clear the clipboard."))
 
     def _save(self) -> None:
@@ -313,7 +317,12 @@ class RecoveryKeyPanel(QWidget):
         except OSError:
             self.status.setText(self.tr("The file could not be saved."))
             return
-        self.status.setText(self.tr("Saved. Keep the file away from this computer."))
+        self.status.setText(
+            self.tr(
+                "Saved. Move the file off this computer, to a USB stick for instance, and"
+                " not into a folder synced with the cloud."
+            )
+        )
 
 
 class RecoveryKeyDialog(QDialog):

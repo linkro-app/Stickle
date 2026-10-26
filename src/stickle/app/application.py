@@ -60,6 +60,7 @@ from stickle.importers.base import ImportResult
 from stickle.importers.bring_in import BroughtIn, bring_in, new_notes
 from stickle.importers.sources import Source, found_here, recognise
 from stickle.platform.autostart import AUTOSTART_FLAG, Autostart, this_computers_autostart
+from stickle.platform.clipboard import take_back_secret
 from stickle.platform.hotkeys import Portal, desktop_portal
 from stickle.platform.instance import FIND, NEW_NOTE, NEXT_VIEW, SET_ASIDE
 from stickle.platform.linux.appimage import (
@@ -601,6 +602,7 @@ def run(
         )
         manager.watch_quit(app)
         app.aboutToQuit.connect(manager.save_all)
+        app.aboutToQuit.connect(take_back_secret)  # a recovery key copied, not left behind
         manager.empty_old_trash()
 
         # Logging out or shutting down: save first. No quitting yet, since another
