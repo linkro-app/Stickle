@@ -1552,6 +1552,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>보통 메모로 바꾸기…</translation>
     </message>
     <message>
+        <source>Its text is covered. Double-click or press Enter, then type the secret notes&apos; password to show it.</source>
+        <translation>내용이 가려져 있습니다. 더블클릭하거나 Enter를 누르고 비밀 메모 암호를 넣으면 보입니다.</translation>
+    </message>
+    <message>
         <source>Locked: it cannot be moved or changed. Unlock it in the note menu.</source>
         <translation>잠김: 옮기거나 고칠 수 없습니다. 메모 메뉴에서 풀 수 있습니다.</translation>
     </message>
@@ -1636,10 +1640,6 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Cover its text</source>
         <translation>내용 가리기</translation>
-    </message>
-    <message>
-        <source>Double-click or press Enter to show its text.</source>
-        <translation>더블클릭하거나 Enter를 눌러 내용을 봅니다.</translation>
     </message>
     <message>
         <source>Secret note, covered: %1</source>

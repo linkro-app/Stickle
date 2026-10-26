@@ -851,7 +851,12 @@ class NoteWindow(QWidget):
         self.lock_secret_action.setText(self.tr("Cover its text"))
         self.secret_title_action.setText(self.tr("Secret note's title…"))
         self.ordinary_action.setText(self.tr("Make it an ordinary note…"))
-        self.locked_face.setText(self.tr("Double-click or press Enter to show its text."))
+        self.locked_face.setText(
+            self.tr(
+                "Its text is covered. Double-click or press Enter, then type "
+                "the secret notes' password to show it."
+            )
+        )
         self.locked_face.setAccessibleDescription(self.locked_face.text())
         locked = self.tr("Locked: it cannot be moved or changed. Unlock it in the note menu.")
         self.title_bar.lock_button.setAccessibleName(self.tr("Locked"))
