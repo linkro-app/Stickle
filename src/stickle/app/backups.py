@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.secret_dialogs import OpenSecretDialog, SecretPasswords
 from stickle.core.clock import Clock, utc_now
 from stickle.data.backups import Backup, Contents, take_daily
 
@@ -73,8 +74,13 @@ class BackupAccess:
     available: Callable[[], list[Backup]]
     contents: Callable[[Path], Contents | None]
     # Back up the notes as they are, put the backup in their place and start
-    # again; False (and nothing changed) if it could not.
-    restore: Callable[[Path], bool]
+    # again; False (and nothing changed) if it could not. The notes secret now
+    # stay secret: with the secret notes' key, their earlier text in the backup
+    # comes back sealed; without it (None), they stay as they are now.
+    restore: Callable[[Path, bytes | None], bool]
+    # How many notes secret now the backup holds the earlier text of, in the clear.
+    old_secret_texts: Callable[[Path], int] = lambda _path: 0
+    secrets: Callable[[], SecretPasswords | None] = lambda: None
 
 
 def _confirm(parent: QWidget, title: str, text: str, go: str) -> bool:
@@ -87,6 +93,14 @@ def _confirm(parent: QWidget, title: str, text: str, go: str) -> bool:
 
 
 confirm: Callable[[QWidget, str, str, str], bool] = _confirm  # replaced in tests
+
+
+def _ask(dialog: QDialog) -> bool:
+    return dialog.exec() == QDialog.DialogCode.Accepted
+
+
+# Asks for the secret notes' password, when the backup holds notes secret since.
+ask_secret: Callable[[QDialog], bool] = _ask  # replaced in tests
 
 
 def when(moment: datetime) -> str:
@@ -215,6 +229,15 @@ class RestoreDialog(QDialog):
         )
         if not asked:
             return
-        if not self._access.restore(Path(item.data(Qt.ItemDataRole.UserRole))):
+        path = Path(item.data(Qt.ItemDataRole.UserRole))
+        secret_key: bytes | None = None
+        found = self._access.old_secret_texts(path)
+        secrets = self._access.secrets()
+        if found and secrets is not None:
+            dialog = OpenSecretDialog(secrets, parent=self, purpose="restore", count=found)
+            if not ask_secret(dialog):
+                return
+            secret_key = dialog.take_key()  # None: those notes stay as they are now
+        if not self._access.restore(path, secret_key):
             self.problem.setText(self.tr("The notes could not be restored. Nothing was changed."))
             self.problem.show()

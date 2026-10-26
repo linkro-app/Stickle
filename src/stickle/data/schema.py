@@ -259,9 +259,15 @@ def open_store(path: Path, key: bytes, clock: Clock = utc_now) -> apsw.Connectio
     connection.close()
     if version > 0:  # a new, empty database has nothing to keep
         backup(path, version, clock)
+    upgrade(path, key, version)
+    return open_database(path, key)
+
+
+def upgrade(path: Path, key: bytes, version: int) -> None:
+    """Bring the closed database at path from version to the latest, with no copy
+    kept aside: for one that is a copy itself (a backup being gone back to)."""
     for target in range(version + 1, latest_version() + 1):
         _migrate_step(path, key, target)
-    return open_database(path, key)
 
 
 def backup(path: Path, version: int, clock: Clock = utc_now) -> Path:

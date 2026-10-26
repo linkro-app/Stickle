@@ -368,14 +368,16 @@ class TurnOnDialog(_PasswordWindow):
         super().accept()
 
 
-type Purpose = Literal["open", "make", "change", "recovery"]
+type Purpose = Literal["open", "make", "change", "recovery", "restore"]
 
 
 class OpenSecretDialog(_PasswordWindow):
     """The secret notes' password: to open one (titled title), to make a note
-    one of them, before setting a new one, or before making a new recovery key.
-    Forgotten, the recovery key opens them and a new password is set
-    (recovered). key holds the key once accepted."""
+    one of them, before setting a new one, before making a new recovery key, or
+    to go back to a backup holding the earlier text of count of them (accepted
+    without it, they stay as they are now). Forgotten, the recovery key opens
+    them and a new password is set (recovered). key holds the key once accepted
+    with it."""
 
     def __init__(
         self,
@@ -383,10 +385,12 @@ class OpenSecretDialog(_PasswordWindow):
         title: str = "",
         parent: QWidget | None = None,
         purpose: Purpose = "open",
+        count: int = 0,
     ) -> None:
         super().__init__(parent)
         self._passwords = passwords
         self._title = title
+        self._count = count
         self.purpose: Purpose = purpose
         self.recovered = False
         self.password = _password_field()
@@ -396,6 +400,9 @@ class OpenSecretDialog(_PasswordWindow):
         self.forgot_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
         self.forgot_button.clicked.connect(self.use_recovery_key)
         self.forgot_button.setVisible(passwords.recovery is not None)
+        self.without_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
+        self.without_button.clicked.connect(self.go_on_without)
+        self.without_button.setVisible(purpose == "restore")
         self.finish_layout()
         self.retranslate()
         self.password.setFocus()
@@ -408,6 +415,7 @@ class OpenSecretDialog(_PasswordWindow):
             "make": self.tr("Make it a secret note"),
             "change": self.tr("Change the secret notes' password"),
             "recovery": self.tr("Make a new recovery key"),
+            "restore": self.tr("Restore from a backup"),
         }
         self.setWindowTitle(titles[self.purpose])
         intros = {
@@ -419,12 +427,26 @@ class OpenSecretDialog(_PasswordWindow):
             "recovery": self.tr(
                 "The new recovery key opens secret notes too: type their password first."
             ),
+            "restore": self.tr(
+                "This backup holds the earlier text of %n note(s) made secret since. Type"
+                " the secret notes' password to bring that text back, still secret."
+                " Without it, those notes stay as they are now.",
+                "",
+                self._count,
+            ),
         }
         self.intro.setText(intros[self.purpose])
         self.password_label.setText(self.tr("Secret notes' &password:"))
         self.password.setAccessibleName(self.tr("Secret notes' password"))
         self.forgot_button.setText(self.tr("I &forgot the password"))
-        self.ok_button.setText(self.tr("Show") if self.purpose == "open" else self.tr("Next"))
+        self.without_button.setText(self.tr("Restore &without that text"))
+        oks = {"open": self.tr("Show"), "restore": self.tr("&Restore")}
+        self.ok_button.setText(oks.get(self.purpose, self.tr("Next")))
+
+    def go_on_without(self) -> None:
+        """Gone back to without their password: those notes stay as they are now."""
+        self.key = None
+        QDialog.accept(self)
 
     def use_recovery_key(self) -> None:
         """Forgotten: the recovery key opens them, and a new password is set
@@ -569,7 +591,9 @@ class NewSecretPasswordDialog(_PasswordWindow):
 class SecretTitleDialog(_PasswordWindow):
     """The title a secret note shows while locked: typed apart from its text."""
 
-    def __init__(self, title: str = "", parent: QWidget | None = None) -> None:
+    def __init__(
+        self, title: str = "", parent: QWidget | None = None, making: bool = False
+    ) -> None:
         super().__init__(parent)
         self.title = QLineEdit(title)
         self.title_label = QLabel()
@@ -578,6 +602,11 @@ class SecretTitleDialog(_PasswordWindow):
         self.note = QLabel()
         self.note.setWordWrap(True)
         self.layout_parts.addWidget(self.note)
+        # Made secret now: what Stickle cannot reach keeps the text as it is.
+        self.copies = QLabel()
+        self.copies.setWordWrap(True)
+        self.copies.setVisible(making)
+        self.layout_parts.addWidget(self.copies)
         self.finish_layout()
         self.retranslate()
         self.title.setFocus()
@@ -593,6 +622,13 @@ class SecretTitleDialog(_PasswordWindow):
         self.title.setPlaceholderText(self.tr("Secret note"))
         self.note.setText(
             self.tr("The title shows even while the text is covered. Do not put the text in it.")
+        )
+        self.copies.setText(
+            self.tr(
+                "Copies Stickle cannot change still hold the text as it is now: files"
+                " exported before, folders a cloud service syncs, and your computer's own"
+                " backups (such as File History)."
+            )
         )
         self.ok_button.setText(self.tr("OK"))
 

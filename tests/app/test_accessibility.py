@@ -116,7 +116,7 @@ def restore_dialog(folder: Path) -> RestoreDialog:
     """With one backup to go back to."""
     backup = Backup(folder / "notes.db", datetime(2026, 10, 18, 12, tzinfo=UTC), False)
     return RestoreDialog(
-        BackupAccess(lambda: [backup], lambda _: Contents(2, newer=False), lambda _: True)
+        BackupAccess(lambda: [backup], lambda _: Contents(2, newer=False), lambda _p, _k: True)
     )
 
 
@@ -328,7 +328,7 @@ def test_tab_goes_round_the_stickle_window_as_it_reads(
         settings=Settings(connection),
         shortcuts=shortcuts,
         data=DataAccess(
-            BackupAccess(lambda: [], lambda _: None, lambda _: False),
+            BackupAccess(lambda: [], lambda _: None, lambda _p, _k: False),
             lambda folder, _secret: ExportResult(folder, 0, 0),
             no_imports(),
         ),

@@ -110,6 +110,16 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>OpenSecretDialog</name>
+    <message numerus="yes">
+        <source>This backup holds the earlier text of %n note(s) made secret since. Type the secret notes&apos; password to bring that text back, still secret. Without it, those notes stay as they are now.</source>
+        <translation>
+            <numerusform>This backup holds the earlier text of %n note made secret since. Type the secret notes&apos; password to bring that text back, still secret. Without it, that note stays as it is now.</numerusform>
+            <numerusform>This backup holds the earlier text of %n notes made secret since. Type the secret notes&apos; password to bring that text back, still secret. Without it, those notes stay as they are now.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>PasswordDialog</name>
     <message numerus="yes">
         <source>Use at least %n characters.</source>

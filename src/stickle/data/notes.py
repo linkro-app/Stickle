@@ -206,6 +206,20 @@ class NoteRepository:
             log.warning("old text not cleared away yet: %s", type(error).__name__)
         return note
 
+    def seal_in_place(self, note_id: str, title: str, sealed: bytes) -> None:
+        """In a backup being gone back to: a note secret now, its text there
+        replaced by sealed, in the trash or not. Its old text is cleared away by
+        forget_old_text, once for all of them."""
+        self._change(
+            note_id,
+            {
+                "body": "",
+                "secret_body": sealed,
+                "secret_title": title,
+                "content_hash": content_hash(sealed.hex()),
+            },
+        )
+
     def update_secret_body(self, note_id: str, sealed: bytes) -> Note:
         note = self._require_live(note_id)
         if not note.secret:

@@ -2,15 +2,17 @@
 
 import logging
 import secrets
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTranslator
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QDialog, QWidget
 from pytestqt.qtbot import QtBot
+from test_startup_dialogs import FAST, Backend, store_of
 from update_translations import TS_DIR, compile_to
 
 from stickle.app import application
@@ -19,11 +21,15 @@ from stickle.app.application import data_access, go_back_to
 from stickle.app.backups import BackupAccess, DailyBackups, RestoreDialog
 from stickle.app.i18n import Translations
 from stickle.app.notes import NoteManager
+from stickle.app.secret_dialogs import OpenSecretDialog
 from stickle.app.stickle_window import StickleWindow
+from stickle.crypto.secret_notes import open_text, seal_text
 from stickle.data import backups
 from stickle.data.backups import Backup, Contents
+from stickle.data.database import open_database
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
+from stickle.unlock import Unlock
 
 KEY = secrets.token_bytes(32)
 
@@ -87,7 +93,7 @@ def at(hour: int) -> datetime:
 def access_for(
     found: Sequence[tuple[Backup, Contents | None]], restored: list[Path], works: bool = True
 ) -> BackupAccess:
-    def restore(path: Path) -> bool:
+    def restore(path: Path, _secret_key: bytes | None) -> bool:
         restored.append(path)
         return works
 
@@ -208,7 +214,13 @@ def test_going_back_backs_up_first_then_quits(
     quits: list[bool] = []
 
     assert go_back_to(
-        chosen, NoteManager(notes), connection, database, lambda: quits.append(True), FakeClock()
+        chosen,
+        NoteManager(notes),
+        connection,
+        database,
+        KEY,
+        lambda: quits.append(True),
+        FakeClock(),
     )
 
     qtbot.waitUntil(lambda: quits == [True])
@@ -234,6 +246,7 @@ def test_a_restore_that_cannot_be_staged_changes_nothing(
         NoteManager(NoteRepository(connection)),
         connection,
         database,
+        KEY,
         lambda: quits.append(True),
     )
 
@@ -260,3 +273,151 @@ def test_the_stickle_window_offers_backups_only_with_them(
         for window in (without, with_them):
             window.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+SECRET = "secret notes 1"
+EARLIER = "통장 비밀번호 PLAINWORD"
+
+
+@dataclass
+class Scene:
+    """A note made secret since the backup, Stickle about to go back to it."""
+
+    dialog: RestoreDialog
+    note_id: str
+    secret_key: bytes
+    asked: list[OpenSecretDialog]
+
+
+@pytest.fixture
+def scene(
+    qtbot: QtBot,
+    connection: apsw.Connection,
+    database: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Scene:
+    monkeypatch.setattr(application, "_restore_staged", False)
+    monkeypatch.setattr(app_backups, "confirm", yes)
+    folder = tmp_path / "keys"
+    folder.mkdir()
+    unlock = Unlock(folder, store_of(Backend()), FAST, master_strength=FAST)
+    unlock.opened_key = KEY
+    unlock.make_recovery_key(KEY)
+    passwords = application.secret_passwords(unlock, application.master_passwords(unlock))
+    assert passwords is not None
+    notes = NoteRepository(connection)
+    note = notes.create(EARLIER)
+    backups.take(connection, database, FakeClock("2026-10-17T12:00:00.000Z"))
+    secret_key = passwords.turn_on(SECRET)
+    notes.make_secret(note.id, "은행", seal_text(secret_key, note.id, "지금 글"))
+    manager = NoteManager(notes)
+    manager.secrets = passwords
+    access = data_access(manager, connection, database, KEY, lambda: None).backups
+    assert access is not None
+    dialog = RestoreDialog(access)
+    qtbot.addWidget(dialog)
+    return Scene(dialog, note.id, secret_key, [])
+
+
+def staged_note(database: Path, note_id: str) -> tuple[str, bytes | None]:
+    copy = open_database(database.with_name("notes.db.restoring"), KEY, read_only=True)
+    try:
+        body, sealed = copy.execute(
+            "SELECT body, secret_body FROM notes WHERE id = ?", (note_id,)
+        ).fetchall()[0]
+        return str(body), None if sealed is None else bytes(sealed)  # pyright: ignore[reportArgumentType]
+    finally:
+        copy.close()
+
+
+def answer_with(
+    scene: Scene, monkeypatch: pytest.MonkeyPatch, act: Callable[[OpenSecretDialog], bool]
+) -> None:
+    def ask(dialog: QDialog) -> bool:
+        assert isinstance(dialog, OpenSecretDialog)
+        scene.asked.append(dialog)
+        return act(dialog)
+
+    monkeypatch.setattr(app_backups, "ask_secret", ask)
+
+
+def test_their_password_brings_their_earlier_text_back_still_secret(
+    scene: Scene, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def typed(dialog: OpenSecretDialog) -> bool:
+        assert "earlier text of 1 note" in dialog.intro.text()  # %n filled in
+        assert dialog.without_button.isVisibleTo(dialog)
+        dialog.password.setText(SECRET)
+        dialog.accept()
+        return dialog.result() == QDialog.DialogCode.Accepted.value
+
+    answer_with(scene, monkeypatch, typed)
+    scene.dialog.restore_chosen()
+
+    assert len(scene.asked) == 1 and scene.dialog.problem.isHidden()
+    assert application.restore_staged()
+    body, sealed = staged_note(database, scene.note_id)
+    assert body == "" and sealed is not None
+    assert open_text(scene.secret_key, scene.note_id, sealed) == EARLIER
+
+
+def test_without_their_password_they_stay_as_they_are_now(
+    scene: Scene, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def without(dialog: OpenSecretDialog) -> bool:
+        dialog.without_button.click()
+        return dialog.result() == QDialog.DialogCode.Accepted.value
+
+    answer_with(scene, monkeypatch, without)
+    scene.dialog.restore_chosen()
+
+    assert application.restore_staged()
+    body, sealed = staged_note(database, scene.note_id)
+    assert body == "" and sealed is not None
+    assert open_text(scene.secret_key, scene.note_id, sealed) == "지금 글"
+
+
+def test_cancelled_at_their_password_nothing_is_done(
+    scene: Scene, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def cancel(dialog: OpenSecretDialog) -> bool:
+        dialog.reject()
+        return False
+
+    answer_with(scene, monkeypatch, cancel)
+    scene.dialog.restore_chosen()
+
+    assert len(scene.asked) == 1
+    assert not application.restore_staged()
+    assert not database.with_name("notes.db.restoring").exists()
+    assert not [b for b in backups.backups(database) if b.before_restore]
+
+
+def test_a_backup_with_no_earlier_secret_text_asks_nothing(
+    qtbot: QtBot,
+    connection: apsw.Connection,
+    database: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(application, "_restore_staged", False)
+    monkeypatch.setattr(app_backups, "confirm", yes)
+    asked: list[QDialog] = []
+
+    def ask(dialog: QDialog) -> bool:
+        asked.append(dialog)
+        return True
+
+    monkeypatch.setattr(app_backups, "ask_secret", ask)
+    NoteRepository(connection).create("보통 메모")
+    backups.take(connection, database, FakeClock("2026-10-17T12:00:00.000Z"))
+    access = data_access(
+        NoteManager(NoteRepository(connection)), connection, database, KEY, lambda: None
+    ).backups
+    assert access is not None
+    dialog = RestoreDialog(access)
+    qtbot.addWidget(dialog)
+
+    dialog.restore_chosen()
+
+    assert asked == [] and application.restore_staged()

@@ -730,6 +730,30 @@ def test_its_title_can_be_changed_while_open(
     assert window.title_bar.title.text() == "통장"
 
 
+def test_only_making_one_says_what_stickle_cannot_change(
+    qtbot: QtBot, manager: NoteManager, answers: Answers
+) -> None:
+    told: list[bool] = []
+
+    def seen(typed: str) -> Answer:
+        def answer(dialog: QDialog) -> bool:
+            assert isinstance(dialog, SecretTitleDialog)
+            told.append(dialog.copies.isVisibleTo(dialog))
+            assert "File History" in dialog.copies.text()
+            return title(typed)(dialog)
+
+        return answer
+
+    window = manager.new_note()
+    window.editor.insertPlainText(TEXT)
+    answers.queue += [turn_on(), seen("은행")]
+    window.secret_action.trigger()
+    answers.queue.append(seen("통장"))
+    window.secret_title_action.trigger()
+
+    assert told == [True, False]  # made secret, then only its title changed
+
+
 # Their password, and the recovery key when it is forgotten
 
 

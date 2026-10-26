@@ -1673,6 +1673,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>비밀 메모 내용 보기</translation>
     </message>
     <message>
+        <source>Restore from a backup</source>
+        <translation>백업에서 되돌리기</translation>
+    </message>
+    <message>
         <source>Type the secret notes&apos; password to show “%1”.</source>
         <translation>비밀 메모 암호를 입력하면 ‘%1’ 메모의 내용이 보입니다.</translation>
     </message>
@@ -1688,6 +1692,12 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <source>The new recovery key opens secret notes too: type their password first.</source>
         <translation>새 복구 키는 비밀 메모까지 엽니다. 먼저 비밀 메모 암호를 입력하세요.</translation>
     </message>
+    <message numerus="yes">
+        <source>This backup holds the earlier text of %n note(s) made secret since. Type the secret notes&apos; password to bring that text back, still secret. Without it, those notes stay as they are now.</source>
+        <translation>
+            <numerusform>이 백업에는 그 뒤에 비밀 메모로 바꾼 메모 %n개의 예전 글이 있습니다. 비밀 메모 암호를 넣으면 그 글도 비밀 메모로 되돌립니다. 암호 없이 되돌리면 그 메모는 지금 그대로 둡니다.</numerusform>
+        </translation>
+    </message>
     <message>
         <source>Secret notes&apos; &amp;password:</source>
         <translation>비밀 메모 암호(&amp;P):</translation>
@@ -1699,6 +1709,14 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>I &amp;forgot the password</source>
         <translation>암호를 잊었어요(&amp;F)</translation>
+    </message>
+    <message>
+        <source>Restore &amp;without that text</source>
+        <translation>그 글 없이 되돌리기(&amp;W)</translation>
+    </message>
+    <message>
+        <source>&amp;Restore</source>
+        <translation>되돌리기(&amp;R)</translation>
     </message>
     <message>
         <source>Next</source>
@@ -2229,6 +2247,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>The title shows even while the text is covered. Do not put the text in it.</source>
         <translation>제목은 내용이 가려져 있어도 보입니다. 내용은 적지 마세요.</translation>
+    </message>
+    <message>
+        <source>Copies Stickle cannot change still hold the text as it is now: files exported before, folders a cloud service syncs, and your computer&apos;s own backups (such as File History).</source>
+        <translation>Stickle이 바꿀 수 없는 사본에는 지금 글이 그대로 남습니다. 예전에 내보낸 파일, 클라우드가 동기화하는 폴더, 컴퓨터 자체 백업(Windows 파일 기록 등)이 그렇습니다.</translation>
     </message>
     <message>
         <source>OK</source>

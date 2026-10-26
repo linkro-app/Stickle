@@ -1370,7 +1370,7 @@ class NoteManager(QObject):
         if opened is None:
             return
         key = bytearray(opened)
-        titled = SecretTitleDialog(parent=window)
+        titled = SecretTitleDialog(parent=window, making=True)
         if not ask_secret(titled):
             _wipe(key)
             return

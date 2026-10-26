@@ -13,6 +13,12 @@ same way. The copy is written in two steps: next to the database while the
 app runs (so a failure changes nothing and can be told), then put in place
 once the database is closed.
 
+A backup may hold, in the clear, the earlier text of a note made secret
+since. Going back never brings that text back plain: in the copy put in
+place, it is sealed with the secret notes' key when their password is given,
+or else the note keeps its text as it is now. The backup itself is not
+changed (it opens only with the database key, which is never copied out).
+
 The copies made before an upgrade (stickle.data.schema.backup) are kept
 apart, in backups itself.
 """
@@ -20,6 +26,7 @@ apart, in backups itself.
 import logging
 import os
 import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -28,6 +35,8 @@ import apsw
 
 from stickle.core.clock import Clock, utc_now
 from stickle.data.database import WrongKeyError, open_database
+from stickle.data.notes import NoteRepository
+from stickle.data.schema import latest_version, schema_version, upgrade
 
 KEPT_DAYS = 7
 BEFORE_RESTORE = "-before-restore"
@@ -162,6 +171,81 @@ def contents(backup: Path, key: bytes, latest_version: int) -> Contents | None:
         connection.close()
 
 
+@dataclass(frozen=True)
+class SecretNow:
+    """A note secret now: the title it is shown by, and its text, encrypted."""
+
+    title: str
+    sealed: bytes
+
+
+def secret_notes_now(connection: apsw.Connection) -> dict[str, SecretNow]:
+    """The notes that are secret, in the trash or not, by id."""
+    rows = connection.execute(
+        "SELECT id, secret_title, secret_body FROM notes WHERE secret_body IS NOT NULL"
+    )
+    return {
+        str(note_id): SecretNow(str(title or ""), bytes(sealed))  # pyright: ignore[reportArgumentType]
+        for note_id, title, sealed in rows
+    }
+
+
+def _plain_texts(connection: apsw.Connection, now: Mapping[str, SecretNow]) -> dict[str, str]:
+    """The notes secret now whose text this copy holds in the clear: id -> text.
+    A copy made before secret notes has no column for them."""
+    columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(notes)")}
+    plain = "secret_body IS NULL" if "secret_body" in columns else "1"
+    rows = connection.execute(f"SELECT id, body FROM notes WHERE body != '' AND {plain}")
+    return {str(note_id): str(body) for note_id, body in rows if note_id in now}
+
+
+def old_secret_texts(backup: Path, key: bytes, now: Mapping[str, SecretNow]) -> int:
+    """How many notes secret now the backup holds the earlier text of in the clear
+    (from before they were made secret)."""
+    if not now:
+        return 0
+    connection = open_database(backup, key, read_only=True)
+    try:
+        return len(_plain_texts(connection, now))
+    finally:
+        connection.close()
+
+
+def keep_secret_notes_secret(
+    database: Path,
+    key: bytes,
+    now: Mapping[str, SecretNow],
+    seal: Callable[[str, str], bytes] | None,
+) -> int:
+    """The staged backup's notes that are secret now, yet plain there, made secret
+    there too: their earlier text sealed (seal: note id, text -> encrypted) or,
+    without seal, their text as it is now. Their old text is cleared away from
+    the copy; the backup itself is left as it is. How many there were."""
+    staged = database.with_name(database.name + RESTORING)
+    looked = open_database(staged, key, read_only=True)
+    try:
+        version = schema_version(looked)
+        found = _plain_texts(looked, now)
+    finally:
+        looked.close()
+    if not found:
+        return 0  # the copy left as the backup is
+    if version < latest_version():
+        upgrade(staged, key, version)  # columns for secret notes first, no copy kept aside
+    connection = open_database(staged, key)
+    try:
+        notes = NoteRepository(connection)
+        with connection:
+            for note_id, text in found.items():
+                secret = now[note_id]
+                sealed = seal(note_id, text) if seal is not None else secret.sealed
+                notes.seal_in_place(note_id, secret.title, sealed)
+        notes.forget_old_text()
+        return len(found)
+    finally:
+        connection.close()
+
+
 def _sidecars(database: Path) -> list[Path]:
     return [database.with_name(database.name + suffix) for suffix in ("-wal", "-shm")]
 
@@ -171,6 +255,8 @@ def stage_restore(database: Path, backup: Path) -> Path:
     closed (finish_restore). The database itself is not touched."""
     staged = database.with_name(database.name + RESTORING)
     partial = staged.with_name(staged.name + PARTIAL)
+    for sidecar in _sidecars(staged):
+        sidecar.unlink(missing_ok=True)  # an earlier copy's log, never replayed onto this one
     try:
         with backup.open("rb") as source, partial.open("wb") as copy:
             while chunk := source.read(1 << 20):
@@ -198,4 +284,6 @@ def finish_restore(database: Path) -> bool:
 
 
 def cancel_restore(database: Path) -> None:
-    database.with_name(database.name + RESTORING).unlink(missing_ok=True)
+    staged = database.with_name(database.name + RESTORING)
+    for path in [staged, *_sidecars(staged)]:
+        path.unlink(missing_ok=True)

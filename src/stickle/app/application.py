@@ -1,5 +1,6 @@
 """Application start-up."""
 
+import functools
 import logging
 import os
 import sys
@@ -46,14 +47,24 @@ from stickle.core.clock import Clock, utc_now
 from stickle.core.layout import Place, Rect, place_of
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import WrongRecoveryKeyError
-from stickle.crypto.secret_notes import NotKeptForRecoveryKeyError
-from stickle.data.backups import backups, cancel_restore, contents, stage_restore, take
+from stickle.crypto.secret_notes import NotKeptForRecoveryKeyError, seal_text
+from stickle.data.backups import (
+    backups,
+    cancel_restore,
+    contents,
+    keep_secret_notes_secret,
+    old_secret_texts,
+    secret_notes_now,
+    stage_restore,
+    take,
+)
 from stickle.data.colors import ColorRepository
+from stickle.data.database import WrongKeyError
 from stickle.data.export import ExportResult, SecretExport, export_all
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
-from stickle.data.schema import latest_version
+from stickle.data.schema import MigrationError, latest_version
 from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.data.startup import StartupSettings
 from stickle.importers.base import ImportResult
@@ -109,20 +120,29 @@ def go_back_to(
     manager: NoteManager,
     connection: apsw.Connection,
     database: Path,
+    key: bytes,
     quit_app: Callable[[], object],
     clock: Clock = utc_now,
+    secret_key: bytes | None = None,
 ) -> bool:
     """Back up the notes as they are, stage the backup and quit to put it in place.
-    False, with nothing changed, if either copy could not be made."""
+    The notes secret now stay secret in it: their earlier text there sealed with
+    secret_key, or, without it, their text as it is now. False, with nothing
+    changed, if the copies could not be made."""
     global _restore_staged
     manager.save_all()
+    seal = None if secret_key is None else functools.partial(seal_text, secret_key)
     try:
         take(connection, database, clock, before_restore=True)
         stage_restore(database, backup)
-    except (OSError, apsw.Error) as error:
+        kept = keep_secret_notes_secret(database, key, secret_notes_now(connection), seal)
+    except (OSError, apsw.Error, WrongKeyError, MigrationError) as error:
         cancel_restore(database)
         log.error("could not go back to a backup: %s", type(error).__name__)
         return False
+    if kept:
+        how = "their earlier text sealed" if seal is not None else "as they are now"
+        log.info("%d secret notes kept secret in the backup, %s", kept, how)
     log.info("going back to a backup: starting again")
     _restore_staged = True
     QTimer.singleShot(0, quit_app)
@@ -145,6 +165,14 @@ def data_access(
 
     def secret_notes() -> int:
         return sum(note.secret for note in manager.listed_notes() + manager.trash_notes())
+
+    def old_texts(backup: Path) -> int:
+        """Not known, 0: going back then keeps those notes as they are now."""
+        try:
+            return old_secret_texts(backup, key, secret_notes_now(connection))
+        except (OSError, apsw.Error, WrongKeyError) as error:
+            log.warning("could not look into a backup: %s", type(error).__name__)
+            return 0
 
     def open_secret_notes(password: str) -> bytes:
         if manager.secrets is None:
@@ -169,7 +197,11 @@ def data_access(
         backups=BackupAccess(
             available=lambda: backups(database),
             contents=lambda path: contents(path, key, latest_version()),
-            restore=lambda path: go_back_to(path, manager, connection, database, quit_app),
+            restore=lambda path, secret_key: go_back_to(
+                path, manager, connection, database, key, quit_app, secret_key=secret_key
+            ),
+            old_secret_texts=old_texts,
+            secrets=lambda: manager.secrets,
         ),
         export=export,
         importing=ImportAccess(
