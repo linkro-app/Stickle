@@ -22,6 +22,7 @@ from stickle.app.notes import NoteManager
 from stickle.app.reminders import ReminderKeeper
 from stickle.app.stickle_window import StickleWindow
 from stickle.app.tray import Tray
+from stickle.app.window_flags import stays_on_top
 from stickle.core.reminders import Repeat, Rule, time_zone
 from stickle.core.text_reminders import MARK
 from stickle.data.notes import NoteRepository
@@ -168,8 +169,11 @@ def test_choosing_a_line_brings_its_note_with_its_strip(app: App, dialog: Missed
     once, daily = gone_by(app)
     app.manager.hide(app.window(once))
     dialog.present()
+    assert stays_on_top(dialog)  # shown by itself: above the notes
 
     dialog.rows[0].open_button.click()
+
+    assert not stays_on_top(dialog)  # below the note it brings forward
 
     window = app.window(once)
     assert window.isVisible()

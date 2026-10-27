@@ -234,6 +234,9 @@ class MissedDialog(QDialog):
     # Acting on them
 
     def open_one(self, reminder_id: str) -> None:
+        # No longer above the others first: kept there, it covered the note it
+        # brings forward (GNOME).
+        set_stays_on_top(self, False)
         self._keeper.open_missed(reminder_id)
 
     def deal_with_all(self) -> None:
