@@ -51,11 +51,16 @@ def _plain(node: SyntaxTreeNode) -> str:
 def note_title(text: str) -> str:
     """A note's title: its first line with text, as shown, without Markdown marks.
 
-    "# **Shopping**" gives "Shopping", "- [ ] milk" gives "milk". Lines that
-    show nothing (a rule, an empty task) are passed over. Empty if none.
+    "# **Shopping**" gives "Shopping", "- [ ] milk" gives "milk". A reminder
+    written in it is left out: "- [ ] milk ⏰2026-11-03" gives "milk". Lines that
+    show nothing (a rule, an empty task, a reminder alone) are passed over.
+    Empty if none.
     """
+    # Here, not at the top: that module reads checkboxes with this one.
+    from stickle.core.text_reminders import without_codes
+
     for line in text.splitlines():
-        if line.strip() and (title := " ".join(_plain(parse(line)).split())):
+        if line.strip() and (title := " ".join(without_codes(_plain(parse(line))).split())):
             return title
     return ""
 

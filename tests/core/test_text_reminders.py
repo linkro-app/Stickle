@@ -5,6 +5,7 @@ from datetime import date, datetime, time
 from hypothesis import given
 from hypothesis import strategies as st
 
+from stickle.core.markdown import note_title
 from stickle.core.text_reminders import MARK, code, codes, due, with_code, written
 
 NINE = time(9, 0)
@@ -91,3 +92,9 @@ def test_what_is_written_is_read_back(line: str, when: datetime) -> None:
     found = [w for w in written(written_line)]
     assert len(found) == 1
     assert found[0].code.when(NINE) == when
+
+
+def test_a_title_leaves_its_reminder_out() -> None:
+    assert note_title(f"- [ ] 보고서 {MARK}2026-11-03 15:00") == "보고서"
+    assert note_title(f"{MARK}2026-11-03\n장보기 목록") == "장보기 목록"
+    assert note_title(f"{MARK}2026-11-03 25:00 틀린 코드") == f"{MARK}2026-11-03 25:00 틀린 코드"

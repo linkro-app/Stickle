@@ -93,6 +93,13 @@ def due(text: str, morning: time) -> dict[datetime, list[int]]:
     return times
 
 
+def without_codes(text: str) -> str:
+    """The text with the reminders written in it left out (for a title)."""
+    for found in reversed(codes(text)):
+        text = text[: found.start] + text[found.end :]
+    return text
+
+
 def code(when: datetime) -> str:
     """How a reminder at when is written."""
     return f"{MARK}{when:%Y-%m-%d %H:%M}"
