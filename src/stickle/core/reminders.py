@@ -24,6 +24,8 @@ from itertools import islice
 from typing import Literal, TypeGuard
 from zoneinfo import ZoneInfo
 
+from stickle.core.calendars import CALENDARS, GREGORIAN, CalendarDate, occurrences
+
 type Repeat = Literal["none", "daily", "weekdays", "weekly", "monthly", "yearly"]
 REPEATS: tuple[Repeat, ...] = ("none", "daily", "weekdays", "weekly", "monthly", "yearly")
 MONDAY, FRIDAY = 0, 4
@@ -37,11 +39,13 @@ def is_repeat(value: object) -> TypeGuard[Repeat]:
 
 @dataclass(frozen=True)
 class Rule:
-    start: date
+    start: date  # the first day it rings (picked in another calendar: worked out)
     at: time  # hours and minutes
     zone: str | None  # where it was set, as an IANA name; None: wherever it rings
     repeat: Repeat = "none"
     weekdays: frozenset[int] = frozenset()  # weekly: Monday 0 ... Sunday 6
+    calendar: str = GREGORIAN  # the calendar the day was picked in
+    picked: CalendarDate | None = None  # the day as picked there (not Gregorian)
 
     def days_of_week(self) -> frozenset[int]:
         """The days a weekly rule rings on: those chosen, or the start's."""
@@ -85,6 +89,12 @@ def _months(first: date) -> Iterator[tuple[int, int]]:
 def days(rule: Rule, first: date) -> Iterator[date]:
     """The days the rule rings on, from first on (and never before its start)."""
     first = max(first, rule.start)
+    if rule.picked is not None and rule.repeat in ("none", "monthly", "yearly"):
+        # As that calendar counts months and years (see stickle.core.calendars).
+        calendar = CALENDARS[rule.calendar]
+        for resolved in occurrences(calendar, rule.picked, rule.repeat, first):
+            yield resolved.day
+        return
     match rule.repeat:
         case "none":
             if first == rule.start:

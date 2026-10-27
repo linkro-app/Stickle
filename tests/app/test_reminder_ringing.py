@@ -20,6 +20,7 @@ from stickle.app.notes import NoteManager
 from stickle.app.reminder_bar import TOMORROW_MORNING
 from stickle.app.reminder_dialog import ReminderDialog
 from stickle.app.reminders import ReminderKeeper
+from stickle.core.calendars import CalendarDate
 from stickle.core.reminders import Rule, time_zone
 from stickle.crypto.secret_notes import seal_text
 from stickle.data.notes import NoteRepository
@@ -389,3 +390,34 @@ def test_enter_on_done_deals_with_it(app: App, monkeypatch: pytest.MonkeyPatch) 
     assert not window.ringing
     assert window.note_id is not None
     assert not app.keeper.has(window.note_id)
+
+
+def test_a_day_picked_in_another_calendar(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
+    def julian_christmas(dialog: ReminderDialog) -> None:
+        dialog.calendar_box.setCurrentIndex(dialog.calendar_box.findData("julian"))
+        dialog.year_box.setValue(2026)
+        months = [dialog.month_box.itemData(i) for i in range(dialog.month_box.count())]
+        dialog.month_box.setCurrentIndex(months.index((12, False)))
+        dialog.day_box.setCurrentIndex(dialog.day_box.findData(25))
+        dialog.repeat_box.setCurrentIndex(dialog.repeat_box.findData("yearly"))
+
+    window = app.note("성탄 예배")
+    asked = answering(monkeypatch, julian_christmas)
+    window.reminder_action.trigger()
+
+    assert window.note_id is not None
+    reminder = app.reminders.of_note(window.note_id)
+    assert reminder is not None
+    assert (reminder.rule.calendar, reminder.rule.picked) == ("julian", CalendarDate(2026, 12, 25))
+    assert reminder.rings_at() == at_utc(2027, 1, 7, 0, 0)  # 9:00 in Seoul
+    assert not asked[0].gregorian_label.isHidden()
+    assert asked[0].changes_label.isHidden()
+    assert app.keeper.recent_calendars == ["julian"]
+
+    # Opened again, it shows as picked, the calendar first after the Gregorian one.
+    answering(monkeypatch, lambda dialog: asked.append(dialog))
+    window.reminder_action.trigger()
+    again = asked[-1]
+    assert again.calendar() == "julian"
+    assert again.picked() == CalendarDate(2026, 12, 25)
+    assert again.calendar_box.itemData(1) == "julian"

@@ -100,16 +100,20 @@ def without_codes(text: str) -> str:
     return text
 
 
-def code(when: datetime) -> str:
-    """How a reminder at when is written."""
+def code(when: datetime, note: str | None = None) -> str:
+    """How a reminder at when is written; note: the day as picked in another
+    calendar, for people to read (brackets are left out of it)."""
+    if note:
+        note = note.replace("[", "(").replace("]", ")").replace("\n", " ")[:80]
+        return f"{MARK}[{note}] {when:%Y-%m-%d %H:%M}"
     return f"{MARK}{when:%Y-%m-%d %H:%M}"
 
 
-def with_code(line: str, when: datetime) -> str:
+def with_code(line: str, when: datetime, note: str | None = None) -> str:
     """The line with a reminder at when: in place of the one it has, or at its end."""
     on_line = codes(line)
     if on_line:
         first = on_line[0]
-        return line[: first.start] + code(when) + line[first.end :]
+        return line[: first.start] + code(when, note) + line[first.end :]
     stripped = line.rstrip()
-    return f"{stripped} {code(when)}" if stripped else code(when)
+    return f"{stripped} {code(when, note)}" if stripped else code(when, note)

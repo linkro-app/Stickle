@@ -76,6 +76,48 @@
     </message>
 </context>
 <context>
+    <name>Calendars</name>
+    <message>
+        <source>Julian</source>
+        <translation>율리우스력</translation>
+    </message>
+    <message>
+        <source>Gregorian</source>
+        <translation>양력</translation>
+    </message>
+    <message>
+        <source>leap %1</source>
+        <comment>a leap month</comment>
+        <translation>윤%1</translation>
+    </message>
+    <message>
+        <source>%1 %2/%3/%4</source>
+        <comment>calendar, year, month, day</comment>
+        <translation>%1 %2년 %3월 %4일</translation>
+    </message>
+    <message>
+        <source>%1 %2/%3</source>
+        <comment>calendar, month, day</comment>
+        <translation>%1 %2월 %3일</translation>
+    </message>
+    <message>
+        <source>That year has no such leap month: it rings in the ordinary month.</source>
+        <translation>그해에는 그 윤달이 없어 평달 같은 날에 알립니다.</translation>
+    </message>
+    <message>
+        <source>That month is shorter: it rings on its last day.</source>
+        <translation>그 달에는 그날이 없어 마지막 날에 알립니다.</translation>
+    </message>
+    <message>
+        <source>%1 days can come a day early: it rings a day before.</source>
+        <translation>%1은 날짜가 하루 이를 수 있어 하루 전에 알립니다.</translation>
+    </message>
+    <message>
+        <source>%1, a day before</source>
+        <translation>%1, 하루 전</translation>
+    </message>
+</context>
+<context>
     <name>CategoryPage</name>
     <message>
         <source>Categories</source>
@@ -1536,6 +1578,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
 <context>
     <name>NoteView</name>
     <message>
+        <source>the days written disagree</source>
+        <translation>날짜가 서로 다름</translation>
+    </message>
+    <message>
         <source>Copy</source>
         <translation>복사</translation>
     </message>
@@ -2212,12 +2258,26 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>매년</translation>
     </message>
     <message>
+        <source>%1</source>
+        <comment>a month of another calendar, by its number</comment>
+        <translation>%1월</translation>
+    </message>
+    <message>
+        <source>%1</source>
+        <comment>a day of the month, by its number</comment>
+        <translation>%1일</translation>
+    </message>
+    <message>
         <source>Coming: %1</source>
         <translation>앞으로: %1</translation>
     </message>
     <message>
         <source>That time has already passed. Choose a later one.</source>
         <translation>이미 지난 시각입니다. 더 나중 시각을 고르세요.</translation>
+    </message>
+    <message>
+        <source>= %1 %2</source>
+        <translation>= %1 %2</translation>
     </message>
     <message>
         <source>Reminder</source>
@@ -2246,6 +2306,22 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     <message>
         <source>&amp;Day</source>
         <translation>날짜(&amp;D)</translation>
+    </message>
+    <message>
+        <source>&amp;Calendar</source>
+        <translation>달력(&amp;C)</translation>
+    </message>
+    <message>
+        <source>Year</source>
+        <translation>연도</translation>
+    </message>
+    <message>
+        <source>Month</source>
+        <translation>월</translation>
+    </message>
+    <message>
+        <source>Day of the month</source>
+        <translation>일</translation>
     </message>
     <message>
         <source>&amp;Time</source>

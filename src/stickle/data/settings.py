@@ -169,6 +169,21 @@ def _snooze(value: object) -> TypeGuard[int]:
 # and how long "remind me again" waits unless another time is chosen (minutes).
 MORNING = Setting[str]("morning", "shared", "09:00", _time_of_day)
 SNOOZE_MINUTES = Setting[int]("snooze_minutes", "shared", 10, _snooze)
+RECENT_CALENDARS_KEPT = 3
+
+
+def _calendar_ids(value: object) -> TypeGuard[list[str]]:
+    # Ids this version may not know are kept: a later one put them there.
+    return (
+        isinstance(value, list)
+        and len(cast(list[object], value)) <= RECENT_CALENDARS_KEPT
+        and all(isinstance(item, str) and item for item in cast(list[object], value))
+    )
+
+
+# The calendars other than the Gregorian picked lately for reminders, the latest
+# first: offered first, below the Gregorian one.
+RECENT_CALENDARS = Setting[list[str]]("recent_calendars", "shared", [], _calendar_ids)
 
 CHANGE_KINDS = (
     "recovery_key",

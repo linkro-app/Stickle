@@ -17,6 +17,7 @@ from datetime import date, datetime, time, tzinfo
 
 import apsw
 
+from stickle.core.calendars import CALENDARS, CalendarDate, resolve
 from stickle.core.clock import Clock, moment_of, stamp_of, utc_now
 from stickle.core.reminders import (
     Rule,
@@ -88,15 +89,28 @@ def _reminder(row: apsw.SQLiteValues) -> Reminder | None:
     reminder_id, note_id, calendar, start, at, zone, repeat, weekdays, day, snoozed, hide, kind = (
         row
     )
-    if calendar != GREGORIAN or not is_repeat(repeat) or kind not in (NOTE, TEXT):
+    known = calendar == GREGORIAN or calendar in CALENDARS
+    if not known or not is_repeat(repeat) or kind not in (NOTE, TEXT):
         return None
     try:
+        picked: CalendarDate | None = None
+        if calendar == GREGORIAN:
+            first = date.fromisoformat(str(start))
+        else:
+            # The day as picked in that calendar: its first Gregorian day worked out.
+            picked = CalendarDate.parse(str(start))
+            resolved = resolve(CALENDARS[str(calendar)], picked)
+            if resolved is None:
+                return None
+            first = resolved.day
         rule = Rule(
-            date.fromisoformat(str(start)),
+            first,
             time.fromisoformat(str(at)),
             None if zone is None else str(zone),
             repeat,
             _weekdays(str(weekdays)),
+            str(calendar),
+            picked,
         )
         next_day = None if day is None else date.fromisoformat(str(day))
     except ValueError:
@@ -150,14 +164,18 @@ class ReminderRepository:
         first = first_after(rule, moment_of(now), here)
         if first is None:
             raise ReminderPastError(note_id)
+        if rule.calendar != GREGORIAN and (rule.picked is None or rule.calendar not in CALENDARS):
+            raise ValueError(f"no day picked in a calendar it knows: {rule.calendar!r}")
         values = (
-            rule.start.isoformat(),
+            # A day picked in another calendar is kept as picked there.
+            rule.picked.stored() if rule.picked is not None else rule.start.isoformat(),
             rule.at.strftime("%H:%M"),
             rule.zone,
             rule.repeat,
             ",".join(str(day) for day in sorted(rule.weekdays)),
             first.isoformat(),
             int(hide_note),
+            rule.calendar,
             now,
         )
         # The row it had, even one of a later version's calendar: still one a note.
@@ -169,15 +187,15 @@ class ReminderRepository:
         if old:
             self._db.execute(
                 "UPDATE reminders SET start_day = ?, at_time = ?, time_zone = ?, repeat = ?,"
-                " weekdays = ?, next_day = ?, hide_note = ?, updated_at = ?,"
-                " calendar = 'gregorian', snoozed_until = NULL WHERE id = ?",
+                " weekdays = ?, next_day = ?, hide_note = ?, calendar = ?, updated_at = ?,"
+                " snoozed_until = NULL WHERE id = ?",
                 (*values, reminder_id),
             )
         else:
             self._db.execute(
                 "INSERT INTO reminders (start_day, at_time, time_zone, repeat, weekdays,"
-                " next_day, hide_note, updated_at, id, note_id, kind, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " next_day, hide_note, calendar, updated_at, id, note_id, kind, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (*values, reminder_id, note_id, NOTE, now),
             )
         return self._require(reminder_id)

@@ -232,3 +232,40 @@ def test_where_the_alarm_clock_would_not_show_it_is_written_in_the_bundled_font(
     assert MARK not in listed.list.item(0).text()
     assert "Reminder " in listed.list.item(0).text()
     listed.deleteLater()
+
+
+def test_a_day_picked_in_another_calendar_is_written_first_in_brackets(
+    app: App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def julian_christmas(dialog: ReminderDialog) -> None:
+        dialog.calendar_box.setCurrentIndex(dialog.calendar_box.findData("julian"))
+        dialog.year_box.setValue(2026)
+        months = [dialog.month_box.itemData(i) for i in range(dialog.month_box.count())]
+        dialog.month_box.setCurrentIndex(months.index((12, False)))
+        dialog.day_box.setCurrentIndex(dialog.day_box.findData(25))
+
+    window = app.note("성탄 예배")
+    window.edit()
+    answering(monkeypatch, julian_christmas)
+    window.text_reminder_action.trigger()
+
+    # In English here (no translation loaded): "Julian 12/25", in Korean "율리우스력 12월 25일".
+    assert window.text == f"성탄 예배 {MARK}[Julian 12/25] 2027-01-07 09:00"
+    app.manager.save(window)
+    assert written_times(app) == {datetime(2027, 1, 7, 9, 0)}
+    window.show_formatted()
+    assert "Julian 12/25" in window.view.toPlainText()
+
+
+def test_a_day_in_brackets_changed_by_hand_is_said_to_disagree(app: App) -> None:
+    agrees = app.note(f"성탄 예배 {MARK}[Julian 12/25] 2027-01-07 09:00")
+    disagrees = app.note(f"성탄 예배 {MARK}[Julian 12/24] 2027-01-07 09:00")
+    unknown = app.note(f"성탄 예배 {MARK}[생일] 2027-01-07 09:00")
+
+    for window in (agrees, disagrees, unknown):
+        window.show_formatted()
+    assert "disagree" not in agrees.view.toPlainText()
+    assert "the days written disagree" in disagrees.view.toPlainText()
+    assert "disagree" not in unknown.view.toPlainText()  # not a day it can read
+    # The Gregorian day is the one kept.
+    assert written_times(app) == {datetime(2027, 1, 7, 9, 0)}

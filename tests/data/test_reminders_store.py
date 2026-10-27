@@ -8,6 +8,7 @@ from pathlib import Path
 import apsw
 import pytest
 
+from stickle.core.calendars import CalendarDate
 from stickle.core.reminders import Rule, time_zone
 from stickle.data.database import KEY_BYTES
 from stickle.data.notes import NoteRepository
@@ -263,3 +264,20 @@ def test_one_written_in_the_text_rings_by_the_clock_where_it_rings(
     [reminder] = reminders.pending()
     assert reminder.rings_at(time_zone(SEOUL)) == datetime(2026, 11, 3, 6, 0, tzinfo=UTC)
     assert reminder.rings_at(time_zone("Europe/London")) == datetime(2026, 11, 3, 15, 0, tzinfo=UTC)
+
+
+def test_one_picked_in_another_calendar_is_kept_as_picked_there(
+    notes: NoteRepository, reminders: ReminderRepository, clock: Clock, db: apsw.Connection
+) -> None:
+    note = notes.create("성탄 예배")
+    christmas = CalendarDate(2026, 12, 25)  # Julian: 7 January 2027
+    rule = Rule(date(2027, 1, 7), NINE, SEOUL, "yearly", calendar="julian", picked=christmas)
+
+    reminder = reminders.set(note.id, rule)
+
+    row = db.execute("SELECT calendar, start_day, next_day FROM reminders").fetchall()
+    assert row == [("julian", "2026-12-25", "2027-01-07")]
+    assert reminder.rule.picked == christmas
+    assert reminder.rings_at() == datetime(2027, 1, 7, 0, 0, tzinfo=UTC)  # 9:00 in Seoul
+    clock.now = "2027-01-07T01:00:00.000Z"
+    assert reminders.dealt_with(reminder.id).next_day == date(2028, 1, 7)

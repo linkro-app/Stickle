@@ -9,6 +9,10 @@ One that does not repeat cannot be set for a time already past.
 The same dialog chooses the time of a reminder written in the text (in_text):
 then without repeating, waiting out of sight or turning off, which are a
 note's own reminder's only (taking the code out of the text turns it off).
+
+The day can be picked in another calendar (stickle.core.calendars): the
+Gregorian one first, then those picked lately, then the rest. The day it
+falls on is said below, and why, when it rings on another day.
 """
 
 from collections.abc import Callable
@@ -26,12 +30,15 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSpinBox,
     QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
 
+from stickle.app.calendar_names import calendar_name, change_text, month_text
 from stickle.app.times import moment_text
+from stickle.core.calendars import CALENDARS, GREGORIAN, CalendarDate, resolve
 from stickle.core.clock import stamp_of
 from stickle.core.reminders import REPEATS, Repeat, Rule, coming, first_after, moment
 
@@ -80,6 +87,7 @@ class ReminderDialog(QDialog):
         hidden_until: bool = False,
         parent: QWidget | None = None,
         in_text: bool = False,
+        recent_calendars: list[str] | None = None,
     ) -> None:
         super().__init__(parent)
         self._now = now
@@ -114,6 +122,35 @@ class ReminderDialog(QDialog):
         quick.addStretch(1)
         self.evening_button.setEnabled(self._local_now().time() < EVENING)
 
+        # The calendar: the Gregorian one, those picked lately, then the rest.
+        self.calendar_label = QLabel(self)
+        self.calendar_box = QComboBox(self)
+        self.calendar_label.setBuddy(self.calendar_box)
+        recent = [c for c in recent_calendars or [] if c in CALENDARS]
+        self._calendars = [GREGORIAN, *recent]
+        self._calendars += sorted(set(CALENDARS) - set(recent), key=calendar_name)
+        for calendar in self._calendars:
+            self.calendar_box.addItem("", calendar)
+        if recent and len(self._calendars) > len(recent) + 1:
+            self.calendar_box.insertSeparator(len(recent) + 1)
+        calendar_row = QHBoxLayout()
+        calendar_row.addWidget(self.calendar_label)
+        calendar_row.addWidget(self.calendar_box)
+        calendar_row.addStretch(1)
+        # A day of another calendar: its year, month (leap ones too) and day.
+        self.year_box = QSpinBox(self)
+        self.year_box.setRange(1, 9999)
+        self.month_box = QComboBox(self)
+        self.day_box = QComboBox(self)
+        self.gregorian_label = QLabel(self)
+        self.changes_label = QLabel(self)
+        self.changes_label.setWordWrap(True)
+        self._calendar_parts: tuple[QWidget, ...] = (
+            self.year_box,
+            self.month_box,
+            self.day_box,
+            self.gregorian_label,
+        )
         self.day_label = QLabel(self)
         self.day_edit = QDateEdit(self)
         self.day_edit.setCalendarPopup(True)
@@ -126,6 +163,9 @@ class ReminderDialog(QDialog):
         when = QHBoxLayout()
         when.addWidget(self.day_label)
         when.addWidget(self.day_edit)
+        when.addWidget(self.year_box)
+        when.addWidget(self.month_box)
+        when.addWidget(self.day_box)
         when.addSpacing(12)
         when.addWidget(self.time_label)
         when.addWidget(self.time_edit)
@@ -171,7 +211,10 @@ class ReminderDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.note_title)
         layout.addLayout(quick)
+        layout.addLayout(calendar_row)
         layout.addLayout(when)
+        layout.addWidget(self.gregorian_label)
+        layout.addWidget(self.changes_label)
         layout.addLayout(repeat_row)
         layout.addLayout(days_row)
         layout.addWidget(self.hide_box)
@@ -182,10 +225,19 @@ class ReminderDialog(QDialog):
         if current is None:
             self._fill(self._tomorrow_morning())
         else:
+            if current.picked is not None and current.calendar in CALENDARS:
+                self.calendar_box.setCurrentIndex(self._calendars.index(current.calendar))
             self._fill(datetime.combine(current.start, current.at))
+            if current.picked is not None:
+                self._fill_picked(current.picked)
             self.repeat_box.setCurrentIndex(REPEATS.index(current.repeat))
             for day, box in enumerate(self.day_boxes):
                 box.setChecked(day in current.weekdays)
+        self._show_calendar()
+        self.calendar_box.currentIndexChanged.connect(self._calendar_changed)
+        self.year_box.valueChanged.connect(self._year_changed)
+        self.month_box.currentIndexChanged.connect(self._month_changed)
+        self.day_box.currentIndexChanged.connect(self._show_coming)
         self.day_edit.dateChanged.connect(self._show_coming)
         self.time_edit.timeChanged.connect(self._show_coming)
         self.repeat_box.currentIndexChanged.connect(self._show_coming)
@@ -216,20 +268,130 @@ class ReminderDialog(QDialog):
     def _fill(self, when: datetime) -> None:
         self.day_edit.setDate(QDate(when.year, when.month, when.day))
         self.time_edit.setTime(QTime(when.hour, when.minute))
+        calendar = self.calendar()
+        if calendar != GREGORIAN:
+            self._fill_picked(CALENDARS[calendar].from_gregorian(when.date()))
+
+    # Another calendar
+
+    def calendar(self) -> str:
+        chosen = self.calendar_box.currentData()
+        return chosen if isinstance(chosen, str) else GREGORIAN
+
+    def _show_calendar(self) -> None:
+        other = self.calendar() != GREGORIAN
+        self.day_edit.setVisible(not other)
+        self.day_label.setBuddy(self.year_box if other else self.day_edit)
+        for part in self._calendar_parts:
+            part.setVisible(other)
+        if not other:
+            self.changes_label.setVisible(False)
+
+    def _calendar_changed(self) -> None:
+        """The day shown in the calendar now chosen: the same Gregorian day."""
+        rule = self.rule()  # as it was, before this calendar was chosen
+        calendar = self.calendar()
+        if calendar != GREGORIAN:
+            self._fill_picked(CALENDARS[calendar].from_gregorian(rule.start))
+        else:
+            self.day_edit.setDate(QDate(rule.start.year, rule.start.month, rule.start.day))
+        self._show_calendar()
+        self._show_coming()
+
+    def _fill_picked(self, picked: CalendarDate) -> None:
+        for box in (self.year_box, self.month_box, self.day_box):
+            box.blockSignals(True)
+        self.year_box.setValue(picked.year)
+        self._fill_months(picked.year, (picked.month, picked.leap))
+        self._fill_days(picked.day)
+        for box in (self.year_box, self.month_box, self.day_box):
+            box.blockSignals(False)
+        self._show_coming()
+
+    def _fill_months(self, year: int, keep: tuple[int, bool]) -> None:
+        """The year's months; the one kept chosen (the ordinary month of a leap
+        month the year lacks)."""
+        months = CALENDARS[self.calendar()].months(year)
+        self.month_box.clear()
+        for month, leap in months:
+            self.month_box.addItem(self._month_item(month, leap), (month, leap))
+        if keep not in months:
+            keep = (keep[0], False)
+        self.month_box.setCurrentIndex(months.index(keep) if keep in months else 0)
+
+    def _fill_days(self, keep: int) -> None:
+        """The month's days; the one kept chosen, or the last if it is shorter."""
+        month, leap = self._month()
+        length = CALENDARS[self.calendar()].days_in_month(self.year_box.value(), month, leap)
+        self.day_box.clear()
+        for day in range(1, length + 1):
+            self.day_box.addItem(self._day_item(day), day)
+        self.day_box.setCurrentIndex(min(keep, length) - 1)
+
+    def _month(self) -> tuple[int, bool]:
+        chosen: object = self.month_box.currentData()
+        if isinstance(chosen, tuple) and len(chosen) == 2:  # pyright: ignore[reportUnknownArgumentType]
+            month, leap = chosen  # pyright: ignore[reportUnknownVariableType]
+            return int(month), bool(leap)  # pyright: ignore[reportUnknownArgumentType]
+        return 1, False
+
+    def _day(self) -> int:
+        chosen = self.day_box.currentData()
+        return chosen if isinstance(chosen, int) else 1
+
+    def _month_item(self, month: int, leap: bool) -> str:
+        return self.tr("%1", "a month of another calendar, by its number").replace(
+            "%1", month_text(month, leap)
+        )
+
+    def _day_item(self, day: int) -> str:
+        return self.tr("%1", "a day of the month, by its number").replace("%1", str(day))
+
+    def _year_changed(self) -> None:
+        day = self._day()
+        for box in (self.month_box, self.day_box):
+            box.blockSignals(True)
+        self._fill_months(self.year_box.value(), self._month())
+        self._fill_days(day)
+        for box in (self.month_box, self.day_box):
+            box.blockSignals(False)
+        self._show_coming()
+
+    def _month_changed(self) -> None:
+        day = self._day()
+        self.day_box.blockSignals(True)
+        self._fill_days(day)
+        self.day_box.blockSignals(False)
+        self._show_coming()
+
+    def picked(self) -> CalendarDate | None:
+        """The day picked in another calendar; None in the Gregorian one."""
+        if self.calendar() == GREGORIAN or self.month_box.count() == 0:
+            return None
+        month, leap = self._month()
+        return CalendarDate(self.year_box.value(), month, self._day(), leap)
 
     # What is chosen
 
     def rule(self) -> Rule:
-        day = self.day_edit.date()
         at = self.time_edit.time()
         repeat: Repeat = self.repeat_box.currentData()
         weekdays = frozenset(n for n, box in enumerate(self.day_boxes) if box.isChecked())
+        picked = self.picked()
+        resolved = resolve(CALENDARS[self.calendar()], picked) if picked is not None else None
+        if picked is not None and resolved is not None:
+            start, calendar = resolved.day, self.calendar()
+        else:
+            day = self.day_edit.date()
+            start, calendar, picked = date(day.year(), day.month(), day.day()), GREGORIAN, None
         return Rule(
-            date(day.year(), day.month(), day.day()),
+            start,
             time(at.hour(), at.minute()),
             self._zone,
             repeat,
             weekdays if repeat == "weekly" else frozenset(),
+            calendar,
+            picked,
         )
 
     def choice(self) -> ReminderChoice:
@@ -243,6 +405,7 @@ class ReminderDialog(QDialog):
 
     def _show_coming(self) -> None:
         rule = self.rule()
+        self._show_gregorian(rule)
         weekly = rule.repeat == "weekly"
         for box in self.day_boxes:
             box.setVisible(weekly)
@@ -261,6 +424,23 @@ class ReminderDialog(QDialog):
         ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
         ok.setEnabled(bool(days))
 
+    def _show_gregorian(self, rule: Rule) -> None:
+        """For a day picked in another calendar: the Gregorian day it rings on, and
+        why if that is not the day picked."""
+        if rule.picked is None:
+            self.changes_label.setVisible(False)
+            return
+        shown = QDate(rule.start.year, rule.start.month, rule.start.day)
+        self.gregorian_label.setText(
+            self.tr("= %1 %2")
+            .replace("%1", calendar_name(GREGORIAN))
+            .replace("%2", QLocale().toString(shown, QLocale.FormatType.LongFormat))
+        )
+        resolved = resolve(CALENDARS[rule.calendar], rule.picked)
+        changes = sorted(resolved.changes, key=lambda c: c.value) if resolved else []
+        self.changes_label.setText(" ".join(change_text(rule.calendar, c) for c in changes))
+        self.changes_label.setVisible(bool(changes))
+
     def retranslate(self) -> None:
         self.setWindowTitle(
             self.tr("Reminder in this line") if self.in_text else self.tr("Reminder")
@@ -270,6 +450,18 @@ class ReminderDialog(QDialog):
         self.morning_button.setText(self.tr("Tomorrow morning"))
         self.monday_button.setText(self.tr("Next Monday"))
         self.day_label.setText(self.tr("&Day"))
+        self.calendar_label.setText(self.tr("&Calendar"))
+        for item, calendar in enumerate(self._calendars):
+            index = self.calendar_box.findData(calendar)
+            if index >= 0:
+                self.calendar_box.setItemText(index, calendar_name(calendar))
+            del item
+        self.year_box.setAccessibleName(self.tr("Year"))
+        self.month_box.setAccessibleName(self.tr("Month"))
+        self.day_box.setAccessibleName(self.tr("Day of the month"))
+        picked = self.picked()
+        if picked is not None:
+            self._fill_picked(picked)  # the months and days, named anew
         self.time_label.setText(self.tr("&Time"))
         self.repeat_label.setText(self.tr("&Repeat"))
         for index, repeat in enumerate(REPEATS):

@@ -17,6 +17,7 @@ from typing import override
 
 from markdown_it.tree import SyntaxTreeNode
 from PySide6.QtCore import (
+    QCoreApplication,
     QDate,
     QDateTime,
     QEvent,
@@ -48,6 +49,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QTextEdit, QToolButton, QToolTip, QWidget
 
+from stickle.app.calendar_names import disagrees
 from stickle.app.fonts import AS_TEXT, alarm_clock_family, code_family
 from stickle.app.palette import qcolor
 from stickle.app.times import moment_text
@@ -82,8 +84,14 @@ def reminder_text(code: Code, morning: time) -> str:
     when = code.when(morning)
     moment = QDateTime(QDate(when.year, when.month, when.day), QTime(when.hour, when.minute))
     shown = moment_text(moment)
-    # A day picked in another calendar first, as written, then the day it rings.
-    return f"{MARK} {code.note} ({shown})" if code.note else f"{MARK} {shown}"
+    if not code.note:
+        return f"{MARK} {shown}"
+    # A day picked in another calendar first, as written, then the day it rings;
+    # said if one of them was changed by hand (the Gregorian day is the one kept).
+    text = f"{MARK} {code.note} ({shown})"
+    if disagrees(code.note, code.day):
+        text += " · " + QCoreApplication.translate("NoteView", "the days written disagree")
+    return text
 
 
 @dataclass(frozen=True)

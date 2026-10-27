@@ -41,18 +41,26 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import QDialog
 
+from stickle.app.calendar_names import written_note
 from stickle.app.note_view import ReminderLook
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.app.reminder_bar import TOMORROW_MORNING
 from stickle.app.reminder_dialog import ReminderDialog, when_text
 from stickle.app.titles import secret_name, shown_title
+from stickle.core.calendars import GREGORIAN
 from stickle.core.clock import Clock, moment_of, stamp_of, utc_now
 from stickle.core.markdown import note_title
 from stickle.core.reminders import Rule, is_known_zone, moment, time_zone
 from stickle.core.text_reminders import codes, due, with_code
 from stickle.data.reminders import Reminder, ReminderPastError, ReminderRepository
-from stickle.data.settings import MORNING, SNOOZE_MINUTES, Settings
+from stickle.data.settings import (
+    MORNING,
+    RECENT_CALENDARS,
+    RECENT_CALENDARS_KEPT,
+    SNOOZE_MINUTES,
+    Settings,
+)
 
 log = logging.getLogger(__name__)
 
@@ -153,6 +161,21 @@ class ReminderKeeper(QObject):
     def set_snooze_minutes(self, minutes: int) -> None:
         if self._settings is not None:
             self._settings.set(SNOOZE_MINUTES, minutes)
+
+    @property
+    def recent_calendars(self) -> list[str]:
+        """The calendars other than the Gregorian picked lately, the latest first."""
+        return self._settings.get(RECENT_CALENDARS) if self._settings else []
+
+    def _picked_in(self, calendar: str) -> None:
+        """A reminder was set in this calendar: first among those picked lately."""
+        if self._settings is None or calendar == GREGORIAN:
+            return
+        recent = [calendar, *(c for c in self.recent_calendars if c != calendar)]
+        try:
+            self._settings.set(RECENT_CALENDARS, recent[:RECENT_CALENDARS_KEPT])
+        except apsw.Error as error:
+            log.warning("could not keep the calendar picked: %s", type(error).__name__)
 
     # What shows the times
 
@@ -255,13 +278,16 @@ class ReminderKeeper(QObject):
             Rule(current.date(), current.time(), None) if current is not None else None,
             parent=window,
             in_text=True,
+            recent_calendars=self.recent_calendars,
         )
         if not ask_reminder(dialog):
             return
         rule = dialog.choice().rule
         if rule is None:
             return
-        window.write_in_line(with_code(line, datetime.combine(rule.start, rule.at)))
+        note = written_note(rule) if rule.picked is not None else None
+        window.write_in_line(with_code(line, datetime.combine(rule.start, rule.at), note))
+        self._picked_in(rule.calendar)
         log.info("a reminder was written in a note")
 
     # Setting one
@@ -284,6 +310,7 @@ class ReminderKeeper(QObject):
             current.rule if current is not None else None,
             current.hide_note if current is not None else False,
             window,
+            recent_calendars=self.recent_calendars,
         )
         if not ask_reminder(dialog):
             return
@@ -300,6 +327,8 @@ class ReminderKeeper(QObject):
             log.error("could not set a reminder: %s", type(error).__name__)
             return
         log.info("a reminder was %s", "turned off" if choice.rule is None else "set")
+        if choice.rule is not None:
+            self._picked_in(choice.rule.calendar)
         if current is not None:
             self._quiet(note_id, [current.id])
         if self._notes.window_for(note_id) is window:
