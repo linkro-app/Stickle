@@ -526,6 +526,8 @@ class NoteManager(QObject):
             return False
         window.set_unsaved(False)
         if window.note_id is not None:
+            if self.reminders is not None:
+                self.reminders.text_saved(window.note_id, text)
             self.note_saved.emit()
         return True
 
@@ -566,6 +568,9 @@ class NoteManager(QObject):
                 window.set_unsaved(True)
                 return False
             self._stored_secret[window] = text
+            if self.reminders is not None:
+                # Only the times are kept, for it to ring while covered.
+                self.reminders.text_saved(window.note_id, text)
             self.note_saved.emit()
         window.set_unsaved(False)
         return True

@@ -10,11 +10,25 @@ A line break inside a paragraph shows as a line break, and blank lines show
 as the space they take in the text, so a note looks laid out as it was typed.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import datetime, time
 from typing import override
 
 from markdown_it.tree import SyntaxTreeNode
-from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, Signal
+from PySide6.QtCore import (
+    QCoreApplication,
+    QDate,
+    QDateTime,
+    QEvent,
+    QLocale,
+    QPoint,
+    QRect,
+    QRectF,
+    Qt,
+    QTime,
+    Signal,
+)
 from PySide6.QtGui import (
     QAbstractTextDocumentLayout,
     QFont,
@@ -40,6 +54,7 @@ from stickle.app.fonts import code_family
 from stickle.app.palette import qcolor
 from stickle.core.colors import DEFAULT_COLOR, NoteColors, note_colors
 from stickle.core.markdown import LINE_SEPARATOR, parse, source_position
+from stickle.core.text_reminders import MARK, Code, codes
 
 INDENT_WIDTH = 20
 QUOTE_MARGIN = 14
@@ -50,6 +65,29 @@ BULLETS = (
     QTextListFormat.Style.ListCircle,
     QTextListFormat.Style.ListSquare,
 )
+
+
+@dataclass(frozen=True)
+class ReminderLook:
+    """What the reminders written in a note need to be shown: a small "⏰ day,
+    time" in place of each code, quieter once past (or on a checked line), and
+    standing out while it rings."""
+
+    now: datetime  # on this computer's clock
+    morning: time  # when a day written without a time rings
+    ringing: frozenset[datetime]  # the times written of those ringing now
+
+
+def reminder_text(code: Code, morning: time) -> str:
+    """A reminder written in a note, as the formatted note shows it."""
+    when = code.when(morning)
+    moment = QDateTime(QDate(when.year, when.month, when.day), QTime(when.hour, when.minute))
+    pattern = QCoreApplication.translate(
+        "NoteView", "MMMM d, h:mm AP", "a day and time, as QDateTime formats them"
+    )
+    shown = QLocale().toString(moment, pattern)
+    # A day picked in another calendar first, as written, then the day it rings.
+    return f"{MARK} {code.note} ({shown})" if code.note else f"{MARK} {shown}"
 
 
 @dataclass(frozen=True)
@@ -99,12 +137,16 @@ def from_utf16(text: str, position: int) -> int:
 
 
 class _Builder:
-    def __init__(self, document: QTextDocument, colors: NoteColors) -> None:
+    def __init__(
+        self, document: QTextDocument, colors: NoteColors, look: ReminderLook | None = None
+    ) -> None:
         document.clear()
         document.setIndentWidth(INDENT_WIDTH)
         self._document = document
         self._highlight_color = qcolor(colors.highlight)
         self._code_color = qcolor(colors.code_background)
+        self._quiet_color = qcolor(colors.title_icon)
+        self._look = look
         self._cursor = QTextCursor(document)
         self._fresh = True  # the document's first block has not been used yet
         self._next_line = 0  # the first line not yet shown
@@ -282,8 +324,36 @@ class _Builder:
                 self._text(node.content)
 
     def _text(self, text: str) -> None:
-        if text:
+        if not text:
+            return
+        look = self._look
+        if look is None or self._code or MARK not in text:
             self._cursor.insertText(text, self._char_format())
+            return
+        written = 0
+        for code in codes(text):
+            if code.start > written:
+                self._cursor.insertText(text[written : code.start], self._char_format())
+            self._cursor.insertText(reminder_text(code, look.morning), self._reminder_format(code))
+            written = code.end
+        if written < len(text):
+            self._cursor.insertText(text[written:], self._char_format())
+
+    def _reminder_format(self, code: Code) -> QTextCharFormat:
+        """A reminder written in the note: small; quiet once past or checked; bold
+        on the note's highlight while it rings."""
+        assert self._look is not None
+        char = self._char_format()
+        if not self._heading:
+            char.setProperty(QTextFormat.Property.FontSizeAdjustment, -1)
+        when = code.when(self._look.morning)
+        checked = bool(self._lists) and self._lists[-1].checked is True
+        if when in self._look.ringing and not checked:
+            char.setFontWeight(QFont.Weight.Bold)
+            char.setBackground(self._highlight_color)
+        elif checked or when <= self._look.now:
+            char.setForeground(self._quiet_color)
+        return char
 
     def _char_format(self) -> QTextCharFormat:
         char = QTextCharFormat()
@@ -309,9 +379,12 @@ class _Builder:
         return char
 
 
-def render(text: str, document: QTextDocument, colors: NoteColors) -> list[BlockSource]:
-    """Draw a note's Markdown into document; returns where each block came from."""
-    builder = _Builder(document, colors)
+def render(
+    text: str, document: QTextDocument, colors: NoteColors, look: ReminderLook | None = None
+) -> list[BlockSource]:
+    """Draw a note's Markdown into document; returns where each block came from.
+    With look, the reminders written in it show as their day and time."""
+    builder = _Builder(document, colors, look)
     if text.strip():
         builder.blocks(parse(text))
     # Nothing shown (such as an empty quote): the one empty block stands for all of it.
@@ -363,6 +436,8 @@ class NoteView(QTextEdit):
         self.copy_button.clicked.connect(self._copy_from_button)
         self.copy_button.hide()
         self._copy_code = ""
+        # How its reminders show (stickle.app.reminders); without, as written.
+        self.reminder_look: Callable[[], ReminderLook] | None = None
         self.retranslate()
 
     def retranslate(self) -> None:
@@ -374,7 +449,8 @@ class NoteView(QTextEdit):
         self._source = text
         # Drawn again when a checkbox is toggled: stay where the reader was.
         scrolled = self.verticalScrollBar().value()
-        self._blocks = render(text, self.document(), self.colors)
+        look = self.reminder_look() if self.reminder_look is not None else None
+        self._blocks = render(text, self.document(), self.colors, look)
         self.stops = self._find_stops()
         # The (hidden) cursor is left at the end by the drawing; the view would
         # scroll there the moment it is shown or given the keyboard.

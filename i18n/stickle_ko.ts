@@ -1477,6 +1477,11 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
 <context>
     <name>NoteView</name>
     <message>
+        <source>MMMM d, h:mm AP</source>
+        <comment>a day and time, as QDateTime formats them</comment>
+        <translation>M월 d일 AP h:mm</translation>
+    </message>
+    <message>
         <source>Copy</source>
         <translation>복사</translation>
     </message>
@@ -1546,6 +1551,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Reminder…</source>
         <translation>알림…</translation>
+    </message>
+    <message>
+        <source>Write a reminder in this line…</source>
+        <translation>이 줄에 알림 넣기…</translation>
     </message>
     <message>
         <source>Make it a secret note…</source>
@@ -2190,6 +2199,10 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>알림</translation>
     </message>
     <message>
+        <source>Reminder in this line</source>
+        <translation>이 줄에 알림</translation>
+    </message>
+    <message>
         <source>In an hour</source>
         <translation>1시간 뒤</translation>
     </message>
@@ -2675,6 +2688,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>A code block</source>
         <translation>코드 블록</translation>
+    </message>
+    <message>
+        <source>A reminder in this line</source>
+        <translation>이 줄에 알림 넣기</translation>
     </message>
     <message>
         <source>In Stickle Manager</source>

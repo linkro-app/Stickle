@@ -558,6 +558,7 @@ class NoteWindow(QWidget):
     secret_title_requested = Signal()  # its title, to be changed
     ordinary_requested = Signal()  # a secret note, to be an ordinary one again
     reminder_requested = Signal()  # its reminder, to be set, changed or turned off
+    text_reminder_requested = Signal()  # one to be written in the line being edited
     reminder_dealt_with = Signal()  # it rang and was seen
     reminder_snoozed = Signal(int)  # to ring again: in minutes, or TOMORROW_MORNING
     drag_started = Signal(bool)  # by its title bar; True: with Shift, the notes beside it along
@@ -729,6 +730,19 @@ class NoteWindow(QWidget):
         self.reminder_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.reminder_action.triggered.connect(self.reminder_requested)
         self.addAction(self.reminder_action)
+        # One written in the text, at the end of the line being edited: in the
+        # menu only while editing (not greyed out: the arrow keys would stop on
+        # it with some styles and not others); the key does nothing otherwise.
+        self.text_reminder_action = self.menu.addAction("")
+        self.text_reminder_action.setShortcut(QKeySequence("Ctrl+Shift+R"))
+        self.text_reminder_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self.text_reminder_action.triggered.connect(self.text_reminder_requested)
+        self.addAction(self.text_reminder_action)
+        self.menu.aboutToShow.connect(
+            lambda: self.text_reminder_action.setVisible(self.editing and not self.locked)
+        )
+        # Back for the key once the menu is gone.
+        self.menu.aboutToHide.connect(lambda: self.text_reminder_action.setVisible(True))
         # Secret notes: those that apply now are shown (see _show_secret_state).
         self.secret_action = self.menu.addAction("")
         self.secret_action.triggered.connect(self.secret_requested)
@@ -864,6 +878,7 @@ class NoteWindow(QWidget):
         self.move_action.setText(self.tr("Move with the arrow keys"))
         self.resize_action.setText(self.tr("Resize with the arrow keys"))
         self.reminder_action.setText(self.tr("Reminder…"))
+        self.text_reminder_action.setText(self.tr("Write a reminder in this line…"))
         self.secret_action.setText(self.tr("Make it a secret note…"))
         self.open_secret_action.setText(self.tr("Show its text…"))
         self.lock_secret_action.setText(self.tr("Cover its text"))
@@ -1356,6 +1371,20 @@ class NoteWindow(QWidget):
     @property
     def ringing(self) -> bool:
         return not self.reminder_bar.isHidden()
+
+    def refresh_formatted(self) -> None:
+        """The formatted note drawn again: how its reminders show changed."""
+        if self.stack.currentWidget() is self.view:
+            self.view.show_markdown(self.text)
+
+    def write_in_line(self, line: str) -> None:
+        """The line the cursor is on, as given (one step to undo); then editing
+        again, at its end (a dialog asked for it in between)."""
+        cursor = self.editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(line)
+        self.edit(cursor.position())
 
     def set_next_reminder(self, when: str | None) -> None:
         """When its reminder rings next (as the user reads it), None for none."""

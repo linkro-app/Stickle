@@ -8,7 +8,7 @@ from pathlib import Path
 import apsw
 import pytest
 
-from stickle.core.reminders import Rule
+from stickle.core.reminders import Rule, time_zone
 from stickle.data.database import KEY_BYTES
 from stickle.data.notes import NoteRepository
 from stickle.data.reminders import ReminderPastError, ReminderRepository
@@ -190,3 +190,43 @@ def test_a_row_of_a_later_version_is_left_as_it_is(
     reminder = reminders.set(note.id, Rule(date(2026, 11, 3), NINE, SEOUL))
     assert reminder.id == "later"
     assert db.execute("SELECT count(*) FROM reminders").fetchall() == [(1,)]
+
+
+def test_those_written_in_the_text_follow_it_by_the_time_written(
+    notes: NoteRepository, reminders: ReminderRepository, clock: Clock, db: apsw.Connection
+) -> None:
+    note = notes.create("할 일")
+    three, four = datetime(2026, 11, 3, 15, 0), datetime(2026, 11, 4, 9, 0)
+
+    assert reminders.match_text(note.id, [three, four])
+    first = {r.written: r.id for r in reminders.pending()}
+    assert set(first) == {three, four}
+    assert all(r.rule.zone is None for r in reminders.pending())  # this computer's clock
+
+    # Saved again with the same times: nothing changes, not even one dealt with.
+    clock.now = "2026-11-03T06:00:01.000Z"  # 15:00:01 in Seoul
+    reminders.dealt_with(first[three], time_zone(SEOUL))
+    assert not reminders.match_text(note.id, [three, four])
+    assert {r.written for r in reminders.pending()} == {four}
+
+    # A time changed is another reminder; one taken out is gone (marked, for sync).
+    five = datetime(2026, 11, 5, 9, 0)
+    assert reminders.match_text(note.id, [five])
+    assert {r.written for r in reminders.pending()} == {five}
+    deleted = db.execute("SELECT count(*) FROM reminders WHERE deleted_at IS NOT NULL")
+    assert deleted.fetchall() == [(2,)]
+
+    # The note's own reminder is not among them.
+    reminders.set(note.id, Rule(date(2026, 11, 6), NINE, SEOUL))
+    assert reminders.match_text(note.id, [])
+    assert [r.kind for r in reminders.pending()] == ["note"]
+
+
+def test_one_written_in_the_text_rings_by_the_clock_where_it_rings(
+    notes: NoteRepository, reminders: ReminderRepository
+) -> None:
+    note = notes.create("할 일")
+    reminders.match_text(note.id, [datetime(2026, 11, 3, 15, 0)])
+    [reminder] = reminders.pending()
+    assert reminder.rings_at(time_zone(SEOUL)) == datetime(2026, 11, 3, 6, 0, tzinfo=UTC)
+    assert reminder.rings_at(time_zone("Europe/London")) == datetime(2026, 11, 3, 15, 0, tzinfo=UTC)

@@ -5,6 +5,10 @@ The quick choices (in an hour, this evening, tomorrow morning, next Monday)
 only fill in the day and time, so that a repeat or waiting out of sight can go
 with them; the day and time can be chosen too. Below, the next times it rings.
 One that does not repeat cannot be set for a time already past.
+
+The same dialog chooses the time of a reminder written in the text (in_text):
+then without repeating, waiting out of sight or turning off, which are a
+note's own reminder's only (taking the code out of the text turns it off).
 """
 
 from collections.abc import Callable
@@ -77,12 +81,14 @@ class ReminderDialog(QDialog):
         current: Rule | None = None,
         hidden_until: bool = False,
         parent: QWidget | None = None,
+        in_text: bool = False,
     ) -> None:
         super().__init__(parent)
         self._now = now
         self._zone = zone
         self._here = here
         self._morning = morning
+        self.in_text = in_text
         self.turned_off = False
 
         self.note_title = QLabel(title, self)
@@ -159,8 +165,10 @@ class ReminderDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         self.off_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.DestructiveRole)
         self.off_button.setAutoDefault(False)
-        self.off_button.setVisible(current is not None)
+        self.off_button.setVisible(current is not None and not in_text)
         self.off_button.clicked.connect(self._turn_off)
+        for part in (self.repeat_label, self.repeat_box, self.hide_box):
+            part.setVisible(not in_text)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.note_title)
@@ -256,7 +264,9 @@ class ReminderDialog(QDialog):
         ok.setEnabled(bool(days))
 
     def retranslate(self) -> None:
-        self.setWindowTitle(self.tr("Reminder"))
+        self.setWindowTitle(
+            self.tr("Reminder in this line") if self.in_text else self.tr("Reminder")
+        )
         self.hour_button.setText(self.tr("In an hour"))
         self.evening_button.setText(self.tr("This evening"))
         self.morning_button.setText(self.tr("Tomorrow morning"))

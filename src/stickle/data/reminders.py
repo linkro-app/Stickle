@@ -1,13 +1,17 @@
 """Notes' reminders in the local database; stickle.core.reminders works out when.
 
-A note has one reminder of its own at most. Dealing with a reminder that
-repeats moves it on to its first day after now, so the times it rang (or would
-have) before are dealt with together; one that does not repeat keeps its row,
-dealt with for good (no next day), so that sync can quiet it on other devices.
-Turning one off marks its row deleted, for the same reason.
+A note has one reminder of its own at most, and one for each time written in
+its text (stickle.core.text_reminders): those follow the text each time it is
+saved, matched by the time written, never by a number hidden in the text.
+Dealing with a reminder that repeats moves it on to its first day after now,
+so the times it rang (or would have) before are dealt with together; one that
+does not repeat keeps its row, dealt with for good (no next day), so that sync
+can quiet it on other devices. Turning one off, or taking it out of the text,
+marks its row deleted, for the same reason.
 """
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, time, tzinfo
 
@@ -17,11 +21,12 @@ from stickle.core.clock import Clock, moment_of, stamp_of, utc_now
 from stickle.core.reminders import Rule, first_after, is_known_zone, is_repeat, moment
 
 NOTE = "note"  # kind: a note's own reminder
+TEXT = "text"  # kind: one written in its text
 GREGORIAN = "gregorian"
 
 _COLUMNS = (
     "id, note_id, calendar, start_day, at_time, time_zone, repeat, weekdays, next_day,"
-    " snoozed_until, hide_note"
+    " snoozed_until, hide_note, kind"
 )
 
 
@@ -37,6 +42,12 @@ class Reminder:
     next_day: date | None  # None: dealt with, for good
     snoozed_until: str | None  # it rings then instead
     hide_note: bool  # the note is out of sight until it rings
+    kind: str = NOTE
+
+    @property
+    def written(self) -> datetime | None:
+        """One written in the text: the time written there."""
+        return datetime.combine(self.rule.start, self.rule.at) if self.kind == TEXT else None
 
     def rings_at(self, here: tzinfo | None = None) -> datetime | None:
         """When it rings next (UTC), None if never again; here: this computer's
@@ -55,8 +66,10 @@ def _weekdays(text: str) -> frozenset[int]:
 def _reminder(row: apsw.SQLiteValues) -> Reminder | None:
     """A row as a reminder; None for one this version cannot read (a calendar or
     repeat a later version added), which it leaves as it is."""
-    reminder_id, note_id, calendar, start, at, zone, repeat, weekdays, day, snoozed, hide = row
-    if calendar != GREGORIAN or not is_repeat(repeat):
+    reminder_id, note_id, calendar, start, at, zone, repeat, weekdays, day, snoozed, hide, kind = (
+        row
+    )
+    if calendar != GREGORIAN or not is_repeat(repeat) or kind not in (NOTE, TEXT):
         return None
     try:
         rule = Rule(
@@ -76,6 +89,7 @@ def _reminder(row: apsw.SQLiteValues) -> Reminder | None:
         next_day,
         None if snoozed is None else str(snoozed),
         bool(hide),
+        str(kind),
     )
 
 
@@ -163,6 +177,35 @@ class ReminderRepository:
             " WHERE note_id = ? AND kind = ? AND deleted_at IS NULL",
             (now, now, note_id, NOTE),
         )
+
+    def match_text(self, note_id: str, times: Iterable[datetime]) -> bool:
+        """The reminders written in the note's text, as it was saved: one for each
+        time written (on this computer's clock). A time still written keeps its
+        reminder as it is (rung, snoozed or not); a new one gets a reminder; one
+        no longer written loses it. Whether anything changed."""
+        wanted = {(when.date().isoformat(), when.strftime("%H:%M")) for when in times}
+        now = self._clock()
+        rows = self._db.execute(
+            "SELECT id, start_day, at_time FROM reminders"
+            " WHERE note_id = ? AND kind = ? AND deleted_at IS NULL",
+            (note_id, TEXT),
+        ).fetchall()
+        kept = {(str(day), str(at)): str(row_id) for row_id, day, at in rows}
+        gone = [row_id for key, row_id in kept.items() if key not in wanted]
+        new = wanted - kept.keys()
+        if not (gone or new):
+            return False
+        with self._db:
+            self._db.executemany(
+                "UPDATE reminders SET deleted_at = ?, updated_at = ? WHERE id = ?",
+                [(now, now, row_id) for row_id in gone],
+            )
+            self._db.executemany(
+                "INSERT INTO reminders (id, note_id, kind, start_day, at_time, next_day,"
+                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [(str(uuid.uuid4()), note_id, TEXT, day, at, day, now, now) for day, at in new],
+            )
+        return True
 
     def dealt_with(self, reminder_id: str, here: tzinfo | None = None) -> Reminder:
         """It rang and was seen: on to its first day after now, if it repeats."""

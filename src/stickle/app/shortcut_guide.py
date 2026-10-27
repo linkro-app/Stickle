@@ -109,6 +109,10 @@ def guide() -> list[tuple[str, list[tuple[str, str]]]]:
                 (QCoreApplication.translate("ShortcutGuide", "A new line only"), "Shift+Enter"),
                 (QCoreApplication.translate("ShortcutGuide", "A checkbox"), "[ ]"),
                 (QCoreApplication.translate("ShortcutGuide", "A code block"), "``` Enter"),
+                (
+                    QCoreApplication.translate("ShortcutGuide", "A reminder in this line"),
+                    "Ctrl+Shift+R",
+                ),
             ],
         ),
         (
