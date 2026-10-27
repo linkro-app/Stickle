@@ -30,11 +30,12 @@ from PySide6.QtWidgets import (
 )
 
 from stickle.app.in_use import OnTopWhileInUse
+from stickle.app.note_window import RAISE_AGAIN_MS
 from stickle.app.reminder_bar import SnoozeButton
 from stickle.app.reminder_dialog import when_text
 from stickle.app.reminders import Missed, ReminderKeeper
 from stickle.app.times import day_text
-from stickle.app.window_flags import set_stays_on_top, stays_on_top
+from stickle.app.window_flags import set_stays_on_top
 from stickle.platform.linux.x11 import activate
 
 log = logging.getLogger(__name__)
@@ -252,17 +253,24 @@ class MissedDialog(QDialog):
         if not self.rows:
             return
         log.info("%d reminder(s) gone by listed", len(self.rows))
-        parent = self.parentWidget()
-        if parent is None or not (parent.isVisible() and stays_on_top(parent)):
-            set_stays_on_top(self, True)
+        set_stays_on_top(self, True)
         self.show()
+        self._come_forward()
+        if QGuiApplication.platformName() == "xcb":
+            # Shown as Stickle starts, it came up without the keyboard on Ubuntu:
+            # asked for again once it is surely on screen.
+            QTimer.singleShot(RAISE_AGAIN_MS, self, self._come_forward)
+        self.rows[0].open_button.setFocus()
+
+    def _come_forward(self) -> None:
+        if not self.isVisible() or self.isActiveWindow():
+            return
         self.raise_()
         self.activateWindow()
         if QGuiApplication.platformName() == "xcb":
             # Asked for as a taskbar would; the application's own request above
             # may be refused.
             activate(int(self.winId()))
-        self.rows[0].open_button.setFocus()
 
     @override
     def showEvent(self, event: QShowEvent) -> None:

@@ -488,7 +488,8 @@ class ReminderKeeper(QObject):
         log.info("a reminder gone by was opened")
         self.missed.discard(reminder_id)
         self.missed_changed.emit()
-        window.activateWindow()
+        # As a note chosen from a list is: GNOME left it under the others otherwise.
+        window.bring_to_front()
         window.reminder_bar.done_button.setFocus()
 
     def _done_in_list(self, reminders: list[Reminder]) -> None:
