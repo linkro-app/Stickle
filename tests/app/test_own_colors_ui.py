@@ -193,7 +193,9 @@ def test_at_random_never_the_colour_used_just_before(
     settings = Settings(connection)
     seen: set[str] = set()
 
-    for _ in range(60):
+    # Enough draws that one colour of thirteen missing (once in half a million runs)
+    # is out of the question: with 60 it happened about once in a hundred.
+    for _ in range(150):
         before = settings.get(LAST_USED_COLOR)
         window = manager.new_note()
         assert window.color != before
