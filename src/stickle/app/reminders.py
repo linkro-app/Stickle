@@ -41,7 +41,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import QDialog
 
-from stickle.app.calendar_names import written_note
+from stickle.app.calendar_names import change_text, written_note
 from stickle.app.note_view import ReminderLook
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
@@ -51,7 +51,7 @@ from stickle.app.titles import secret_name, shown_title
 from stickle.core.calendars import GREGORIAN
 from stickle.core.clock import Clock, moment_of, stamp_of, utc_now
 from stickle.core.markdown import note_title
-from stickle.core.reminders import Rule, is_known_zone, moment, time_zone
+from stickle.core.reminders import Rule, changes_on, is_known_zone, moment, time_zone
 from stickle.core.text_reminders import codes, due, with_code
 from stickle.data.reminders import Reminder, ReminderPastError, ReminderRepository
 from stickle.data.settings import (
@@ -99,6 +99,7 @@ class Missed:
     title: str  # its note's (a secret note's own title)
     first: datetime  # when it first went by (UTC)
     times: int  # how many times it has by now
+    reason: str = ""  # why not on the day picked in its calendar, if so
 
 
 class ReminderKeeper(QObject):
@@ -132,6 +133,8 @@ class ReminderKeeper(QObject):
         # in the text for one written there.
         self._ringing: dict[str, dict[str, tuple[str, datetime | None]]] = {}
         self.missed: set[str] = set()  # reminder ids
+        # Note id -> why its reminder ringing now is not on the day picked, if so.
+        self._reasons: dict[str, str] = {}
         self._checked_at: datetime | None = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -225,7 +228,8 @@ class ReminderKeeper(QObject):
         self._show_next(window)
         ringing = self._ringing.get(window.note_id)
         if ringing:
-            window.ring(list(ringing.values())[-1][0], self.snooze_minutes)
+            reason = self._reasons.get(window.note_id, "")
+            window.ring(list(ringing.values())[-1][0], self.snooze_minutes, reason)
 
     # Those written in the text
 
@@ -392,6 +396,15 @@ class ReminderKeeper(QObject):
             wait = min(wait, max(0, int((soonest - now).total_seconds() * 1000) + 1))
         self._timer.start(wait)
 
+    def reason(self, reminder: Reminder) -> str:
+        """Why a reminder rings on its next day rather than the day picked in its
+        calendar, as said under its time; "" for one that rings as picked."""
+        if reminder.next_day is None:
+            return ""
+        changes = changes_on(reminder.rule, reminder.next_day)
+        calendar = reminder.rule.calendar
+        return " ".join(change_text(calendar, c) for c in sorted(changes, key=lambda c: c.value))
+
     def _time_text(self, at: datetime) -> str:
         """When a reminder was for: the time alone if today, else the day too."""
         today = self.now().astimezone(self.here).date()
@@ -404,7 +417,8 @@ class ReminderKeeper(QObject):
             return None
         when = self._time_text(at)
         self._ringing.setdefault(reminder.note_id, {})[reminder.id] = (when, reminder.written)
-        window.ring(when, self.snooze_minutes)
+        self._reasons[reminder.note_id] = self.reason(reminder)
+        window.ring(when, self.snooze_minutes, self._reasons[reminder.note_id])
         if reminder.written is not None:
             window.refresh_formatted()  # its line stands out
         if not tell:
@@ -496,6 +510,7 @@ class ReminderKeeper(QObject):
                         shown_title(note) if note is not None else "",
                         first,
                         reminder.gone_by(now, self.here),
+                        self.reason(reminder),
                     )
                 )
         except apsw.Error as error:

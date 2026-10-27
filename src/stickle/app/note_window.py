@@ -1352,13 +1352,14 @@ class NoteWindow(QWidget):
         """Said by a screen reader now, without moving the keyboard."""
         QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, text))
 
-    def ring(self, when: str, snooze_minutes: int) -> None:
+    def ring(self, when: str, snooze_minutes: int, reason: str = "") -> None:
         """Its reminder for when rings: the strip at its top. The keyboard goes
-        there once the note is used, unless its text is being typed now."""
-        self.reminder_bar.ring(when, snooze_minutes)
+        there once the note is used, unless its text is being typed now. reason:
+        why that is not the day picked, said under the time."""
+        self.reminder_bar.ring(when, snooze_minutes, reason)
         if not (self.isActiveWindow() and self.editing):
             self.reminder_bar.done_button.setFocus()
-        self.announce(self.reminder_bar.accessibleName())
+        self.announce(" ".join(filter(None, [self.reminder_bar.accessibleName(), reason])))
 
     def stop_ringing(self) -> None:
         focus = QApplication.focusWidget()

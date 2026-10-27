@@ -11,7 +11,16 @@ from typing import override
 
 from PySide6.QtCore import QCoreApplication, QEvent, Signal
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QPushButton,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from stickle.app.fonts import AS_TEXT, alarm_clock_family
 
@@ -73,6 +82,10 @@ class ReminderBar(QFrame):
         self.setObjectName("reminderBar")
         self.when = ""
         self.time_label = QLabel(self)
+        # Why it rings on another day than the one picked (another calendar).
+        self.reason_label = QLabel(self)
+        self.reason_label.setWordWrap(True)
+        self.reason_label.hide()
         self.done_button = QPushButton(self)
         # Enter presses it too, as Space does (a note is not a dialog, where
         # buttons take Enter by themselves).
@@ -81,12 +94,16 @@ class ReminderBar(QFrame):
         self.again_button = SnoozeButton(self)
         self.again_button.snoozed.connect(self.snoozed)
         self.snooze_actions = self.again_button.snooze_actions
-        layout = QHBoxLayout(self)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.addWidget(self.time_label, 1)
+        row.addWidget(self.done_button)
+        row.addWidget(self.again_button)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 2, 6, 4)
-        layout.setSpacing(6)
-        layout.addWidget(self.time_label, 1)
-        layout.addWidget(self.done_button)
-        layout.addWidget(self.again_button)
+        layout.setSpacing(2)
+        layout.addLayout(row)
+        layout.addWidget(self.reason_label)
         self.setTabOrder(self.done_button, self.again_button)
         self.hide()
         self.retranslate()
@@ -95,9 +112,12 @@ class ReminderBar(QFrame):
     def snooze_minutes(self) -> int:
         return self.again_button.minutes
 
-    def ring(self, when: str, snooze_minutes: int) -> None:
-        """Shown for a reminder at when (a time as the user reads it)."""
+    def ring(self, when: str, snooze_minutes: int, reason: str = "") -> None:
+        """Shown for a reminder at when (a time as the user reads it); reason:
+        why that is not the day picked, if it is not."""
         self.when = when
+        self.reason_label.setText(reason)
+        self.reason_label.setVisible(bool(reason))
         self.again_button.set_minutes(snooze_minutes)
         self.retranslate()
         self.show()

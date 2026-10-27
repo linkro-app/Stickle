@@ -421,3 +421,24 @@ def test_a_day_picked_in_another_calendar(app: App, monkeypatch: pytest.MonkeyPa
     assert again.calendar() == "julian"
     assert again.picked() == CalendarDate(2026, 12, 25)
     assert again.calendar_box.itemData(1) == "julian"
+
+
+def test_ringing_on_another_day_than_the_one_picked_says_why(app: App) -> None:
+    window = app.note("월말 정산")
+    assert window.note_id is not None
+    picked = CalendarDate(2026, 10, 31)  # Julian: 13 November; monthly
+    rule = Rule(date(2026, 11, 13), time(9, 0), SEOUL, "monthly", calendar="julian", picked=picked)
+    reminder = app.reminders.set(window.note_id, rule)
+
+    app.at("2026-11-13T00:00:01.000Z")
+    assert window.ringing
+    assert window.reminder_bar.reason_label.isHidden()  # on the day picked
+    window.reminder_bar.done_button.click()
+    following = app.reminders.get(reminder.id)
+    assert following is not None
+    assert following.next_day == date(2026, 12, 13)  # Julian 30 November: no 31st
+
+    app.at("2026-12-13T00:00:01.000Z")
+    assert window.ringing
+    assert not window.reminder_bar.reason_label.isHidden()
+    assert "last day" in window.reminder_bar.reason_label.text()

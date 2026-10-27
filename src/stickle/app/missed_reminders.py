@@ -149,7 +149,9 @@ class MissedDialog(QDialog):
         row.open_button.setText(shown.replace("&", "&&"))  # & kept, not a shortcut mark
         row.open_button.setDescription(gone)
         row.open_button.setAccessibleName(f"{title}, {gone}")
-        row.open_button.setToolTip(when_text(missed.first))
+        lines = [when_text(missed.first), missed.reason]
+        row.open_button.setToolTip("\n".join(line for line in lines if line))
+        row.open_button.setAccessibleDescription(missed.reason)
         row.done_button.setText(self.tr("Done"))
         row.done_button.setAccessibleName(self.tr("Done: %1").replace("%1", title))
         row.again_button.set_minutes(self._keeper.snooze_minutes)

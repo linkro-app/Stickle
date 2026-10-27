@@ -24,7 +24,7 @@ from itertools import islice
 from typing import Literal, TypeGuard
 from zoneinfo import ZoneInfo
 
-from stickle.core.calendars import CALENDARS, GREGORIAN, CalendarDate, occurrences
+from stickle.core.calendars import CALENDARS, GREGORIAN, CalendarDate, Change, occurrences
 
 type Repeat = Literal["none", "daily", "weekdays", "weekly", "monthly", "yearly"]
 REPEATS: tuple[Repeat, ...] = ("none", "daily", "weekdays", "weekly", "monthly", "yearly")
@@ -122,6 +122,17 @@ def days(rule: Rule, first: date) -> Iterator[date]:
                 if day == date.max:
                     return
                 day += timedelta(days=1)
+
+
+def changes_on(rule: Rule, day: date) -> frozenset[Change]:
+    """Why the rule rings on day rather than on the day picked in its calendar
+    (none for a Gregorian one, or a day it does not ring on)."""
+    if rule.picked is None or rule.repeat not in ("none", "monthly", "yearly"):
+        return frozenset()
+    calendar = CALENDARS[rule.calendar]
+    for resolved in occurrences(calendar, rule.picked, rule.repeat, day, day):
+        return resolved.changes
+    return frozenset()
 
 
 def moment(rule: Rule, day: date, here: tzinfo | None = None) -> datetime:
