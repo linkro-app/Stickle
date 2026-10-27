@@ -64,8 +64,11 @@ class MissedRow(QFrame):
 
 
 class MissedDialog(QDialog):
-    def __init__(self, keeper: ReminderKeeper, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+    def __init__(self, keeper: ReminderKeeper) -> None:
+        # A window of its own, not a dialog: X11 window managers keep a dialog
+        # whose window is not shown (the Stickle window, or none) above all the
+        # app's windows, and the note brought forward from it came up below it.
+        super().__init__(None, Qt.WindowType.Window)
         self._keeper = keeper
         # Shown by itself or from the tray: kept above pinned notes until the
         # user moves on from it.

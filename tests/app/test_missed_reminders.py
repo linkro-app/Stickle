@@ -170,6 +170,8 @@ def test_choosing_a_line_brings_its_note_with_its_strip(app: App, dialog: Missed
     app.manager.hide(app.window(once))
     dialog.present()
     assert stays_on_top(dialog)  # shown by itself: above the notes
+    # Not a dialog: X11 window managers keep those above all the app's windows.
+    assert dialog.windowType() == Qt.WindowType.Window
 
     dialog.rows[0].open_button.click()
 

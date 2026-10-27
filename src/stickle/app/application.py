@@ -295,7 +295,7 @@ def connect_missed(keeper: ReminderKeeper, window: StickleWindow, tray: Tray) ->
     """The reminders gone by unrung: their window, shown once when some are found
     as Stickle starts or the computer wakes, and from the line saying how many
     are left in the tray's menu and at the top of Stickle Manager."""
-    dialog = MissedDialog(keeper, window)
+    dialog = MissedDialog(keeper)
 
     def count() -> None:
         tray.set_missed(len(keeper.missed))
@@ -783,8 +783,10 @@ def run(
             changes=changes,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
-        if reminders is not None:
-            connect_missed(reminders, stickle_window, tray)
+        # Kept here, as the Stickle window is: a window of its own, with no parent.
+        missed_window = (
+            connect_missed(reminders, stickle_window, tray) if reminders is not None else None
+        )
 
         def answer(asked: bytes) -> None:
             answer_request(asked, manager, stickle_window)
@@ -884,7 +886,7 @@ def run(
         try:
             return app.exec()
         finally:
-            del sleep_watch, close_filter, unlock_watch
+            del sleep_watch, close_filter, unlock_watch, missed_window
     finally:
         watcher.close()
         if connection is not None:
