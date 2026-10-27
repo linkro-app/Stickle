@@ -42,6 +42,7 @@ log = logging.getLogger(__name__)
 
 REFRESH_MS = 60_000  # "3 minutes ago" kept true while the window is open
 TITLE_LENGTH = 50  # a longer one is cut short, not the window made wider
+ASK_AGAIN_MS = (400, 1000)  # after RAISE_AGAIN_MS, while it has not the keyboard yet
 
 
 class MissedRow(QFrame):
@@ -257,9 +258,11 @@ class MissedDialog(QDialog):
         self.show()
         self._come_forward()
         if QGuiApplication.platformName() == "xcb":
-            # Shown as Stickle starts, it came up without the keyboard on Ubuntu:
-            # asked for again once it is surely on screen.
-            QTimer.singleShot(RAISE_AGAIN_MS, self, self._come_forward)
+            # Shown as Stickle starts, it came up without the keyboard on Ubuntu,
+            # once even when asked again after RAISE_AGAIN_MS: the notes opening
+            # then are slow to come up there. Asked again until it has it.
+            for wait in (RAISE_AGAIN_MS, *ASK_AGAIN_MS):
+                QTimer.singleShot(wait, self, self._come_forward)
         self.rows[0].open_button.setFocus()
 
     def _come_forward(self) -> None:
