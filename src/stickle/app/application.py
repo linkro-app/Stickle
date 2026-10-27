@@ -29,6 +29,7 @@ from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportAccess
 from stickle.app.instance_server import InstanceServer
 from stickle.app.master_password import MasterPasswords
+from stickle.app.missed_reminders import MissedDialog
 from stickle.app.notes import NoteManager
 from stickle.app.perf import SAMPLE_NOTE, PerfMode, open_storage_like_startup
 from stickle.app.placement import monitors
@@ -288,6 +289,24 @@ def connect_stickle_window(
             window.show_notice(False)  # a note is back: the notice no longer holds
 
     manager.changed.connect(notes_changed)
+
+
+def connect_missed(keeper: ReminderKeeper, window: StickleWindow, tray: Tray) -> MissedDialog:
+    """The reminders gone by unrung: their window, shown once when some are found
+    as Stickle starts or the computer wakes, and from the line saying how many
+    are left in the tray's menu and at the top of Stickle Manager."""
+    dialog = MissedDialog(keeper, window)
+
+    def count() -> None:
+        tray.set_missed(len(keeper.missed))
+        window.set_missed(len(keeper.missed))
+
+    keeper.missed_changed.connect(count)
+    # Out of what found them (a save, a check): a window of its own.
+    keeper.missed_found.connect(lambda: QTimer.singleShot(0, dialog.present))
+    tray.missed_action.triggered.connect(dialog.present)
+    window.missed_button.clicked.connect(dialog.present)
+    return dialog
 
 
 def answer_request(asked: bytes, manager: NoteManager, window: StickleWindow) -> None:
@@ -764,6 +783,8 @@ def run(
             changes=changes,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
+        if reminders is not None:
+            connect_missed(reminders, stickle_window, tray)
 
         def answer(asked: bytes) -> None:
             answer_request(asked, manager, stickle_window)

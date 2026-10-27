@@ -105,6 +105,10 @@ class Tray(QSystemTrayIcon):
         self.new_version_action = self._menu.addAction("")
         self.new_version_action.setVisible(False)
         self.new_version_action.triggered.connect(self._get_new_version)
+        # Shown while reminders gone by are left to deal with: their window (see the app).
+        self._missed = 0
+        self.missed_action = self._menu.addAction("")
+        self.missed_action.setVisible(False)
         self._menu.addSeparator()
         self.new_note_action = self._menu.addAction("")
         self.new_note_action.triggered.connect(on_new_note)
@@ -243,6 +247,15 @@ class Tray(QSystemTrayIcon):
                 self.tr("&Get Stickle %1…").replace("%1", release.version)
             )
 
+    def set_missed(self, count: int) -> None:
+        """How many reminders gone by are left to deal with."""
+        self._missed = count
+        self.refresh_missed()
+
+    def refresh_missed(self) -> None:
+        self.missed_action.setVisible(self._missed > 0)
+        self.missed_action.setText(self.tr("%n &missed reminder(s)…", "", self._missed))
+
     def _get_new_version(self) -> None:
         if self._updates is not None and self._updates.release is not None:
             note_window.open_url(QUrl(self._updates.release.page))
@@ -306,3 +319,4 @@ class Tray(QSystemTrayIcon):
         self.support_action.setText(self.tr("Su&pport Stickle…"))
         self.about_action.setText(self.tr("Abo&ut Stickle"))
         self.refresh_new_version()
+        self.refresh_missed()

@@ -100,6 +100,37 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>MissedDialog</name>
+    <message numerus="yes">
+        <source>%n times since %1</source>
+        <translation>
+            <numerusform>%n time since %1</numerusform>
+            <numerusform>%n times since %1</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n minute(s) ago</source>
+        <translation>
+            <numerusform>%n minute ago</numerusform>
+            <numerusform>%n minutes ago</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n hour(s) ago</source>
+        <translation>
+            <numerusform>%n hour ago</numerusform>
+            <numerusform>%n hours ago</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n day(s) ago</source>
+        <translation>
+            <numerusform>%n day ago</numerusform>
+            <numerusform>%n days ago</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>NoteList</name>
     <message numerus="yes">
         <source>%n note(s) in the trash match too.</source>
@@ -136,23 +167,6 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
         <translation>
             <numerusform>Exported %n note to the folder “%1”.</numerusform>
             <numerusform>Exported %n notes to the folder “%1”.</numerusform>
-        </translation>
-    </message>
-</context>
-<context>
-    <name>ReminderBar</name>
-    <message numerus="yes">
-        <source>In %n hour(s)</source>
-        <translation>
-            <numerusform>In %n hour</numerusform>
-            <numerusform>In %n hours</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>In %n minute(s)</source>
-        <translation>
-            <numerusform>In %n minute</numerusform>
-            <numerusform>In %n minutes</numerusform>
         </translation>
     </message>
 </context>
@@ -197,6 +211,43 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
         <translation>
             <numerusform>%n minute</numerusform>
             <numerusform>%n minutes</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>SnoozeButton</name>
+    <message numerus="yes">
+        <source>In %n hour(s)</source>
+        <translation>
+            <numerusform>In %n hour</numerusform>
+            <numerusform>In %n hours</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>In %n minute(s)</source>
+        <translation>
+            <numerusform>In %n minute</numerusform>
+            <numerusform>In %n minutes</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>StickleWindow</name>
+    <message numerus="yes">
+        <source>%n missed reminder(s).</source>
+        <translation>
+            <numerusform>%n missed reminder.</numerusform>
+            <numerusform>%n missed reminders.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>Tray</name>
+    <message numerus="yes">
+        <source>%n &amp;missed reminder(s)…</source>
+        <translation>
+            <numerusform>%n &amp;missed reminder…</numerusform>
+            <numerusform>%n &amp;missed reminders…</numerusform>
         </translation>
     </message>
 </context>

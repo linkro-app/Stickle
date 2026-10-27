@@ -169,6 +169,12 @@ class StickleWindow(QWidget):
         if updates is not None:
             updates.found.connect(self._update_news)
             updates.switched.connect(self._update_news)
+        # While reminders gone by are left to deal with, a line saying so at the
+        # top, its button opening their window (see the app).
+        self._missed = 0
+        self.missed_label = QLabel(self)
+        self.missed_label.setWordWrap(True)
+        self.missed_button = QPushButton(self)
         # A change to what protects the notes, told once it is due (the next start,
         # an unlock) until the user says it is fine: someone else may have made it.
         self._changes = changes
@@ -306,6 +312,10 @@ class StickleWindow(QWidget):
         changes_buttons.addWidget(self.changes_seen_button)
         layout.addWidget(self.changes_label)
         layout.addLayout(changes_buttons)
+        missed = QHBoxLayout()
+        missed.addWidget(self.missed_label, 1)
+        missed.addWidget(self.missed_button)
+        layout.addLayout(missed)
         new_version = QHBoxLayout()
         new_version.addWidget(self.new_version_label, 1)
         new_version.addWidget(self.new_version_button)
@@ -392,6 +402,7 @@ class StickleWindow(QWidget):
             self.notice_quit_button,
             self.changes_again_button,
             self.changes_seen_button,
+            self.missed_button,
             self.new_version_button,
             self.new_note_button,
             self.raise_button,
@@ -455,6 +466,8 @@ class StickleWindow(QWidget):
         self.quit_button.setText(self.tr("Quit Stickle"))
         self.new_version_button.setText(self.tr("&Get it…"))
         self.refresh_new_version()
+        self.missed_button.setText(self.tr("&View…"))
+        self.refresh_missed()
         self.changes_again_button.setText(self.tr("Set &again…"))
         self.changes_seen_button.setText(self.tr("OK, it was me"))
         self.refresh_changes()
@@ -541,6 +554,21 @@ class StickleWindow(QWidget):
             text = self.tr("Stickle %1 is out.").replace("%1", release.version)
             self.new_version_label.setText(text)
             self.new_version_button.setAccessibleDescription(text)
+
+    def set_missed(self, count: int) -> None:
+        """How many reminders gone by are left to deal with."""
+        self._missed = count
+        self.refresh_missed()
+
+    def refresh_missed(self) -> None:
+        """Said at the top for as long as reminders gone by are left (no pop-up)."""
+        shown = self._missed > 0
+        self.missed_label.setVisible(shown)
+        self.missed_button.setVisible(shown)
+        if shown:
+            text = self.tr("%n missed reminder(s).", "", self._missed)
+            self.missed_label.setText(text)
+            self.missed_button.setAccessibleDescription(text)
 
     def change_text(self, change: Change) -> str:
         when = local_time(change.at)

@@ -16,10 +16,16 @@ strip: Done and Remind me again are for all of them.
 
 A timer wakes for the next one, and at least once a minute, so that a clock
 set otherwise or a computer woken is soon noticed.
+
+Those gone by unrung are listed, one line each however many times a repeating
+one went by, until they are dealt with there or from their note: the list is
+shown once as Stickle starts with some, and once as the computer wakes with
+new ones (stickle.app.missed_reminders).
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta, tzinfo
 
 import apsw
@@ -76,11 +82,25 @@ def time_of_day(moment_utc: datetime) -> str:
     return QLocale().toString(shown.toLocalTime().time(), QLocale.FormatType.ShortFormat)
 
 
+@dataclass(frozen=True)
+class Missed:
+    """A reminder gone by unrung, as the list of them shows it."""
+
+    reminder_id: str
+    note_id: str
+    title: str  # its note's (a secret note's own title)
+    first: datetime  # when it first went by (UTC)
+    times: int  # how many times it has by now
+
+
 class ReminderKeeper(QObject):
     # Set, changed, turned off or dealt with: what shows the times refreshes.
     changed = Signal()
     # Reminders gone by while Stickle was not running were found, or are no longer.
     missed_changed = Signal()
+    # Some went by as Stickle was not running, or the computer slept: listed for
+    # the user once, now.
+    missed_found = Signal()
 
     def __init__(
         self,
@@ -104,13 +124,14 @@ class ReminderKeeper(QObject):
         # in the text for one written there.
         self._ringing: dict[str, dict[str, tuple[str, datetime | None]]] = {}
         self.missed: set[str] = set()  # reminder ids
+        self._checked_at: datetime | None = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.check)
         notes.window_opened.connect(self._dress)
         notes.reminders = self
 
-    def _now(self) -> datetime:
+    def now(self) -> datetime:
         return moment_of(self._clock())
 
     # Settings
@@ -154,7 +175,7 @@ class ReminderKeeper(QObject):
         """How the reminders written in a note's text show in its formatted view."""
         ringing = self._ringing.get(note_id or "", {})
         return ReminderLook(
-            self._now().astimezone(self.here).replace(tzinfo=None),
+            self.now().astimezone(self.here).replace(tzinfo=None),
             self.morning,
             frozenset(written for _, written in ringing.values() if written is not None),
         )
@@ -227,7 +248,7 @@ class ReminderKeeper(QObject):
         title = secret_name(window.secret_title) if window.secret else note_title(window.text)
         dialog = ReminderDialog(
             title,
-            self._now(),
+            self.now(),
             None,
             self.here,
             self.morning,
@@ -256,7 +277,7 @@ class ReminderKeeper(QObject):
         title = secret_name(window.secret_title) if window.secret else note_title(window.text)
         dialog = ReminderDialog(
             title,
-            self._now(),
+            self.now(),
             self.zone,
             self.here,
             self.morning,
@@ -292,11 +313,20 @@ class ReminderKeeper(QObject):
 
     def start(self) -> None:
         self.follow_texts()  # notes brought in, or changed by an earlier version
+        if self.missed:
+            self.missed_found.emit()
 
     def check(self) -> None:
         """Ring what is due, and wait for the next."""
         self._timer.stop()
-        now = self._now()
+        now = self.now()
+        # Not looked at for longer than the timer waits: the computer slept (or
+        # its clock was put forward), and what went by meanwhile is told.
+        woke = (
+            self._checked_at is not None
+            and now - self._checked_at > timedelta(milliseconds=CHECK_AT_MOST_MS) + LATE
+        )
+        self._checked_at = now
         soonest: datetime | None = None
         try:
             pending = self._repository.pending()
@@ -323,28 +353,40 @@ class ReminderKeeper(QObject):
             else:
                 self._ring(reminder, at)
         if missed != self.missed:
+            new = bool(missed - self.missed)
             self.missed = missed
             self.missed_changed.emit()
+            if new and woke:
+                self.missed_found.emit()
         wait = CHECK_AT_MOST_MS
         if soonest is not None:
             wait = min(wait, max(0, int((soonest - now).total_seconds() * 1000) + 1))
         self._timer.start(wait)
 
-    def _ring(self, reminder: Reminder, at: datetime) -> None:
+    def _time_text(self, at: datetime) -> str:
+        """When a reminder was for: the time alone if today, else the day too."""
+        today = self.now().astimezone(self.here).date()
+        return time_of_day(at) if at.astimezone(self.here).date() == today else when_text(at)
+
+    def _ring(self, reminder: Reminder, at: datetime, tell: bool = True) -> NoteWindow | None:
+        """Its note in front with the strip; tell: with the system's notification."""
         window = self._notes.come_forward(reminder.note_id)
         if window is None:
-            return
-        when = time_of_day(at)
+            return None
+        when = self._time_text(at)
         self._ringing.setdefault(reminder.note_id, {})[reminder.id] = (when, reminder.written)
         window.ring(when, self.snooze_minutes)
         if reminder.written is not None:
             window.refresh_formatted()  # its line stands out
+        if not tell:
+            return window
         note = self._notes.note(reminder.note_id)
         title = shown_title(note) if note is not None else ""
         log.info("a reminder rang")
         if self._notify is not None:
             text = QCoreApplication.translate("Reminders", "Reminder, %1").replace("%1", when)
             self._notify(title or "Stickle", text)
+        return window
 
     def _quiet(self, note_id: str, reminder_ids: list[str] | None = None) -> list[str]:
         """Those of the note's reminders (all, for None) stop ringing: the ids of
@@ -381,17 +423,20 @@ class ReminderKeeper(QObject):
         self.changed.emit()
         self.check()
 
+    def _until(self, minutes: int) -> datetime:
+        """When one put off by that many minutes (or till tomorrow morning) rings."""
+        now = self.now()
+        if minutes == TOMORROW_MORNING:
+            tomorrow = now.astimezone(self.here).date() + timedelta(days=1)
+            return moment(Rule(tomorrow, self.morning, self.zone), tomorrow, self.here)
+        return (now + timedelta(minutes=minutes)).astimezone(UTC)
+
     def snooze(self, window: NoteWindow, minutes: int) -> None:
         """[Remind me again]: in that many minutes, or tomorrow morning; every
         reminder ringing in the note."""
         if window.note_id is None:
             return
-        now = self._now()
-        if minutes == TOMORROW_MORNING:
-            tomorrow = now.astimezone(self.here).date() + timedelta(days=1)
-            until = moment(Rule(tomorrow, self.morning, self.zone), tomorrow, self.here)
-        else:
-            until = (now + timedelta(minutes=minutes)).astimezone(UTC)
+        until = self._until(minutes)
         for reminder_id in self._quiet(window.note_id):
             try:
                 self._repository.snooze(reminder_id, until)
@@ -401,3 +446,87 @@ class ReminderKeeper(QObject):
         self._show_next(window)
         self.changed.emit()
         self.check()
+
+    # Those gone by unrung
+
+    def missed_list(self) -> list[Missed]:
+        """The reminders gone by unrung, the earliest first."""
+        now = self.now()
+        found: list[Missed] = []
+        try:
+            for reminder_id in self.missed:
+                reminder = self._repository.get(reminder_id)
+                first = reminder.rings_at(self.here) if reminder is not None else None
+                if reminder is None or first is None:
+                    continue
+                note = self._notes.note(reminder.note_id)
+                found.append(
+                    Missed(
+                        reminder.id,
+                        reminder.note_id,
+                        shown_title(note) if note is not None else "",
+                        first,
+                        reminder.gone_by(now, self.here),
+                    )
+                )
+        except apsw.Error as error:
+            log.error("could not read reminders: %s", type(error).__name__)
+        return sorted(found, key=lambda missed: (missed.first, missed.reminder_id))
+
+    def open_missed(self, reminder_id: str) -> None:
+        """One gone by, chosen in the list: its note in front with its strip, the
+        keyboard on Done (its line standing out, for one written in the text)."""
+        if reminder_id not in self.missed:
+            return
+        reminder = self._repository.get(reminder_id)
+        at = reminder.rings_at(self.here) if reminder is not None else None
+        if reminder is None or at is None:
+            return
+        window = self._ring(reminder, at, tell=False)
+        if window is None:
+            return
+        log.info("a reminder gone by was opened")
+        self.missed.discard(reminder_id)
+        self.missed_changed.emit()
+        window.activateWindow()
+        window.reminder_bar.done_button.setFocus()
+
+    def _done_in_list(self, reminders: list[Reminder]) -> None:
+        """Those gone by, dealt with in the list: out of it, and their notes'
+        times shown anew."""
+        for reminder in reminders:
+            self.missed.discard(reminder.id)
+        for note_id in {reminder.note_id for reminder in reminders}:
+            window = self._notes.window_for(note_id)
+            if window is not None:
+                self._show_next(window)
+        self.missed_changed.emit()
+        self.changed.emit()
+        self.check()
+
+    def deal_with_missed(self, reminder_ids: Iterable[str]) -> None:
+        """[Done] in the list: seen, every time it went by (one that repeats, on
+        to its next time)."""
+        dealt: list[Reminder] = []
+        for reminder_id in reminder_ids:
+            if reminder_id not in self.missed:
+                continue
+            try:
+                dealt.append(self._repository.dealt_with(reminder_id, self.here))
+                log.info("a reminder gone by was dealt with")
+            except (apsw.Error, KeyError) as error:
+                log.error("could not deal with a reminder: %s", type(error).__name__)
+        self._done_in_list(dealt)
+
+    def snooze_missed(self, reminder_id: str, minutes: int) -> None:
+        """[Remind me again] in the list: it rings in that many minutes, or
+        tomorrow morning."""
+        if reminder_id not in self.missed:
+            return
+        try:
+            snoozed = self._repository.snooze(reminder_id, self._until(minutes))
+            log.info("a reminder gone by was snoozed")
+        except (apsw.Error, KeyError) as error:
+            log.error("could not snooze a reminder: %s", type(error).__name__)
+            return
+        self._done_in_list([snoozed])

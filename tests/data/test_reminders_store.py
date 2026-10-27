@@ -102,6 +102,39 @@ def test_dealt_with_it_moves_past_every_time_gone_by(
     assert row == [(clock.now, DEVICE)]
 
 
+def test_how_many_times_it_went_by_unseen(
+    notes: NoteRepository, reminders: ReminderRepository
+) -> None:
+    note = notes.create("물 마시기")
+    daily = reminders.set(note.id, Rule(date(2026, 11, 3), NINE, SEOUL, "daily"))
+    assert daily.gone_by(datetime(2026, 11, 3, 0, 0, tzinfo=UTC)) == 1  # 9:00 in Seoul
+    assert daily.gone_by(datetime(2026, 11, 2, 23, 59, tzinfo=UTC)) == 0
+    # Three mornings later at 14:00: the 3rd, 4th, 5th and 6th.
+    assert daily.gone_by(datetime(2026, 11, 6, 5, 0, tzinfo=UTC)) == 4
+
+    weekdays = reminders.set(
+        notes.create("보고").id, Rule(date(2026, 11, 6), NINE, SEOUL, "weekdays")
+    )
+    # Friday the 6th, then Monday the 9th: not the weekend.
+    assert weekdays.gone_by(datetime(2026, 11, 9, 5, 0, tzinfo=UTC)) == 2
+
+    once = reminders.set(notes.create("회의").id, Rule(date(2026, 11, 3), NINE, SEOUL))
+    assert once.gone_by(datetime(2026, 11, 9, 0, 0, tzinfo=UTC)) == 1
+
+
+def test_put_off_and_gone_by_it_counts_from_the_time_put_off_to(
+    notes: NoteRepository, reminders: ReminderRepository, clock: Clock
+) -> None:
+    note = notes.create("물 마시기")
+    reminder = reminders.set(note.id, Rule(date(2026, 11, 3), NINE, SEOUL, "daily"))
+    clock.now = "2026-11-03T00:00:30.000Z"
+    snoozed = reminders.snooze(reminder.id, datetime(2026, 11, 3, 0, 10, tzinfo=UTC))
+
+    # The time put off to on the 3rd, then the 4th's.
+    assert snoozed.gone_by(datetime(2026, 11, 4, 1, 0, tzinfo=UTC)) == 2
+    assert snoozed.gone_by(datetime(2026, 11, 3, 0, 5, tzinfo=UTC)) == 0
+
+
 def test_once_dealt_with_one_that_does_not_repeat_is_done(
     notes: NoteRepository, reminders: ReminderRepository, clock: Clock
 ) -> None:

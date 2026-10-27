@@ -18,7 +18,17 @@ from datetime import date, datetime, time, tzinfo
 import apsw
 
 from stickle.core.clock import Clock, moment_of, stamp_of, utc_now
-from stickle.core.reminders import Rule, first_after, is_known_zone, is_repeat, moment
+from stickle.core.reminders import (
+    Rule,
+    first_after,
+    is_known_zone,
+    is_repeat,
+    moment,
+    times_by,
+)
+from stickle.core.reminders import (
+    next_day as day_after,
+)
 
 NOTE = "note"  # kind: a note's own reminder
 TEXT = "text"  # kind: one written in its text
@@ -57,6 +67,15 @@ class Reminder:
         if self.snoozed_until is not None:
             return moment_of(self.snoozed_until)
         return moment(self.rule, self.next_day, here)
+
+    def gone_by(self, now: datetime, here: tzinfo | None = None) -> int:
+        """How many times it has come by now without being dealt with: at its
+        time (or the time it was put off to), then each later day of its rule."""
+        first = self.rings_at(here)
+        if first is None or first > now or self.next_day is None:
+            return 0
+        later = day_after(self.rule, self.next_day)
+        return 1 + (0 if later is None else times_by(self.rule, later, now, here))
 
 
 def _weekdays(text: str) -> frozenset[int]:

@@ -135,6 +135,19 @@ def next_day(rule: Rule, day: date) -> date | None:
     return next(days(rule, day + timedelta(days=1)), None)
 
 
+def times_by(
+    rule: Rule, first: date, instant: datetime, here: tzinfo | None = None, most: int = 9999
+) -> int:
+    """How many times the rule rings from day first on, up to instant (counted
+    up to most)."""
+    count = 0
+    for day in days(rule, first):
+        if count == most or moment(rule, day, here) > instant:
+            break
+        count += 1
+    return count
+
+
 def coming(rule: Rule, first: date, count: int) -> list[date]:
     """The next few days the rule rings on, from first on."""
     return list(islice(days(rule, first), count))

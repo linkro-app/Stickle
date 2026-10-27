@@ -1151,6 +1151,66 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
 </context>
 <context>
+    <name>MissedDialog</name>
+    <message>
+        <source>Missed reminders</source>
+        <translation>지난 알림</translation>
+    </message>
+    <message>
+        <source>These reminders came while Stickle was not running or the computer was asleep. Choose one to go to its note.</source>
+        <translation>Stickle이 꺼져 있거나 컴퓨터가 잠자는 사이 울리지 못한 알림입니다. 하나를 고르면 그 메모로 갑니다.</translation>
+    </message>
+    <message>
+        <source>&amp;All done</source>
+        <translation>모두 확인(&amp;A)</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>닫기</translation>
+    </message>
+    <message>
+        <source>MMMM d</source>
+        <comment>a day, as QDate formats it</comment>
+        <translation>M월 d일</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n times since %1</source>
+        <translation>
+            <numerusform>%n번 지남 · %1부터</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n minute(s) ago</source>
+        <translation>
+            <numerusform>%n분 지남</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n hour(s) ago</source>
+        <translation>
+            <numerusform>%n시간 지남</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n day(s) ago</source>
+        <translation>
+            <numerusform>%n일 지남</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>(empty note)</source>
+        <translation>(빈 메모)</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>확인</translation>
+    </message>
+    <message>
+        <source>Done: %1</source>
+        <translation>확인: %1</translation>
+    </message>
+</context>
+<context>
     <name>NewCategoryDialog</name>
     <message>
         <source>New category</source>
@@ -2123,36 +2183,12 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
 <context>
     <name>ReminderBar</name>
     <message>
-        <source>Tomorrow morning</source>
-        <translation>내일 아침</translation>
-    </message>
-    <message numerus="yes">
-        <source>In %n hour(s)</source>
-        <translation>
-            <numerusform>%n시간 뒤</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>In %n minute(s)</source>
-        <translation>
-            <numerusform>%n분 뒤</numerusform>
-        </translation>
-    </message>
-    <message>
         <source>Reminder, %1</source>
         <translation>알림, %1</translation>
     </message>
     <message>
         <source>Done</source>
         <translation>확인</translation>
-    </message>
-    <message>
-        <source>Remind me again</source>
-        <translation>다시 알림</translation>
-    </message>
-    <message>
-        <source>Remind me again: %1</source>
-        <translation>다시 알림: %1</translation>
     </message>
 </context>
 <context>
@@ -2819,6 +2855,33 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
 </context>
 <context>
+    <name>SnoozeButton</name>
+    <message>
+        <source>Remind me again</source>
+        <translation>다시 알림</translation>
+    </message>
+    <message>
+        <source>Remind me again: %1</source>
+        <translation>다시 알림: %1</translation>
+    </message>
+    <message>
+        <source>Tomorrow morning</source>
+        <translation>내일 아침</translation>
+    </message>
+    <message numerus="yes">
+        <source>In %n hour(s)</source>
+        <translation>
+            <numerusform>%n시간 뒤</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>In %n minute(s)</source>
+        <translation>
+            <numerusform>%n분 뒤</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>StickleWindow</name>
     <message>
         <source>New note</source>
@@ -2895,6 +2958,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>받기(&amp;G)…</translation>
     </message>
     <message>
+        <source>&amp;View…</source>
+        <translation>보기(&amp;V)…</translation>
+    </message>
+    <message>
         <source>Set &amp;again…</source>
         <translation>다시 정하기(&amp;A)…</translation>
     </message>
@@ -2905,6 +2972,12 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>(empty note)</source>
         <translation>(빈 메모)</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n missed reminder(s).</source>
+        <translation>
+            <numerusform>지난 알림이 %n개 있습니다.</numerusform>
+        </translation>
     </message>
     <message>
         <source>On %1 a new recovery key was made on this computer.</source>
@@ -3051,6 +3124,12 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>&amp;Get Stickle %1…</source>
         <translation>Stickle %1 받기(&amp;G)…</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n &amp;missed reminder(s)…</source>
+        <translation>
+            <numerusform>지난 알림 %n개(&amp;M)…</numerusform>
+        </translation>
     </message>
     <message>
         <source>&amp;Open Stickle Manager</source>
