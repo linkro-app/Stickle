@@ -213,6 +213,18 @@ def test_all_done(app: App, dialog: MissedDialog) -> None:
     assert app.keeper.has(daily)
 
 
+def test_enter_presses_the_button_with_the_keyboard(app: App, dialog: MissedDialog) -> None:
+    once, daily = gone_by(app)
+    dialog.present()
+
+    QTest.keyClick(dialog.rows[1].done_button, Qt.Key.Key_Return)
+    assert [row.missed.note_id for row in dialog.rows] == [once]
+    QTest.keyClick(dialog.all_button, Qt.Key.Key_Return)
+
+    assert app.keeper.missed == set()
+    assert app.keeper.has(daily)
+
+
 def test_up_and_down_go_from_line_to_line(app: App, dialog: MissedDialog) -> None:
     gone_by(app)
     dialog.present()
