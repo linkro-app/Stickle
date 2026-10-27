@@ -17,8 +17,10 @@ from the other and the other is brought in line; a damaged one is set aside
 are also kept in the database (stickle.data.key_copies): with both files
 gone, they come back from there once the notes are open. A is not: it is
 needed to open them. While Stickle runs it is the same: a copy gone or
-damaged is put back from a sound one (the second, then the database's), and
-set aside only when none can be read.
+damaged is put back from a sound one (the second, then the database's), the
+database's then made the same, and set aside only when none can be read. The
+data folder's copy is written after the second: a writing that fails leaves
+it as it was.
 
 The old names are renamed the first time; while one cannot be, it is read as
 it is. File names and folders are never logged.
@@ -188,6 +190,8 @@ class KeyFiles:
                     write_bytes(self.path(name), kept)
                     if _read(self.second_path(name)) is None:
                         self._write_second(name, kept)
+                    if self.copies is not None and name in IN_DATABASE and stored != kept:
+                        self.copies.put(name, kept)  # the notes' copy follows it too
                     how = "damaged: set aside" if damaged else "gone"
                     log.warning("%s %s while running, put back", WHAT[name], how)
                 except OSError as error:
@@ -201,7 +205,9 @@ class KeyFiles:
         return None if data is None else slots_of(parse_document(data))
 
     def save(self, name: str, slots: dict[str, Any]) -> None:
-        """Written in the data folder, then its second copy, then the database.
+        """Written in the second copy, then the data folder, then the database:
+        should a writing fail, the data folder's copy, the one read, is still the
+        old one, as the failure says (the second follows it at the next start).
         Fields of the file this version does not know are kept."""
         kept: dict[str, object] = {}
         current = self.raw(name)
@@ -209,11 +215,11 @@ class KeyFiles:
             assert current is not None
             kept = {k: v for k, v in parse_document(current).items() if k not in DOCUMENT_FIELDS}
         content = document_bytes(slots, kept)
+        self._write_second(name, content)
         write_bytes(self.path(name), content)
         if name in OLD_NAMES:
             # Read before the new name, had it not been renamed: no longer.
             (self.folder / OLD_NAMES[name]).unlink(missing_ok=True)
-        self._write_second(name, content)
         if self.copies is not None and name in IN_DATABASE:
             self.copies.put(name, content)
 

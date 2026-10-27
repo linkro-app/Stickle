@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from unittest import mock
 
+import pytest
 from hypothesis import HealthCheck, settings
 from hypothesis import strategies as st
 from hypothesis.stateful import (
@@ -1076,4 +1077,18 @@ def test_going_back_brings_back_no_older_key_file(qapp: QApplication) -> None:
         state.change_password("second secret", stop=None)
         state.lose_copies(C, {"data", "second"}, damage=False)
         state.go_back(pick=0, with_password=False, stop=None)
+        holds(state)
+
+
+@pytest.mark.parametrize("failing", [0, 1, 2])
+def test_secret_notes_are_never_sealed_for_a_key_file_written_halfway(
+    qapp: QApplication, failing: int
+) -> None:
+    with machine() as state:
+        state.first_start(old=True)
+        state.write_note("")
+        # Typing the 0.5 recovery key once fails at one of its writings.
+        state.type_old_recovery_key(stop=(failing, "fail"))
+        state.make_secret(pick=0, title="", forgot=False, password="first secret", stop=None)
+        state.lose_files(B, damage=False)
         holds(state)

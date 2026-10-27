@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from stickle.crypto import key_files
 from stickle.crypto.key_files import NAMES, A, B, C, KeyFiles
 from stickle.crypto.keyfile import WARNING, KeyFileError, document_bytes, write_slots
 from stickle.crypto.master import set_master
@@ -94,6 +95,46 @@ def test_a_copy_gone_while_running_comes_back_from_the_other(tmp_path: Path) -> 
     assert files.load(A) == {A: {"x": 1}}  # never taken for "none"
     assert files.load(C) == {C: {"x": 1}}
     assert files.path(C).read_bytes() == files.second_path(C).read_bytes()  # put back
+
+
+def test_a_copy_put_back_while_running_is_the_notes_copy_too(tmp_path: Path) -> None:
+    files = files_with(tmp_path, C)
+    notes = Database()
+    files.keep_in(notes)
+    notes.put(C, b"an older copy")  # its writing failed, say
+    files.path(C).unlink()
+
+    assert files.load(C) == {C: {"x": 1}}  # from the second copy
+    assert notes.get(C) == files.path(C).read_bytes()
+
+
+@pytest.mark.parametrize("failing", ["data", "second"])
+def test_a_writing_that_fails_leaves_the_copy_that_counts_as_it_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    # Said to have failed, it has: the data folder's copy, which is the one read,
+    # and the notes' copy are the old ones, whichever file could not be written.
+    files = files_with(tmp_path, C)
+    notes = Database()
+    files.keep_in(notes)
+    before = files.path(C).read_bytes()
+    real_write = key_files.write_bytes
+    refused = files.path(C) if failing == "data" else files.second_path(C)
+
+    def write_bytes(path: Path, data: bytes) -> None:
+        if path == refused:
+            raise OSError("disk full")
+        real_write(path, data)
+
+    monkeypatch.setattr(key_files, "write_bytes", write_bytes)
+    with pytest.raises(OSError):
+        files.save(C, {C: {"x": 2}})
+    monkeypatch.undo()
+
+    assert files.path(C).read_bytes() == before
+    assert notes.get(C) == before
+    files.prepare()  # the next start: the second copy follows the data folder's
+    assert files.second_path(C).read_bytes() == before
 
 
 def test_with_both_files_gone_while_running_the_notes_copy_is_read(tmp_path: Path) -> None:
