@@ -276,6 +276,22 @@ def test_one_gone_by_while_stickle_was_not_running_does_not_ring_late(
     assert len(app.keeper.missed) == 1
 
 
+def test_one_gone_by_and_set_again_rings_at_its_new_time(
+    app: App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = app.note("회의 준비")
+    answering(monkeypatch, lambda dialog: dialog.hour_button.click())
+    window.reminder_action.trigger()
+    app.at("2026-11-02T04:03:00.000Z")
+    assert len(app.keeper.missed) == 1
+
+    window.reminder_action.trigger()  # set again, an hour from now: 14:03 in Seoul
+
+    assert app.keeper.missed == set()
+    app.at("2026-11-02T05:03:01.000Z")
+    assert window.ringing
+
+
 def test_kept_out_of_sight_until_it_rings(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
     def hidden(dialog: ReminderDialog) -> None:
         dialog.hour_button.click()

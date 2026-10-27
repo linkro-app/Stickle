@@ -79,7 +79,7 @@ def time_of_day(moment_utc: datetime) -> str:
 class ReminderKeeper(QObject):
     # Set, changed, turned off or dealt with: what shows the times refreshes.
     changed = Signal()
-    # Reminders gone by while Stickle was not running were found.
+    # Reminders gone by while Stickle was not running were found, or are no longer.
     missed_changed = Signal()
 
     def __init__(
@@ -302,22 +302,29 @@ class ReminderKeeper(QObject):
             pending = self._repository.pending()
         except apsw.Error as error:
             log.error("could not read reminders: %s", type(error).__name__)
-            pending = []
+            self._timer.start(CHECK_AT_MOST_MS)
+            return
         ringing = {reminder_id for rung in self._ringing.values() for reminder_id in rung}
+        # Counted again each time: one set anew, dealt with or gone is no longer.
+        missed: set[str] = set()
         for reminder in pending:
             at = reminder.rings_at(self.here)
             if at is None:
                 continue
             if at > now:
                 soonest = at if soonest is None else min(soonest, at)
-            elif reminder.id in ringing or reminder.id in self.missed:
+            elif reminder.id in ringing:
                 continue
+            elif reminder.id in self.missed:
+                missed.add(reminder.id)
             elif now - at > LATE:
-                self.missed.add(reminder.id)
+                missed.add(reminder.id)
                 log.info("a reminder went by unrung")
-                self.missed_changed.emit()
             else:
                 self._ring(reminder, at)
+        if missed != self.missed:
+            self.missed = missed
+            self.missed_changed.emit()
         wait = CHECK_AT_MOST_MS
         if soonest is not None:
             wait = min(wait, max(0, int((soonest - now).total_seconds() * 1000) + 1))
