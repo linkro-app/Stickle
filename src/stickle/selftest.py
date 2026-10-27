@@ -163,14 +163,21 @@ def font_checks() -> list[tuple[str, str]]:
     try:
         from PySide6.QtWidgets import QApplication
 
-        from stickle.app.fonts import ensure_korean_font, korean_is_drawable
+        from stickle.app.fonts import (
+            alarm_clock_is_drawable,
+            ensure_alarm_clock_font,
+            ensure_korean_font,
+            korean_is_drawable,
+        )
 
         _app = QApplication.instance() or QApplication([])
         bundled = ensure_korean_font()
         drawable = korean_is_drawable()
+        bundled_emoji = ensure_alarm_clock_font()
+        alarm_clock = alarm_clock_is_drawable()
         from PySide6.QtGui import QFont
 
-        from stickle.app.fonts import CODE_FONT, code_family, lines_up
+        from stickle.app.fonts import CODE_FONT, EMOJI_FONT, code_family, lines_up
 
         family = code_family()
         aligned = lines_up(QFont(family))
@@ -180,6 +187,11 @@ def font_checks() -> list[tuple[str, str]]:
     return [
         ("PASS" if drawable else "FAIL", "Korean text has a font"),
         ("INFO", f"Korean drawn with {source}"),
+        (
+            "PASS" if alarm_clock else "FAIL" if EMOJI_FONT.exists() else "UNAVAILABLE",
+            "the alarm clock of reminders is drawn"
+            + (f" (with the bundled {bundled_emoji})" if bundled_emoji else ""),
+        ),
         (
             "PASS" if aligned else "FAIL" if CODE_FONT.exists() else "UNAVAILABLE",
             f"code has a fixed-pitch font ({family})",  # builds bring one
