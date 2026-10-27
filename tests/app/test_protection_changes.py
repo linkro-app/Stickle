@@ -218,6 +218,43 @@ def test_the_screen_saver_starting_is_a_lock_and_ending_an_unlock() -> None:
     assert heard == ["lock", "unlock"]
 
 
+class Bus:
+    """The session bus, as far as the watcher uses it: what it listens to."""
+
+    def __init__(self) -> None:
+        self.heard: list[tuple[str, str, str, str]] = []
+
+    def isConnected(self) -> bool:  # noqa: N802 - Qt's name
+        return True
+
+    def connect(self, service: str, path: str, interface: str, name: str, *_: object) -> bool:
+        self.heard.append((service, path, interface, name))
+        return True
+
+
+@pytest.mark.parametrize(
+    "service",
+    [
+        "org.gnome.ScreenSaver",  # GNOME
+        "org.freedesktop.ScreenSaver",  # KDE and others
+        "org.cinnamon.ScreenSaver",  # Linux Mint's Cinnamon
+        "org.mate.ScreenSaver",  # MATE
+        "org.xfce.ScreenSaver",  # Xfce
+    ],
+)
+def test_each_desktops_screen_saver_is_listened_to(
+    monkeypatch: pytest.MonkeyPatch, service: str
+) -> None:
+    bus = Bus()
+    monkeypatch.setattr(
+        "stickle.platform.linux.session.QDBusConnection.sessionBus", staticmethod(lambda: bus)
+    )
+
+    ScreenSaverWatcher(lambda: None, lambda: None)
+
+    assert (service, "ActiveChanged") in {(s, name) for s, _p, _i, name in bus.heard}
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
 def test_windows_tells_of_the_lock_and_the_unlock() -> None:
     if sys.platform != "win32":  # also tells the type checker this is Windows
