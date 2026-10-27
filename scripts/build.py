@@ -29,6 +29,7 @@ ICON_FILE = BUILD_DIR / "stickle.ico"
 # which must ship next to it). Pinned release, checked against its digest.
 NOTO_CJK = "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004"
 NOTO = "https://raw.githubusercontent.com/notofonts/notofonts.github.io/e3ff34c3178cb4012124c9e6390b9a3535ff2c3f"
+NOTO_EMOJI = "https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/notoemoji"
 LINUX_FONT_FILES = [
     (
         f"{NOTO_CJK}/Sans/OTF/Korean/NotoSansCJKkr-Regular.otf",
@@ -50,6 +51,18 @@ LINUX_FONT_FILES = [
         f"{NOTO}/fonts/LICENSE",
         "f2095b08bed08b23a6fe26112fcd679a2bee3f002eef077eb05d215ed1051bd8",
         "NotoSansMono-OFL.txt",
+    ),
+    # For the alarm clock of reminders, on systems whose emoji font is missing or
+    # not drawn by Qt (Fedora's): see stickle.app.fonts.
+    (
+        f"{NOTO_EMOJI}/NotoEmoji%5Bwght%5D.ttf",
+        "de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551",
+        "NotoEmoji.ttf",
+    ),
+    (
+        f"{NOTO_EMOJI}/OFL.txt",
+        "500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b",
+        "NotoEmoji-OFL.txt",
     ),
 ]
 

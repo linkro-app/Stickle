@@ -6,11 +6,14 @@ is in use keeps its keyboard for that one, and the strip has it once the note
 is used.
 """
 
+import html
 from typing import override
 
 from PySide6.QtCore import QCoreApplication, QEvent, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QToolButton, QWidget
+
+from stickle.app.fonts import AS_TEXT, alarm_clock_family
 
 TOMORROW_MORNING = -1  # in place of minutes: the morning time, tomorrow
 SNOOZES = (5, 10, 30, 60, TOMORROW_MORNING)
@@ -100,7 +103,15 @@ class ReminderBar(QFrame):
         self.show()
 
     def retranslate(self) -> None:
-        self.time_label.setText("⏰ " + self.when if self.when else "")
+        family = alarm_clock_family()
+        if not self.when:
+            self.time_label.setText("")
+        elif family is None:
+            self.time_label.setText("⏰ " + self.when)
+        else:
+            # The alarm clock alone in the font that draws it (see stickle.app.fonts).
+            mark = f"<span style=\"font-family: '{family}'\">⏰{AS_TEXT}</span>"
+            self.time_label.setText(f"{mark} {html.escape(self.when)}")
         name = QCoreApplication.translate("ReminderBar", "Reminder, %1").replace("%1", self.when)
         self.setAccessibleName(name)
         self.time_label.setAccessibleName(name)

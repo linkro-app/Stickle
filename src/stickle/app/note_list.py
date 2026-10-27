@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.fonts import alarm_clock_family
 from stickle.app.labels import category_item_icon, keyhole_item_icon, mark_item_icon, mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.palette import swatch_icon
@@ -274,7 +275,9 @@ class NoteList(QWidget):
             states.append(self.tr("locked"))
         reminder = self._reminders.get(note.id)
         if reminder is not None:
-            states.append("⏰ " + local_time(stamp_of(reminder)))
+            # The alarm clock, or a word where it would not show (see stickle.app.fonts).
+            mark = "⏰" if alarm_clock_family() is None else self.tr("Reminder")
+            states.append(f"{mark} {local_time(stamp_of(reminder))}")
         return " · ".join([title, *states])
 
     @property

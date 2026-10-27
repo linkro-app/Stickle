@@ -174,12 +174,34 @@ def font_checks() -> list[tuple[str, str]]:
 
         family = code_family()
         aligned = lines_up(QFont(family))
+        from stickle.app.fonts import (
+            ALARM_CLOCK,
+            AS_TEXT,
+            EMOJI_FONT,
+            alarm_clock_is_drawable,
+            draws,
+            ensure_alarm_clock_font,
+        )
+
+        bundled_emoji = ensure_alarm_clock_font()
+        if bundled_emoji is None:
+            alarm_clock = alarm_clock_is_drawable()
+        else:
+            # As Stickle writes it where the system cannot draw it (see stickle.app.fonts).
+            emoji = QFont()
+            emoji.setFamilies([bundled_emoji])
+            alarm_clock = draws(ALARM_CLOCK + AS_TEXT, emoji)
     except Exception as error:
         return [("FAIL", f"Korean font check could not run ({type(error).__name__}: {error})")]
     source = f"the bundled {bundled}" if bundled else "a system font"
     return [
         ("PASS" if drawable else "FAIL", "Korean text has a font"),
         ("INFO", f"Korean drawn with {source}"),
+        (
+            "PASS" if alarm_clock else "FAIL" if EMOJI_FONT.exists() else "UNAVAILABLE",
+            "the alarm clock of reminders is drawn"
+            + (f" (with the bundled {bundled_emoji})" if bundled_emoji else ""),
+        ),
         (
             "PASS" if aligned else "FAIL" if CODE_FONT.exists() else "UNAVAILABLE",
             f"code has a fixed-pitch font ({family})",  # builds bring one

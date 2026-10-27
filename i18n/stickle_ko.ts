@@ -1440,6 +1440,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>잠김</translation>
     </message>
     <message>
+        <source>Reminder</source>
+        <translation>알림</translation>
+    </message>
+    <message>
         <source>Enter brings the note back; Delete empties it from the trash for good.</source>
         <translation>Enter로 메모를 되살리고, Delete로 휴지통에서 영구히 지웁니다.</translation>
     </message>

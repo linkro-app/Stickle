@@ -48,7 +48,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QTextEdit, QToolButton, QToolTip, QWidget
 
-from stickle.app.fonts import code_family
+from stickle.app.fonts import AS_TEXT, alarm_clock_family, code_family
 from stickle.app.palette import qcolor
 from stickle.app.times import moment_text
 from stickle.core.colors import DEFAULT_COLOR, NoteColors, note_colors
@@ -330,7 +330,15 @@ class _Builder:
         for code in codes(text):
             if code.start > written:
                 self._cursor.insertText(text[written : code.start], self._char_format())
-            self._cursor.insertText(reminder_text(code, look.morning), self._reminder_format(code))
+            shown, char = reminder_text(code, look.morning), self._reminder_format(code)
+            family = alarm_clock_family()
+            if family is not None and shown.startswith(MARK):
+                # The alarm clock alone in the font that draws it (see stickle.app.fonts).
+                mark = QTextCharFormat(char)
+                mark.setFontFamilies([family])
+                self._cursor.insertText(MARK + AS_TEXT, mark)
+                shown = shown[len(MARK) :]
+            self._cursor.insertText(shown, char)
             written = code.end
         if written < len(text):
             self._cursor.insertText(text[written:], self._char_format())

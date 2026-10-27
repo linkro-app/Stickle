@@ -13,6 +13,8 @@ from PySide6.QtGui import QTextCursor
 from pytestqt.qtbot import QtBot
 from test_reminder_ringing import App, answering
 
+from stickle.app import fonts
+from stickle.app.note_list import NoteList
 from stickle.app.reminder_dialog import ReminderDialog
 from stickle.core.reminders import Rule, time_zone
 from stickle.crypto.secret_notes import seal_text
@@ -199,3 +201,34 @@ def test_a_stored_note_opens_with_its_reminders_shown_as_days_and_times(app: App
 
     assert f"{MARK}2026" not in shown
     assert MARK + " " in shown
+
+
+def test_where_the_alarm_clock_would_not_show_it_is_written_in_the_bundled_font(
+    app: App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As on Fedora: the system's emoji font has it in a form Qt draws as nothing.
+    monkeypatch.setattr(fonts, "_alarm_clock_family", "Noto Emoji")
+    window = app.note(f"보고서 {MARK}2026-11-05 10:00")
+    window.show_formatted()
+
+    pieces: list[tuple[str, list[str]]] = []
+    block = window.view.document().firstBlock()
+    while block.isValid():
+        it = block.begin()
+        while not it.atEnd():
+            fragment = it.fragment()
+            pieces.append((fragment.text(), fragment.charFormat().fontFamilies() or []))
+            it += 1
+        block = block.next()
+    # The alarm clock alone, as a text character, in that font; nothing else in it.
+    assert (MARK + fonts.AS_TEXT, ["Noto Emoji"]) in pieces
+    assert all(families == [] for text, families in pieces if MARK not in text)
+
+    window.ring("10:00", 10)
+    assert "Noto Emoji" in window.reminder_bar.time_label.text()
+    assert fonts.AS_TEXT in window.reminder_bar.time_label.text()
+
+    listed = NoteList(app.manager)
+    assert MARK not in listed.list.item(0).text()
+    assert "Reminder " in listed.list.item(0).text()
+    listed.deleteLater()
