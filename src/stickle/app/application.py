@@ -455,7 +455,8 @@ def notifier(tray: Tray, tray_available: bool) -> Callable[[str, str], object] |
 
         return notify
     if tray_available:
-        return lambda title, text: tray.showMessage(title, text)
+        # With Stickle's own icon, not the system's "information" one.
+        return lambda title, text: tray.showMessage(title, text, tray.icon())
     return None
 
 
