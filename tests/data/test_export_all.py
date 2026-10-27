@@ -1,11 +1,12 @@
 """Exporting everything: Markdown files to read anywhere, and JSON with all the data."""
 
 import base64
+import errno
 import json
 import secrets
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import apsw
 import pytest
@@ -121,6 +122,23 @@ def test_nothing_is_overwritten(connection: apsw.Connection, tmp_path: Path) -> 
 
     assert first != second
     assert second.name == f"{first.name} 2"
+
+
+def test_a_name_the_file_system_refuses_gives_way_to_a_plain_one(
+    connection: apsw.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    note = NoteRepository(connection).create("회의록\n내일까지")
+    real_open: Callable[..., Any] = Path.open
+
+    def refusing(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path.name.startswith("회의록"):
+            raise OSError(errno.EILSEQ, "Illegal byte sequence", str(path))
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", refusing)
+    result = export_all(connection, tmp_path, "0.5.0", clock=lambda: NOW)
+
+    assert markdown(result.folder) == {f"note ({note.id[:8]}).md": "회의록\n내일까지"}
 
 
 # Secret notes: as they are stored, or opened with their key

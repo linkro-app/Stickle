@@ -106,6 +106,9 @@ def test_a_database_without_notes_is_reported(tmp_path: Path) -> None:
         ("끝에 점...", "끝에 점 (abcdefgh)"),
         ("가" * 80, "가" * 50 + " (abcdefgh)"),
         ("tab\there", "tab here (abcdefgh)"),
+        # Not in Unicode yet: macOS refuses it in a name.
+        ("가" + chr(0x12544) + "나", "가나 (abcdefgh)"),
+        (chr(0x12544), "note (abcdefgh)"),
     ],
 )
 def test_file_names_are_safe_on_every_system(body: str, stem: str) -> None:

@@ -22,9 +22,11 @@ in place of the encrypted one. Their files are named after their titles.
 import base64
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TextIO
 
 import apsw
 
@@ -66,7 +68,9 @@ class _Secret:
 
 
 def file_stem(body: str, note_id: str) -> str:
-    title = " ".join(_UNSAFE.sub(" ", first_line(body)).split())[:NAME_LENGTH]
+    # Characters not in Unicode yet are left out too: macOS refuses them in names.
+    line = "".join(c for c in first_line(body) if unicodedata.category(c) != "Cn")
+    title = " ".join(_UNSAFE.sub(" ", line).split())[:NAME_LENGTH]
     title = title.rstrip(". ") or "note"
     # Part of the id keeps names unique and never a reserved name such as CON.
     suffix = _UNSAFE.sub("", note_id)[:8]
@@ -105,6 +109,17 @@ def _free(path: Path) -> Path:
     return candidate
 
 
+def _new_file(place: Path, stem: str, note_id: str) -> TextIO:
+    """A new file in place named stem, or a plain name with the note's id if the
+    file system refuses that one (each refuses some characters the others take).
+    newline="" keeps the text exactly as stored."""
+    try:
+        return _free(place / f"{stem}.md").open("x", encoding="utf-8", newline="")
+    except OSError:
+        plain = _free(place / f"{file_stem('', note_id)}.md")
+        return plain.open("x", encoding="utf-8", newline="")
+
+
 def export_markdown(
     database: Path,
     key: bytes,
@@ -129,11 +144,10 @@ def export_markdown(
         place.mkdir(exist_ok=True)
         if secret_title is not None:
             text = _locked_markdown(secret_title, locked_line)
-            path = _free(place / f"{file_stem(secret_title, note_id)}.md")
+            stem = file_stem(secret_title, note_id)
         else:
-            text, path = body, _free(place / f"{file_stem(body, note_id)}.md")
-        # newline="" keeps the text exactly as stored.
-        with path.open("x", encoding="utf-8", newline="") as file:
+            text, stem = body, file_stem(body, note_id)
+        with _new_file(place, stem, note_id) as file:
             file.write(text)
         deleted_count += deleted
     return ExportResult(folder, len(rows) - deleted_count, deleted_count)
@@ -251,10 +265,10 @@ def export_all(
         if locked is not None:
             # Named after the title typed for it: its text, if opened, may say more.
             text = texts.get(note_id, _locked_markdown(locked.title, secret.locked_line))
-            path = _free(place / f"{file_stem(locked.title, note_id)}.md")
+            stem = file_stem(locked.title, note_id)
         else:
-            text, path = body, _free(place / f"{file_stem(body, note_id)}.md")
-        with path.open("x", encoding="utf-8", newline="") as file:
+            text, stem = body, file_stem(body, note_id)
+        with _new_file(place, stem, note_id) as file:
             file.write(text)
         deleted_count += deleted
     document: dict[str, object] = {
