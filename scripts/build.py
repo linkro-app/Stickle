@@ -138,6 +138,8 @@ def nuitka_command() -> list[str]:
         # Needs Qt6Pdf, which is not shipped; notes never show PDFs.
         "--noinclude-dlls=PySide6/qt-plugins/imageformats/qpdf*",
         "--include-package-data=stickle",
+        # The time zone data reminders ring by (Windows has none of its own).
+        "--include-package-data=tzdata",
         # Optional SQLite extensions that ship with apsw; notes use none of them.
         "--noinclude-dlls=apsw/sqlite_extra_binaries/*",
         "--noinclude-data-files=apsw/sqlite_extra_binaries/*",

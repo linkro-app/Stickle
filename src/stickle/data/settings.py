@@ -149,6 +149,27 @@ RELOCK_MINUTES = Setting[int]("relock_minutes", "shared", 5, _minutes)
 # It also locks as soon as another window is used, if chosen.
 LOCK_ON_LEAVE = Setting[bool]("lock_on_leave", "shared", False, _flag)
 
+
+def _time_of_day(value: object) -> TypeGuard[str]:
+    """Hours and minutes, as "09:00"."""
+    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+        return False
+    hours, minutes = value[:2], value[3:]
+    return hours.isdigit() and minutes.isdigit() and int(hours) < 24 and int(minutes) < 60
+
+
+SNOOZE_CHOICES = (5, 10, 30, 60)
+
+
+def _snooze(value: object) -> TypeGuard[int]:
+    return not isinstance(value, bool) and value in SNOOZE_CHOICES
+
+
+# Reminders: the morning ("tomorrow morning", and a reminder with a date only),
+# and how long "remind me again" waits unless another time is chosen (minutes).
+MORNING = Setting[str]("morning", "shared", "09:00", _time_of_day)
+SNOOZE_MINUTES = Setting[int]("snooze_minutes", "shared", 10, _snooze)
+
 CHANGE_KINDS = (
     "recovery_key",
     "master_password_set",
@@ -204,6 +225,8 @@ SETTINGS: dict[str, Setting[object]] = {
         RANDOM_COLOR,
         LAST_USED_COLOR,
         PROTECTION_CHANGES,
+        MORNING,
+        SNOOZE_MINUTES,
     )
 }
 

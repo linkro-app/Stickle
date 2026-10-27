@@ -75,6 +75,7 @@ def run_checks() -> list[tuple[str, str]]:
     results += credential_checks()
     results += font_checks()
     results.append(icon_check())
+    results.append(time_zone_check())
     results += input_method_checks()
     results.append(start_at_login_check())
     results += store_package_check()
@@ -258,6 +259,15 @@ def password_check() -> tuple[str, str]:
     except Exception:
         ok = False
     return ("PASS" if ok else "FAIL", "password protection (libsodium)")
+
+
+def time_zone_check() -> tuple[str, str]:
+    """Reminders ring by the time zone data kept with the app (Windows has none):
+    it must be in the package."""
+    from stickle.core.reminders import is_known_zone
+
+    ok = all(is_known_zone(name) for name in ("Asia/Seoul", "America/New_York", "UTC"))
+    return ("PASS" if ok else "FAIL", "time zone data for reminders (tzdata)")
 
 
 def main() -> int:

@@ -35,6 +35,7 @@ from stickle.app.placement import monitors
 from stickle.app.protection_changes import ProtectionChanges
 from stickle.app.recovery_key_dialog import RecoveryKeys
 from stickle.app.recovery_offer import RecoveryOffer
+from stickle.app.reminders import ReminderKeeper, system_zone
 from stickle.app.secret_dialogs import SecretPasswords
 from stickle.app.shortcuts import GlobalShortcuts, no_portal
 from stickle.app.signals import SignalWatcher
@@ -65,6 +66,7 @@ from stickle.data.export import ExportResult, SecretExport, export_all
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
+from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import MigrationError, latest_version
 from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.data.startup import StartupSettings
@@ -445,6 +447,18 @@ def secret_passwords(
     )
 
 
+def notifier(tray: Tray, tray_available: bool) -> Callable[[str, str], object] | None:
+    """How a reminder is told to the system once: on Linux through the desktop
+    (GNOME has no tray to tell it from), elsewhere through the tray icon."""
+    if sys.platform == "linux":
+        from stickle.platform.linux.notifications import notify
+
+        return notify
+    if tray_available:
+        return lambda title, text: tray.showMessage(title, text)
+    return None
+
+
 def tell_changes(changes: ProtectionChanges, window: StickleWindow, tray: Tray | None) -> None:
     """Changes now due are told: at the top of Stickle Manager and, with it
     closed, in one notification of the system (a click on it opens it)."""
@@ -689,6 +703,18 @@ def run(
         )
         tray = Tray(manager.new_note, app.quit, translations, manager, updates)
         tray.show()
+        # Before any note opens: each shows its reminder (not when measuring).
+        reminders = (
+            ReminderKeeper(
+                ReminderRepository(connection, device=Settings(connection).device_id()),
+                manager,
+                Settings(connection),
+                notify=notifier(tray, tray_available),
+                zone=system_zone(),
+            )
+            if connection is not None and perf is None
+            else None
+        )
         # Changes to what protects the notes, told at a start or an unlock (not when measuring).
         changes = (
             ProtectionChanges(Settings(connection))
@@ -767,6 +793,8 @@ def run(
             if connection is not None:
                 give_news(NoteRepository(connection), Settings(connection), first_start)
             open_at_start(manager, stickle_window, tray_available, at_login)
+            if reminders is not None:
+                reminders.start()
             # Changes made in an earlier run are told now, and anything made later
             # once the computer has been locked and unlocked; locking it locks
             # the secret notes left open.

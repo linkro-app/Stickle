@@ -103,13 +103,15 @@ class CategoryTag(_TitleBarPart):
     on top. As large as the title's letters. It only shows the state: the
     category is changed from the note menu, staying on top with the pin. A
     secret note shows a keyhole instead, and not its category: filled while
-    locked, in outline while open."""
+    locked, in outline while open. A small alarm clock at its corner: a
+    reminder is coming, at the time its tooltip says."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.category: Category | None = None
         self.on_top = False
         self.secret: Literal["locked", "open"] | None = None
+        self.reminder: str | None = None  # when it rings next, as the user reads it
         self.background = QColor(Qt.GlobalColor.white)
         # Not a button: a press here starts moving the note, as on the bar.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -135,6 +137,11 @@ class CategoryTag(_TitleBarPart):
         self.background = background
         self.update()
 
+    def set_reminder(self, when: str | None) -> None:
+        self.reminder = when
+        self.retranslate()
+        self.update()
+
     def retranslate(self) -> None:
         if self.secret == "locked":
             text = QCoreApplication.translate("CategoryTag", "Secret note, covered")
@@ -150,6 +157,12 @@ class CategoryTag(_TitleBarPart):
             )
         if self.on_top:
             text = QCoreApplication.translate("CategoryTag", "%1, stays on top").replace("%1", text)
+        if self.reminder is not None:
+            text = (
+                QCoreApplication.translate("CategoryTag", "%1, reminder %2")
+                .replace("%2", self.reminder)
+                .replace("%1", text)
+            )
         self.setAccessibleName(text)
         self.setToolTip(text)
 
@@ -183,6 +196,7 @@ class CategoryTag(_TitleBarPart):
             size,
             self.devicePixelRatioF(),
             self.secret,
+            alarm=self.reminder is not None,
         )
         painter = QPainter(self)
         painter.drawPixmap(QPointF(PADDING, (self.height() - size) / 2), icon)

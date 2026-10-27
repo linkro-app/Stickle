@@ -9,9 +9,10 @@ shown.
 import itertools
 import logging
 from collections.abc import Callable
+from datetime import time
 from typing import override
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt
+from PySide6.QtCore import QEvent, QLocale, QObject, QSize, Qt, QTime
 from PySide6.QtGui import QFont, QGuiApplication, QKeyEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QTabWidget,
+    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -52,6 +54,7 @@ from stickle.app.window_flags import set_stays_on_top, stays_on_top
 from stickle.core.updates import FEED_HOST
 from stickle.crypto.keyfile import KeyFileError
 from stickle.data.colors import MAX_OWN_COLORS
+from stickle.data.settings import SNOOZE_CHOICES
 from stickle.platform.autostart import Autostart
 from stickle.platform.linux.appimage import AppMenuEntry
 from stickle.platform.linux.x11 import activate
@@ -193,6 +196,33 @@ class SettingsWindow(QDialog):
         notes.own_colors_changed.connect(self._refresh_own_colors)
         notes_layout.addStretch(1)
 
+        # Reminders: the morning, and how long "remind me again" waits.
+        self.reminders_page, reminders_layout = _page(self.tabs)
+        self.morning_label = QLabel(self.reminders_page)
+        self.morning_edit = QTimeEdit(self.reminders_page)
+        self.morning_edit.setDisplayFormat(QLocale().timeFormat(QLocale.FormatType.ShortFormat))
+        self.morning_label.setBuddy(self.morning_edit)
+        self.morning_edit.timeChanged.connect(self._set_morning)
+        self.morning_note = _hint(self.reminders_page)
+        self.snooze_label = QLabel(self.reminders_page)
+        self.snooze_box = QComboBox(self.reminders_page)
+        for minutes in SNOOZE_CHOICES:
+            self.snooze_box.addItem("", minutes)
+        self.snooze_label.setBuddy(self.snooze_box)
+        self.snooze_box.currentIndexChanged.connect(self._set_snooze)
+        for label, field in (
+            (self.morning_label, self.morning_edit),
+            (self.snooze_label, self.snooze_box),
+        ):
+            row = QHBoxLayout()
+            row.addWidget(label)
+            row.addWidget(field)
+            row.addStretch(1)
+            reminders_layout.addLayout(row)
+            if field is self.morning_edit:
+                reminders_layout.addWidget(self.morning_note)
+        reminders_layout.addStretch(1)
+
         self.protection, protection = _page(self.tabs)
         # When each was made or set, always in sight: a change made by someone
         # else at this computer shows here too.
@@ -261,11 +291,13 @@ class SettingsWindow(QDialog):
         for page in (
             self.general,
             self.notes_page,
+            self.reminders_page,
             self.protection,
             self.shortcuts_page,
             self.connections_page,
         ):
             self.tabs.addTab(page, "")
+        self.tabs.setTabVisible(self.tabs.indexOf(self.reminders_page), notes.reminders is not None)
         self.recovery_button.setVisible(recovery is not None)
         self.tabs.setTabVisible(
             self.tabs.indexOf(self.protection),
@@ -301,6 +333,8 @@ class SettingsWindow(QDialog):
             self.own_list,
             self.add_own_button,
             self.remove_own_button,
+            self.morning_edit,
+            self.snooze_box,
             self.recovery_button,
             self.master_button,
             self.check_master_button,
@@ -318,6 +352,22 @@ class SettingsWindow(QDialog):
         self.tabs.tabBar().setAccessibleName(self.tr("Settings"))
         self.tabs.setTabText(self.tabs.indexOf(self.general), self.tr("General"))
         self.tabs.setTabText(self.tabs.indexOf(self.notes_page), self.tr("Notes"))
+        self.tabs.setTabText(self.tabs.indexOf(self.reminders_page), self.tr("Reminders"))
+        self.morning_label.setText(self.tr("&Morning:"))
+        morning = self.tr(
+            'When "Tomorrow morning" and "Next Monday" ring, and a reminder written'
+            " with a day but no time."
+        )
+        self.morning_note.setText(morning)
+        self.morning_edit.setAccessibleDescription(morning)
+        self.snooze_label.setText(self.tr('"Remind me &again" waits:'))
+        for index, minutes in enumerate(SNOOZE_CHOICES):
+            self.snooze_box.setItemText(
+                index,
+                self.tr("%n hour(s)", "", minutes // 60)
+                if minutes % 60 == 0
+                else self.tr("%n minute(s)", "", minutes),
+            )
         self.tabs.setTabText(self.tabs.indexOf(self.protection), self.tr("Protection"))
         self.tabs.setTabText(self.tabs.indexOf(self.shortcuts_page), self.tr("Shortcuts"))
         self.tabs.setTabText(self.tabs.indexOf(self.connections_page), self.tr("Connections"))
@@ -389,6 +439,16 @@ class SettingsWindow(QDialog):
         self.magnet_box.setChecked(self._notes.magnet)
         self.random_box.setChecked(self._notes.random_color)
         self._refresh_own_colors()
+        reminders = self._notes.reminders
+        if reminders is not None:
+            # Shown as kept: not a change to keep.
+            for field in (self.morning_edit, self.snooze_box):
+                field.blockSignals(True)
+            morning = reminders.morning
+            self.morning_edit.setTime(QTime(morning.hour, morning.minute))
+            self.snooze_box.setCurrentIndex(SNOOZE_CHOICES.index(reminders.snooze_minutes))
+            for field in (self.morning_edit, self.snooze_box):
+                field.blockSignals(False)
         master = self._master is not None and self._master.exists()
         self.master_button.setVisible(self._master is not None)
         self.master_button.setText(
@@ -576,6 +636,14 @@ class SettingsWindow(QDialog):
 
     def _set_relock_minutes(self, minutes: int) -> None:
         self._notes.set_relock_minutes(minutes)
+
+    def _set_morning(self, at: QTime) -> None:
+        if self._notes.reminders is not None:
+            self._notes.reminders.set_morning(time(at.hour(), at.minute()))
+
+    def _set_snooze(self, index: int) -> None:
+        if self._notes.reminders is not None and index >= 0:
+            self._notes.reminders.set_snooze_minutes(SNOOZE_CHOICES[index])
 
     def _choose_language(self, index: int) -> None:
         code = self.language_box.itemData(index)

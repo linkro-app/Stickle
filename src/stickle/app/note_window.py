@@ -72,6 +72,7 @@ from stickle.app.labels import CategoryTag, MarksBadge, mark_name
 from stickle.app.note_highlight import MarkdownHighlighter
 from stickle.app.note_view import NoteView, from_utf16, utf16_length
 from stickle.app.palette import color_name, own_color_name, qcolor, swatch_icon
+from stickle.app.reminder_bar import ReminderBar
 from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.titles import secret_name
 from stickle.app.window_flags import keep_stays_on_top, set_stays_on_top, stays_on_top
@@ -556,6 +557,9 @@ class NoteWindow(QWidget):
     lock_secret_requested = Signal()  # open: to be locked now
     secret_title_requested = Signal()  # its title, to be changed
     ordinary_requested = Signal()  # a secret note, to be an ordinary one again
+    reminder_requested = Signal()  # its reminder, to be set, changed or turned off
+    reminder_dealt_with = Signal()  # it rang and was seen
+    reminder_snoozed = Signal(int)  # to ring again: in minutes, or TOMORROW_MORNING
     drag_started = Signal(bool)  # by its title bar; True: with Shift, the notes beside it along
     dragged_by = Signal(QPoint)  # moved by Stickle itself (with Shift), this far from the start
     switch_requested = Signal(int)  # 1: to the next note on screen, -1: the one before
@@ -719,6 +723,12 @@ class NoteWindow(QWidget):
         self.move_action.triggered.connect(lambda: self.start_keyboard(MOVE))
         self.resize_action = self.menu.addAction("")
         self.resize_action.triggered.connect(lambda: self.start_keyboard(RESIZE))
+        # Its own reminder: when it rings, and how often (stickle.app.reminders).
+        self.reminder_action = self.menu.addAction("")
+        self.reminder_action.setShortcut(QKeySequence("Ctrl+R"))
+        self.reminder_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+        self.reminder_action.triggered.connect(self.reminder_requested)
+        self.addAction(self.reminder_action)
         # Secret notes: those that apply now are shown (see _show_secret_state).
         self.secret_action = self.menu.addAction("")
         self.secret_action.triggered.connect(self.secret_requested)
@@ -774,10 +784,16 @@ class NoteWindow(QWidget):
         self.size_grip.installEventFilter(self)  # resized by it: lined up when let go
         grip_row.addWidget(self.size_grip)
 
+        # While its reminder rings.
+        self.reminder_bar = ReminderBar(self)
+        self.reminder_bar.dealt_with.connect(self.reminder_dealt_with)
+        self.reminder_bar.snoozed.connect(self.reminder_snoozed)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self.title_bar)
+        layout.addWidget(self.reminder_bar)
         layout.addWidget(self.stack)
         layout.addLayout(grip_row)
 
@@ -847,6 +863,7 @@ class NoteWindow(QWidget):
         self.lock_action.setText(self.tr("Lock note"))
         self.move_action.setText(self.tr("Move with the arrow keys"))
         self.resize_action.setText(self.tr("Resize with the arrow keys"))
+        self.reminder_action.setText(self.tr("Reminder…"))
         self.secret_action.setText(self.tr("Make it a secret note…"))
         self.open_secret_action.setText(self.tr("Show its text…"))
         self.lock_secret_action.setText(self.tr("Cover its text"))
@@ -1274,6 +1291,15 @@ class NoteWindow(QWidget):
             f"TitleBar QToolButton:hover {{ background: rgba({shade}, 0.12); }}"
             f"TitleBar QToolButton:pressed {{ background: rgba({shade}, 0.22); }}"
             "TitleBar QToolButton::menu-indicator { image: none; width: 0; }"
+            f"ReminderBar {{ background: rgba({shade}, 0.10); }}"
+            f"ReminderBar QLabel {{ color: {text}; }}"
+            "ReminderBar QPushButton, ReminderBar QToolButton {"
+            f" color: {text}; background: rgba({shade}, 0.08);"
+            f" border: 1px solid rgba({shade}, 0.35); border-radius: 4px; padding: 2px 8px; }}"
+            "ReminderBar QPushButton:hover, ReminderBar QToolButton:hover {"
+            f" background: rgba({shade}, 0.18); }}"
+            "ReminderBar QPushButton:focus, ReminderBar QToolButton:focus {"
+            f" border: 2px solid rgba({shade}, 0.8); }}"
         )
         self.title_bar.set_icon_color(qcolor(title), qcolor(self.colors.title_icon))
         self.title_bar.category_tag.set_background(qcolor(self.colors.title_bar))
@@ -1310,6 +1336,30 @@ class NoteWindow(QWidget):
     def announce(self, text: str) -> None:
         """Said by a screen reader now, without moving the keyboard."""
         QAccessible.updateAccessibility(QAccessibleAnnouncementEvent(self, text))
+
+    def ring(self, when: str, snooze_minutes: int) -> None:
+        """Its reminder for when rings: the strip at its top. The keyboard goes
+        there once the note is used, unless its text is being typed now."""
+        self.reminder_bar.ring(when, snooze_minutes)
+        if not (self.isActiveWindow() and self.editing):
+            self.reminder_bar.done_button.setFocus()
+        self.announce(self.reminder_bar.accessibleName())
+
+    def stop_ringing(self) -> None:
+        focus = QApplication.focusWidget()
+        had_keyboard = focus is not None and self.reminder_bar.isAncestorOf(focus)
+        self.reminder_bar.hide()
+        shown = self.stack.currentWidget()
+        if had_keyboard and shown is not None:
+            shown.setFocus()
+
+    @property
+    def ringing(self) -> bool:
+        return not self.reminder_bar.isHidden()
+
+    def set_next_reminder(self, when: str | None) -> None:
+        """When its reminder rings next (as the user reads it), None for none."""
+        self.title_bar.category_tag.set_reminder(when)
 
     @override
     def paintEvent(self, event: QPaintEvent) -> None:

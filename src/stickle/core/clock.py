@@ -17,5 +17,14 @@ def utc_now() -> str:
 
 def days_before(stamp: str, days: int) -> str:
     """The timestamp that many days before another, in the same form."""
-    moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    return _format(moment - timedelta(days=days))
+    return _format(moment_of(stamp) - timedelta(days=days))
+
+
+def moment_of(stamp: str) -> datetime:
+    """A timestamp as a moment (in UTC)."""
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+
+
+def stamp_of(moment: datetime) -> str:
+    """A moment (in any time zone) as a timestamp."""
+    return _format(moment.astimezone(UTC))

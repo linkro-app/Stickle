@@ -10,6 +10,7 @@ trash keeps the note.
 """
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import override
 
 from PySide6.QtCore import QDateTime, QEvent, QLocale, QObject, QPoint, Qt, QTimer
@@ -31,7 +32,9 @@ from PySide6.QtWidgets import (
 from stickle.app.labels import category_item_icon, keyhole_item_icon, mark_item_icon, mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.palette import swatch_icon
+from stickle.app.times import local_time
 from stickle.app.titles import shown_title
+from stickle.core.clock import stamp_of
 from stickle.core.colors import DEFAULT_COLOR, is_color
 from stickle.core.labels import Category, Mark
 from stickle.core.note import Note
@@ -124,6 +127,9 @@ class NoteList(QWidget):
         self._refresh_soon.timeout.connect(self.refresh)
         notes.changed.connect(self.refresh)
         notes.note_saved.connect(self._refresh_soon.start)
+        if notes.reminders is not None:
+            notes.reminders.changed.connect(self._refresh_soon.start)
+        self._reminders: dict[str, datetime] = {}  # when each note's rings next
 
         top = QHBoxLayout()
         top.addWidget(self.label, 1)
@@ -266,6 +272,9 @@ class NoteList(QWidget):
             states.append(self.tr("not on top"))
         if note.locked:
             states.append(self.tr("locked"))
+        reminder = self._reminders.get(note.id)
+        if reminder is not None:
+            states.append("⏰ " + local_time(stamp_of(reminder)))
         return " · ".join([title, *states])
 
     @property
@@ -280,6 +289,8 @@ class NoteList(QWidget):
         """Show the notes as they are stored now, keeping the one selected."""
         self._search_soon.stop()
         self._fill_filters()
+        reminders = self._notes.reminders
+        self._reminders = reminders.coming() if reminders is not None else {}
         selected = self.selected_id()
         self.list.clear()
         if self.in_trash:

@@ -52,7 +52,10 @@ def make_pseudo_translation(folder: Path) -> None:
         if message.get("numerus") == "yes":
             for form in translation.findall("numerusform"):
                 translation.remove(form)
-            ET.SubElement(translation, "numerusform").text = text
+            # French has two forms (one, many): with only one, Qt shows the source
+            # for every count.
+            for _ in range(2):
+                ET.SubElement(translation, "numerusform").text = text
         else:
             translation.text = text
     tree.write(ts_file, encoding="utf-8", xml_declaration=True)

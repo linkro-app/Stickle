@@ -33,7 +33,7 @@ import logging
 import random
 from collections.abc import Callable, Iterable
 from dataclasses import replace
-from typing import cast, override
+from typing import TYPE_CHECKING, cast, override
 
 import apsw
 from PySide6.QtCore import (
@@ -84,6 +84,9 @@ from stickle.data.settings import (
     Settings,
 )
 from stickle.platform.linux.x11 import activate
+
+if TYPE_CHECKING:
+    from stickle.app.reminders import ReminderKeeper
 
 # New notes cascade from the top-left of the screen so they never land exactly on top of each other.
 CASCADE_ORIGIN = 80
@@ -229,6 +232,8 @@ class NoteManager(QObject):
     own_colors_changed = Signal()
     # A note asked for the keys at a glance (F1, Ctrl+/, its menu).
     guide_requested = Signal()
+    # A note's window opened, about to show (for what dresses it: reminders).
+    window_opened = Signal(object)
 
     def __init__(
         self,
@@ -269,6 +274,8 @@ class NoteManager(QObject):
         self._relock = Relock(lambda: self.relock_minutes, lambda: self.lock_on_leave, self)
         self._relock.lock_due.connect(self.lock_secret)
         self._relock.all_due.connect(self.lock_secret_notes)
+        # Notes' reminders: none without (measurement mode, tests).
+        self.reminders: ReminderKeeper | None = None
 
     @property
     def windows(self) -> tuple[NoteWindow, ...]:
@@ -363,7 +370,13 @@ class NoteManager(QObject):
         """A note with text that is not stored until it changes (measurement mode)."""
         return self._open(None, text)
 
-    def _open(self, note: Note | None, text: str = "", color: str | None = None) -> NoteWindow:
+    def _open(
+        self,
+        note: Note | None,
+        text: str = "",
+        color: str | None = None,
+        take_keyboard: bool = True,
+    ) -> NoteWindow:
         if note is not None:
             window = NoteWindow(
                 note.id,
@@ -475,9 +488,11 @@ class NoteManager(QObject):
             window.set_collapsed(True)
             window.mark_placed()
 
+        self.window_opened.emit(window)
         window.show()
-        window.activateWindow()
-        window.setFocus()
+        if take_keyboard:
+            window.activateWindow()
+            window.setFocus()
         return window
 
     def _forget(self, window: NoteWindow) -> None:
@@ -1557,7 +1572,8 @@ class NoteManager(QObject):
         if self._repository is not None and window.note_id is not None:
             try:
                 # A secret note's text is not in its window: never taken for empty.
-                if window.secret or window.text.strip():
+                # Nor is one with a reminder to ring: it is kept for that.
+                if window.secret or window.text.strip() or self._has_reminder(window.note_id):
                     self._repository.set_hidden(window.note_id, True)
                 else:
                     self._repository.discard(window.note_id)
@@ -1567,6 +1583,26 @@ class NoteManager(QObject):
             self.changed.emit()
         self._autosaves[window].stop()
         window.release()
+
+    def _has_reminder(self, note_id: str) -> bool:
+        return self.reminders is not None and self.reminders.has(note_id)
+
+    def stored_id(self, window: NoteWindow) -> str | None:
+        """The note's id, stored first as it is now if it was not yet (even with
+        no text: something is to be kept for it). None if it cannot be stored."""
+        if self._repository is None:
+            return None
+        if window.note_id is None:
+            try:
+                self._store_new(window)
+            except (apsw.Error, OSError) as error:
+                log.error("could not store a note: %s", type(error).__name__)
+                return None
+        return window.note_id
+
+    def note(self, note_id: str) -> Note | None:
+        """The note as stored."""
+        return self._repository.get(note_id) if self._repository else None
 
     def _delete(self, note_id: str, text: str, secret: bool) -> None:
         """Into the trash; with no text, for good (see NoteRepository.discard).
@@ -1600,11 +1636,11 @@ class NoteManager(QObject):
     def last_deleted(self) -> Note | None:
         return self._repository.last_deleted() if self._repository else None
 
-    def show_hidden(self, note_id: str) -> None:
+    def show_hidden(self, note_id: str, take_keyboard: bool = True) -> None:
         if self._repository is None:
             return
         note = self._repository.set_hidden(note_id, False)
-        self._open(note)
+        self._open(note, take_keyboard=take_keyboard)
         self.changed.emit()
 
     def show_all_hidden(self) -> None:
@@ -1655,6 +1691,26 @@ class NoteManager(QObject):
                 return
         self._take_back(window)  # asked for by name: only this one comes back
         window.bring_to_front()
+
+    def come_forward(self, note_id: str) -> NoteWindow | None:
+        """A note its reminder asks for: in sight and in front, shown again if it
+        was hidden, set aside or out of view, and unfolded, but leaving the
+        keyboard where it is. None if it is not among the notes (in the trash)."""
+        window = self.window_for(note_id)
+        if window is None:
+            note = self._repository.get(note_id) if self._repository else None
+            if note is None or note.deleted:
+                return None
+            self.show_hidden(note_id, take_keyboard=False)
+            window = self.window_for(note_id)
+            if window is None:
+                return None
+        self._take_back(window)
+        if window.collapsed:
+            self.set_collapsed(window, False)
+        window.show()
+        window.raise_()
+        return window
 
     def hide_note(self, note_id: str) -> None:
         window = self.window_for(note_id)

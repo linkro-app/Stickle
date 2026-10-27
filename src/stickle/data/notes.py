@@ -231,6 +231,7 @@ class NoteRepository:
         with self._db:
             self._db.execute("DELETE FROM note_layouts WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
+            self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
             hide_text_hashes(self._db, note_id)
 
@@ -492,8 +493,8 @@ class NoteRepository:
     def purge(self, note_id: str) -> None:
         """Empty a deleted note from the trash for good: only a deletion record stays.
 
-        The note, its places on screen, its marks and its search entry go, in one
-        transaction.
+        The note, its places on screen, its marks, its reminders and its search
+        entry go, in one transaction.
         """
         with self._db:
             note = self._require(note_id)
@@ -512,6 +513,7 @@ class NoteRepository:
                 )
             self._db.execute("DELETE FROM note_layouts WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
+            self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
 
     def discard(self, note_id: str) -> None:

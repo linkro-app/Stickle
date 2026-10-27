@@ -77,6 +77,7 @@ def guide() -> list[tuple[str, list[tuple[str, str]]]]:
                     ),
                     "Ctrl+Shift+], Ctrl+Shift+[",
                 ),
+                (QCoreApplication.translate("ShortcutGuide", "The note's reminder"), "Ctrl+R"),
                 (QCoreApplication.translate("ShortcutGuide", "Edit the text"), "Enter, F2"),
                 (QCoreApplication.translate("ShortcutGuide", "Back to the formatted note"), "Esc"),
                 (

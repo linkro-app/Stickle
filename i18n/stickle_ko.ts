@@ -173,6 +173,10 @@
         <source>%1, stays on top</source>
         <translation>%1, 항상 위</translation>
     </message>
+    <message>
+        <source>%1, reminder %2</source>
+        <translation>%1, 알림 %2</translation>
+    </message>
 </context>
 <context>
     <name>CheckMasterPasswordDialog</name>
@@ -1540,6 +1544,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>방향키로 크기 바꾸기</translation>
     </message>
     <message>
+        <source>Reminder…</source>
+        <translation>알림…</translation>
+    </message>
+    <message>
         <source>Make it a secret note…</source>
         <translation>비밀 메모로 바꾸기…</translation>
     </message>
@@ -2104,6 +2112,128 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     </message>
 </context>
 <context>
+    <name>ReminderBar</name>
+    <message>
+        <source>Tomorrow morning</source>
+        <translation>내일 아침</translation>
+    </message>
+    <message numerus="yes">
+        <source>In %n hour(s)</source>
+        <translation>
+            <numerusform>%n시간 뒤</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>In %n minute(s)</source>
+        <translation>
+            <numerusform>%n분 뒤</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Reminder, %1</source>
+        <translation>알림, %1</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>확인</translation>
+    </message>
+    <message>
+        <source>Remind me again</source>
+        <translation>다시 알림</translation>
+    </message>
+    <message>
+        <source>Remind me again: %1</source>
+        <translation>다시 알림: %1</translation>
+    </message>
+</context>
+<context>
+    <name>ReminderDialog</name>
+    <message>
+        <source>ddd, MMMM d, h:mm AP</source>
+        <comment>a day and time, as QDateTime formats them</comment>
+        <translation>M월 d일 (ddd) AP h:mm</translation>
+    </message>
+    <message>
+        <source>Does not repeat</source>
+        <translation>안 함</translation>
+    </message>
+    <message>
+        <source>Every day</source>
+        <translation>매일</translation>
+    </message>
+    <message>
+        <source>Every weekday (Monday to Friday)</source>
+        <translation>평일 (월~금)</translation>
+    </message>
+    <message>
+        <source>Every week</source>
+        <translation>매주</translation>
+    </message>
+    <message>
+        <source>Every month</source>
+        <translation>매월</translation>
+    </message>
+    <message>
+        <source>Every year</source>
+        <translation>매년</translation>
+    </message>
+    <message>
+        <source>Coming: %1</source>
+        <translation>앞으로: %1</translation>
+    </message>
+    <message>
+        <source>That time has already passed. Choose a later one.</source>
+        <translation>이미 지난 시각입니다. 더 나중 시각을 고르세요.</translation>
+    </message>
+    <message>
+        <source>Reminder</source>
+        <translation>알림</translation>
+    </message>
+    <message>
+        <source>In an hour</source>
+        <translation>1시간 뒤</translation>
+    </message>
+    <message>
+        <source>This evening</source>
+        <translation>오늘 저녁</translation>
+    </message>
+    <message>
+        <source>Tomorrow morning</source>
+        <translation>내일 아침</translation>
+    </message>
+    <message>
+        <source>Next Monday</source>
+        <translation>다음 주 월요일</translation>
+    </message>
+    <message>
+        <source>&amp;Day</source>
+        <translation>날짜(&amp;D)</translation>
+    </message>
+    <message>
+        <source>&amp;Time</source>
+        <translation>시각(&amp;T)</translation>
+    </message>
+    <message>
+        <source>&amp;Repeat</source>
+        <translation>반복(&amp;R)</translation>
+    </message>
+    <message>
+        <source>&amp;Keep the note out of sight until then</source>
+        <translation>그때까지 메모 숨겨 두기(&amp;K)</translation>
+    </message>
+    <message>
+        <source>Turn &amp;off</source>
+        <translation>알림 끄기(&amp;O)</translation>
+    </message>
+</context>
+<context>
+    <name>Reminders</name>
+    <message>
+        <source>Reminder, %1</source>
+        <translation>알림, %1</translation>
+    </message>
+</context>
+<context>
     <name>RestoreDialog</name>
     <message>
         <source>Restore from a backup</source>
@@ -2274,6 +2404,34 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Notes</source>
         <translation>메모</translation>
+    </message>
+    <message>
+        <source>Reminders</source>
+        <translation>알림</translation>
+    </message>
+    <message>
+        <source>&amp;Morning:</source>
+        <translation>아침 시각(&amp;M):</translation>
+    </message>
+    <message>
+        <source>When &quot;Tomorrow morning&quot; and &quot;Next Monday&quot; ring, and a reminder written with a day but no time.</source>
+        <translation>&apos;내일 아침&apos;·&apos;다음 주 월요일&apos;과, 날짜만 적고 시각은 적지 않은 알림이 울리는 시각입니다.</translation>
+    </message>
+    <message>
+        <source>&quot;Remind me &amp;again&quot; waits:</source>
+        <translation>&apos;다시 알림&apos; 간격(&amp;A):</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n hour(s)</source>
+        <translation>
+            <numerusform>%n시간</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n minute(s)</source>
+        <translation>
+            <numerusform>%n분</numerusform>
+        </translation>
     </message>
     <message>
         <source>Protection</source>
@@ -2469,6 +2627,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>The next colour, or the one before</source>
         <translation>다음 색, 이전 색</translation>
+    </message>
+    <message>
+        <source>The note&apos;s reminder</source>
+        <translation>메모 알림</translation>
     </message>
     <message>
         <source>Edit the text</source>

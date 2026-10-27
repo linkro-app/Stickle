@@ -197,6 +197,33 @@ def paint_tape(painter: QPainter, color: QColor, area: QRectF) -> None:
     painter.restore()
 
 
+def paint_alarm(painter: QPainter, color: QColor, area: QRectF) -> None:
+    """A small alarm clock at the icon's bottom right corner, cut out of what is
+    under it: the note has a reminder coming."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    size = min(area.width(), area.height())
+    radius = size * 0.22
+    centre = QPointF(area.right() - radius - size * 0.03, area.bottom() - radius - size * 0.03)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(Qt.GlobalColor.black)
+    painter.drawEllipse(centre, radius + size * 0.07, radius + size * 0.07)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+    pen = QPen(color, max(1.0, size * 0.07))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawEllipse(centre, radius, radius)
+    painter.drawLine(centre, centre + QPointF(0, -radius * 0.55))
+    painter.drawLine(centre, centre + QPointF(radius * 0.45, 0))
+    # Its two bells, on top.
+    for side in (-1, 1):
+        bell = centre + QPointF(side * radius * 0.85, -radius * 0.95)
+        painter.drawPoint(bell)
+    painter.restore()
+
+
 def state_pixmap(
     category: str | None,
     color: QColor,
@@ -204,10 +231,12 @@ def state_pixmap(
     size: int,
     scale: float = 1.0,
     secret: Literal["locked", "open"] | None = None,
+    alarm: bool = False,
 ) -> QPixmap:
     """The title bar's left icon at size logical pixels: the category's (or the
-    app's, for None) in color, with tape in the tape colour when on top. A
-    secret note shows a keyhole instead, whatever its category."""
+    app's, for None) in color, with tape in the tape colour when on top and a
+    small alarm clock with a reminder coming. A secret note shows a keyhole
+    instead, whatever its category."""
     pixels = round(size * scale)
     pixmap = QPixmap(pixels, pixels)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -223,6 +252,8 @@ def state_pixmap(
         paint_label(painter, category, color, inner)
     if tape is not None:
         paint_tape(painter, tape, QRectF(0, 0, pixels, pixels))
+    if alarm:
+        paint_alarm(painter, color, QRectF(0, 0, pixels, pixels))
     painter.end()
     pixmap.setDevicePixelRatio(scale)
     return pixmap

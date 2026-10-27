@@ -222,8 +222,40 @@ DELETE FROM import_records WHERE content_hash != 'secret'
     AND note_id IN (SELECT id FROM notes WHERE secret_body IS NOT NULL);
 """
 
+V11 = """
+-- Reminders, one row each: a note's own ('note', one a note at most) and, in
+-- time, those written in its text. A row keeps its rule, never a list of times
+-- worked out ahead (stickle.core.reminders): the day it starts, in its calendar,
+-- the time, the time zone it was set in (NULL: wherever it rings), how it repeats
+-- (weekly: the days, Monday 0 to Sunday 6, as '0,2,4') and the day it rings next
+-- (NULL: dealt with, for good). snoozed_until: it rings then instead (UTC).
+-- hide_note: the note is out of sight until it rings. acked_at and acked_device:
+-- when and where it was last dealt with, so that sync can quiet it elsewhere.
+-- Turned off, a row is only marked deleted, for sync to pass on.
+CREATE TABLE reminders (
+    id TEXT PRIMARY KEY,
+    note_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    calendar TEXT NOT NULL DEFAULT 'gregorian',
+    start_day TEXT NOT NULL,
+    at_time TEXT NOT NULL,
+    time_zone TEXT,
+    repeat TEXT NOT NULL DEFAULT 'none',
+    weekdays TEXT NOT NULL DEFAULT '',
+    next_day TEXT,
+    snoozed_until TEXT,
+    hide_note INTEGER NOT NULL DEFAULT 0,
+    acked_at TEXT,
+    acked_device TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT
+);
+CREATE INDEX reminders_by_note ON reminders (note_id);
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11]
 BACKUPS_KEPT = 3
 
 

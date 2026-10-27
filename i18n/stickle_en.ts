@@ -140,6 +140,23 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>ReminderBar</name>
+    <message numerus="yes">
+        <source>In %n hour(s)</source>
+        <translation>
+            <numerusform>In %n hour</numerusform>
+            <numerusform>In %n hours</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>In %n minute(s)</source>
+        <translation>
+            <numerusform>In %n minute</numerusform>
+            <numerusform>In %n minutes</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>RestoreDialog</name>
     <message numerus="yes">
         <source>%1 — %n note(s), from before going back</source>
@@ -163,6 +180,23 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
         <translation>
             <numerusform>How should the %n secret note be exported?</numerusform>
             <numerusform>How should the %n secret notes be exported?</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>SettingsWindow</name>
+    <message numerus="yes">
+        <source>%n hour(s)</source>
+        <translation>
+            <numerusform>%n hour</numerusform>
+            <numerusform>%n hours</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n minute(s)</source>
+        <translation>
+            <numerusform>%n minute</numerusform>
+            <numerusform>%n minutes</numerusform>
         </translation>
     </message>
 </context>
