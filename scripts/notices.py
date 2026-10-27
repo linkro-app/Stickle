@@ -339,7 +339,7 @@ def write(folder: Path, version: str) -> None:
     if fonts:
         components.append(
             Component(
-                "Noto Sans CJK KR, Noto Sans Mono and Noto Emoji fonts",
+                "Noto Sans CJK KR and Noto Sans Mono fonts",
                 "",
                 "OFL-1.1",
                 copy_into(licenses / "fonts", fonts, licenses),

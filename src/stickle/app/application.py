@@ -24,7 +24,7 @@ from stickle.app.app_list import icon_png, offer_app_list
 from stickle.app.backups import BackupAccess, DailyBackups
 from stickle.app.data_menu import DataAccess
 from stickle.app.first_run import welcome
-from stickle.app.fonts import ensure_alarm_clock_font, ensure_korean_font
+from stickle.app.fonts import ensure_korean_font
 from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportAccess
 from stickle.app.instance_server import InstanceServer
@@ -655,7 +655,6 @@ def run(
     connection = None
     try:
         ensure_korean_font()
-        ensure_alarm_clock_font()
         mark("fonts")
         translations = Translations()
         use_language(translations, startup)
