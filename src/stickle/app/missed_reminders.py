@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from typing import override
 
-from PySide6.QtCore import QDate, QEvent, QLocale, QObject, Qt, QTimer
+from PySide6.QtCore import QDate, QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QHideEvent, QKeyEvent, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -33,6 +33,7 @@ from stickle.app.in_use import OnTopWhileInUse
 from stickle.app.reminder_bar import SnoozeButton
 from stickle.app.reminder_dialog import when_text
 from stickle.app.reminders import Missed, ReminderKeeper
+from stickle.app.times import day_text
 from stickle.app.window_flags import set_stays_on_top, stays_on_top
 from stickle.platform.linux.x11 import activate
 
@@ -123,16 +124,12 @@ class MissedDialog(QDialog):
 
     # What each line says
 
-    def day_text(self, moment_utc: datetime) -> str:
-        local = moment_utc.astimezone(self._keeper.here)
-        pattern = self.tr("MMMM d", "a day, as QDate formats it")
-        return QLocale().toString(QDate(local.year, local.month, local.day), pattern)
-
     def gone_text(self, missed: Missed, now: datetime) -> str:
         """How long ago it went by, or how many times since when."""
         if missed.times > 1:
+            local = missed.first.astimezone(self._keeper.here)
             return self.tr("%n times since %1", "", missed.times).replace(
-                "%1", self.day_text(missed.first)
+                "%1", day_text(QDate(local.year, local.month, local.day))
             )
         minutes = max(0, int((now - missed.first).total_seconds()) // 60)
         if minutes < 60:

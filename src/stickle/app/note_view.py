@@ -17,11 +17,9 @@ from typing import override
 
 from markdown_it.tree import SyntaxTreeNode
 from PySide6.QtCore import (
-    QCoreApplication,
     QDate,
     QDateTime,
     QEvent,
-    QLocale,
     QPoint,
     QRect,
     QRectF,
@@ -52,6 +50,7 @@ from PySide6.QtWidgets import QApplication, QTextEdit, QToolButton, QToolTip, QW
 
 from stickle.app.fonts import code_family
 from stickle.app.palette import qcolor
+from stickle.app.times import moment_text
 from stickle.core.colors import DEFAULT_COLOR, NoteColors, note_colors
 from stickle.core.markdown import LINE_SEPARATOR, parse, source_position
 from stickle.core.text_reminders import MARK, Code, codes
@@ -82,10 +81,7 @@ def reminder_text(code: Code, morning: time) -> str:
     """A reminder written in a note, as the formatted note shows it."""
     when = code.when(morning)
     moment = QDateTime(QDate(when.year, when.month, when.day), QTime(when.hour, when.minute))
-    pattern = QCoreApplication.translate(
-        "NoteView", "MMMM d, h:mm AP", "a day and time, as QDateTime formats them"
-    )
-    shown = QLocale().toString(moment, pattern)
+    shown = moment_text(moment)
     # A day picked in another calendar first, as written, then the day it rings.
     return f"{MARK} {code.note} ({shown})" if code.note else f"{MARK} {shown}"
 

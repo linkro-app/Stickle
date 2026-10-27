@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.times import moment_text
 from stickle.core.clock import stamp_of
 from stickle.core.reminders import REPEATS, Repeat, Rule, coming, first_after, moment
 
@@ -48,10 +49,7 @@ def when_text(moment_utc: datetime) -> str:
     """A day and time (given in UTC) with its day of the week, as the user reads
     it here."""
     shown = QDateTime.fromString(stamp_of(moment_utc), Qt.DateFormat.ISODateWithMs)
-    pattern = QCoreApplication.translate(
-        "ReminderDialog", "ddd, MMMM d, h:mm AP", "a day and time, as QDateTime formats them"
-    )
-    return QLocale().toString(shown.toLocalTime(), pattern)
+    return moment_text(shown.toLocalTime(), weekday=True)
 
 
 def repeat_name(repeat: Repeat) -> str:

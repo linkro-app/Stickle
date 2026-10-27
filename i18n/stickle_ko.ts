@@ -1168,11 +1168,6 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <source>Close</source>
         <translation>닫기</translation>
     </message>
-    <message>
-        <source>MMMM d</source>
-        <comment>a day, as QDate formats it</comment>
-        <translation>M월 d일</translation>
-    </message>
     <message numerus="yes">
         <source>%n times since %1</source>
         <translation>
@@ -1536,11 +1531,6 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
 </context>
 <context>
     <name>NoteView</name>
-    <message>
-        <source>MMMM d, h:mm AP</source>
-        <comment>a day and time, as QDateTime formats them</comment>
-        <translation>M월 d일 AP h:mm</translation>
-    </message>
     <message>
         <source>Copy</source>
         <translation>복사</translation>
@@ -2193,11 +2183,6 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
 </context>
 <context>
     <name>ReminderDialog</name>
-    <message>
-        <source>ddd, MMMM d, h:mm AP</source>
-        <comment>a day and time, as QDateTime formats them</comment>
-        <translation>M월 d일 (ddd) AP h:mm</translation>
-    </message>
     <message>
         <source>Does not repeat</source>
         <translation>안 함</translation>
@@ -3098,9 +3083,34 @@ Your notes as they are now are backed up first, so you can come back to them the
 <context>
     <name>Times</name>
     <message>
+        <source>MMMM d</source>
+        <comment>a day, as QDate formats it</comment>
+        <translation>M월 d일</translation>
+    </message>
+    <message>
+        <source>MMMM d, yyyy</source>
+        <comment>a day of another year, as QDate formats it</comment>
+        <translation>yyyy년 M월 d일</translation>
+    </message>
+    <message>
+        <source>ddd, MMMM d, h:mm AP</source>
+        <comment>a day and time, as QDateTime formats them</comment>
+        <translation>M월 d일 (ddd) AP h:mm</translation>
+    </message>
+    <message>
+        <source>ddd, MMMM d, yyyy, h:mm AP</source>
+        <comment>a day and time of another year, as QDateTime formats them</comment>
+        <translation>yyyy년 M월 d일 (ddd) AP h:mm</translation>
+    </message>
+    <message>
         <source>MMMM d, h:mm AP</source>
         <comment>a day and time, as QDateTime formats them</comment>
         <translation>M월 d일 AP h:mm</translation>
+    </message>
+    <message>
+        <source>MMMM d, yyyy, h:mm AP</source>
+        <comment>a day and time of another year, as QDateTime formats them</comment>
+        <translation>yyyy년 M월 d일 AP h:mm</translation>
     </message>
 </context>
 <context>
