@@ -146,5 +146,5 @@ def test_the_menu_is_translated(qtbot: QtBot, translations: Translations) -> Non
 
     translations.apply("ko")
 
-    assert window.opacity_menu.title() == "안 쓸 때 불투명도"
+    assert window.opacity_menu.title() == "쓰지 않을 때 불투명도"
     window.release()

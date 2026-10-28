@@ -47,7 +47,7 @@ def offer_app_list(entry: AppMenuEntry, settings: Settings, parent: QWidget | No
         QCoreApplication.translate(
             "AppList",
             "Add Stickle to your list of applications, so you can start it like any "
-            "other program? You can change this later in the Stickle menu.",
+            "other program? You can change this later in the settings.",
         ),
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         QMessageBox.StandardButton.Yes,

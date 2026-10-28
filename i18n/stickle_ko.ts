@@ -71,8 +71,8 @@
 <context>
     <name>AppList</name>
     <message>
-        <source>Add Stickle to your list of applications, so you can start it like any other program? You can change this later in the Stickle menu.</source>
-        <translation>Stickle을 앱 목록에 추가할까요? 다른 프로그램처럼 앱 목록에서 실행할 수 있습니다. 나중에 Stickle 메뉴에서 바꿀 수 있습니다.</translation>
+        <source>Add Stickle to your list of applications, so you can start it like any other program? You can change this later in the settings.</source>
+        <translation>Stickle을 앱 목록에 추가할까요? 다른 프로그램처럼 앱 목록에서 실행할 수 있습니다. 나중에 설정에서 바꿀 수 있습니다.</translation>
     </message>
 </context>
 <context>
@@ -651,7 +651,7 @@
     </message>
     <message>
         <source>A secret note could not be opened with their key, so nothing was exported. Export them encrypted instead.</source>
-        <translation>비밀 메모 하나를 키로 열지 못해 아무것도 내보내지 않았습니다. 암호화된 채로 내보내 보세요.</translation>
+        <translation>비밀 메모 하나를 열지 못해 아무것도 내보내지 않았습니다. 암호화된 채로 내보내 보세요.</translation>
     </message>
     <message>
         <source>Encrypted secret note</source>
@@ -704,7 +704,7 @@ These files are not encrypted: keep them somewhere safe.</source>
     </message>
     <message>
         <source>Also in %1 hidden note(s) and %2 in the trash: Ctrl+Enter shows them in Stickle Manager.</source>
-        <translation>숨긴 메모 %1개, 휴지통 %2개에도 있습니다. Ctrl+Enter로 Stickle 관리자에서 봅니다.</translation>
+        <translation>숨긴 메모에 %1개, 휴지통에 %2개 더 있습니다. Ctrl+Enter로 Stickle 관리자에서 봅니다.</translation>
     </message>
 </context>
 <context>
@@ -788,7 +788,7 @@ These files are not encrypted: keep them somewhere safe.</source>
     </message>
     <message>
         <source>The secret notes&apos; key could not be used (%1).</source>
-        <translation>비밀 메모 키를 쓰지 못했습니다(%1).</translation>
+        <translation>비밀 메모를 열지 못했습니다(%1).</translation>
     </message>
     <message>
         <source>The password is not correct.</source>
@@ -814,7 +814,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation># Stickle에 오신 것을 환영합니다
 이 메모를 더블클릭하면 편집할 수 있고, 다른 곳을 클릭하면 다시 서식이 입혀진 모습으로 보입니다.
 
-- [ ] 이렇게 체크박스를 눌러 보세요
+- [ ] 이렇게 체크 상자를 눌러 보세요
 - [ ] 제목줄을 더블클릭하면 메모가 접힙니다
 - [ ] 핀으로 메모를 다른 창 위에 둘지 정합니다
 - [ ] 점 세 개 메뉴에서 색·카테고리·표시를 바꿉니다
@@ -886,7 +886,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>Keep the recovery key somewhere other than this computer. In case you forget where you put it, you can also set a spare password to remember.</source>
-        <translation>복구 키는 꼭 이 PC가 아닌 곳에 따로 보관하세요. 보관한 곳을 잊을 때를 대비해, 외워 둘 예비 암호도 함께 정해 둘 수 있습니다.</translation>
+        <translation>복구 키는 꼭 이 컴퓨터가 아닌 곳에 따로 보관하세요. 보관한 곳을 잊을 때를 대비해, 외워 둘 예비 암호도 함께 정해 둘 수 있습니다.</translation>
     </message>
     <message>
         <source>Spare password set</source>
@@ -1166,7 +1166,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message numerus="yes">
         <source>%n note(s) were secret notes exported in the clear: they came in as ordinary notes.</source>
         <translation>
-            <numerusform>%n개는 평문으로 내보낸 비밀 메모여서 보통 메모로 들어왔습니다.</numerusform>
+            <numerusform>%n개는 암호화하지 않고 내보낸 비밀 메모여서 보통 메모로 들어왔습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -1178,7 +1178,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message numerus="yes">
         <source>%n of your own colour(s) did not fit: up to 12 are kept.</source>
         <translation>
-            <numerusform>내 색 %n개는 넣지 못했습니다 — 12개까지만 둡니다.</numerusform>
+            <numerusform>나만의 색상 %n개는 넣지 못했습니다 — 12개까지만 둡니다.</numerusform>
         </translation>
     </message>
 </context>
@@ -1845,7 +1845,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>My colour %1</source>
-        <translation>내 색 %1</translation>
+        <translation>나만의 색상 %1</translation>
     </message>
 </context>
 <context>
@@ -1864,7 +1864,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>Show</source>
-        <translation>보이기</translation>
+        <translation>보기</translation>
     </message>
     <message>
         <source>All notes</source>
@@ -1944,7 +1944,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>not on top</source>
-        <translation>위에 고정 안 함</translation>
+        <translation>항상 위 꺼짐</translation>
     </message>
     <message>
         <source>locked</source>
@@ -2025,7 +2025,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>My colours hold %1 at most. The note has the colour; to keep it among them, remove one in the settings.</source>
-        <translation>내 색은 %1개까지입니다. 메모에는 이 색을 칠했습니다. 내 색에 두려면 설정에서 하나를 지우세요.</translation>
+        <translation>나만의 색상은 %1개까지입니다. 메모에는 이 색을 칠했습니다. 나만의 색상에 넣으려면 설정에서 하나를 지우세요.</translation>
     </message>
     <message>
         <source>The note could not be made secret.</source>
@@ -2048,7 +2048,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <name>NoteView</name>
     <message>
         <source>the days written disagree</source>
-        <translation>날짜가 서로 다름</translation>
+        <translation>적힌 날짜가 서로 맞지 않음</translation>
     </message>
     <message>
         <source>Copy</source>
@@ -2103,7 +2103,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>Opacity when not in use</source>
-        <translation>안 쓸 때 불투명도</translation>
+        <translation>쓰지 않을 때 불투명도</translation>
     </message>
     <message>
         <source>Lock note</source>
@@ -2244,7 +2244,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <name>OpenSecretDialog</name>
     <message>
         <source>Make it a secret note</source>
-        <translation>비밀 메모로</translation>
+        <translation>비밀 메모로 바꾸기</translation>
     </message>
     <message>
         <source>Change the secret notes&apos; password</source>
@@ -2332,7 +2332,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>The secret notes&apos; key could not be used (%1).</source>
-        <translation>비밀 메모 키를 쓰지 못했습니다(%1).</translation>
+        <translation>비밀 메모를 열지 못했습니다(%1).</translation>
     </message>
 </context>
 <context>
@@ -2915,7 +2915,7 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>In the &amp;clear</source>
-        <translation>평문으로(&amp;C)</translation>
+        <translation>암호화하지 않고(&amp;C)</translation>
     </message>
     <message>
         <source>Secret notes&apos; &amp;password:</source>
@@ -2939,7 +2939,7 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>The secret notes&apos; key could not be used (%1).</source>
-        <translation>비밀 메모 키를 쓰지 못했습니다(%1).</translation>
+        <translation>비밀 메모를 열지 못했습니다(%1).</translation>
     </message>
 </context>
 <context>
@@ -3080,19 +3080,19 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>Any of the colours, yours too, but the one used just before. A new note made from a note (Ctrl+N) takes that note&apos;s colour.</source>
-        <translation>기본 색과 내 색 가운데 바로 전에 쓴 색만 빼고 고릅니다. 메모에서 Ctrl+N으로 만든 메모는 그 메모의 색입니다.</translation>
+        <translation>기본 색과 나만의 색상 가운데 바로 전에 쓴 색만 빼고 고릅니다. 메모에서 Ctrl+N으로 만든 메모는 그 메모의 색입니다.</translation>
     </message>
     <message>
         <source>My &amp;colours:</source>
-        <translation>내 색(&amp;C):</translation>
+        <translation>나만의 색상(&amp;C):</translation>
     </message>
     <message>
         <source>My colours</source>
-        <translation>내 색</translation>
+        <translation>나만의 색상</translation>
     </message>
     <message>
         <source>A&amp;dd…</source>
-        <translation>더하기(&amp;D)…</translation>
+        <translation>추가(&amp;D)…</translation>
     </message>
     <message>
         <source>Remo&amp;ve</source>
@@ -3531,7 +3531,7 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>OK, it was me</source>
-        <translation>확인(내가 했음)</translation>
+        <translation>직접 했습니다</translation>
     </message>
     <message>
         <source>(empty note)</source>
@@ -3545,23 +3545,23 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>On %1 a new recovery key was made on this computer.</source>
-        <translation>%1에 이 PC에서 새 복구 키를 만들었습니다.</translation>
+        <translation>%1에 이 컴퓨터에서 새 복구 키를 만들었습니다.</translation>
     </message>
     <message>
         <source>On %1 a spare password was set on this computer.</source>
-        <translation>%1에 이 PC에서 예비 암호를 새로 정했습니다.</translation>
+        <translation>%1에 이 컴퓨터에서 예비 암호를 새로 정했습니다.</translation>
     </message>
     <message>
         <source>On %1 the spare password was changed on this computer.</source>
-        <translation>%1에 이 PC에서 예비 암호를 바꿨습니다.</translation>
+        <translation>%1에 이 컴퓨터에서 예비 암호를 바꿨습니다.</translation>
     </message>
     <message>
         <source>On %1 the secret notes&apos; password was changed on this computer.</source>
-        <translation>%1에 이 PC에서 비밀 메모 암호를 바꿨습니다.</translation>
+        <translation>%1에 이 컴퓨터에서 비밀 메모 암호를 바꿨습니다.</translation>
     </message>
     <message>
         <source>On %1 the secret notes&apos; password was set anew with the recovery key on this computer.</source>
-        <translation>%1에 이 PC에서 복구 키로 비밀 메모 암호를 새로 정했습니다.</translation>
+        <translation>%1에 이 컴퓨터에서 복구 키로 비밀 메모 암호를 새로 정했습니다.</translation>
     </message>
     <message>
         <source>If it was not you, set it again in the settings.</source>
@@ -3843,7 +3843,7 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>If you forget the password, you set a new one with the recovery key. Make one first: it opens secret notes too, so do not keep it on this computer.</source>
-        <translation>암호를 잊으면 복구 키로 새 암호를 정합니다. 먼저 복구 키를 만드세요. 복구 키는 비밀 메모까지 열므로 이 PC에 두지 마세요.</translation>
+        <translation>암호를 잊으면 복구 키로 새 암호를 정합니다. 먼저 복구 키를 만드세요. 복구 키는 비밀 메모까지 열므로 이 컴퓨터에 두지 마세요.</translation>
     </message>
     <message>
         <source>Your recovery key was made with an earlier Stickle and cannot open secret notes yet. Type it once, or make a new one if you cannot find it.</source>
@@ -3851,11 +3851,11 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>If you forget the password, you set a new one with the recovery key made on %1. It opens secret notes too: do not keep it on this computer.</source>
-        <translation>암호를 잊으면 %1에 만든 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 PC에 두지 마세요.</translation>
+        <translation>암호를 잊으면 %1에 만든 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 컴퓨터에 두지 마세요.</translation>
     </message>
     <message>
         <source>If you forget the password, you set a new one with your recovery key. It opens secret notes too: do not keep it on this computer.</source>
-        <translation>암호를 잊으면 지금 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 PC에 두지 마세요.</translation>
+        <translation>암호를 잊으면 지금 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 컴퓨터에 두지 마세요.</translation>
     </message>
     <message>
         <source>&amp;Make a recovery key…</source>
@@ -3879,7 +3879,7 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>You have not kept a recovery key yet. If you forget the password, only the recovery key sets a new one: make a new one and keep it, away from this computer, then turn them on.</source>
-        <translation>아직 복구 키를 보관하지 않았습니다. 암호를 잊으면 복구 키로만 새 암호를 정할 수 있으니, 새 복구 키를 만들어 이 PC가 아닌 곳에 보관한 뒤 켜세요.</translation>
+        <translation>아직 복구 키를 보관하지 않았습니다. 암호를 잊으면 복구 키로만 새 암호를 정할 수 있으니, 새 복구 키를 만들어 이 컴퓨터가 아닌 곳에 보관한 뒤 켜세요.</translation>
     </message>
     <message>
         <source>Secret notes could not be turned on (%1).</source>
@@ -3928,7 +3928,7 @@ Reminders ring while Stickle is running. [Everything Stickle does](%1)</source>
 - **다른 달력**으로도 알림: 음력, 음력(중국), 히브리력, 이슬람력, 페르시아력, 에티오피아력, 율리우스력, 인도 국가력, 벵골력
 - **비밀 메모**: 메모 메뉴의 &apos;비밀 메모로 바꾸기…&apos;. 내용은 비밀 메모 암호로 암호화되어 가려져 있다가 암호를 넣으면 보입니다. 암호를 잊으면 복구 키로 새로 정합니다
 - **메모 보호**(설정): 새 복구 키 만들기, 복구 키를 둔 곳을 잊을 때를 대비해 외워 둘 예비 암호
-- **내 색**: 내 색을 12개까지 더하고, 새 메모를 랜덤 색으로 할 수도 있습니다. Ctrl+Shift+]·Ctrl+Shift+[로 메모 색을 차례로 바꿉니다
+- **나만의 색상**: 나만의 색상을 12개까지 더하고, 새 메모를 랜덤 색으로 할 수도 있습니다. Ctrl+Shift+]·Ctrl+Shift+[로 메모 색을 차례로 바꿉니다
 - **전체 화면에서 비켜 주기**: 슬라이드 쇼·동영상·게임이 화면을 가득 채우면 그 화면의 메모가 숨었다가 끝나면 돌아옵니다(Windows·X11)
 - **Stickle 내보내기 가져오기**: 내보낸 메모를 비밀 메모까지 다시 들입니다 (데이터 → 다른 앱에서 메모 가져오기… → Stickle 내보내기…)
 
