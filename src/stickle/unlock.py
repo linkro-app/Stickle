@@ -45,6 +45,7 @@ from stickle.crypto.recovery import (
     WrongRecoveryKeyError,
     make_recovery_slot,
     open_recovery_pair,
+    pair_for_export,
     read_recovery,
     save_recovery_slot,
 )
@@ -436,6 +437,11 @@ class Unlock:
             return None if raw is None else parse_document(raw)
         except KeyFileError, OSError:
             return None
+
+    def recovery_pair(self) -> dict[str, object] | None:
+        """The recovery key's pair as kept, to go out with the secret notes
+        exported encrypted (their key is sealed for it); None without one."""
+        return pair_for_export(self.files)
 
     def keep_copies(self, connection: apsw.Connection) -> None:
         """The notes are open: the key files they hold a copy of are kept there too,

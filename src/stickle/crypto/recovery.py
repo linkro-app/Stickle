@@ -21,12 +21,14 @@ so the old key stops working; the file's other slots stay.
 
 import hashlib
 import secrets
+from typing import cast
 
 from stickle.crypto.key_files import B, KeyFiles
 from stickle.crypto.keyfile import (
     KeyFileError,
     PasswordSlot,
     WrongPasswordError,
+    b64_field,
     decode_slot,
     unwrap_with_password,
 )
@@ -119,6 +121,35 @@ def read_recovery(files: KeyFiles) -> RecoverySlot | None:
     if OLD_SLOT in slots:
         return decode_slot(slots[OLD_SLOT])
     return None
+
+
+def pair_for_export(files: KeyFiles) -> dict[str, object] | None:
+    """The recovery key's pair as it is kept (its secret key wrapped with the
+    recovery key), to go out with secret notes exported encrypted: whatever is
+    sealed for it then opens with the recovery key of that day elsewhere. What
+    is sealed in the slot itself (the database key) is left out. None without a
+    pair (no recovery key, or one from before 0.6) or with B damaged."""
+    try:
+        slots = files.load(B)
+    except KeyFileError:
+        return None
+    if slots is None or not isinstance(slots.get(SLOT), dict):
+        return None
+    fields = cast(dict[str, object], slots[SLOT])
+    return {name: value for name, value in fields.items() if name != "sealed"}
+
+
+def open_exported_pair(pair: object, typed: str) -> tuple[bytes, bytes]:
+    """The secret and public keys of a pair gone out with an export (see
+    pair_for_export); RecoveryKeyTypoError or WrongRecoveryKeyError otherwise."""
+    if not isinstance(pair, dict):
+        raise WrongRecoveryKeyError
+    fields = cast(dict[str, object], pair)
+    try:
+        slot = SealedSlot(decode_slot(fields), b64_field(fields.get("public")), b"")
+    except KeyFileError as error:
+        raise WrongRecoveryKeyError from error
+    return open_recovery_pair(slot, typed), slot.public
 
 
 def open_recovery_pair(slot: SealedSlot, typed: str) -> bytes:

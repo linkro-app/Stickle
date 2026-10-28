@@ -368,7 +368,7 @@ class TurnOnDialog(_PasswordWindow):
         super().accept()
 
 
-type Purpose = Literal["open", "make", "change", "recovery", "restore"]
+type Purpose = Literal["open", "make", "change", "recovery", "restore", "import"]
 
 
 class OpenSecretDialog(_PasswordWindow):
@@ -416,6 +416,7 @@ class OpenSecretDialog(_PasswordWindow):
             "change": self.tr("Change the secret notes' password"),
             "recovery": self.tr("Make a new recovery key"),
             "restore": self.tr("Restore from a backup"),
+            "import": self.tr("Bring in secret notes"),
         }
         self.setWindowTitle(titles[self.purpose])
         intros = {
@@ -431,6 +432,12 @@ class OpenSecretDialog(_PasswordWindow):
                 "This backup holds the earlier text of %n note(s) made secret since. Type"
                 " the secret notes' password to bring that text back, still secret."
                 " Without it, those notes stay as they are now.",
+                "",
+                self._count,
+            ),
+            "import": self.tr(
+                "Type the secret notes' password of this computer: the %n secret note(s)"
+                " brought in are locked with it.",
                 "",
                 self._count,
             ),
@@ -507,6 +514,118 @@ class OpenSecretDialog(_PasswordWindow):
         finally:
             QGuiApplication.restoreOverrideCursor()
         self.key = key
+        super().accept()
+
+
+class ExportedSecretsDialog(_PasswordWindow):
+    """The secret notes of an export, locked as they went out: their key of that
+    day, opened with their password then or (exported since 0.6) the recovery key
+    then. key holds it once accepted; accepted without it (left_out), they are
+    left out, to come in another time. typed: the password that opened it, to be
+    tried on the secret notes here before asking for theirs."""
+
+    def __init__(
+        self,
+        count: int,
+        with_password: Callable[[str], bytes],
+        with_recovery_key: Callable[[str], bytes] | None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._count = count
+        self._with_password = with_password
+        self._with_recovery_key = with_recovery_key
+        self.left_out = False
+        self.typed: str | None = None
+        self.password = _password_field()
+        self.password_label = QLabel()
+        self.password_label.setBuddy(self.password)
+        self.form.addRow(self.password_label, self.password)
+        self.recovery_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
+        self.recovery_button.clicked.connect(self.use_recovery_key)
+        self.recovery_button.setVisible(with_recovery_key is not None)
+        self.without_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
+        self.without_button.clicked.connect(self.go_on_without)
+        self.finish_layout()
+        self.retranslate()
+        self.password.setFocus()
+
+    @override
+    def retranslate(self) -> None:
+        super().retranslate()
+        self.setWindowTitle(self.tr("Bring in secret notes"))
+        self.intro.setText(
+            self.tr(
+                "%n secret note(s) went out locked. Type the secret notes' password of the"
+                " day they were exported, or use the recovery key of that day.",
+                "",
+                self._count,
+            )
+        )
+        self.password_label.setText(self.tr("Their &password then:"))
+        self.password.setAccessibleName(self.tr("The secret notes' password of that day"))
+        self.recovery_button.setText(self.tr("Use the &recovery key"))
+        self.without_button.setText(self.tr("Bring in &without them"))
+        self.ok_button.setText(self.tr("Next"))
+
+    def go_on_without(self) -> None:
+        """Without them: the other notes come in, these another time."""
+        self.key = None
+        self.left_out = True
+        QDialog.accept(self)
+
+    def use_recovery_key(self) -> None:
+        if self._with_recovery_key is None:
+            return
+        opened = self._with_recovery_key
+        found: list[bytes] = []
+        dialog: EnterRecoveryKeyDialog
+
+        def submit(typed: str) -> str | None:
+            try:
+                found.append(opened(typed))
+            except RecoveryKeyTypoError:
+                return dialog.typo()
+            except WrongRecoveryKeyError:
+                return dialog.wrong_key()
+            except NotKeptForRecoveryKeyError:
+                return self.tr("This recovery key does not open those secret notes.")
+            except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
+                log.error("exported secret notes not opened: %s", type(error).__name__)
+                return self.tr("The secret notes' key could not be used (%1).").replace(
+                    "%1", type(error).__name__
+                )
+            return None
+
+        dialog = EnterRecoveryKeyDialog(submit, self)
+        if not ask_recovery_key(dialog) or not found:
+            return
+        self.key = found.pop()
+        QDialog.accept(self)
+
+    @override
+    def accept(self) -> None:
+        typed = self.password.text()
+        self.working()
+        QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            key = self._with_password(typed)
+        except WrongPasswordError:
+            self.password.clear()
+            self.show_error(self.tr("The password is not correct."), self.password)
+            return
+        except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
+            log.error("exported secret notes not opened: %s", type(error).__name__)
+            self.show_error(
+                self.tr("The secret notes' key could not be used (%1).").replace(
+                    "%1", type(error).__name__
+                ),
+                self.password,
+            )
+            return
+        finally:
+            QGuiApplication.restoreOverrideCursor()
+        self.key, self.typed = key, typed
         super().accept()
 
 

@@ -36,6 +36,9 @@ class DataAccess:
     open_secret_notes: Callable[[str], bytes] | None = None
     # Their key file as it is, to go along with them left encrypted.
     secret_key_copies: Callable[[], dict[str, object] | None] = lambda: None
+    # The recovery key's pair, which that key is sealed for: the recovery key
+    # of the day opens them too.
+    recovery_pair: Callable[[], dict[str, object] | None] = lambda: None
 
 
 class DataMenu(QObject):
@@ -110,7 +113,11 @@ def export_everything(parent: QWidget, access: DataAccess) -> ExportResult | Non
     into it; None if cancelled or it failed (said)."""
     words = DataMenu()
     title = words.export_title()
-    secret = SecretExport(locked_line=words.locked_line(), key_copies=access.secret_key_copies())
+    secret = SecretExport(
+        locked_line=words.locked_line(),
+        key_copies=access.secret_key_copies(),
+        recovery_pair=access.recovery_pair(),
+    )
     count = access.secret_notes()
     if count and access.open_secret_notes is not None:
         dialog = SecretExportDialog(count, access.open_secret_notes, parent)

@@ -52,6 +52,16 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>ExportedSecretsDialog</name>
+    <message numerus="yes">
+        <source>%n secret note(s) went out locked. Type the secret notes&apos; password of the day they were exported, or use the recovery key of that day.</source>
+        <translation>
+            <numerusform>%n secret note went out locked. Type the secret notes&apos; password of the day it was exported, or use the recovery key of that day.</numerusform>
+            <numerusform>%n secret notes went out locked. Type the secret notes&apos; password of the day they were exported, or use the recovery key of that day.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>ImportDialog</name>
     <message numerus="yes">
         <source>%1 — %n new note(s)</source>
@@ -82,10 +92,66 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
+        <source>%n note(s) not brought in before, with their colours, categories, marks and reminders. Settings, places on screen and passwords stay with the computer they were made on.</source>
+        <translation>
+            <numerusform>%n note not brought in before, with its colour, category, marks and reminder. Settings, places on screen and passwords stay with the computer they were made on.</numerusform>
+            <numerusform>%n notes not brought in before, with their colours, categories, marks and reminders. Settings, places on screen and passwords stay with the computer they were made on.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n of them go into the trash, as they were.</source>
+        <translation>
+            <numerusform>%n of them goes into the trash, as it was.</numerusform>
+            <numerusform>%n of them go into the trash, as they were.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n secret note(s) went out locked: they come in with the secret notes&apos; password of that day, or the recovery key of that day.</source>
+        <translation>
+            <numerusform>%n secret note went out locked: it comes in with the secret notes&apos; password of that day, or the recovery key of that day.</numerusform>
+            <numerusform>%n secret notes went out locked: they come in with the secret notes&apos; password of that day, or the recovery key of that day.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <source>%n note(s) brought in. They are on the desktop; hidden ones are listed in Stickle Manager.</source>
         <translation>
             <numerusform>%n note brought in. It is on the desktop, or listed in Stickle Manager if it was hidden.</numerusform>
             <numerusform>%n notes brought in. They are on the desktop; hidden ones are listed in Stickle Manager.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) went into the trash.</source>
+        <translation>
+            <numerusform>%n note went into the trash.</numerusform>
+            <numerusform>%n notes went into the trash.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n secret note(s), locked with this computer&apos;s password.</source>
+        <translation>
+            <numerusform>%n secret note, locked with this computer&apos;s password.</numerusform>
+            <numerusform>%n secret notes, locked with this computer&apos;s password.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) were secret notes exported in the clear: they came in as ordinary notes.</source>
+        <translation>
+            <numerusform>%n note was a secret note exported in the clear: it came in as an ordinary note.</numerusform>
+            <numerusform>%n notes were secret notes exported in the clear: they came in as ordinary notes.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n secret note(s) were left out: bring this export in again with their password or recovery key of that day.</source>
+        <translation>
+            <numerusform>%n secret note was left out: bring this export in again with its password or recovery key of that day.</numerusform>
+            <numerusform>%n secret notes were left out: bring this export in again with their password or recovery key of that day.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n of your own colour(s) did not fit: up to 12 are kept.</source>
+        <translation>
+            <numerusform>%n of your own colours did not fit: up to 12 are kept.</numerusform>
+            <numerusform>%n of your own colours did not fit: up to 12 are kept.</numerusform>
         </translation>
     </message>
 </context>
@@ -147,6 +213,13 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
         <translation>
             <numerusform>This backup holds the earlier text of %n note made secret since. Type the secret notes&apos; password to bring that text back, still secret. Without it, that note stays as it is now.</numerusform>
             <numerusform>This backup holds the earlier text of %n notes made secret since. Type the secret notes&apos; password to bring that text back, still secret. Without it, those notes stay as they are now.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Type the secret notes&apos; password of this computer: the %n secret note(s) brought in are locked with it.</source>
+        <translation>
+            <numerusform>Type the secret notes&apos; password of this computer: the %n secret note brought in is locked with it.</numerusform>
+            <numerusform>Type the secret notes&apos; password of this computer: the %n secret notes brought in are locked with it.</numerusform>
         </translation>
     </message>
 </context>

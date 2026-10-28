@@ -69,6 +69,7 @@ from stickle.core.layout import MAIN, Place, Rect, fit, monitor_at, remember, re
 from stickle.core.note import DEFAULT_COLOR, Note
 from stickle.core.paste import pasted_text
 from stickle.core.snap import resized, snapped, together
+from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.secret_notes import SecretNoteError, open_text, seal_text
 from stickle.data.colors import MAX_OWN_COLORS, ColorRepository, OwnColor, OwnColorsFullError
 from stickle.data.labels import LabelRepository
@@ -1462,6 +1463,25 @@ class NoteManager(QObject):
             log.error("could not keep the random colour setting: %s", type(error).__name__)
 
     # Secret notes
+
+    def secret_key_here(self, parent: QWidget, typed: str | None, count: int) -> bytes | None:
+        """The secret notes' key here, for count secret notes brought in: opened
+        with typed if it is their password here too, else asked for (or the
+        secret notes turned on, the first time). None if not given."""
+        passwords = self.secrets
+        if passwords is None:
+            return None
+        if typed and passwords.turned_on():
+            try:
+                return passwords.open(typed)
+            except WrongPasswordError, KeyFileError, OSError:
+                pass  # another password here: asked for
+        dialog = (
+            OpenSecretDialog(passwords, parent=parent, purpose="import", count=count)
+            if passwords.turned_on() or self.has_secret_notes(in_trash=True)
+            else TurnOnDialog(passwords, parent)
+        )
+        return dialog.take_key() if ask_secret(dialog) else None
 
     def make_secret(self, window: NoteWindow) -> None:
         """Ask for the secret notes' password (setting them up the first time)

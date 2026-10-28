@@ -75,6 +75,14 @@ from stickle.data.startup import StartupSettings
 from stickle.importers.base import ImportResult
 from stickle.importers.bring_in import BroughtIn, bring_in, new_notes
 from stickle.importers.sources import Source, found_here, recognise
+from stickle.importers.stickle_export import (
+    BroughtExport,
+    StickleExport,
+    StickleExportResult,
+    bring_in_export,
+    new_in_export,
+    secrets_waiting,
+)
 from stickle.platform.autostart import AUTOSTART_FLAG, Autostart, this_computers_autostart
 from stickle.platform.clipboard import take_back_secret
 from stickle.platform.full_screen import full_screen_source
@@ -164,6 +172,7 @@ def data_access(
     key: bytes,
     quit_app: Callable[[], object],
     secret_key_copies: Callable[[], dict[str, object] | None] = lambda: None,
+    recovery_pair: Callable[[], dict[str, object] | None] = lambda: None,
 ) -> DataAccess:
     """What the Data menu does with the notes database."""
 
@@ -201,6 +210,22 @@ def data_access(
         manager.open_brought_in(brought.note_ids)
         return brought
 
+    def new_in(source: Source, result: ImportResult) -> int:
+        if isinstance(result, StickleExportResult) and result.export is not None:
+            return new_in_export(result.export, connection)
+        return new_notes(source.name, result, connection)
+
+    def bring_export(
+        export: StickleExport, old_key: bytes | None, new_key: bytes | None
+    ) -> BroughtExport:
+        manager.save_all()
+        brought = bring_in_export(export, connection, old_key, new_key)
+        manager.open_brought_in(brought.note_ids)
+        manager.own_colors_changed.emit()  # its own colours may have come too
+        if manager.reminders is not None:
+            manager.reminders.follow_texts()  # reminders written in their text
+        return brought
+
     return DataAccess(
         backups=BackupAccess(
             available=lambda: backups(database),
@@ -215,12 +240,16 @@ def data_access(
         importing=ImportAccess(
             found=lambda: found_here(Path.home()),
             recognise=recognise,
-            new_notes=lambda source, result: new_notes(source.name, result, connection),
+            new_notes=new_in,
             bring_in=bring,
+            bring_in_export=bring_export,
+            secrets_waiting=lambda export: secrets_waiting(export, connection),
+            secret_key_here=manager.secret_key_here,
         ),
         secret_notes=secret_notes,
         open_secret_notes=open_secret_notes,
         secret_key_copies=secret_key_copies,
+        recovery_pair=recovery_pair,
     )
 
 
@@ -776,6 +805,7 @@ def run(
                 unlock.opened_key,
                 app.quit,
                 unlock.secret_key_copies,
+                unlock.recovery_pair,
             )
         master = master_passwords(unlock, changes)
         # Before any note opens: each offers to become a secret note.

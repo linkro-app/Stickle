@@ -15,8 +15,10 @@ search index) is left out. Nothing is encrypted: the user is told so.
 Secret notes go out as the user chooses (SecretExport): encrypted as they are
 stored, their Markdown file holding only their title and a line saying so,
 with the locked copies of their key beside them in the JSON (opened again with
-their password or the master password); or opened with their key, their text
-in place of the encrypted one. Their files are named after their titles.
+their password of the day), and the recovery key's pair (its secret key
+wrapped with the recovery key of the day, which their key is sealed for); or
+opened with their key, their text in place of the encrypted one. Their files
+are named after their titles.
 """
 
 import base64
@@ -59,6 +61,9 @@ class SecretExport:
     key: bytes | None = None  # theirs, to open them; None: left encrypted
     locked_line: str = "Locked secret note"  # a locked one's Markdown, below its title
     key_copies: dict[str, object] | None = None  # their key's locked copies, if left so
+    # The recovery key's pair, which those copies are sealed for too (see
+    # stickle.crypto.recovery.pair_for_export), if left so.
+    recovery_pair: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -281,6 +286,8 @@ def export_all(
     }
     if secrets and secret.key is None and secret.key_copies is not None:
         document["secret_notes_key"] = secret.key_copies
+        if secret.recovery_pair is not None:
+            document["recovery_key_pair"] = secret.recovery_pair
     with (folder / JSON_NAME).open("x", encoding="utf-8", newline="\n") as file:
         json.dump(document, file, ensure_ascii=False, indent=1)
         file.write("\n")

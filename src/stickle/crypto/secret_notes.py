@@ -141,6 +141,38 @@ def open_with_recovery_key(files: KeyFiles, pair_secret: bytes, pair_public: byt
     return unseal(pair_secret, b64_field(fields.get("sealed")))
 
 
+def _exported_slots(document: object) -> dict[str, object]:
+    """The slots of C as it went out with an export (its whole document)."""
+    if not isinstance(document, dict):
+        raise KeyFileError("no secret notes' key in the export")
+    slots = cast(dict[str, object], document).get("slots")
+    if not isinstance(slots, dict):
+        raise KeyFileError("no secret notes' key in the export")
+    return cast(dict[str, object], slots)
+
+
+def open_exported_with_password(document: object, password: str) -> bytes:
+    """The key of secret notes exported encrypted, by their password of that day
+    (WrongPasswordError otherwise)."""
+    slots = _exported_slots(document)
+    if PASSWORD_SLOT not in slots:
+        raise KeyFileError("no password slot in the export")
+    return unwrap_with_password(decode_slot(slots[PASSWORD_SLOT]), password, PASSWORD_SLOT)
+
+
+def open_exported_with_pair(document: object, pair_secret: bytes, pair_public: bytes) -> bytes:
+    """The key of secret notes exported encrypted, by the recovery key's pair of
+    that day (stickle.crypto.recovery.open_exported_pair);
+    NotKeptForRecoveryKeyError if it is not sealed for that pair."""
+    slots = _exported_slots(document)
+    if not isinstance(slots.get(RECOVERY_SLOT), dict):
+        raise NotKeptForRecoveryKeyError("not kept for a recovery key")
+    fields = cast(dict[str, object], slots[RECOVERY_SLOT])
+    if b64_field(fields.get("public")) != pair_public:
+        raise NotKeptForRecoveryKeyError("kept for another recovery key")
+    return unseal(pair_secret, b64_field(fields.get("sealed")))
+
+
 def _slots(files: KeyFiles) -> dict[str, object]:
     """C's slots, to be written again: never a C made from nothing here."""
     slots = files.load(C)

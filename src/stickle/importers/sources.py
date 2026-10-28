@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from stickle.importers import indicator_stickynotes, sticky_notes, xpad, zhorn
+from stickle.importers import indicator_stickynotes, stickle_export, sticky_notes, xpad, zhorn
 from stickle.importers.base import Found, ImportResult
 
 
@@ -33,7 +33,9 @@ SOURCES = (
         indicator_stickynotes.read,
     ),
 )
-BY_NAME = {source.name: source for source in SOURCES}
+# Stickle's own export: chosen, never found (it may be anywhere).
+STICKLE = Source(stickle_export.SOURCE, "Stickle", lambda _: None, stickle_export.read)
+BY_NAME = {source.name: source for source in (*SOURCES, STICKLE)}
 SQLITE = b"SQLite format 3\x00"
 
 
@@ -45,9 +47,13 @@ def found_here(home: Path) -> list[tuple[Source, Found]]:
 def recognise(path: Path) -> tuple[Source, Found] | None:
     """Which app a file or folder the user chose comes from, if any.
 
-    An xpad folder, or one of its files (the folder is meant), or Indicator
-    Stickynotes' file (JSON with notes in it).
+    Stickle's own export (its folder or its JSON), an xpad folder, or one of
+    its files (the folder is meant), or Indicator Stickynotes' file (JSON with
+    notes in it).
     """
+    exported = stickle_export.recognise(path)
+    if exported is not None:
+        return STICKLE, Found(STICKLE.name, exported)
     folder = path if path.is_dir() else path.parent
     if path.is_file() and path.name.lower().startswith("plum.sqlite"):
         source = BY_NAME[sticky_notes.SOURCE]
