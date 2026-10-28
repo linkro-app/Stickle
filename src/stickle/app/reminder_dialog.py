@@ -489,7 +489,8 @@ class ReminderDialog(QDialog):
         self.morning_button.setText(self.tr("Tomorrow morning"))
         self.monday_button.setText(self.tr("Next Monday"))
         self.day_label.setText(self.tr("&Day"))
-        self.calendar_label.setText(self.tr("&Calendar"))
+        # Not C, O: Cancel and OK have them on Linux.
+        self.calendar_label.setText(self.tr("Ca&lendar"))
         for item, calendar in enumerate(self._calendars):
             index = self.calendar_box.findData(calendar)
             if index >= 0:
@@ -509,7 +510,7 @@ class ReminderDialog(QDialog):
             box.setText(QLocale().dayName(day + 1, QLocale.FormatType.ShortFormat))
             box.setAccessibleName(QLocale().dayName(day + 1, QLocale.FormatType.LongFormat))
         self.hide_box.setText(self.tr("&Keep the note out of sight until then"))
-        self.off_button.setText(self.tr("Turn &off"))
+        self.off_button.setText(self.tr("T&urn off"))
         self._show_coming()
 
     @override

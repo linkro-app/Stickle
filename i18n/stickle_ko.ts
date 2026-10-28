@@ -2621,8 +2621,12 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>날짜(&amp;D)</translation>
     </message>
     <message>
-        <source>&amp;Calendar</source>
-        <translation>달력(&amp;C)</translation>
+        <source>Ca&amp;lendar</source>
+        <translation>달력(&amp;L)</translation>
+    </message>
+    <message>
+        <source>T&amp;urn off</source>
+        <translation>알림 끄기(&amp;U)</translation>
     </message>
     <message>
         <source>Year</source>
@@ -2647,10 +2651,6 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     <message>
         <source>&amp;Keep the note out of sight until then</source>
         <translation>그때까지 메모 숨겨 두기(&amp;K)</translation>
-    </message>
-    <message>
-        <source>Turn &amp;off</source>
-        <translation>알림 끄기(&amp;O)</translation>
     </message>
 </context>
 <context>

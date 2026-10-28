@@ -1,6 +1,7 @@
 """A note's reminder: set from the note (Ctrl+R), shown in its title bar and the
 list of notes, ringing at its time with the note in front, then done or snoozed."""
 
+import re
 import secrets
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, time
@@ -10,7 +11,7 @@ import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QDate, QEvent, Qt, QTime
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog, QDialogButtonBox
+from PySide6.QtWidgets import QAbstractButton, QDialog, QDialogButtonBox, QLabel
 from pytestqt.qtbot import QtBot
 
 from stickle.app import reminders as reminders_module
@@ -464,4 +465,16 @@ def test_repeating_in_a_calendar_whose_data_ends_says_until_when(app: App) -> No
 
     assert not dialog.changes_label.isHidden()
     assert "until 2050" in dialog.changes_label.text()
+    dialog.deleteLater()
+
+
+def test_the_dialogs_shortcut_letters_are_its_own(app: App) -> None:
+    # On Linux, Qt's OK and Cancel take O and C: a letter shared is ambiguous.
+    current = Rule(date(2026, 11, 3), time(9, 0), SEOUL)
+    dialog = ReminderDialog("", at_utc(2026, 11, 2, 3, 0), SEOUL, HERE, time(9, 0), current)
+    texts = [label.text() for label in dialog.findChildren(QLabel)]
+    texts += [button.text() for button in dialog.findChildren(QAbstractButton)]
+    letters = [found.lower() for text in texts for found in re.findall(r"&(\w)", text)]
+    assert len(letters) == len(set(letters)), letters
+    assert not {"o", "c"} & set(letters), letters
     dialog.deleteLater()
