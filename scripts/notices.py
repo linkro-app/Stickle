@@ -325,7 +325,7 @@ def write(folder: Path, version: str) -> None:
     )
     components.append(
         Component(
-            "SecLists' list of common passwords (refused as a master password)",
+            "SecLists' list of common passwords (refused as a password)",
             "",
             "MIT",
             copy_into(
