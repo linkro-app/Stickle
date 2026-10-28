@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stickle.app.calendar_names import calendar_name, change_text, month_text
+from stickle.app.calendar_names import calendar_name, change_text, month_name, named_months
 from stickle.app.times import moment_text
 from stickle.core.calendars import CALENDARS, GREGORIAN, CalendarDate, resolve
 from stickle.core.clock import stamp_of
@@ -57,6 +57,32 @@ def when_text(moment_utc: datetime) -> str:
     it here."""
     shown = QDateTime.fromString(stamp_of(moment_utc), Qt.DateFormat.ISODateWithMs)
     return moment_text(shown.toLocalTime(), weekday=True)
+
+
+def _picked_on(calendar: str, day: date) -> CalendarDate:
+    """The day to pick in the calendar so that it rings on day: in one whose days
+    may come early, a reminder rings a day before the day picked. Beyond the
+    years it is worked out for, its last day."""
+    chosen = CALENDARS[calendar]
+    if chosen.early:
+        day += timedelta(days=1)
+    try:
+        return chosen.from_gregorian(day)
+    except ValueError:
+        month, leap = chosen.months(chosen.last_year)[-1]
+        last = chosen.days_in_month(chosen.last_year, month, leap)
+        return CalendarDate(chosen.last_year, month, last, leap)
+
+
+def _last_day(calendar: str) -> date | None:
+    """The last Gregorian day a calendar is worked out for, if its data ends
+    within this century or two; None for one worked out by rules alone."""
+    chosen = CALENDARS[calendar]
+    if chosen.last_year >= 5000:  # by rules: as far as anyone could ask
+        return None
+    month, leap = chosen.months(chosen.last_year)[-1]
+    days = chosen.days_in_month(chosen.last_year, month, leap)
+    return chosen.to_gregorian(CalendarDate(chosen.last_year, month, days, leap))
 
 
 def repeat_name(repeat: Repeat) -> str:
@@ -270,7 +296,7 @@ class ReminderDialog(QDialog):
         self.time_edit.setTime(QTime(when.hour, when.minute))
         calendar = self.calendar()
         if calendar != GREGORIAN:
-            self._fill_picked(CALENDARS[calendar].from_gregorian(when.date()))
+            self._fill_picked(_picked_on(calendar, when.date()))
 
     # Another calendar
 
@@ -292,7 +318,7 @@ class ReminderDialog(QDialog):
         rule = self.rule()  # as it was, before this calendar was chosen
         calendar = self.calendar()
         if calendar != GREGORIAN:
-            self._fill_picked(CALENDARS[calendar].from_gregorian(rule.start))
+            self._fill_picked(_picked_on(calendar, rule.start))
         else:
             self.day_edit.setDate(QDate(rule.start.year, rule.start.month, rule.start.day))
         self._show_calendar()
@@ -301,6 +327,8 @@ class ReminderDialog(QDialog):
     def _fill_picked(self, picked: CalendarDate) -> None:
         for box in (self.year_box, self.month_box, self.day_box):
             box.blockSignals(True)
+        chosen = CALENDARS[self.calendar()]
+        self.year_box.setRange(chosen.first_year, chosen.last_year)
         self.year_box.setValue(picked.year)
         self._fill_months(picked.year, (picked.month, picked.leap))
         self._fill_days(picked.day)
@@ -314,7 +342,7 @@ class ReminderDialog(QDialog):
         months = CALENDARS[self.calendar()].months(year)
         self.month_box.clear()
         for month, leap in months:
-            self.month_box.addItem(self._month_item(month, leap), (month, leap))
+            self.month_box.addItem(self._month_item(year, month, leap), (month, leap))
         if keep not in months:
             keep = (keep[0], False)
         self.month_box.setCurrentIndex(months.index(keep) if keep in months else 0)
@@ -339,10 +367,12 @@ class ReminderDialog(QDialog):
         chosen = self.day_box.currentData()
         return chosen if isinstance(chosen, int) else 1
 
-    def _month_item(self, month: int, leap: bool) -> str:
-        return self.tr("%1", "a month of another calendar, by its number").replace(
-            "%1", month_text(month, leap)
-        )
+    def _month_item(self, year: int, month: int, leap: bool) -> str:
+        calendar = self.calendar()
+        name = month_name(calendar, year, month, leap)
+        if named_months(calendar):
+            return name
+        return self.tr("%1", "a month of another calendar, by its number").replace("%1", name)
 
     def _day_item(self, day: int) -> str:
         return self.tr("%1", "a day of the month, by its number").replace("%1", str(day))
@@ -436,10 +466,19 @@ class ReminderDialog(QDialog):
             .replace("%1", calendar_name(GREGORIAN))
             .replace("%2", QLocale().toString(shown, QLocale.FormatType.LongFormat))
         )
-        resolved = resolve(CALENDARS[rule.calendar], rule.picked)
+        calendar = CALENDARS[rule.calendar]
+        resolved = resolve(calendar, rule.picked)
         changes = sorted(resolved.changes, key=lambda c: c.value) if resolved else []
-        self.changes_label.setText(" ".join(change_text(rule.calendar, c) for c in changes))
-        self.changes_label.setVisible(bool(changes))
+        lines = [change_text(rule.calendar, c) for c in changes]
+        last = _last_day(rule.calendar)
+        if rule.repeat in ("monthly", "yearly") and last is not None:
+            lines.append(
+                self.tr("%1 is worked out until %2: it rings no more after that.")
+                .replace("%1", calendar_name(rule.calendar))
+                .replace("%2", str(last.year))
+            )
+        self.changes_label.setText(" ".join(lines))
+        self.changes_label.setVisible(bool(lines))
 
     def retranslate(self) -> None:
         self.setWindowTitle(

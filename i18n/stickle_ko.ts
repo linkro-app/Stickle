@@ -78,27 +78,332 @@
 <context>
     <name>Calendars</name>
     <message>
+        <source>Lunar</source>
+        <translation>음력</translation>
+    </message>
+    <message>
+        <source>Lunar (China)</source>
+        <translation>음력(중국)</translation>
+    </message>
+    <message>
+        <source>Hebrew</source>
+        <translation>히브리력</translation>
+    </message>
+    <message>
+        <source>Islamic (Umm al-Qura)</source>
+        <translation>이슬람력(움 알쿠라)</translation>
+    </message>
+    <message>
+        <source>Persian</source>
+        <translation>페르시아력</translation>
+    </message>
+    <message>
+        <source>Ethiopian</source>
+        <translation>에티오피아력</translation>
+    </message>
+    <message>
         <source>Julian</source>
         <translation>율리우스력</translation>
     </message>
     <message>
-        <source>Gregorian</source>
-        <translation>양력</translation>
+        <source>Indian national</source>
+        <translation>인도 국가력</translation>
     </message>
     <message>
-        <source>leap %1</source>
-        <comment>a leap month</comment>
-        <translation>윤%1</translation>
+        <source>Bengali (Bangladesh)</source>
+        <translation>벵골력(방글라데시)</translation>
     </message>
     <message>
-        <source>%1 %2/%3/%4</source>
-        <comment>calendar, year, month, day</comment>
-        <translation>%1 %2년 %3월 %4일</translation>
+        <source>Nisan</source>
+        <translation>니산</translation>
     </message>
     <message>
-        <source>%1 %2/%3</source>
-        <comment>calendar, month, day</comment>
-        <translation>%1 %2월 %3일</translation>
+        <source>Iyar</source>
+        <translation>이야르</translation>
+    </message>
+    <message>
+        <source>Sivan</source>
+        <translation>시반</translation>
+    </message>
+    <message>
+        <source>Tammuz</source>
+        <translation>탐무즈</translation>
+    </message>
+    <message>
+        <source>Av</source>
+        <translation>아브</translation>
+    </message>
+    <message>
+        <source>Elul</source>
+        <translation>엘룰</translation>
+    </message>
+    <message>
+        <source>Tishrei</source>
+        <translation>티슈리</translation>
+    </message>
+    <message>
+        <source>Cheshvan</source>
+        <translation>헤슈반</translation>
+    </message>
+    <message>
+        <source>Kislev</source>
+        <translation>키슬레브</translation>
+    </message>
+    <message>
+        <source>Tevet</source>
+        <translation>테벳</translation>
+    </message>
+    <message>
+        <source>Shevat</source>
+        <translation>셰바트</translation>
+    </message>
+    <message>
+        <source>Adar</source>
+        <translation>아다르</translation>
+    </message>
+    <message>
+        <source>Muharram</source>
+        <translation>무하람</translation>
+    </message>
+    <message>
+        <source>Safar</source>
+        <translation>사파르</translation>
+    </message>
+    <message>
+        <source>Rabi al-Awwal</source>
+        <translation>라비 알아왈</translation>
+    </message>
+    <message>
+        <source>Rabi al-Thani</source>
+        <translation>라비 알사니</translation>
+    </message>
+    <message>
+        <source>Jumada al-Ula</source>
+        <translation>주마다 알울라</translation>
+    </message>
+    <message>
+        <source>Jumada al-Akhirah</source>
+        <translation>주마다 알아키라</translation>
+    </message>
+    <message>
+        <source>Rajab</source>
+        <translation>라잡</translation>
+    </message>
+    <message>
+        <source>Shaban</source>
+        <translation>샤으반</translation>
+    </message>
+    <message>
+        <source>Ramadan</source>
+        <translation>라마단</translation>
+    </message>
+    <message>
+        <source>Shawwal</source>
+        <translation>샤왈</translation>
+    </message>
+    <message>
+        <source>Dhu al-Qadah</source>
+        <translation>둘카으다</translation>
+    </message>
+    <message>
+        <source>Dhu al-Hijjah</source>
+        <translation>둘히자</translation>
+    </message>
+    <message>
+        <source>Farvardin</source>
+        <translation>파르바르딘</translation>
+    </message>
+    <message>
+        <source>Ordibehesht</source>
+        <translation>오르디베헤시트</translation>
+    </message>
+    <message>
+        <source>Khordad</source>
+        <translation>호르다드</translation>
+    </message>
+    <message>
+        <source>Mordad</source>
+        <translation>모르다드</translation>
+    </message>
+    <message>
+        <source>Shahrivar</source>
+        <translation>샤흐리바르</translation>
+    </message>
+    <message>
+        <source>Mehr</source>
+        <translation>메르</translation>
+    </message>
+    <message>
+        <source>Aban</source>
+        <translation>아반</translation>
+    </message>
+    <message>
+        <source>Azar</source>
+        <translation>아자르</translation>
+    </message>
+    <message>
+        <source>Dey</source>
+        <translation>데이</translation>
+    </message>
+    <message>
+        <source>Bahman</source>
+        <translation>바흐만</translation>
+    </message>
+    <message>
+        <source>Esfand</source>
+        <translation>에스판드</translation>
+    </message>
+    <message>
+        <source>Meskerem</source>
+        <translation>메스케렘</translation>
+    </message>
+    <message>
+        <source>Tikimt</source>
+        <translation>티크미트</translation>
+    </message>
+    <message>
+        <source>Hidar</source>
+        <translation>히다르</translation>
+    </message>
+    <message>
+        <source>Tahsas</source>
+        <translation>타흐사스</translation>
+    </message>
+    <message>
+        <source>Yekatit</source>
+        <translation>예카티트</translation>
+    </message>
+    <message>
+        <source>Megabit</source>
+        <translation>메가비트</translation>
+    </message>
+    <message>
+        <source>Miyazya</source>
+        <translation>미야지야</translation>
+    </message>
+    <message>
+        <source>Ginbot</source>
+        <translation>긴보트</translation>
+    </message>
+    <message>
+        <source>Sene</source>
+        <translation>세네</translation>
+    </message>
+    <message>
+        <source>Hamle</source>
+        <translation>함레</translation>
+    </message>
+    <message>
+        <source>Nehase</source>
+        <translation>네하세</translation>
+    </message>
+    <message>
+        <source>Pagume</source>
+        <translation>파구메</translation>
+    </message>
+    <message>
+        <source>Chaitra</source>
+        <translation>차이트라</translation>
+    </message>
+    <message>
+        <source>Vaisakha</source>
+        <translation>바이샤카</translation>
+    </message>
+    <message>
+        <source>Jyaishtha</source>
+        <translation>지에슈타</translation>
+    </message>
+    <message>
+        <source>Asadha</source>
+        <translation>아샤다</translation>
+    </message>
+    <message>
+        <source>Shravana</source>
+        <translation>슈라바나</translation>
+    </message>
+    <message>
+        <source>Bhadra</source>
+        <translation>바드라</translation>
+    </message>
+    <message>
+        <source>Ashvin</source>
+        <translation>아슈빈</translation>
+    </message>
+    <message>
+        <source>Kartika</source>
+        <translation>카르티카</translation>
+    </message>
+    <message>
+        <source>Agrahayana</source>
+        <translation>아그라하야나</translation>
+    </message>
+    <message>
+        <source>Pausha</source>
+        <translation>파우샤</translation>
+    </message>
+    <message>
+        <source>Magha</source>
+        <translation>마가</translation>
+    </message>
+    <message>
+        <source>Phalguna</source>
+        <translation>팔구나</translation>
+    </message>
+    <message>
+        <source>Boishakh</source>
+        <translation>보이샤크</translation>
+    </message>
+    <message>
+        <source>Joishtho</source>
+        <translation>조이슈토</translation>
+    </message>
+    <message>
+        <source>Asharh</source>
+        <translation>아샤르</translation>
+    </message>
+    <message>
+        <source>Shrabon</source>
+        <translation>슈라본</translation>
+    </message>
+    <message>
+        <source>Bhadro</source>
+        <translation>바드로</translation>
+    </message>
+    <message>
+        <source>Ashwin</source>
+        <translation>아슈윈</translation>
+    </message>
+    <message>
+        <source>Kartik</source>
+        <translation>카르틱</translation>
+    </message>
+    <message>
+        <source>Ogrohayon</source>
+        <translation>오그로하욘</translation>
+    </message>
+    <message>
+        <source>Poush</source>
+        <translation>포우시</translation>
+    </message>
+    <message>
+        <source>Magh</source>
+        <translation>마그</translation>
+    </message>
+    <message>
+        <source>Falgun</source>
+        <translation>팔군</translation>
+    </message>
+    <message>
+        <source>Chaitro</source>
+        <translation>초이트로</translation>
+    </message>
+    <message>
+        <source>Adar I</source>
+        <translation>아다르 1</translation>
+    </message>
+    <message>
+        <source>Adar II</source>
+        <translation>아다르 2</translation>
     </message>
     <message>
         <source>That year has no such leap month: it rings in the ordinary month.</source>
@@ -115,6 +420,10 @@
     <message>
         <source>%1, a day before</source>
         <translation>%1, 하루 전</translation>
+    </message>
+    <message>
+        <source>Gregorian</source>
+        <translation>양력</translation>
     </message>
 </context>
 <context>
@@ -2278,6 +2587,10 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     <message>
         <source>= %1 %2</source>
         <translation>= %1 %2</translation>
+    </message>
+    <message>
+        <source>%1 is worked out until %2: it rings no more after that.</source>
+        <translation>%1은 %2년까지만 계산할 수 있어, 그 뒤에는 울리지 않습니다.</translation>
     </message>
     <message>
         <source>Reminder</source>

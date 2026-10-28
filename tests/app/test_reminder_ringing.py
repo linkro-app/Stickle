@@ -442,3 +442,26 @@ def test_ringing_on_another_day_than_the_one_picked_says_why(app: App) -> None:
     assert window.ringing
     assert not window.reminder_bar.reason_label.isHidden()
     assert "last day" in window.reminder_bar.reason_label.text()
+
+
+def test_a_quick_choice_in_a_calendar_whose_days_come_early_rings_that_day(app: App) -> None:
+    dialog = ReminderDialog("", at_utc(2026, 11, 2, 3, 0), SEOUL, HERE, time(9, 0))
+    dialog.calendar_box.setCurrentIndex(dialog.calendar_box.findData("islamic_umm_al_qura"))
+    dialog.morning_button.click()
+
+    rule = dialog.rule()
+    assert rule.start == date(2026, 11, 3)  # tomorrow, as chosen
+    assert rule.picked == CalendarDate(1448, 5, 24)  # the day after, a day early
+    assert "a day early" in dialog.changes_label.text()
+    dialog.deleteLater()
+
+
+def test_repeating_in_a_calendar_whose_data_ends_says_until_when(app: App) -> None:
+    dialog = ReminderDialog("", at_utc(2026, 11, 2, 3, 0), SEOUL, HERE, time(9, 0))
+    dialog.calendar_box.setCurrentIndex(dialog.calendar_box.findData("korean_lunar"))
+    assert dialog.year_box.maximum() == 2050
+    dialog.repeat_box.setCurrentIndex(dialog.repeat_box.findData("yearly"))
+
+    assert not dialog.changes_label.isHidden()
+    assert "until 2050" in dialog.changes_label.text()
+    dialog.deleteLater()

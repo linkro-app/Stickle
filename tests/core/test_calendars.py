@@ -2,15 +2,28 @@
 side when the day does not exist or may come early, repeating as that
 calendar does."""
 
+import csv
 from datetime import date, timedelta
+from pathlib import Path
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from stickle.core.calendars import (
+    CALENDARS,
+    Bangladeshi,
+    Calendar,
     CalendarDate,
     Change,
+    ChineseLunar,
+    Ethiopian,
+    Hebrew,
+    IndianNational,
+    IslamicUmmAlQura,
     Julian,
+    KoreanLunar,
+    Persian,
     occurrences,
     resolve,
 )
@@ -24,6 +37,8 @@ class TinyLunar:
 
     id = "tiny"
     early = False
+    first_year = 2000
+    last_year = 2100
 
     def months(self, year: int) -> list[tuple[int, bool]]:
         ordinary = [(month, False) for month in range(1, 13)]
@@ -122,3 +137,170 @@ def test_every_year_and_every_month_of_the_calendar() -> None:
 def test_once_it_rings_on_its_day_only() -> None:
     once = list(occurrences(JULIAN, CalendarDate(2026, 12, 25), "none", date(2027, 1, 8)))
     assert once == []
+
+
+# Each calendar against the data its country or keepers publish
+# (tests/core/calendar_data, each file names its source on its first line).
+
+DATA = Path(__file__).with_name("calendar_data")
+
+
+def rows(name: str) -> list[dict[str, str]]:
+    lines = (DATA / name).read_text(encoding="utf-8").splitlines()
+    return list(csv.DictReader(line for line in lines if not line.startswith("#")))
+
+
+def test_chinese_lunar_months_as_the_hong_kong_observatory_gives_them() -> None:
+    chinese = ChineseLunar()
+    by_year: dict[int, list[tuple[int, bool]]] = {}
+    for row in rows("hko_lunar_months.csv"):
+        year, month, leap = int(row["year"]), int(row["month"]), row["leap"] == "1"
+        start = date.fromisoformat(row["gregorian"])
+        assert chinese.to_gregorian(CalendarDate(year, month, 1, leap)) == start, row
+        assert chinese.from_gregorian(start) == CalendarDate(year, month, 1, leap), row
+        by_year.setdefault(year, []).append((month, leap))
+    for year, months in by_year.items():
+        assert chinese.months(year) == months, year
+    assert len(by_year) == 200  # 1901-2100
+
+
+def test_korean_lunar_days_as_kasi_gives_them() -> None:
+    korean = KoreanLunar()
+    found = rows("kasi_lunar_days.csv")
+    assert len(found) > 150
+    for row in found:
+        expected = CalendarDate(
+            int(row["year"]), int(row["month"]), int(row["day"]), row["leap"] == "1"
+        )
+        assert korean.from_gregorian(date.fromisoformat(row["gregorian"])) == expected, row
+
+
+def test_korea_and_china_differ_where_their_new_moons_do() -> None:
+    # Seollal 2027 is 7 February in Korea, 6 February in China (KASI, HKO).
+    assert KoreanLunar().to_gregorian(CalendarDate(2027, 1, 1)) == date(2027, 2, 7)
+    assert ChineseLunar().to_gregorian(CalendarDate(2027, 1, 1)) == date(2027, 2, 6)
+    # 2012: a leap 3rd month in Korea, a leap 4th in China.
+    assert (3, True) in KoreanLunar().months(2012)
+    assert (4, True) in ChineseLunar().months(2012)
+
+
+def test_korean_lunar_ends_where_kasi_does() -> None:
+    korean = KoreanLunar()
+    assert korean.last_year == 2050
+    month, leap = korean.months(2050)[-1]
+    days = korean.days_in_month(2050, month, leap)
+    assert korean.to_gregorian(CalendarDate(2050, month, days, leap)) <= date(2050, 12, 31)
+    yearly = occurrences(korean, CalendarDate(2048, 8, 15), "yearly", date(2048, 1, 1))
+    assert [r.day.year for r in yearly] == [2048, 2049, 2050]
+
+
+def test_umm_al_qura_months_as_van_gent_gives_them() -> None:
+    islamic = IslamicUmmAlQura()
+    checked = 0
+    for row in rows("umm_al_qura_months.csv"):
+        year, month = int(row["year"]), int(row["month"])
+        if islamic.first_year <= year <= islamic.last_year:
+            start = date.fromisoformat(row["gregorian"])
+            assert islamic.to_gregorian(CalendarDate(year, month, 1)) == start, row
+            checked += 1
+    assert checked > 1700
+    # Ramadan 1448 begins 8 February 2027: a reminder for its first day rings on the 7th.
+    resolved = resolve(islamic, CalendarDate(1448, 9, 1))
+    assert resolved is not None
+    assert (resolved.day, resolved.changes) == (date(2027, 2, 7), {Change.DAY_BEFORE})
+
+
+def test_persian_new_year_as_the_university_of_tehran_gives_it() -> None:
+    persian = Persian()
+    checked = 0
+    for row in rows("nowruz.csv"):
+        year = int(row["year"])
+        if persian.first_year <= year <= persian.last_year:
+            nowruz = date.fromisoformat(row["gregorian"])
+            assert persian.to_gregorian(CalendarDate(year, 1, 1)) == nowruz, row
+            checked += 1
+    assert checked == 199  # 1300-1498
+
+
+HEBCAL_MONTHS = {
+    "Nisan": (1, False),
+    "Iyyar": (2, False),
+    "Sivan": (3, False),
+    "Tamuz": (4, False),
+    "Av": (5, False),
+    "Elul": (6, False),
+    "Tishrei": (7, False),
+    "Cheshvan": (8, False),
+    "Kislev": (9, False),
+    "Tevet": (10, False),
+    "Sh'vat": (11, False),
+    "Adar": (12, False),
+    "Adar I": (12, False),
+    "Adar II": (12, True),
+}
+
+
+def test_hebrew_days_as_hebcal_gives_them() -> None:
+    hebrew = Hebrew()
+    found = rows("hebcal_days.csv")
+    assert len(found) == 900
+    for row in found:
+        month, leap = HEBCAL_MONTHS[row["month"].replace(chr(0x2019), "'")]
+        expected = CalendarDate(int(row["year"]), month, int(row["day"]), leap)
+        assert hebrew.from_gregorian(date.fromisoformat(row["gregorian"])) == expected, row
+
+
+def test_ethiopian_new_year_on_11_or_12_september() -> None:
+    # 12 September before a Gregorian leap year (this holds until 2099).
+    ethiopian = Ethiopian()
+    for year in range(1901, 2099):
+        new_year = ethiopian.from_gregorian(date(year, 9, 20))  # well into its new year
+        leap_next = (year + 1) % 4 == 0
+        expected = date(year, 9, 12 if leap_next else 11)
+        assert ethiopian.to_gregorian(CalendarDate(new_year.year, 1, 1)) == expected, year
+    # Ethiopian Christmas (Genna, 29 Tahsas 2019) is 7 January 2027.
+    assert ethiopian.to_gregorian(CalendarDate(2019, 4, 29)) == date(2027, 1, 7)
+
+
+def test_indian_national_calendar_by_its_published_rule() -> None:
+    indian = IndianNational()
+    for saka in range(1879, 2100):
+        year = saka + 78
+        leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+        chaitra = date(year, 3, 21 if leap else 22)
+        assert indian.to_gregorian(CalendarDate(saka, 1, 1)) == chaitra
+        # Vaisakha 1 follows a Chaitra of 30 days, or 31 in a leap year.
+        assert indian.to_gregorian(CalendarDate(saka, 2, 1)) == date(year, 4, 21)
+
+
+def test_bangladeshi_calendar_keeps_its_national_days() -> None:
+    # The revision keeps these on the same days every year (Bangla Academy, 2019).
+    bangla = Bangladeshi()
+    for year in range(2021, 2100):
+        assert bangla.from_gregorian(date(year, 4, 14)) == CalendarDate(year - 593, 1, 1)
+        assert bangla.from_gregorian(date(year, 2, 14)) == CalendarDate(year - 594, 11, 1)
+        assert bangla.from_gregorian(date(year, 2, 21)) == CalendarDate(year - 594, 11, 8)
+        assert bangla.from_gregorian(date(year, 3, 26)) == CalendarDate(year - 594, 12, 12)
+        assert bangla.from_gregorian(date(year, 12, 16)) == CalendarDate(year - 593, 9, 1)
+
+
+def _first_day(calendar: Calendar) -> date:
+    month, leap = calendar.months(calendar.first_year)[0]
+    return calendar.to_gregorian(CalendarDate(calendar.first_year, month, 1, leap))
+
+
+@pytest.mark.parametrize("calendar", list(CALENDARS.values()), ids=list(CALENDARS))
+def test_every_day_there_and_back(calendar: Calendar) -> None:
+    """Sixty years of days from 1990 (or its first year), each to the calendar
+    and back, within the month it is given."""
+    day = max(_first_day(calendar), date(1990, 1, 1))
+    end = min(day + timedelta(days=366 * 60), date(2100, 12, 31))
+    if calendar.id == "korean_lunar":
+        end = min(end, date(2050, 12, 1))
+    if calendar.id == "islamic_umm_al_qura":
+        end = min(end, date(2077, 11, 1))
+    while day <= end:
+        picked = calendar.from_gregorian(day)
+        assert calendar.to_gregorian(picked) == day, (calendar.id, day)
+        assert 1 <= picked.day <= calendar.days_in_month(picked.year, picked.month, picked.leap)
+        day += timedelta(days=1)
