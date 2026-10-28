@@ -34,6 +34,8 @@ from PySide6.QtWidgets import (
 from stickle.app.app_list import switch_app_list
 from stickle.app.color_dialog import ColorDialog
 from stickle.app.first_run import LoginNote
+from stickle.app.full_screen import FullScreenWatch
+from stickle.app.full_screen_dialog import FullScreenExceptions
 from stickle.app.i18n import LANGUAGES, Translations
 from stickle.app.in_use import OnTopWhileInUse, call_up
 from stickle.app.master_password import (
@@ -115,9 +117,11 @@ class SettingsWindow(QDialog):
         portable: bool = False,
         updates: UpdateCheck | None = None,
         master: MasterPasswords | None = None,
+        full_screen: FullScreenWatch | None = None,
     ) -> None:
         super().__init__(parent)
         self._notes = notes
+        self._full_screen = full_screen
         self._translations = translations
         self._autostart = autostart
         self._app_list = app_list
@@ -193,6 +197,27 @@ class SettingsWindow(QDialog):
         notes_layout.addLayout(own_buttons)
         notes_layout.addWidget(self.own_note)
         notes.own_colors_changed.connect(self._refresh_own_colors)
+        # Out of the way of programs shown full screen, where that can be told.
+        self.full_screen_box = QCheckBox(self.notes_page)
+        self.full_screen_note = _hint(self.notes_page)
+        self.exceptions_button = QPushButton(self.notes_page)
+        self.exceptions_button.clicked.connect(self.open_exceptions)
+        exceptions_row = QHBoxLayout()
+        exceptions_row.addWidget(self.exceptions_button)
+        exceptions_row.addStretch(1)
+        self.no_full_screen = QLabel(self.notes_page)
+        self.no_full_screen.setWordWrap(True)
+        notes_layout.addSpacing(8)
+        notes_layout.addWidget(self.full_screen_box)
+        notes_layout.addWidget(self.full_screen_note)
+        notes_layout.addLayout(exceptions_row)
+        notes_layout.addWidget(self.no_full_screen)
+        can_tell = full_screen is not None and full_screen.available
+        for widget in (self.full_screen_box, self.full_screen_note, self.exceptions_button):
+            widget.setVisible(can_tell)
+        self.no_full_screen.setVisible(full_screen is not None and not can_tell)
+        if full_screen is not None:
+            self.full_screen_box.clicked.connect(full_screen.switch)
         notes_layout.addStretch(1)
 
         # Reminders: the morning, and how long "remind me again" waits.
@@ -332,6 +357,8 @@ class SettingsWindow(QDialog):
             self.own_list,
             self.add_own_button,
             self.remove_own_button,
+            self.full_screen_box,
+            self.exceptions_button,
             self.morning_edit,
             self.snooze_box,
             self.recovery_button,
@@ -400,6 +427,21 @@ class SettingsWindow(QDialog):
         ).replace("%1", str(MAX_OWN_COLORS))
         self.own_note.setText(own_note)
         self.own_list.setAccessibleDescription(own_note)
+        self.full_screen_box.setText(self.tr("&Hide notes over a program shown full screen"))
+        full_screen_note = self.tr(
+            "On the screen a slide show, a video or a game fills, notes go out of sight"
+            " until it ends. A reminder meanwhile comes as the system's notification."
+        )
+        self.full_screen_note.setText(full_screen_note)
+        self.full_screen_box.setAccessibleDescription(full_screen_note)
+        self.exceptions_button.setText(self.tr("Full-screen e&xceptions…"))
+        self.no_full_screen.setText(
+            self.tr(
+                "Under Wayland, Stickle cannot tell when a program is shown full screen."
+                " Before a slide show or a video, use “Hide all notes for now” (its"
+                " shortcut, the tray or Stickle Manager)."
+            )
+        )
         self.recovery_button.setText(self.tr("Make a new &recovery key…"))
         self.check_master_button.setText(self.tr("Chec&k the spare password…"))
         self.secret_password_button.setText(self.tr("Change the &secret notes' password…"))
@@ -438,6 +480,8 @@ class SettingsWindow(QDialog):
         self.magnet_box.setChecked(self._notes.magnet)
         self.random_box.setChecked(self._notes.random_color)
         self._refresh_own_colors()
+        if self._full_screen is not None:
+            self.full_screen_box.setChecked(self._full_screen.on)
         reminders = self._notes.reminders
         if reminders is not None:
             # Shown as kept: not a change to keep.
@@ -580,6 +624,11 @@ class SettingsWindow(QDialog):
         if not opened.recovered:  # that way, the new one was asked for already
             show_secret_dialog(NewSecretPasswordDialog(secrets, key, self))
         self.refresh()  # its date
+
+    def open_exceptions(self) -> None:
+        """The programs over which notes stay in sight, to add to or take from."""
+        if self._full_screen is not None:
+            FullScreenExceptions(self._full_screen, self).exec()
 
     def _refresh_own_colors(self) -> None:
         """The user's own colours as they are now, the one chosen kept chosen."""

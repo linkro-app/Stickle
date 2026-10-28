@@ -853,6 +853,45 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
 </context>
 <context>
+    <name>FullScreenExceptions</name>
+    <message>
+        <source>Full-screen exceptions</source>
+        <translation>전체 화면 예외 앱</translation>
+    </message>
+    <message>
+        <source>Programs that hid notes since Stickle &amp;started:</source>
+        <translation>Stickle을 켠 뒤 메모를 숨기게 한 앱(&amp;S):</translation>
+    </message>
+    <message>
+        <source>Programs that hid notes</source>
+        <translation>메모를 숨기게 한 앱</translation>
+    </message>
+    <message>
+        <source>None yet. Once a program shown full screen has hidden notes, it is listed here until Stickle quits.</source>
+        <translation>아직 없습니다. 전체 화면 앱이 메모를 숨기면 Stickle을 끌 때까지 여기에 보입니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Keep notes in sight over it</source>
+        <translation>이 앱에서는 숨기지 않기(&amp;K)</translation>
+    </message>
+    <message>
+        <source>Notes stay in sight over these programs, &amp;full screen too:</source>
+        <translation>전체 화면이어도 메모를 숨기지 않는 앱(&amp;F):</translation>
+    </message>
+    <message>
+        <source>Programs notes stay in sight over</source>
+        <translation>메모를 숨기지 않는 앱</translation>
+    </message>
+    <message>
+        <source>&amp;Remove</source>
+        <translation>빼기(&amp;R)</translation>
+    </message>
+    <message>
+        <source>Only the names of the programs you add are kept, on this computer. The programs that hid notes are not kept.</source>
+        <translation>넣은 앱의 이름만 이 컴퓨터에 저장합니다. 메모를 숨기게 한 앱은 저장하지 않습니다.</translation>
+    </message>
+</context>
+<context>
     <name>GlobalShortcuts</name>
     <message>
         <source>New note</source>
@@ -2933,6 +2972,22 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>%1개까지, 메모 메뉴의 색 아래에 보입니다. Alt+↑·Alt+↓로 순서를 바꿉니다. 지운 색을 쓰던 메모는 그 색 그대로입니다.</translation>
     </message>
     <message>
+        <source>&amp;Hide notes over a program shown full screen</source>
+        <translation>전체 화면 앱 위에서는 메모 숨기기(&amp;H)</translation>
+    </message>
+    <message>
+        <source>On the screen a slide show, a video or a game fills, notes go out of sight until it ends. A reminder meanwhile comes as the system&apos;s notification.</source>
+        <translation>슬라이드 쇼·동영상·게임이 화면을 가득 채우면 그 화면의 메모가 끝날 때까지 숨습니다. 그동안 울리는 알림은 시스템 알림으로 옵니다.</translation>
+    </message>
+    <message>
+        <source>Full-screen e&amp;xceptions…</source>
+        <translation>전체 화면 예외 앱(&amp;X)…</translation>
+    </message>
+    <message>
+        <source>Under Wayland, Stickle cannot tell when a program is shown full screen. Before a slide show or a video, use “Hide all notes for now” (its shortcut, the tray or Stickle Manager).</source>
+        <translation>Wayland에서는 Stickle이 전체 화면을 알 수 없습니다. 슬라이드 쇼나 동영상 전에 ‘모든 메모 잠시 숨기기’(단축키·트레이·Stickle 관리자)를 쓰세요.</translation>
+    </message>
+    <message>
         <source>Make a new &amp;recovery key…</source>
         <translation>새 복구 키 만들기(&amp;R)…</translation>
     </message>
@@ -3593,6 +3648,12 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Stickle: notes hidden for now</source>
         <translation>Stickle: 메모를 잠시 숨김</translation>
+    </message>
+    <message numerus="yes">
+        <source>Stickle: %n note(s) hidden for a full-screen program</source>
+        <translation>
+            <numerusform>Stickle: 전체 화면이라 메모 %n개를 숨김</numerusform>
+        </translation>
     </message>
     <message>
         <source>Stickle: only “%1” on the desktop</source>

@@ -17,14 +17,24 @@ last, so it is asked as a taskbar would (see activate).
 
 This talks to the X server through its own libxcb connection (the library Qt
 itself uses on X11), so it needs nothing beyond what is already loaded.
+
+Finding other programs' full-screen windows: see X11FullScreen.
 """
 
 import ctypes
 import logging
+from collections.abc import Collection
+
+from stickle.platform.full_screen import FullScreen
 
 log = logging.getLogger(__name__)
 
-ATOM = 4  # a predefined atom (XA_ATOM): the type of an atom list
+# Predefined atoms naming the types of properties.
+ATOM = 4
+CARDINAL = 6
+STRING = 31
+WINDOW = 33
+ALL_DESKTOPS = 0xFFFFFFFF  # _NET_WM_DESKTOP of a window shown on every desktop
 PROP_MODE_REPLACE = 0
 SKIP_STATES = (b"_NET_WM_STATE_SKIP_TASKBAR", b"_NET_WM_STATE_SKIP_PAGER")
 
@@ -53,6 +63,34 @@ class _GetPropertyReply(ctypes.Structure):
         ("bytes_after", ctypes.c_uint32),
         ("value_len", ctypes.c_uint32),
         ("pad0", ctypes.c_uint8 * 12),
+    ]
+
+
+class _GetGeometryReply(ctypes.Structure):
+    _fields_ = [
+        ("response_type", ctypes.c_uint8),
+        ("depth", ctypes.c_uint8),
+        ("sequence", ctypes.c_uint16),
+        ("length", ctypes.c_uint32),
+        ("root", ctypes.c_uint32),
+        ("x", ctypes.c_int16),
+        ("y", ctypes.c_int16),
+        ("width", ctypes.c_uint16),
+        ("height", ctypes.c_uint16),
+        ("border_width", ctypes.c_uint16),
+        ("pad0", ctypes.c_uint8 * 2),
+    ]
+
+
+class _TranslateCoordinatesReply(ctypes.Structure):
+    _fields_ = [
+        ("response_type", ctypes.c_uint8),
+        ("same_screen", ctypes.c_uint8),
+        ("sequence", ctypes.c_uint16),
+        ("length", ctypes.c_uint32),
+        ("child", ctypes.c_uint32),
+        ("dst_x", ctypes.c_int16),
+        ("dst_y", ctypes.c_int16),
     ]
 
 
@@ -142,6 +180,16 @@ class _Xcb:
         xcb.xcb_query_pointer.argtypes = [pointer, ctypes.c_uint32]
         xcb.xcb_query_pointer_reply.restype = ctypes.POINTER(_QueryPointerReply)
         xcb.xcb_query_pointer_reply.argtypes = [pointer, cookie, pointer]
+        xcb.xcb_get_geometry.restype = cookie
+        xcb.xcb_get_geometry.argtypes = [pointer, ctypes.c_uint32]
+        xcb.xcb_get_geometry_reply.restype = ctypes.POINTER(_GetGeometryReply)
+        xcb.xcb_get_geometry_reply.argtypes = [pointer, cookie, pointer]
+        xcb.xcb_translate_coordinates.restype = cookie
+        xcb.xcb_translate_coordinates.argtypes = [
+            pointer, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_int16, ctypes.c_int16,
+        ]  # fmt: skip
+        xcb.xcb_translate_coordinates_reply.restype = ctypes.POINTER(_TranslateCoordinatesReply)
+        xcb.xcb_translate_coordinates_reply.argtypes = [pointer, cookie, pointer]
         xcb.xcb_get_setup.restype = pointer
         xcb.xcb_get_setup.argtypes = [pointer]
         xcb.xcb_setup_roots_iterator.restype = _ScreenIterator
@@ -178,8 +226,15 @@ class _Xcb:
         finally:
             self._free(reply)
 
+    def atom(self, name: bytes) -> int:
+        return self._atom(name)
+
     def atoms(self, window: int, prop: int) -> list[int]:
-        cookie = self._xcb.xcb_get_property(self._connection, 0, window, prop, ATOM, 0, 1024)
+        return self.values(window, prop, ATOM)
+
+    def values(self, window: int, prop: int, kind: int) -> list[int]:
+        """A property of 32-bit values of a type (atoms, windows, numbers)."""
+        cookie = self._xcb.xcb_get_property(self._connection, 0, window, prop, kind, 0, 1024)
         reply = self._xcb.xcb_get_property_reply(self._connection, cookie, None)
         if not reply:
             return []
@@ -190,6 +245,41 @@ class _Xcb:
             return [int(values[i]) for i in range(reply.contents.value_len)]
         finally:
             self._free(reply)
+
+    def text(self, window: int, prop: int) -> bytes:
+        """A property of 8-bit text (as WM_CLASS); empty if it has none."""
+        cookie = self._xcb.xcb_get_property(self._connection, 0, window, prop, STRING, 0, 256)
+        reply = self._xcb.xcb_get_property_reply(self._connection, cookie, None)
+        if not reply:
+            return b""
+        try:
+            if reply.contents.format != 8:
+                return b""
+            values = self._xcb.xcb_get_property_value(reply)
+            return ctypes.string_at(values, reply.contents.value_len)
+        finally:
+            self._free(reply)
+
+    def place(self, window: int) -> tuple[int, int, int, int] | None:
+        """Where a window is on the screen: x, y, width, height."""
+        size_cookie = self._xcb.xcb_get_geometry(self._connection, window)
+        at_cookie = self._xcb.xcb_translate_coordinates(self._connection, window, self.root, 0, 0)
+        size = self._xcb.xcb_get_geometry_reply(self._connection, size_cookie, None)
+        at = self._xcb.xcb_translate_coordinates_reply(self._connection, at_cookie, None)
+        try:
+            if not size or not at:
+                return None
+            return (
+                int(at.contents.dst_x),
+                int(at.contents.dst_y),
+                int(size.contents.width),
+                int(size.contents.height),
+            )
+        finally:
+            if size:
+                self._free(size)
+            if at:
+                self._free(at)
 
     def set_atoms(self, window: int, prop: int, atoms: list[int]) -> None:
         values = (ctypes.c_uint32 * len(atoms))(*atoms)
@@ -282,3 +372,55 @@ def _server() -> _Xcb | None:
         log.warning("cannot reach the X server directly: %s", type(error).__name__)
         return None
     return _xcb
+
+
+class X11FullScreen:
+    """Other programs' full-screen windows under X11 (see stickle.platform.full_screen):
+    those whose state says so, minimized ones and those on another desktop left out."""
+
+    def __init__(self, server: _Xcb) -> None:
+        self._server = server
+        self._active = server.atom(b"_NET_ACTIVE_WINDOW")
+        self._clients = server.atom(b"_NET_CLIENT_LIST")
+        self._current_desktop = server.atom(b"_NET_CURRENT_DESKTOP")
+        self._desktop = server.atom(b"_NET_WM_DESKTOP")
+        self._full_screen = server.atom(b"_NET_WM_STATE_FULLSCREEN")
+        self._hidden = server.atom(b"_NET_WM_STATE_HIDDEN")
+        self._class = server.atom(b"WM_CLASS")
+
+    @classmethod
+    def connect(cls) -> X11FullScreen:
+        server = _server()
+        if server is None:
+            raise OSError("cannot reach the X server")
+        return cls(server)
+
+    def find(self, known: Collection[int]) -> list[FullScreen]:
+        server = self._server
+        active = [w for w in server.values(server.root, self._active, WINDOW) if w]
+        if active and self._full_screen in server.atoms(active[0], server.state):
+            candidates = server.values(server.root, self._clients, WINDOW)
+        elif known:
+            candidates = list(known)
+        else:
+            return []
+        current = server.values(server.root, self._current_desktop, CARDINAL)
+        found: list[FullScreen] = []
+        for window in candidates:
+            states = server.atoms(window, server.state)
+            if self._full_screen not in states or self._hidden in states:
+                continue
+            desktop = server.values(window, self._desktop, CARDINAL)
+            if desktop and current and desktop[0] not in (current[0], ALL_DESKTOPS):
+                continue
+            place = server.place(window)
+            if place is None:
+                continue
+            found.append(FullScreen(window, self._app(window), place))
+        return found
+
+    def _app(self, window: int) -> str:
+        """Its WM_CLASS class (the property holds the instance, then the class)."""
+        parts = self._server.text(window, self._class).split(b"\0")
+        name = parts[1] if len(parts) > 1 and parts[1] else parts[0]
+        return name.decode("utf-8", "replace")

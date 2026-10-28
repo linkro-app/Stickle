@@ -130,6 +130,7 @@ class Tray(QSystemTrayIcon):
             self.set_aside_action.triggered.connect(notes.switch_set_aside)
             notes.set_aside_changed.connect(self.retranslate)
             notes.view_changed.connect(self.retranslate)
+            notes.covered_changed.connect(self.retranslate)
         self._menu.aboutToShow.connect(self._refresh_clipboard)
         if sys.platform == "win32":
             from stickle.platform.windows.foreground import foreground_window, is_another_program
@@ -305,6 +306,13 @@ class Tray(QSystemTrayIcon):
             self.setIcon(make_icon(faded=set_aside))
         if set_aside:
             self.setToolTip(self.tr("Stickle: notes hidden for now"))
+        elif self._notes is not None and self._notes.covered:
+            # No other sign: nothing pops up over the full-screen program.
+            self.setToolTip(
+                self.tr(
+                    "Stickle: %n note(s) hidden for a full-screen program", "", self._notes.covered
+                )
+            )
         elif self._notes is not None and self._notes.view is not None:
             # Always in sight, so that notes out of view are not thought lost.
             self.setToolTip(

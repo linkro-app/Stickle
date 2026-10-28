@@ -25,6 +25,7 @@ from stickle.app.backups import BackupAccess, DailyBackups
 from stickle.app.data_menu import DataAccess
 from stickle.app.first_run import welcome
 from stickle.app.fonts import ensure_alarm_clock_font, ensure_korean_font
+from stickle.app.full_screen import FullScreenWatch
 from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportAccess
 from stickle.app.instance_server import InstanceServer
@@ -76,6 +77,7 @@ from stickle.importers.bring_in import BroughtIn, bring_in, new_notes
 from stickle.importers.sources import Source, found_here, recognise
 from stickle.platform.autostart import AUTOSTART_FLAG, Autostart, this_computers_autostart
 from stickle.platform.clipboard import take_back_secret
+from stickle.platform.full_screen import full_screen_source
 from stickle.platform.hotkeys import Portal, desktop_portal
 from stickle.platform.instance import FIND, NEW_NOTE, NEXT_VIEW, SET_ASIDE
 from stickle.platform.linux.appimage import (
@@ -724,6 +726,18 @@ def run(
         )
         tray = Tray(manager.new_note, app.quit, translations, manager, updates)
         tray.show()
+        # Notes out of the way of programs shown full screen (not when measuring).
+        full_screen = (
+            FullScreenWatch(
+                full_screen_source(QApplication.platformName()),
+                Settings(connection) if connection is not None else None,
+            )
+            if perf is None
+            else None
+        )
+        if full_screen is not None:
+            watch = full_screen
+            watch.covered_changed.connect(lambda: manager.cover(watch.screens))
         # Before any note opens: each shows its reminder (not when measuring).
         reminders = (
             ReminderKeeper(
@@ -782,6 +796,7 @@ def run(
             updates=updates,
             master=master,
             changes=changes,
+            full_screen=full_screen,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
         # Kept here, as the Stickle window is: a window of its own, with no parent.
@@ -820,6 +835,8 @@ def run(
             open_at_start(manager, stickle_window, tray_available, at_login)
             if reminders is not None:
                 reminders.start()
+            if full_screen is not None:
+                full_screen.start()
             # The note in front has the keyboard, unless a window shown now
             # wants it: the reminders gone by, or what a command line asked.
             asked = request is not None or bool(instance_server and instance_server.received)

@@ -184,6 +184,24 @@ def _calendar_ids(value: object) -> TypeGuard[list[str]]:
 # The calendars other than the Gregorian picked lately for reminders, the latest
 # first: offered first, below the Gregorian one.
 RECENT_CALENDARS = Setting[list[str]]("recent_calendars", "shared", [], _calendar_ids)
+FULL_SCREEN_EXCEPTIONS_KEPT = 100
+
+
+def _program_names(value: object) -> TypeGuard[list[str]]:
+    return (
+        isinstance(value, list)
+        and len(cast(list[object], value)) <= FULL_SCREEN_EXCEPTIONS_KEPT
+        and all(
+            isinstance(item, str) and 0 < len(item) <= 260 for item in cast(list[object], value)
+        )
+    )
+
+
+# Notes go out of sight on a screen a program shows full screen (a slide show,
+# a video, a game). Kept per computer, as are the programs it is not done for:
+# their file name on Windows ("vlc.exe"), their window class under X11.
+HIDE_FOR_FULL_SCREEN = Setting[bool]("hide_for_full_screen", "device", True, _flag)
+FULL_SCREEN_EXCEPTIONS = Setting[list[str]]("full_screen_exceptions", "device", [], _program_names)
 
 CHANGE_KINDS = (
     "recovery_key",
@@ -242,6 +260,8 @@ SETTINGS: dict[str, Setting[object]] = {
         PROTECTION_CHANGES,
         MORNING,
         SNOOZE_MINUTES,
+        HIDE_FOR_FULL_SCREEN,
+        FULL_SCREEN_EXCEPTIONS,
     )
 }
 

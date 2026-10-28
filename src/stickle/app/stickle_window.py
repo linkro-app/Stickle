@@ -47,6 +47,7 @@ from stickle.app.about_dialog import AboutDialog
 from stickle.app.backups import RestoreDialog
 from stickle.app.data_menu import DataAccess, export_everything
 from stickle.app.finder import DesktopFinder
+from stickle.app.full_screen import FullScreenWatch
 from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportDialog
 from stickle.app.in_use import OnTopWhileInUse, call_up
@@ -127,6 +128,7 @@ class StickleWindow(QWidget):
         updates: UpdateCheck | None = None,
         master: MasterPasswords | None = None,
         changes: ProtectionChanges | None = None,
+        full_screen: FullScreenWatch | None = None,
     ) -> None:
         super().__init__()
         self._notes = notes
@@ -154,6 +156,7 @@ class StickleWindow(QWidget):
             portable=portable_folder is not None,
             updates=updates,
             master=master,
+            full_screen=full_screen,
         )
         self.settings_button = QPushButton(self)
         self.settings_button.clicked.connect(lambda: self.open_settings())

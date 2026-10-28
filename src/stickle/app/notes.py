@@ -48,7 +48,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QScreen
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 from stickle.app.category_dialog import CreateCategory, NewCategoryDialog, next_dot_color
@@ -208,6 +208,11 @@ confirm_ordinary: Callable[[QWidget], bool] = _confirm_ordinary  # replaced in t
 ask_color: Callable[[ColorDialog], bool] = _ask  # replaced in tests
 
 
+def _screen_of(window: QWidget) -> QScreen:
+    """The screen a window is on (where its middle is), shown or not."""
+    return QGuiApplication.screenAt(window.geometry().center()) or window.screen()
+
+
 def _wipe(key: bytearray) -> None:
     """Overwrite a key no longer needed, so its bytes do not linger in memory."""
     key[:] = bytes(len(key))
@@ -226,6 +231,8 @@ class NoteManager(QObject):
     set_aside_changed = Signal()
     # The desktop shows another category's notes, or every note again.
     view_changed = Signal()
+    # Notes went out of sight for a full-screen program, or came back.
+    covered_changed = Signal()
     # Lining up like a magnet was switched on or off.
     magnet_changed = Signal()
     # The user's own colours were added, removed or put in another order.
@@ -261,6 +268,9 @@ class NoteManager(QObject):
         self._set_aside: list[NoteWindow] = []
         self._view: str | None = None  # see view
         self._out_of_view: list[NoteWindow] = []
+        # Out of sight on a screen a full-screen program covers (see cover).
+        self._covered: list[NoteWindow] = []
+        self._covered_screens: set[QScreen] = set()
         self._find_among: list[NoteWindow] | None = None  # while finding on the desktop
         # Moving with Shift: the notes that come along, and where each started.
         self._groups: dict[NoteWindow, list[tuple[NoteWindow, QPoint]]] = {}
@@ -386,6 +396,7 @@ class NoteManager(QObject):
         text: str = "",
         color: str | None = None,
         take_keyboard: bool = True,
+        in_sight: bool = True,
     ) -> NoteWindow:
         if note is not None:
             window = NoteWindow(
@@ -499,6 +510,8 @@ class NoteManager(QObject):
             window.mark_placed()
 
         self.window_opened.emit(window)
+        if not in_sight:
+            return window
         window.show()
         if take_keyboard:
             window.activateWindow()
@@ -769,6 +782,9 @@ class NoteManager(QObject):
     def raise_all(self) -> None:
         """Bring every open note in front of other windows (notes not on top get covered)."""
         self.bring_back()
+        if self._covered:  # asked for: over the full-screen program too
+            self._covered.clear()
+            self.covered_changed.emit()
         for window in self._windows:
             window.show()
             window.raise_()
@@ -783,17 +799,22 @@ class NoteManager(QObject):
 
     def set_all_aside(self) -> None:
         """Take every note on screen out of sight, saved first. Nothing stored
-        changes: they are not hidden notes, and the next start shows them."""
+        changes: they are not hidden notes, and the next start shows them.
+        Those out of sight for a full-screen program go too: they stay aside
+        once it ends."""
         shown = [window for window in self._windows if window.isVisible()]
-        if not shown:
+        covered, self._covered = self._covered, []
+        if not shown and not covered:
             return
         for window in shown:
             # A note that could not be saved keeps its text in the window, which
             # goes on trying; out of sight is not closed.
             self.flush(window, closing=True)
             window.hide()
-        self._set_aside.extend(shown)
-        log.info("notes set aside: %d", len(shown))
+        self._set_aside.extend(shown + covered)
+        log.info("notes set aside: %d", len(shown) + len(covered))
+        if covered:
+            self.covered_changed.emit()
         self.set_aside_changed.emit()
 
     def bring_back(self) -> None:
@@ -807,13 +828,57 @@ class NoteManager(QObject):
         self.set_aside_changed.emit()
 
     def _take_back(self, window: NoteWindow) -> None:
-        """One note is no longer set aside or out of view (shown on its own, or closed)."""
+        """One note is no longer set aside, out of view or covered (shown on its
+        own, or closed)."""
         if window in self._out_of_view:
             self._out_of_view.remove(window)
+        if window in self._covered:
+            self._covered.remove(window)
+            self.covered_changed.emit()
         if window in self._set_aside:
             self._set_aside.remove(window)
             if not self._set_aside:
                 self.set_aside_changed.emit()
+
+    # Out of the way of full-screen programs
+
+    @property
+    def covered(self) -> int:
+        """How many notes are out of sight for a full-screen program."""
+        return len(self._covered)
+
+    def cover(self, screens: set[QScreen]) -> None:
+        """The screens full-screen programs cover now: the notes shown on one
+        newly covered go out of sight, saved first, and those of a screen no
+        longer covered come back, unless set aside or out of view meanwhile.
+
+        Nothing is stored, as when set aside. A note the user brings up while
+        a screen is covered (a new one, one from the list) stays in sight.
+        """
+        newly = screens - self._covered_screens
+        self._covered_screens = set(screens)
+        back = [w for w in self._covered if _screen_of(w) not in screens]
+        for window in back:
+            self._covered.remove(window)
+            self._back_in_sight(window)
+        gone = [w for w in self._windows if w.isVisible() and _screen_of(w) in newly]
+        for window in gone:
+            self.flush(window, closing=True)
+            window.hide()
+        self._covered.extend(gone)
+        if back or gone:
+            log.info("notes covered by full screen: %d", len(self._covered))
+            self.covered_changed.emit()
+
+    def _back_in_sight(self, window: NoteWindow) -> None:
+        """A note out of sight for a while comes back, unless it is meant to
+        stay out of sight with the others (set aside, out of view)."""
+        if not self._in_view(window):
+            self._out_of_view.append(window)
+        elif self._set_aside:
+            self._set_aside.append(window)
+        else:
+            window.show()
 
     # On the desktop, the notes of one category only
 
@@ -1651,11 +1716,12 @@ class NoteManager(QObject):
     def last_deleted(self) -> Note | None:
         return self._repository.last_deleted() if self._repository else None
 
-    def show_hidden(self, note_id: str, take_keyboard: bool = True) -> None:
+    def show_hidden(self, note_id: str, take_keyboard: bool = True, in_sight: bool = True) -> None:
+        """A hidden note no longer hidden, and open (in_sight: shown too)."""
         if self._repository is None:
             return
         note = self._repository.set_hidden(note_id, False)
-        self._open(note, take_keyboard=take_keyboard)
+        self._open(note, take_keyboard=take_keyboard, in_sight=in_sight)
         self.changed.emit()
 
     def show_all_hidden(self) -> None:
@@ -1710,19 +1776,28 @@ class NoteManager(QObject):
     def come_forward(self, note_id: str) -> NoteWindow | None:
         """A note its reminder asks for: in sight and in front, shown again if it
         was hidden, set aside or out of view, and unfolded, but leaving the
-        keyboard where it is. None if it is not among the notes (in the trash)."""
+        keyboard where it is. None if it is not among the notes (in the trash).
+
+        On a screen a full-screen program covers, it stays out of sight until
+        that ends (the system's notification tells meanwhile)."""
         window = self.window_for(note_id)
         if window is None:
             note = self._repository.get(note_id) if self._repository else None
             if note is None or note.deleted:
                 return None
-            self.show_hidden(note_id, take_keyboard=False)
+            self.show_hidden(note_id, take_keyboard=False, in_sight=False)
             window = self.window_for(note_id)
             if window is None:
                 return None
-        self._take_back(window)
         if window.collapsed:
             self.set_collapsed(window, False)
+        if not window.isVisible() and _screen_of(window) in self._covered_screens:
+            if window not in self._covered:
+                self._take_back(window)
+                self._covered.append(window)
+                self.covered_changed.emit()
+            return window
+        self._take_back(window)
         window.show()
         window.raise_()
         return window

@@ -250,5 +250,12 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
             <numerusform>%n &amp;missed reminders…</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <source>Stickle: %n note(s) hidden for a full-screen program</source>
+        <translation>
+            <numerusform>Stickle: %n note hidden for a full-screen program</numerusform>
+            <numerusform>Stickle: %n notes hidden for a full-screen program</numerusform>
+        </translation>
+    </message>
 </context>
 </TS>
