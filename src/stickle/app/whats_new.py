@@ -61,6 +61,37 @@ def news(version: str) -> str | None:
             "[Everything Stickle does](%1)",
         )
         return text.replace("%1", site_page("guide"))
+    if release_line(version) == "0.6":
+        text = QCoreApplication.translate(
+            "WhatsNew",
+            "# What's new in Stickle 0.6\n"
+            "- **Stickle Manager** is the new name of the window with the list of "
+            "notes, and settings have a window of their own (Settings… there and in "
+            "the Stickle icon's menu)\n"
+            "- **Reminders**: Ctrl+R in a note sets its reminder, once or repeating; "
+            "when it rings, 'Remind me again' puts it off. Ctrl+Shift+R while editing "
+            "writes a reminder into that line (⏰). Reminders that came while Stickle "
+            "was off are shown as missed reminders when it starts\n"
+            "- **Other calendars** for reminders: the lunar calendar, the Chinese lunar, "
+            "Hebrew, Islamic, Persian, Ethiopian, Julian, Indian national and Bengali "
+            "calendars\n"
+            "- **Secret notes**: 'Make it a secret note…' in the note menu. Its text is "
+            "kept encrypted with the secret notes' password and stays covered until you "
+            "type it. Forgot the password? The recovery key sets a new one\n"
+            "- **Protection** in Settings: make a new recovery key, and set a spare "
+            "password to remember in case you forget where you put the key\n"
+            "- **Your own colours**: up to 12 more colours, a random colour for new "
+            "notes if you like, and Ctrl+Shift+] and Ctrl+Shift+[ to step through a "
+            "note's colours\n"
+            "- **Out of the way of full screen**: while a slide show, a video or a game "
+            "fills a screen, its notes step aside, and come back when it ends "
+            "(Windows and X11)\n"
+            "- **Stickle's own export** can be brought in again, secret notes too "
+            "(Data → Bring notes in from another app… → Stickle export…)\n"
+            "\n"
+            "Reminders ring while Stickle is running. [Everything Stickle does](%1)",
+        )
+        return text.replace("%1", site_page("guide"))
     return None
 
 

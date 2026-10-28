@@ -115,6 +115,25 @@ def test_the_news_is_in_the_interface_language(
     assert "https://stickle.linkro.co/ko/guide" in note.body
 
 
+def test_from_0_5_to_0_6_the_news_of_0_6_comes_once(
+    translations: Translations, store: tuple[NoteRepository, Settings]
+) -> None:
+    notes, settings = store
+    settings.set(NEWS_SEEN, "0.5.1")
+    translations.apply("ko")
+
+    note_id = give_news(notes, settings, first_start=False, version="0.6.0")
+
+    assert note_id is not None and note_id == news_note_id("0.6.0")
+    assert note_id != news_note_id("0.5.1")
+    note = notes.get(note_id)
+    assert note is not None and note.color == COLOR
+    assert note.body.startswith("# Stickle 0.6에서 바뀐 점")
+    assert "Stickle 관리자" in note.body and "https://stickle.linkro.co/ko/guide" in note.body
+    assert give_news(notes, settings, first_start=False, version="0.6.0") is None
+    assert len(notes.all()) == 1
+
+
 def test_the_same_version_has_the_same_note_on_every_device() -> None:
     assert news_note_id("0.5.0") == news_note_id("0.5.0-preview.1") == news_note_id("0.5.2")
     assert news_note_id("0.5.0") != news_note_id("0.6.0")

@@ -3910,6 +3910,30 @@ Data is in Stickle Manager and in the Stickle icon&apos;s menu. [Everything Stic
 
 데이터 메뉴는 Stickle 관리자와 Stickle 아이콘 메뉴에 있습니다. [모든 기능 안내](%1)</translation>
     </message>
+    <message>
+        <source># What&apos;s new in Stickle 0.6
+- **Stickle Manager** is the new name of the window with the list of notes, and settings have a window of their own (Settings… there and in the Stickle icon&apos;s menu)
+- **Reminders**: Ctrl+R in a note sets its reminder, once or repeating; when it rings, &apos;Remind me again&apos; puts it off. Ctrl+Shift+R while editing writes a reminder into that line (⏰). Reminders that came while Stickle was off are shown as missed reminders when it starts
+- **Other calendars** for reminders: the lunar calendar, the Chinese lunar, Hebrew, Islamic, Persian, Ethiopian, Julian, Indian national and Bengali calendars
+- **Secret notes**: &apos;Make it a secret note…&apos; in the note menu. Its text is kept encrypted with the secret notes&apos; password and stays covered until you type it. Forgot the password? The recovery key sets a new one
+- **Protection** in Settings: make a new recovery key, and set a spare password to remember in case you forget where you put the key
+- **Your own colours**: up to 12 more colours, a random colour for new notes if you like, and Ctrl+Shift+] and Ctrl+Shift+[ to step through a note&apos;s colours
+- **Out of the way of full screen**: while a slide show, a video or a game fills a screen, its notes step aside, and come back when it ends (Windows and X11)
+- **Stickle&apos;s own export** can be brought in again, secret notes too (Data → Bring notes in from another app… → Stickle export…)
+
+Reminders ring while Stickle is running. [Everything Stickle does](%1)</source>
+        <translation># Stickle 0.6에서 바뀐 점
+- **Stickle 관리자**: 메모 목록이 있는 창의 새 이름입니다. 설정은 따로 창이 생겼습니다(그곳과 Stickle 아이콘 메뉴의 설정…)
+- **알림**: 메모에서 Ctrl+R로 알림을 넣습니다 — 한 번 또는 반복, 울릴 때 &apos;다시 알림&apos;으로 미룹니다. 원문 편집에서 Ctrl+Shift+R은 그 줄에 알림(⏰)을 적습니다. Stickle이 꺼져 있던 사이의 알림은 켤 때 &apos;지난 알림&apos;으로 보입니다
+- **다른 달력**으로도 알림: 음력, 음력(중국), 히브리력, 이슬람력, 페르시아력, 에티오피아력, 율리우스력, 인도 국가력, 벵골력
+- **비밀 메모**: 메모 메뉴의 &apos;비밀 메모로 바꾸기…&apos;. 내용은 비밀 메모 암호로 암호화되어 가려져 있다가 암호를 넣으면 보입니다. 암호를 잊으면 복구 키로 새로 정합니다
+- **메모 보호**(설정): 새 복구 키 만들기, 복구 키를 둔 곳을 잊을 때를 대비해 외워 둘 예비 암호
+- **내 색**: 내 색을 12개까지 더하고, 새 메모를 랜덤 색으로 할 수도 있습니다. Ctrl+Shift+]·Ctrl+Shift+[로 메모 색을 차례로 바꿉니다
+- **전체 화면에서 비켜 주기**: 슬라이드 쇼·동영상·게임이 화면을 가득 채우면 그 화면의 메모가 숨었다가 끝나면 돌아옵니다(Windows·X11)
+- **Stickle 내보내기 가져오기**: 내보낸 메모를 비밀 메모까지 다시 들입니다 (데이터 → 다른 앱에서 메모 가져오기… → Stickle 내보내기…)
+
+알림은 Stickle이 켜져 있을 때 울립니다. [모든 기능 안내](%1)</translation>
+    </message>
 </context>
 <context>
     <name>_PasswordWindow</name>
