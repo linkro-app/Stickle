@@ -65,7 +65,7 @@ from stickle.app.secret_dialogs import (
 from stickle.app.secret_notes import Relock
 from stickle.core.colors import PALETTE
 from stickle.core.labels import DEFAULT_ICON, Category, Mark
-from stickle.core.layout import MAIN, Place, fit, monitor_at, remember, restore
+from stickle.core.layout import MAIN, Place, Rect, fit, monitor_at, remember, restore
 from stickle.core.note import DEFAULT_COLOR, Note
 from stickle.core.paste import pasted_text
 from stickle.core.snap import resized, snapped, together
@@ -271,6 +271,9 @@ class NoteManager(QObject):
         # Out of sight on a screen a full-screen program covers (see cover).
         self._covered: list[NoteWindow] = []
         self._covered_screens: set[QScreen] = set()
+        # Where a note with no place of its own was before the app moved it
+        # onto a smaller screen: back there once it fits again (see place_all).
+        self._before_fit: dict[NoteWindow, Rect] = {}
         self._find_among: list[NoteWindow] | None = None  # while finding on the desktop
         # Moving with Shift: the notes that come along, and where each started.
         self._groups: dict[NoteWindow, list[tuple[NoteWindow, QPoint]]] = {}
@@ -520,6 +523,7 @@ class NoteManager(QObject):
 
     def _forget(self, window: NoteWindow) -> None:
         self._forget_key(window)
+        self._before_fit.pop(window, None)
         self._windows.remove(window)
         self._autosaves.pop(window).stop()
         self._take_back(window)
@@ -628,6 +632,8 @@ class NoteManager(QObject):
 
     def save_layout(self, window: NoteWindow, force: bool = False) -> None:
         """Remember where the note is, if the user moved or resized it (or force)."""
+        if window.moved_by_user:
+            self._before_fit.pop(window, None)  # where the user put it, from now on
         if self._layouts is None or window.note_id is None:
             return
         if not force and not window.moved_by_user:
@@ -753,10 +759,21 @@ class NoteManager(QObject):
         for window in self._windows:
             if self._restore_place(window):
                 continue
-            # Not remembered yet: at least keep it on a monitor.
+            # Not remembered yet: at least keep it on a monitor, and back where
+            # it was once the screen is large again (a game that changed the
+            # screen's resolution for a while, a projector).
             where = rect(window.expanded_geometry())
+            before = self._before_fit.pop(window, None)
+            if before is not None:
+                _, monitor = monitor_at(before, current)
+                if fit(before, monitor.available) == before:
+                    window.place(qrect(before), window.own_monitor)
+                    continue
             _, monitor = monitor_at(where, current)
-            window.place(qrect(fit(where, monitor.available)), window.own_monitor)
+            fitted = fit(where, monitor.available)
+            if fitted != where or before is not None:
+                self._before_fit[window] = before or where
+            window.place(qrect(fitted), window.own_monitor)
         log.info("monitors changed: %d notes on %d monitors", len(self._windows), len(current))
 
     def save_all(self) -> None:

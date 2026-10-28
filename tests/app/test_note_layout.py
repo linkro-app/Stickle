@@ -2,6 +2,7 @@
 
 import secrets
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import apsw
@@ -10,9 +11,10 @@ from PySide6.QtCore import QPoint, QRect, QSize
 from PySide6.QtGui import QGuiApplication
 from pytestqt.qtbot import QtBot
 
+from stickle.app import notes as notes_module
 from stickle.app.note_window import SETTLE_MS, NoteWindow
 from stickle.app.notes import NoteManager
-from stickle.core.layout import MAIN, Place
+from stickle.core.layout import MAIN, Monitor, Place, Rect
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -212,3 +214,63 @@ def test_every_place_the_app_restores_is_on_screen(connection: apsw.Connection) 
     for window in app.manager.windows:
         assert screen_area().contains(window.geometry())
     app.close()
+
+
+def shrunk(monitors: list[Monitor]) -> list[Monitor]:
+    """The same monitors at 640x480, as while a game shows full screen at that size."""
+    return [
+        replace(
+            m,
+            geometry=Rect(m.geometry.x, m.geometry.y, 640, 480),
+            available=Rect(m.available.x, m.available.y, 640, 400),
+        )
+        for m in monitors
+    ]
+
+
+def never_placed(app: App) -> NoteWindow:
+    """A note stored but never placed, as the first start's note: no place of its own."""
+    note = app.notes.create("# Welcome\n" + "\n".join(f"- [ ] step {n}" for n in range(12)))
+    app.manager.open_stored()
+    (window,) = app.manager.windows
+    assert app.layouts.places(note.id) == {}
+    area = screen_area()
+    window.setGeometry(QRect(area.left() + 80, area.top() + 150, 260, 300))
+    window.mark_placed()  # where the app put it, not the user
+    return window
+
+
+def test_a_note_pushed_onto_a_smaller_screen_goes_back_once_it_is_large_again(
+    app: App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A game showed full screen at 640x480 for a while: the first start's note,
+    # never moved by hand, stayed where it had been pushed (Windows VM).
+    window = never_placed(app)
+    home = window.geometry()
+    real = notes_module.monitors()
+
+    monkeypatch.setattr(notes_module, "monitors", lambda: shrunk(real))
+    app.manager.place_all()
+    assert window.geometry() != home
+    app.manager.place_all()  # changed again, still small
+
+    monkeypatch.setattr(notes_module, "monitors", lambda: real)
+    app.manager.place_all()
+    assert window.geometry() == home
+
+
+def test_moved_by_hand_meanwhile_it_is_not_pulled_back(
+    app: App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = never_placed(app)
+    home = window.geometry()
+    real = notes_module.monitors()
+    monkeypatch.setattr(notes_module, "monitors", lambda: shrunk(real))
+    app.manager.place_all()
+
+    window.move(window.pos() + QPoint(200, 0))  # by the user
+    app.manager.save_layout(window)
+    monkeypatch.setattr(notes_module, "monitors", lambda: real)
+    app.manager.place_all()
+
+    assert window.geometry() != home
