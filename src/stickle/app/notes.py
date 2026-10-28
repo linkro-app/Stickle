@@ -309,16 +309,26 @@ class NoteManager(QObject):
 
         With no notes at all, an empty note is opened to start with. Hidden notes
         alone open nothing: the app shows the Stickle window, which lists them.
+        None of the notes asks for the keyboard (see give_keyboard): under X11
+        a request coming after another window's is refused, and GNOME then
+        tells that the note "is ready".
         """
         if self._repository is None:
             self.new_note()
             return
         visible = self._repository.visible()
         for note in visible:
-            self._open(note)
+            self._open(note, take_keyboard=False)
         if not visible and not self._repository.all():
             self.new_note()
         log.info("opened %d notes", len(visible))
+
+    def give_keyboard(self) -> None:
+        """The keyboard for the note opened last, the one in front."""
+        if self._windows:
+            window = self._windows[-1]
+            window.activateWindow()
+            window.setFocus()
 
     def open_brought_in(self, note_ids: list[str]) -> None:
         """Show the notes just brought in from another app; hidden ones stay hidden."""

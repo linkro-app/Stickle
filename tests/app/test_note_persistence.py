@@ -330,3 +330,26 @@ def test_a_stored_note_never_placed_opens_showing_its_text_whole(
     for window in manager.windows:
         window.release()
     connection.close()
+
+
+def test_only_the_note_in_front_asks_for_the_keyboard_at_start(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Under X11 a request coming after another window's is refused, and GNOME
+    # then tells that the note "is ready": the notes opened ask for none, and
+    # the one in front asks once nothing else shown at start wants it.
+    for text in ("하나", "둘", "셋"):
+        session.repository.create(text)
+    asked: list[NoteWindow] = []
+
+    def activate(window: NoteWindow) -> None:
+        asked.append(window)
+
+    monkeypatch.setattr(NoteWindow, "activateWindow", activate)
+
+    later = session.restart()
+    assert len(later.manager.windows) == 3
+    assert asked == []
+
+    later.manager.give_keyboard()
+    assert asked == [later.manager.windows[-1]]

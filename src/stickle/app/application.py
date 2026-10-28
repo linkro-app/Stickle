@@ -820,6 +820,11 @@ def run(
             open_at_start(manager, stickle_window, tray_available, at_login)
             if reminders is not None:
                 reminders.start()
+            # The note in front has the keyboard, unless a window shown now
+            # wants it: the reminders gone by, or what a command line asked.
+            asked = request is not None or bool(instance_server and instance_server.received)
+            if not asked and not (reminders is not None and reminders.missed):
+                manager.give_keyboard()
             # Changes made in an earlier run are told now, and anything made later
             # once the computer has been locked and unlocked; locking it locks
             # the secret notes left open.
