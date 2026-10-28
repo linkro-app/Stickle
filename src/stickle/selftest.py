@@ -76,6 +76,7 @@ def run_checks() -> list[tuple[str, str]]:
     results += font_checks()
     results.append(icon_check())
     results.append(time_zone_check())
+    results.append(calendar_check())
     results += input_method_checks()
     results.append(start_at_login_check())
     results += store_package_check()
@@ -290,6 +291,25 @@ def time_zone_check() -> tuple[str, str]:
 
     ok = all(is_known_zone(name) for name in ("Asia/Seoul", "America/New_York", "UTC"))
     return ("PASS" if ok else "FAIL", "time zone data for reminders (tzdata)")
+
+
+def calendar_check() -> tuple[str, str]:
+    """Reminders can be picked in other calendars, worked out by libraries and
+    data carried with the app: each must turn a day into its own and back."""
+    from datetime import date
+
+    from stickle.core.calendars import CALENDARS
+
+    failed: list[str] = []
+    for calendar in CALENDARS.values():
+        try:
+            day = date(2027, 1, 1)
+            if calendar.to_gregorian(calendar.from_gregorian(day)) != day:
+                failed.append(calendar.id)
+        except Exception:
+            failed.append(calendar.id)
+    name = f"other calendars for reminders ({len(CALENDARS) - len(failed)} of {len(CALENDARS)})"
+    return ("FAIL" if failed else "PASS", name + (f": {', '.join(failed)}" if failed else ""))
 
 
 def main() -> int:
