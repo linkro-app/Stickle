@@ -17,6 +17,15 @@ from stickle.app import file_dialogs
 from stickle.app.window_flags import keep_stays_on_top, set_stays_on_top, stays_on_top
 
 
+def call_up(window: QWidget) -> None:
+    """Above pinned notes until the user moves on from it (with an
+    OnTopWhileInUse), unless the window it belongs to is shown above them,
+    which keeps it there: called up from the tray or a note."""
+    owner = window.parentWidget()
+    if owner is None or not (owner.isVisible() and stays_on_top(owner)):
+        set_stays_on_top(window, True)
+
+
 class OnTopWhileInUse(QObject):
     """Takes a window out of the top once the user has moved on from it and the
     windows it opened; it is put there with set_stays_on_top as it is called up."""

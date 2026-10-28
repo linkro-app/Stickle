@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from stickle.app.file_dialogs import open_file_name
+from stickle.app.in_use import OnTopWhileInUse
 from stickle.app.palette import swatch_icon
 from stickle.core.markdown import note_title
 from stickle.importers.base import Found, ImportResult, SourceError
@@ -62,6 +63,9 @@ class ImportDialog(QDialog):
     def __init__(self, access: ImportAccess, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._access = access
+        # Called up from the tray, it is kept above pinned notes on its own;
+        # from the Stickle window, that window keeps it there.
+        self._on_top = OnTopWhileInUse(self)
         self._read: list[_Read] = []
         self.intro = QLabel(self)
         self.intro.setWordWrap(True)

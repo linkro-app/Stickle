@@ -16,6 +16,7 @@ from stickle import __version__
 from stickle.app import note_window
 from stickle.app.app_icon import icon_pixmap
 from stickle.app.feedback import open_feedback
+from stickle.app.in_use import OnTopWhileInUse, call_up
 from stickle.app.link_label import LinkLabel
 from stickle.app.support import LICENSE, PRIVACY, SOURCE, open_support, site_page
 from stickle.platform.paths import own_files_folder
@@ -45,6 +46,9 @@ class AboutDialog(QDialog):
     def __init__(self, parent: QWidget | None = None, portable: bool = False) -> None:
         super().__init__(parent)
         self._portable = portable
+        # Called up from the tray, it is kept above pinned notes on its own;
+        # from the Stickle window, that window keeps it there.
+        self._on_top = OnTopWhileInUse(self)
         # A draft issue in the browser; Stickle sends nothing itself.
         self.feedback_button = QPushButton(self)
         self.feedback_button.clicked.connect(self.report)
@@ -159,6 +163,7 @@ class AboutDialog(QDialog):
 
     def present(self) -> None:
         """Shown, or brought forward if it already is, with the keyboard on Close."""
+        call_up(self)
         self.show()
         self.raise_()
         self.activateWindow()

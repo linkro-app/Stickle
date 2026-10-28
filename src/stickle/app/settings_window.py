@@ -35,7 +35,7 @@ from stickle.app.app_list import switch_app_list
 from stickle.app.color_dialog import ColorDialog
 from stickle.app.first_run import LoginNote
 from stickle.app.i18n import LANGUAGES, Translations
-from stickle.app.in_use import OnTopWhileInUse
+from stickle.app.in_use import OnTopWhileInUse, call_up
 from stickle.app.master_password import (
     CheckMasterPasswordDialog,
     MasterPasswordDialog,
@@ -50,7 +50,6 @@ from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.times import local_time
 from stickle.app.tray import switch_autostart
 from stickle.app.update_check import UpdateCheck
-from stickle.app.window_flags import set_stays_on_top, stays_on_top
 from stickle.core.updates import FEED_HOST
 from stickle.crypto.keyfile import KeyFileError
 from stickle.data.colors import MAX_OWN_COLORS
@@ -486,9 +485,7 @@ class SettingsWindow(QDialog):
         if page is not None and self.tabs.isTabVisible(self.tabs.indexOf(page)):
             self.tabs.setCurrentWidget(page)
         self.refresh()
-        parent = self.parentWidget()
-        if parent is None or not (parent.isVisible() and stays_on_top(parent)):
-            set_stays_on_top(self, True)
+        call_up(self)
         self.show()
         self.raise_()
         self.activateWindow()

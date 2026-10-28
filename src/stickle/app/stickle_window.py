@@ -49,7 +49,7 @@ from stickle.app.data_menu import DataAccess, export_everything
 from stickle.app.finder import DesktopFinder
 from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportDialog
-from stickle.app.in_use import OnTopWhileInUse
+from stickle.app.in_use import OnTopWhileInUse, call_up
 from stickle.app.label_manager import LabelManager
 from stickle.app.labels import category_item_icon, keyhole_item_icon
 from stickle.app.master_password import MasterPasswords
@@ -366,6 +366,7 @@ class StickleWindow(QWidget):
         if self.import_dialog is None:
             self.import_dialog = ImportDialog(self._data.importing, self)
         self.import_dialog.refresh()
+        call_up(self.import_dialog)
         self.import_dialog.show()
         self.import_dialog.raise_()
         self.import_dialog.activateWindow()
@@ -382,6 +383,7 @@ class StickleWindow(QWidget):
         if self.restore_dialog is None:
             self.restore_dialog = RestoreDialog(self._data.backups, self)
         self.restore_dialog.refresh()
+        call_up(self.restore_dialog)
         self.restore_dialog.show()
         self.restore_dialog.raise_()
         self.restore_dialog.activateWindow()

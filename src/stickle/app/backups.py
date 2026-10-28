@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.in_use import OnTopWhileInUse
 from stickle.app.secret_dialogs import OpenSecretDialog, SecretPasswords
 from stickle.core.clock import Clock, utc_now
 from stickle.data.backups import Backup, Contents, take_daily
@@ -113,6 +114,9 @@ class RestoreDialog(QDialog):
     def __init__(self, access: BackupAccess, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._access = access
+        # Called up from the tray, it is kept above pinned notes on its own;
+        # from the Stickle window, that window keeps it there.
+        self._on_top = OnTopWhileInUse(self)
         self.intro = QLabel(self)
         self.intro.setWordWrap(True)
         self.backups = QListWidget(self)

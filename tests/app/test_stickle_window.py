@@ -245,6 +245,33 @@ def test_from_the_tray_the_settings_stay_above_pinned_notes_until_left(
     settings.close()
 
 
+def test_from_the_tray_about_stays_above_pinned_notes_until_left(qtbot: QtBot, app: App) -> None:
+    note = open_note(app, "핀 메모")
+    app.tray.about_action.trigger()
+    about = app.window.about
+
+    assert about.isVisible() and not app.window.isVisible()
+    assert stays_on_top(about)
+    move_to(qtbot, about)
+    assert stays_on_top(about)
+
+    move_to(qtbot, note)
+    assert not stays_on_top(about)
+    about.close()
+
+
+def test_from_the_stickle_window_about_stays_above_pinned_notes_with_it(
+    qtbot: QtBot, app: App
+) -> None:
+    app.window.open()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
+
+    app.window.about.present()
+
+    assert not stays_on_top(app.window.about)  # kept above it by the system
+    app.window.about.close()
+
+
 def test_the_tray_has_the_settings_where_its_switches_were(app: App) -> None:
     texts = [a.text() for a in app.tray.contextMenu().actions() if not a.isSeparator()]
 
