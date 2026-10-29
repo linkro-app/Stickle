@@ -174,8 +174,24 @@ def drawn_icon(
     With quiet, the icon is drawn in that colour at rest and in color when
     the pointer is on it. Drawn rather than symbol characters: finding a
     font with such a glyph made showing the first note a third of a second
-    slower. Drawn per scale rather than scaled, so lines stay sharp.
+    slower. Drawn per scale rather than scaled, so lines stay sharp. Drawn
+    once for each drawing and colours, and shared: every note drawing its own
+    (fourteen pixmaps an icon) cost 0.4 MB a note.
     """
+    key = (draw, color.rgba(), (quiet or color).rgba())
+    icon = _drawn_icons.get(key)
+    if icon is None:
+        icon = _draw_icon(draw, color, quiet)
+        _drawn_icons[key] = icon
+    return icon
+
+
+_drawn_icons: dict[tuple[Callable[[QPainter, float], None], int, int], QIcon] = {}
+
+
+def _draw_icon(
+    draw: Callable[[QPainter, float], None], color: QColor, quiet: QColor | None
+) -> QIcon:
     icon = QIcon()
     modes = [(QIcon.Mode.Normal, quiet or color), (QIcon.Mode.Active, color)]
     for mode, ink in modes:
@@ -271,8 +287,17 @@ def make_lock_icon(color: QColor, quiet: QColor | None = None) -> QIcon:
     return drawn_icon(_lock, color, quiet)
 
 
+def _pin_in(painter: QPainter, size: float) -> None:
+    _pin(painter, size, True)
+
+
+def _pin_out(painter: QPainter, size: float) -> None:
+    _pin(painter, size, False)
+
+
 def make_pin_icon(color: QColor, pinned: bool, quiet: QColor | None = None) -> QIcon:
-    return drawn_icon(lambda painter, size: _pin(painter, size, pinned), color, quiet)
+    # Named drawings, not a lambda for each call: the icons are shared by drawing.
+    return drawn_icon(_pin_in if pinned else _pin_out, color, quiet)
 
 
 def make_close_icon(color: QColor, quiet: QColor | None = None) -> QIcon:

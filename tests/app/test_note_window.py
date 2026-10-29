@@ -94,6 +94,27 @@ def test_icons_are_quiet_until_pointed_at(qtbot: QtBot) -> None:
     assert darkest(QIcon.Mode.Normal) > darkest(QIcon.Mode.Active)
 
 
+def test_notes_of_a_colour_share_their_title_bar_icons(qtbot: QtBot) -> None:
+    # Each icon is fourteen pixmaps: drawn for every note, they cost 0.4 MB a note.
+    first, second, blue = NoteWindow(), NoteWindow(), NoteWindow(color="sky")
+    for window in (first, second, blue):
+        qtbot.addWidget(window)
+
+    def keys(window: NoteWindow) -> list[int]:
+        bar = window.title_bar
+        buttons = (bar.menu_button, bar.close_button, bar.lock_button, bar.pin_button)
+        return [button.icon().cacheKey() for button in buttons]
+
+    assert keys(first) == keys(second)
+    assert set(keys(first)).isdisjoint(keys(blue))
+    second.set_always_on_top(False)
+    assert keys(second)[3] != keys(first)[3]  # the pin lying down is another drawing
+    second.set_always_on_top(True)
+    assert keys(second) == keys(first)
+    for window in (first, second, blue):
+        window.release()
+
+
 def test_the_pin_stands_when_on_top_and_lies_when_not(qtbot: QtBot) -> None:
     window = NoteWindow()
     qtbot.addWidget(window)
