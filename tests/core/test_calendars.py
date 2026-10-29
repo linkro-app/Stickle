@@ -3,6 +3,8 @@ side when the day does not exist or may come early, repeating as that
 calendar does."""
 
 import csv
+import subprocess
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -304,3 +306,19 @@ def test_every_day_there_and_back(calendar: Calendar) -> None:
         assert calendar.to_gregorian(picked) == day, (calendar.id, day)
         assert 1 <= picked.day <= calendar.days_in_month(picked.year, picked.month, picked.leap)
         day += timedelta(days=1)
+
+
+def test_a_calendars_library_is_loaded_only_once_a_date_is_worked_out_in_it() -> None:
+    # lunar_python and pyluach take 3 MB together, which most people never need.
+    code = (
+        "import sys\n"
+        "from stickle.core.calendars import CALENDARS, CalendarDate\n"
+        "print(sorted(n for n in ('lunar_python', 'pyluach') if n in sys.modules))\n"
+        "CALENDARS['chinese_lunar'].to_gregorian(CalendarDate(2026, 1, 1))\n"
+        "print(sorted(n for n in ('lunar_python', 'pyluach') if n in sys.modules))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60
+    ).stdout.splitlines()
+
+    assert out == ["[]", "['lunar_python']"]

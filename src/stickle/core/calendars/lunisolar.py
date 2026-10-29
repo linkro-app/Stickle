@@ -15,13 +15,23 @@ from datetime import date, timedelta
 from functools import cache
 from typing import Any
 
-import korean_lunar_calendar  # pyright: ignore[reportMissingTypeStubs]
-import lunar_python  # pyright: ignore[reportMissingTypeStubs]
-
 from stickle.core.calendars.base import CalendarDate
 
-_KoreanLunarCalendar: Any = korean_lunar_calendar.KoreanLunarCalendar
-_LunarYear: Any = lunar_python.LunarYear
+# The libraries are loaded the first time a date is worked out in their
+# calendar: lunar_python alone takes 2 MB, which most people never need.
+
+
+def _korean_lunar_calendar() -> Any:
+    import korean_lunar_calendar  # pyright: ignore[reportMissingTypeStubs]
+
+    return korean_lunar_calendar.KoreanLunarCalendar()
+
+
+def _lunar_year(year: int) -> Any:
+    import lunar_python  # pyright: ignore[reportMissingTypeStubs]
+
+    return lunar_python.LunarYear.fromYear(year)  # pyright: ignore[reportUnknownMemberType]
+
 
 # date.toordinal() of the day whose Julian Day Number is JDN: JDN - this.
 _JDN_OFFSET = 1721425
@@ -94,7 +104,7 @@ class KoreanLunar(MonthTable):
 
 
 def _korean_start(year: int, month: int, leap: bool) -> date | None:
-    calendar = _KoreanLunarCalendar()
+    calendar = _korean_lunar_calendar()
     if not calendar.setLunarDate(year, month, 1, leap):
         return None
     return date(int(calendar.solarYear), int(calendar.solarMonth), int(calendar.solarDay))
@@ -130,7 +140,7 @@ _HKO_STARTS: dict[tuple[int, int, bool], date] = {
 
 def _chinese_starts(year: int) -> list[tuple[int, bool, date]]:
     starts: list[tuple[int, bool, date]] = []
-    for month in _LunarYear.fromYear(year).getMonths():
+    for month in _lunar_year(year).getMonths():
         if int(month.getYear()) != year:
             continue
         number = int(month.getMonth())

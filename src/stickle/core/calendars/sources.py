@@ -8,15 +8,27 @@ from typing import Any
 
 import hijridate
 import persiantools.jdatetime
-import pyluach.dates  # pyright: ignore[reportMissingTypeStubs]
-import pyluach.hebrewcal  # pyright: ignore[reportMissingTypeStubs]
 
 from stickle.core.calendars.base import CalendarDate
 
-_HebrewDate: Any = pyluach.dates.HebrewDate
-_GregorianDate: Any = pyluach.dates.GregorianDate
-_HebrewYear: Any = pyluach.hebrewcal.Year
 _JalaliDate: Any = persiantools.jdatetime.JalaliDate
+
+
+# pyluach is loaded the first time a Hebrew date is worked out: 1.2 MB that
+# most people never need.
+
+
+def _hebrew_dates() -> Any:
+    from pyluach import dates  # pyright: ignore[reportMissingTypeStubs]
+
+    return dates
+
+
+def _hebrew_years() -> Any:
+    from pyluach import hebrewcal  # pyright: ignore[reportMissingTypeStubs]
+
+    return hebrewcal
+
 
 # pyluach counts months from Nisan (1) and gives a leap year's Adar II 13: here
 # Adar II is the leap month after Adar I (12), so that a day of Adar picked in
@@ -38,11 +50,11 @@ class Hebrew:
 
     def to_gregorian(self, day: CalendarDate) -> date:
         month = _ADAR_II if day.leap else day.month
-        found: date = _HebrewDate(day.year, month, day.day).to_pydate()
+        found: date = _hebrew_dates().HebrewDate(day.year, month, day.day).to_pydate()
         return found
 
     def from_gregorian(self, day: date) -> CalendarDate:
-        hebrew = _GregorianDate.from_pydate(day).to_heb()
+        hebrew = _hebrew_dates().GregorianDate.from_pydate(day).to_heb()
         month = int(hebrew.month)
         if month == _ADAR_II:
             return CalendarDate(int(hebrew.year), 12, int(hebrew.day), leap=True)
@@ -52,7 +64,7 @@ class Hebrew:
 @cache
 def _hebrew_months(year: int) -> list[tuple[int, bool]]:
     # Its year starts in Tishrei (7).
-    leap = bool(_HebrewYear(year).leap)
+    leap = bool(_hebrew_years().Year(year).leap)
     autumn = [(month, False) for month in range(7, 13)]
     spring = [(month, False) for month in range(1, 7)]
     return [*autumn, *([(12, True)] if leap else []), *spring]
