@@ -2,8 +2,8 @@ from collections.abc import Iterator
 from typing import override
 
 import pytest
-from PySide6.QtCore import QEvent, QObject, QSize, Qt
-from PySide6.QtGui import QContextMenuEvent, QIcon, QImage, QPalette
+from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt
+from PySide6.QtGui import QContextMenuEvent, QIcon, QImage, QPalette, QRegion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from pytestqt.qtbot import QtBot
@@ -49,6 +49,48 @@ def test_text_stays_dark_on_the_light_note(qtbot: QtBot) -> None:
     assert window.editor.palette().color(QPalette.ColorRole.Text) == FOREGROUND
     title = window.title_bar.title
     assert title.palette().color(title.foregroundRole()) == FOREGROUND
+
+
+def test_a_dark_system_theme_leaves_the_notes_text_dark(qtbot: QtBot) -> None:
+    # Pinned by palettes, not a style sheet: one costs every widget under it 0.4 MB a note.
+    app = QApplication.instance()
+    assert isinstance(app, QApplication)
+    system = app.palette()
+    dark = QPalette(system)
+    for role in (QPalette.ColorRole.Text, QPalette.ColorRole.WindowText):
+        dark.setColor(role, Qt.GlobalColor.white)
+    app.setPalette(dark)
+    try:
+        window = NoteWindow(text="메모")
+        qtbot.addWidget(window)
+        window.show()
+
+        assert window.styleSheet() == ""
+        for part in (window.editor, window.view, window.locked_face):
+            assert part.palette().color(part.foregroundRole()) == FOREGROUND
+        for part in (window.editor, window.view):
+            assert part.palette().color(QPalette.ColorRole.Text) == FOREGROUND
+        title = window.title_bar.title
+        assert title.palette().color(title.foregroundRole()) == FOREGROUND
+        window.release()
+    finally:
+        app.setPalette(system)
+
+
+def test_title_bar_buttons_are_bare_icons_until_pointed_at(qtbot: QtBot) -> None:
+    window = NoteWindow()
+    qtbot.addWidget(window)
+    window.show()
+    button = window.title_bar.close_button
+    image = QImage(button.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(Qt.GlobalColor.transparent)
+
+    button.render(image, QPoint(), QRegion(), QWidget.RenderFlag.DrawChildren)
+
+    # No frame, no shade: the corners are left to the title bar.
+    assert image.pixelColor(0, 0).alpha() == 0
+    assert image.pixelColor(image.width() - 1, image.height() - 1).alpha() == 0
+    window.release()
 
 
 def test_title_bar_is_slim_and_its_buttons_small(qtbot: QtBot) -> None:

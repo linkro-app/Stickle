@@ -10,7 +10,7 @@ import html
 from typing import override
 
 from PySide6.QtCore import QCoreApplication, QEvent, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -107,6 +107,21 @@ class ReminderBar(QFrame):
         self.setTabOrder(self.done_button, self.again_button)
         self.hide()
         self.retranslate()
+
+    def set_colors(self, text: QColor, shade: QColor) -> None:
+        """In the note's colours: a faint band of shade, its buttons outlined. Its own
+        style sheet (the note has none: one costs every widget under it)."""
+        ink = text.name()
+        rgb = f"{shade.red()}, {shade.green()}, {shade.blue()}"
+        self.setStyleSheet(
+            f"ReminderBar {{ background: rgba({rgb}, 0.10); }}"
+            f"QLabel {{ color: {ink}; }}"
+            "QPushButton, QToolButton {"
+            f" color: {ink}; background: rgba({rgb}, 0.08);"
+            f" border: 1px solid rgba({rgb}, 0.35); border-radius: 4px; padding: 2px 8px; }}"
+            f"QPushButton:hover, QToolButton:hover {{ background: rgba({rgb}, 0.18); }}"
+            f"QPushButton:focus, QToolButton:focus {{ border: 2px solid rgba({rgb}, 0.8); }}"
+        )
 
     @property
     def snooze_minutes(self) -> int:

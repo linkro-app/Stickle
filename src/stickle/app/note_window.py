@@ -45,6 +45,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPaintEvent,
+    QPalette,
     QPen,
     QPixmap,
     QResizeEvent,
@@ -61,6 +62,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QSizeGrip,
     QStackedWidget,
+    QTextEdit,
     QToolButton,
     QToolTip,
     QVBoxLayout,
@@ -316,6 +318,51 @@ def make_unsaved_icon(color: QColor) -> QIcon:
     return drawn_icon(_warning, color)
 
 
+def set_foreground(widget: QWidget, color: QColor) -> None:
+    """Text in color whatever the system's theme (a dark one would paint light text
+    on a light note). A palette, not a style sheet: a style sheet costs every
+    widget under it rules of its own, 0.4 MB a note."""
+    palette = widget.palette()
+    palette.setColor(widget.foregroundRole(), color)
+    if isinstance(widget, (QPlainTextEdit, QTextEdit)):
+        palette.setColor(QPalette.ColorRole.Text, color)
+        palette.setColor(QPalette.ColorRole.Base, QColor(Qt.GlobalColor.transparent))
+    widget.setPalette(palette)
+
+
+class FlatButton(QToolButton):
+    """A title bar button: its icon on a faint rounded shade where the pointer is,
+    a deeper one while pressed, a ring while it has the keyboard; nothing else."""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.shade = qcolor(DARK_TEXT)
+
+    @override
+    def paintEvent(self, event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pointed = self.underMouse() and self.isEnabled()
+        alpha = 0.22 if self.isDown() else 0.12 if pointed else 0.0
+        if alpha:
+            fill = QColor(self.shade)
+            fill.setAlphaF(alpha)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(fill)
+            painter.drawRoundedRect(QRectF(self.rect()), 4, 4)
+        if self.hasFocus():
+            ring = QColor(self.shade)
+            ring.setAlphaF(0.8)
+            painter.setPen(QPen(ring, 1.5))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.75, 0.75, -0.75, -0.75), 4, 4)
+        mode = QIcon.Mode.Active if pointed or self.hasFocus() else QIcon.Mode.Normal
+        state = QIcon.State.On if self.isChecked() else QIcon.State.Off
+        icon_rect = QRect(QPoint(0, 0), self.iconSize())
+        icon_rect.moveCenter(self.rect().center())
+        self.icon().paint(painter, icon_rect, Qt.AlignmentFlag.AlignCenter, mode, state)
+
+
 class NoteEditor(QPlainTextEdit):
     """The note's text as written. Formatted text pasted in (from a web page or a
     word processor) arrives as Markdown, so it keeps the formatting a note can show."""
@@ -431,18 +478,21 @@ class TitleBar(QWidget):
         layout.addWidget(self.menu_button)
         layout.addWidget(self.close_button)
 
-    def _button(self) -> QToolButton:
-        """A small flat button; its look comes from the note's style sheet."""
-        button = QToolButton(self)
-        button.setAutoRaise(True)
+    def _button(self) -> FlatButton:
+        button = FlatButton(self)
+        button.setAutoRaise(True)  # repainted as the pointer comes and goes
         button.setFixedSize(BUTTON_SIZE, BUTTON_SIZE)
         button.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         return button
 
     def set_icon_color(self, color: QColor, quiet: QColor | None = None) -> None:
-        """Icons in color when pointed at, and quiet (quieter) otherwise."""
+        """Icons in color when pointed at, and quiet (quieter) otherwise; the title
+        and the buttons' shade in color."""
         self._icon_color = color
         self._quiet_color = quiet or color
+        set_foreground(self.title, color)
+        for button in self.findChildren(FlatButton):
+            button.shade = color
         self.menu_button.setIcon(make_menu_icon(color, self._quiet_color))
         self.close_button.setIcon(make_close_icon(color, self._quiet_color))
         # A warning should not be quiet.
@@ -1316,32 +1366,13 @@ class NoteWindow(QWidget):
         """Show the note in a palette colour (an unknown key shows the default)."""
         self.color = color
         self.colors = note_colors(color)
-        text = qcolor(self.colors.text).name()
-        title = self.colors.title_text
-        shade = f"{title.red}, {title.green}, {title.blue}"
-        # Style sheets rather than a palette: native styles ignore palette text colours.
-        # Pinned so a dark system theme does not paint light text on a light note.
-        # The buttons are flat: only a faint rounded shade where the pointer is.
-        self.setStyleSheet(
-            f"QPlainTextEdit, QTextEdit {{ background: transparent; color: {text}; }}"
-            f"LockedFace {{ color: {text}; }}"
-            f"TitleBar QLabel {{ color: {qcolor(title).name()}; }}"
-            "TitleBar QToolButton { border: none; border-radius: 4px; padding: 0;"
-            " background: transparent; }"
-            f"TitleBar QToolButton:hover {{ background: rgba({shade}, 0.12); }}"
-            f"TitleBar QToolButton:pressed {{ background: rgba({shade}, 0.22); }}"
-            "TitleBar QToolButton::menu-indicator { image: none; width: 0; }"
-            f"ReminderBar {{ background: rgba({shade}, 0.10); }}"
-            f"ReminderBar QLabel {{ color: {text}; }}"
-            "ReminderBar QPushButton, ReminderBar QToolButton {"
-            f" color: {text}; background: rgba({shade}, 0.08);"
-            f" border: 1px solid rgba({shade}, 0.35); border-radius: 4px; padding: 2px 8px; }}"
-            "ReminderBar QPushButton:hover, ReminderBar QToolButton:hover {"
-            f" background: rgba({shade}, 0.18); }}"
-            "ReminderBar QPushButton:focus, ReminderBar QToolButton:focus {"
-            f" border: 2px solid rgba({shade}, 0.8); }}"
-        )
-        self.title_bar.set_icon_color(qcolor(title), qcolor(self.colors.title_icon))
+        text = qcolor(self.colors.text)
+        title = qcolor(self.colors.title_text)
+        # Pinned, so a dark system theme does not paint light text on a light note.
+        for part in (self.editor, self.view, self.locked_face):
+            set_foreground(part, text)
+        self.reminder_bar.set_colors(text, title)
+        self.title_bar.set_icon_color(title, qcolor(self.colors.title_icon))
         self.title_bar.category_tag.set_background(qcolor(self.colors.title_bar))
         self.view.set_colors(self.colors)
         self.highlighter.set_colors(self.colors)
