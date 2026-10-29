@@ -4,10 +4,12 @@ import secrets
 import subprocess
 import sys
 import textwrap
+import threading
 from pathlib import Path
 
 import pytest
 
+from stickle.platform import credential_helper
 from stickle.platform.credential_helper import HelperBackend, serve
 from stickle.platform.credentials import (
     KEY_BYTES,
@@ -154,6 +156,19 @@ def test_the_helper_answers_each_request_and_names_failures_by_kind() -> None:
         {"value": None},
         {"error": "KeyError"},
     ]
+
+
+def test_a_helper_ended_by_its_input_does_not_end_the_process_later(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ended = threading.Event()
+    monkeypatch.setattr(credential_helper, "IDLE_TIMEOUT", 0.05)
+    monkeypatch.setattr(credential_helper, "_end_now", ended.set)
+    request = {"op": "get", "service": SERVICE, "name": "a"}
+
+    serve(io.StringIO(json.dumps(request) + "\n"), io.StringIO(), FakeBackend)
+
+    assert not ended.wait(0.5)
 
 
 def test_no_store_there_is_said_once_asked() -> None:

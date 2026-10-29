@@ -194,18 +194,21 @@ def serve(stdin: IO[str], stdout: IO[str], backend: Callable[[], Backend]) -> in
     stdout.flush()
     store: Backend | None = None
     idle = _Idle(IDLE_TIMEOUT)
-    for line in stdin:
-        idle.reset()
-        try:
-            request = cast(dict[str, str], json.loads(line))
-            if store is None:
-                store = backend()
-            reply = _answer(store, request)
-        except Exception as error:
-            # The store's error by its kind only: its message may name the secret.
-            reply = {"error": _kind(error)}
-        stdout.write(json.dumps(reply) + "\n")
-        stdout.flush()
+    try:
+        for line in stdin:
+            idle.reset()
+            try:
+                request = cast(dict[str, str], json.loads(line))
+                if store is None:
+                    store = backend()
+                reply = _answer(store, request)
+            except Exception as error:
+                # The store's error by its kind only: its message may name the secret.
+                reply = {"error": _kind(error)}
+            stdout.write(json.dumps(reply) + "\n")
+            stdout.flush()
+    finally:
+        idle.stop()  # ended by its input: nothing left to end it later
     return 0
 
 
@@ -239,11 +242,15 @@ class _Idle:
         self.reset()
 
     def reset(self) -> None:
-        if self._timer is not None:
-            self._timer.cancel()
+        self.stop()
         self._timer = threading.Timer(self._seconds, _end_now)
         self._timer.daemon = True
         self._timer.start()
+
+    def stop(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
 
 
 def _end_now() -> None:
