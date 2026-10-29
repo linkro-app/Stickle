@@ -258,11 +258,15 @@ def credential_checks() -> list[tuple[str, str]]:
         key = store.read(DATABASE_KEY)
     except CredentialStoreUnavailableError as error:
         return [*results, ("UNAVAILABLE", f"credential store ({error})")]
+    finally:
+        through = store.through_helper
+        store.close()
     # The first bytes of a hash identify the key across runs without revealing it.
     fingerprint = hashlib.sha256(key).hexdigest()[:8] if key else "none yet"
     return [
         *results,
         ("PASS" if round_trip and gone else "FAIL", "credential store round trip"),
+        ("INFO", f"credential store reached through the helper process: {through}"),
         ("INFO", f"database key fingerprint {fingerprint}"),
     ]
 

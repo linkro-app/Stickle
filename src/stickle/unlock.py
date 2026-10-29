@@ -238,9 +238,12 @@ class Unlock:
         if self.portable:
             raise CredentialStoreUnavailableError("portable notes keep no key on this computer")
         store = self._store()
-        store.write(DATABASE_KEY, key)
-        if store.read(DATABASE_KEY) != key:
-            raise CredentialStoreUnavailableError("the store did not keep the key")
+        try:
+            store.write(DATABASE_KEY, key)
+            if store.read(DATABASE_KEY) != key:
+                raise CredentialStoreUnavailableError("the store did not keep the key")
+        finally:
+            store.close()
 
     def set_password(self, key: bytes, password: str) -> None:
         """Protect an existing key (known to open the database) with a new password.

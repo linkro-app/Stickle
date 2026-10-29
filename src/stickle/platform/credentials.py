@@ -8,6 +8,9 @@ metadata that a compiled build does not carry.
 Nothing here ever falls back to a file. When the store is missing, locked,
 or its unlock prompt is dismissed, CredentialStoreUnavailableError is raised and
 the caller decides (later: ask for a password instead).
+
+The store is reached from a helper process (stickle.platform.credential_helper),
+so that its libraries never stay in Stickle's memory; here only if that fails.
 """
 
 import base64
@@ -17,6 +20,8 @@ import sys
 import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
+
+from stickle.platform.credential_helper import HelperBackend, StoreReplyError
 
 if TYPE_CHECKING:
     from keyring.backend import KeyringBackend
@@ -89,9 +94,30 @@ def bundled_support_modules() -> list[str]:
     return ["keyring.backends.SecretService", "secretstorage", "jeepney", "cryptography"]
 
 
+def default_backend() -> Backend:
+    """The platform's store, reached from the helper process (or here, should
+    the helper not work)."""
+    return HelperBackend(platform_backend)
+
+
+def _kind(error: Exception) -> str:
+    """How the store failed, without its message (it may name the secret)."""
+    return error.kind if isinstance(error, StoreReplyError) else type(error).__name__
+
+
 class CredentialStore:
     def __init__(self, backend: Backend | None = None) -> None:
-        self._backend = backend if backend is not None else platform_backend()
+        self._backend = backend if backend is not None else default_backend()
+
+    def close(self) -> None:
+        """Done with the store: its helper process may end."""
+        if isinstance(self._backend, HelperBackend):
+            self._backend.close()
+
+    @property
+    def through_helper(self) -> bool | None:
+        """Whether it was reached through the helper process; None: never meant to be."""
+        return self._backend.through_helper if isinstance(self._backend, HelperBackend) else None
 
     def read(self, name: str) -> bytes | None:
         """The stored secret, or None only when the store says it does not exist."""
@@ -99,7 +125,7 @@ class CredentialStore:
             value = self._backend.get_password(SERVICE, name)
         except Exception as error:
             # Locked, prompt dismissed, bus gone, ...: unknown is not "absent".
-            raise CredentialStoreUnavailableError(type(error).__name__) from error
+            raise CredentialStoreUnavailableError(_kind(error)) from error
         if value is None:
             return None
         try:
@@ -111,13 +137,13 @@ class CredentialStore:
         try:
             self._backend.set_password(SERVICE, name, base64.b64encode(secret).decode("ascii"))
         except Exception as error:
-            raise CredentialStoreUnavailableError(type(error).__name__) from error
+            raise CredentialStoreUnavailableError(_kind(error)) from error
 
     def delete(self, name: str) -> None:
         try:
             self._backend.delete_password(SERVICE, name)
         except Exception as error:
-            raise CredentialStoreUnavailableError(type(error).__name__) from error
+            raise CredentialStoreUnavailableError(_kind(error)) from error
 
     def get_or_create_key(self, name: str = DATABASE_KEY, create: bool = True) -> bytes:
         """Return the key, creating it only when the store confirms there is none.
@@ -164,12 +190,16 @@ class KeyRequest:
         self._thread.start()
 
     def _fetch(self, name: str, store: Callable[[], CredentialStore], create: bool) -> None:
+        made: CredentialStore | None = None
         try:
-            self._key = store().get_or_create_key(name, create)
+            made = store()
+            self._key = made.get_or_create_key(name, create)
         except BaseException as error:  # handed to whoever asks for the key
             self._error = error
         finally:
             self._done.set()
+            if made is not None:
+                made.close()  # after: the app does not wait for the helper to end
 
     def key(self) -> bytes:
         """Wait for the key; raises what fetching it raised."""

@@ -9,6 +9,15 @@ from stickle import __version__
 def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
     args = sys.argv if argv is None else argv
+    from stickle.platform.credential_helper import HELPER_FLAG
+
+    if args[1:2] == [HELPER_FLAG]:
+        # Started by Stickle to reach the credential store: before anything else
+        # (no Qt, no log, no single-instance lock), and only that.
+        from stickle.platform.credential_helper import serve
+        from stickle.platform.credentials import platform_backend
+
+        return serve(sys.stdin, sys.stdout, platform_backend)
     parser = argparse.ArgumentParser(prog="stickle")
     parser.add_argument("--version", action="version", version=f"Stickle {__version__}")
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
