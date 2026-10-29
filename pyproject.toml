@@ -20,6 +20,7 @@ dependencies = [
     "pynacl>=1.6",
     "pyside6-essentials>=6.11.2",
     "segno==1.6.6",
+    "truststore>=0.10.5 ; sys_platform == 'darwin' or sys_platform == 'win32'",
     "tzdata>=2026.5",
     "winrt-runtime>=3.2 ; sys_platform == 'win32'",
     "winrt-windows-applicationmodel>=3.2 ; sys_platform == 'win32'",
