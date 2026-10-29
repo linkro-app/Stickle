@@ -4,7 +4,9 @@ import base64
 import io
 import json
 import secrets
+import subprocess
 import sys
+import textwrap
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
@@ -248,6 +250,31 @@ def test_the_file_comes_from_a_helper_process(tmp_path: Path) -> None:
     script.write_text('import base64, sys\nsys.stdout.write(base64.b64encode(b"{}").decode())\n')
 
     assert fetch_feed_in_helper([sys.executable, str(script)]) == b"{}"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a Windows program's standard handles")
+def test_the_helper_starts_whatever_standard_input_this_program_was_given(
+    tmp_path: Path,
+) -> None:
+    # Started with a standard input that is no longer there, a program handing
+    # its own on to the helper could not start it.
+    script = tmp_path / "helper.py"
+    script.write_text('import base64, sys\nsys.stdout.write(base64.b64encode(b"{}").decode())\n')
+    code = textwrap.dedent(
+        f"""
+        import ctypes, sys
+        from stickle.platform import feed
+        ctypes.windll.kernel32.SetStdHandle(-10, ctypes.c_void_p(0x1234))
+        feed.fetch_feed = lambda: b"here"
+        sys.stdout.write(repr(feed.fetch_feed_in_helper([sys.executable, {str(script)!r}])))
+        """
+    )
+
+    done = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=True
+    )
+
+    assert done.stdout == repr(b"{}")
 
 
 def test_a_helper_that_could_not_read_the_file_says_why_and_is_not_retried(

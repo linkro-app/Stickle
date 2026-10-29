@@ -58,6 +58,9 @@ def fetch_feed_in_helper(command: list[str] | None = None) -> bytes | None:
     try:
         done = subprocess.run(
             command if command is not None else own_command(FEED_FLAG),
+            # Not this program's own: Windows can start a program with a standard
+            # input that is gone, and handing that on fails.
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             timeout=HELPER_TIMEOUT_SECONDS,
             creationflags=no_window(),
