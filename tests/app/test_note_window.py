@@ -181,6 +181,49 @@ def test_the_pin_stands_when_on_top_and_lies_when_not(qtbot: QtBot) -> None:
     window.release()
 
 
+def test_the_menus_items_are_made_as_it_first_opens_and_show_the_note_as_it_is(
+    qtbot: QtBot,
+) -> None:
+    # Fifty items kept by every note cost each 0.17 MB; most menus are never opened.
+    window = NoteWindow(color="sky")
+    qtbot.addWidget(window)
+    window.set_locked(True)
+    window.set_opacity(0.8)
+    window.set_always_on_top(False)
+    box = window.title_bar.menu_button.menu()
+    assert box is not None
+    assert box.actions() == []
+
+    box.aboutToShow.emit()  # as it opens
+
+    assert box is window.menu
+    assert window.color_actions["sky"].isChecked()
+    assert window.opacity_actions[0.8].isChecked()
+    assert window.lock_action.isChecked()
+    assert not window.on_top_action.isChecked()
+    assert not window.move_action.isEnabled()
+    assert window.reminder_action in box.actions()  # made already, for its key
+    window.set_locked(False)
+    assert not window.lock_action.isChecked()
+    window.release()
+
+
+def test_keys_of_the_menus_items_work_before_it_is_ever_opened(
+    qtbot: QtBot, manager: NoteManager
+) -> None:
+    window = manager.new_note()
+    qtbot.waitActive(window)
+    asked: list[bool] = []
+    window.reminder_requested.connect(lambda: asked.append(True))
+    box = window.title_bar.menu_button.menu()
+    assert box is not None
+
+    QTest.keyClick(window.windowHandle(), Qt.Key.Key_R, Qt.KeyboardModifier.ControlModifier)
+
+    assert asked == [True]
+    assert box.actions() == []
+
+
 def test_right_click_opens_the_menu_without_opening_colors(qtbot: QtBot) -> None:
     # A submenu opened by itself missed its first click.
     window = NoteWindow()

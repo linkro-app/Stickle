@@ -5,7 +5,7 @@ import math
 import sys
 import time
 from collections.abc import Callable
-from typing import override
+from typing import cast, override
 
 from PySide6.QtCore import (
     QCoreApplication,
@@ -594,6 +594,21 @@ class TitleBar(QWidget):
         super().mouseDoubleClickEvent(event)
 
 
+class _MenuItem[T]:
+    """Part of a note's menu, made with the rest the first time any of it is asked
+    for (NoteWindow.make_menu) and kept as the attribute's name with an underscore."""
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self._kept = f"_{name}"
+
+    def __get__(self, window: NoteWindow, owner: type | None = None) -> T:
+        window.make_menu()
+        return cast(T, getattr(window, self._kept))
+
+    def __set__(self, window: NoteWindow, value: T) -> None:
+        raise AttributeError(f"{self._kept[1:]} is made by make_menu")
+
+
 class NoteWindow(QWidget):
     """Frameless, always-on-top note with rounded corners that stays off the taskbar.
 
@@ -640,6 +655,28 @@ class NoteWindow(QWidget):
     dragged_by = Signal(QPoint)  # moved by Stickle itself (with Shift), this far from the start
     switch_requested = Signal(int)  # 1: to the next note on screen, -1: the one before
     geometry_settled = Signal()  # moved or resized, and then left alone for a moment
+
+    # Its menu, the items made the first time it opens or any of them is asked for.
+    menu = _MenuItem[QMenu]()
+    color_menu = _MenuItem[QMenu]()
+    category_menu = _MenuItem[QMenu]()
+    marks_menu = _MenuItem[QMenu]()
+    opacity_menu = _MenuItem[QMenu]()
+    color_actions = _MenuItem[dict[str, QAction]]()
+    own_color_actions = _MenuItem[dict[str, QAction]]()
+    opacity_actions = _MenuItem[dict[float, QAction]]()
+    add_color_action = _MenuItem[QAction]()
+    collapse_action = _MenuItem[QAction]()
+    on_top_action = _MenuItem[QAction]()
+    lock_action = _MenuItem[QAction]()
+    move_action = _MenuItem[QAction]()
+    resize_action = _MenuItem[QAction]()
+    secret_action = _MenuItem[QAction]()
+    open_secret_action = _MenuItem[QAction]()
+    lock_secret_action = _MenuItem[QAction]()
+    secret_title_action = _MenuItem[QAction]()
+    ordinary_action = _MenuItem[QAction]()
+    delete_action = _MenuItem[QAction]()
 
     def __init__(
         self,
@@ -722,25 +759,29 @@ class NoteWindow(QWidget):
         self.title_bar.double_clicked.connect(
             lambda: self.collapse_requested.emit(not self.collapsed)
         )
-        self.menu = QMenu(self)
-        self.color_menu = self.menu.addMenu("")
-        self.color_actions: dict[str, QAction] = {}
-        self._color_group = QActionGroup(self)
-        for key in PALETTE:
-            action = self.color_menu.addAction(swatch_icon(key), "")
-            action.setCheckable(True)
-            action.triggered.connect(lambda _=False, key=key: self.color_requested.emit(key))
-            self._color_group.addAction(action)
-            self.color_actions[key] = action
-        # The user's own colours, filled each time the menu opens (see own_colors),
-        # between two separators; then the next and previous colour (with their
-        # keys, which work without the menu) and adding a colour.
+        # Its menu: the box now, for its button, and its items the first time it
+        # opens or one is asked for (make_menu): fifty items kept by every note
+        # cost each 0.17 MB, and most notes' menus are never opened. The items
+        # with keys of their own are made now: the keys work without the menu.
+        self._menu = QMenu(self)
+        self._menu_made = False
+        self._menu.aboutToShow.connect(self.make_menu)  # first: the others need the items
+        # The user's own colours, filled each time the colour menu opens.
         self.own_colors: Callable[[], list[str]] = lambda: []
-        self.own_color_actions: dict[str, QAction] = {}
-        self._own_colors_start = self.color_menu.addSeparator()
-        self._own_colors_end = self.color_menu.addSeparator()
-        self.next_color_action = self.color_menu.addAction("")
-        self.previous_color_action = self.color_menu.addAction("")
+        self._own_color_actions: dict[str, QAction] = {}
+        # Filled each time the menu opens, from what exists then (see label_choices).
+        self.category: Category | None = None
+        self.marks: list[Mark] = []
+        self.label_choices: Callable[[], tuple[list[Category], list[Mark]]] = lambda: ([], [])
+        self._menu.aboutToShow.connect(self._fill_label_menus)
+        # See-through only while another window is in use: read and written, the
+        # note is opaque, so its text keeps its contrast.
+        self.opacity = 1.0
+        # Kept where it is, as it is: no moving, resizing or editing (hiding and
+        # deleting still work: the trash keeps a deleted note).
+        self.locked = False
+        self.next_color_action = QAction(self)
+        self.previous_color_action = QAction(self)
         # One key each: where Shift+] types }, Qt tries Ctrl+} too by itself, and a
         # second key for the same press made it ambiguous, so that nothing ran.
         for action, keys, step in (
@@ -753,54 +794,9 @@ class NoteWindow(QWidget):
                 lambda _=False, step=step: self.color_step_requested.emit(step)
             )
             self.addAction(action)
-        self.add_color_action = self.color_menu.addAction("")
-        self.add_color_action.triggered.connect(self.add_color_requested)
-        self.color_menu.aboutToShow.connect(self._fill_own_colors)
-        # Filled each time the menu opens, from what exists then (see label_choices).
-        self.category: Category | None = None
-        self.marks: list[Mark] = []
-        self.label_choices: Callable[[], tuple[list[Category], list[Mark]]] = lambda: ([], [])
-        self.category_menu = self.menu.addMenu("")
-        self.marks_menu = self.menu.addMenu("")
-        self.menu.aboutToShow.connect(self._fill_label_menus)
-        # See-through only while another window is in use: read and written, the
-        # note is opaque, so its text keeps its contrast.
-        self.opacity = 1.0
-        self.opacity_menu = self.menu.addMenu("")
-        self.opacity_actions: dict[float, QAction] = {}
-        opacities = QActionGroup(self)
-        for level in OPACITIES:
-            action = self.opacity_menu.addAction("")
-            action.setCheckable(True)
-            action.triggered.connect(
-                lambda _=False, level=level: self.opacity_requested.emit(level)
-            )
-            opacities.addAction(action)
-            self.opacity_actions[level] = action
-        self.collapse_action = self.menu.addAction("")
-        self.collapse_action.triggered.connect(
-            lambda: self.collapse_requested.emit(not self.collapsed)
-        )
-        # The same as the pin, for the keyboard and screen readers.
-        self.on_top_action = self.menu.addAction("")
-        self.on_top_action.setCheckable(True)
-        self.on_top_action.setChecked(True)
-        self.on_top_action.triggered.connect(self.on_top_requested)
         self.title_bar.pin_button.clicked.connect(self.on_top_requested)
-        # Kept where it is, as it is: no moving, resizing or editing (hiding and
-        # deleting still work: the trash keeps a deleted note).
-        self.locked = False
-        self.lock_action = self.menu.addAction("")
-        self.lock_action.setCheckable(True)
-        self.lock_action.triggered.connect(self.lock_requested)
-        # Moving and resizing without a mouse: the arrow keys, then Enter (or Esc
-        # to put it back). A frameless note has no window menu of the system's.
-        self.move_action = self.menu.addAction("")
-        self.move_action.triggered.connect(lambda: self.start_keyboard(MOVE))
-        self.resize_action = self.menu.addAction("")
-        self.resize_action.triggered.connect(lambda: self.start_keyboard(RESIZE))
         # Its own reminder: when it rings, and how often (stickle.app.reminders).
-        self.reminder_action = self.menu.addAction("")
+        self.reminder_action = QAction(self)
         self.reminder_action.setShortcut(QKeySequence("Ctrl+R"))
         self.reminder_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.reminder_action.triggered.connect(self.reminder_requested)
@@ -808,40 +804,25 @@ class NoteWindow(QWidget):
         # One written in the text, at the end of the line being edited: in the
         # menu only while editing (not greyed out: the arrow keys would stop on
         # it with some styles and not others); the key does nothing otherwise.
-        self.text_reminder_action = self.menu.addAction("")
+        self.text_reminder_action = QAction(self)
         self.text_reminder_action.setShortcut(QKeySequence("Ctrl+Shift+R"))
         self.text_reminder_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.text_reminder_action.triggered.connect(self.text_reminder_requested)
         self.addAction(self.text_reminder_action)
-        self.menu.aboutToShow.connect(
+        self._menu.aboutToShow.connect(
             lambda: self.text_reminder_action.setVisible(self.editing and not self.locked)
         )
         # Back for the key once the menu is gone.
-        self.menu.aboutToHide.connect(lambda: self.text_reminder_action.setVisible(True))
-        # Secret notes: those that apply now are shown (see _show_secret_state).
-        self.secret_action = self.menu.addAction("")
-        self.secret_action.triggered.connect(self.secret_requested)
-        self.open_secret_action = self.menu.addAction("")
-        self.open_secret_action.triggered.connect(self.open_secret_requested)
-        self.lock_secret_action = self.menu.addAction("")
-        self.lock_secret_action.triggered.connect(self.lock_secret_requested)
-        self.secret_title_action = self.menu.addAction("")
-        self.secret_title_action.triggered.connect(self.secret_title_requested)
-        self.ordinary_action = self.menu.addAction("")
-        self.ordinary_action.triggered.connect(self.ordinary_requested)
+        self._menu.aboutToHide.connect(lambda: self.text_reminder_action.setVisible(True))
         self._keyboard: str | None = None  # MOVE or RESIZE while the arrow keys do that
         self._keyboard_from = QRect()
         # The keys at a glance (F1, Ctrl+/), shown by the app (stickle.app.shortcut_guide).
-        self.guide_action = self.menu.addAction("")
+        self.guide_action = QAction(self)
         self.guide_action.setShortcuts([QKeySequence(keys) for keys in GUIDE_KEYS])
         self.guide_action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
         self.guide_action.triggered.connect(self._ask_for_guide)
         self.addAction(self.guide_action)
-        self.menu.addSeparator()
-        # The menu has the system's colours, which are the note's only by chance.
-        self.delete_action = self.menu.addAction(make_delete_icon(qcolor(DARK_TEXT)), "")
-        self.delete_action.triggered.connect(self.delete_requested)
-        self.title_bar.menu_button.setMenu(self.menu)
+        self.title_bar.menu_button.setMenu(self._menu)
 
         self.editor = NoteEditor(self)
         self._ordinary_hints = self.editor.inputMethodHints()
@@ -937,26 +918,13 @@ class NoteWindow(QWidget):
         self.title_bar.menu_button.setAccessibleName(note_menu)
         self.title_bar.menu_button.setToolTip(note_menu)
         on_top = self.tr("Always on top")
-        self.on_top_action.setText(on_top)
         self.title_bar.pin_button.setAccessibleName(on_top)
         self.title_bar.pin_button.setToolTip(on_top)
         self.menu_action.setText(note_menu)
-        self.color_menu.setTitle(self.tr("Color"))
-        self.category_menu.setTitle(self.tr("Category"))
-        self.marks_menu.setTitle(self.tr("Marks"))
         self.title_bar.category_tag.retranslate()
         self.title_bar.marks_badge.retranslate()
-        self.opacity_menu.setTitle(self.tr("Opacity when not in use"))
-        self.lock_action.setText(self.tr("Lock note"))
-        self.move_action.setText(self.tr("Move with the arrow keys"))
-        self.resize_action.setText(self.tr("Resize with the arrow keys"))
         self.reminder_action.setText(self.tr("Reminder…"))
         self.text_reminder_action.setText(self.tr("Write a reminder in this line…"))
-        self.secret_action.setText(self.tr("Make it a secret note…"))
-        self.open_secret_action.setText(self.tr("Show its text…"))
-        self.lock_secret_action.setText(self.tr("Cover its text"))
-        self.secret_title_action.setText(self.tr("Secret note's title…"))
-        self.ordinary_action.setText(self.tr("Make it an ordinary note…"))
         self.locked_face.setText(
             self.tr(
                 "Its text is covered. Double-click or press Enter, then type "
@@ -968,26 +936,139 @@ class NoteWindow(QWidget):
         self.title_bar.lock_button.setAccessibleName(self.tr("Locked"))
         self.title_bar.lock_button.setToolTip(locked)
         self.title_bar.lock_button.setAccessibleDescription(locked)
-        for level, action in self.opacity_actions.items():
-            # Some languages put the sign first.
-            percent = QLocale().toString(round(level * 100))
-            action.setText(self.tr("%1%", "a percentage").replace("%1", percent))
-        self.collapse_action.setText(
-            self.tr("Expand note") if self.collapsed else self.tr("Collapse note")
-        )
         self._update_title()
-        for key, action in self.color_actions.items():
-            action.setText(color_name(key))
         self.next_color_action.setText(self.tr("Next colour"))
         self.previous_color_action.setText(self.tr("Previous colour"))
-        self.add_color_action.setText(self.tr("Add a colour…"))
-        self.delete_action.setText(self.tr("Delete note"))
         self.guide_action.setText(self.tr("Keyboard shortcuts"))
         self.new_note_action.setText(self.tr("New note"))
         self.title_bar.unsaved_button.setAccessibleName(self.tr("Not saved"))
         self.title_bar.unsaved_button.setToolTip(
             self.tr("This note could not be saved. Trying again; click to try now.")
         )
+        if self._menu_made:
+            self._retranslate_menu()
+
+    def make_menu(self) -> None:
+        """The menu's items, made the first time it opens or one is asked for."""
+        if self._menu_made:
+            return
+        self._menu_made = True
+        menu = self._menu
+        self._color_menu = menu.addMenu("")
+        self._color_actions: dict[str, QAction] = {}
+        self._color_group = QActionGroup(self)
+        for key in PALETTE:
+            action = self._color_menu.addAction(swatch_icon(key), "")
+            action.setCheckable(True)
+            action.triggered.connect(lambda _=False, key=key: self.color_requested.emit(key))
+            self._color_group.addAction(action)
+            self._color_actions[key] = action
+        # The user's own colours, filled each time the menu opens (see own_colors),
+        # between two separators; then the next and previous colour (with their
+        # keys, which work without the menu) and adding a colour.
+        self._own_colors_start = self._color_menu.addSeparator()
+        self._own_colors_end = self._color_menu.addSeparator()
+        self._color_menu.addAction(self.next_color_action)
+        self._color_menu.addAction(self.previous_color_action)
+        self._add_color_action = self._color_menu.addAction("")
+        self._add_color_action.triggered.connect(self.add_color_requested)
+        self._color_menu.aboutToShow.connect(self._fill_own_colors)
+        self._category_menu = menu.addMenu("")
+        self._marks_menu = menu.addMenu("")
+        self._opacity_menu = menu.addMenu("")
+        self._opacity_actions: dict[float, QAction] = {}
+        opacities = QActionGroup(self)
+        for level in OPACITIES:
+            action = self._opacity_menu.addAction("")
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda _=False, level=level: self.opacity_requested.emit(level)
+            )
+            opacities.addAction(action)
+            self._opacity_actions[level] = action
+        self._collapse_action = menu.addAction("")
+        self._collapse_action.triggered.connect(
+            lambda: self.collapse_requested.emit(not self.collapsed)
+        )
+        # The same as the pin, for the keyboard and screen readers.
+        self._on_top_action = menu.addAction("")
+        self._on_top_action.setCheckable(True)
+        self._on_top_action.triggered.connect(self.on_top_requested)
+        self._lock_action = menu.addAction("")
+        self._lock_action.setCheckable(True)
+        self._lock_action.triggered.connect(self.lock_requested)
+        # Moving and resizing without a mouse: the arrow keys, then Enter (or Esc
+        # to put it back). A frameless note has no window menu of the system's.
+        self._move_action = menu.addAction("")
+        self._move_action.triggered.connect(lambda: self.start_keyboard(MOVE))
+        self._resize_action = menu.addAction("")
+        self._resize_action.triggered.connect(lambda: self.start_keyboard(RESIZE))
+        menu.addAction(self.reminder_action)
+        menu.addAction(self.text_reminder_action)
+        # Secret notes: those that apply now are shown (see _show_menu_state).
+        self._secret_action = menu.addAction("")
+        self._secret_action.triggered.connect(self.secret_requested)
+        self._open_secret_action = menu.addAction("")
+        self._open_secret_action.triggered.connect(self.open_secret_requested)
+        self._lock_secret_action = menu.addAction("")
+        self._lock_secret_action.triggered.connect(self.lock_secret_requested)
+        self._secret_title_action = menu.addAction("")
+        self._secret_title_action.triggered.connect(self.secret_title_requested)
+        self._ordinary_action = menu.addAction("")
+        self._ordinary_action.triggered.connect(self.ordinary_requested)
+        menu.addAction(self.guide_action)
+        menu.addSeparator()
+        # The menu has the system's colours, which are the note's only by chance.
+        self._delete_action = menu.addAction(make_delete_icon(qcolor(DARK_TEXT)), "")
+        self._delete_action.triggered.connect(self.delete_requested)
+        self._retranslate_menu()
+        self._show_menu_state()
+
+    def _retranslate_menu(self) -> None:
+        self._on_top_action.setText(self.tr("Always on top"))
+        self._color_menu.setTitle(self.tr("Color"))
+        self._category_menu.setTitle(self.tr("Category"))
+        self._marks_menu.setTitle(self.tr("Marks"))
+        self._opacity_menu.setTitle(self.tr("Opacity when not in use"))
+        self._lock_action.setText(self.tr("Lock note"))
+        self._move_action.setText(self.tr("Move with the arrow keys"))
+        self._resize_action.setText(self.tr("Resize with the arrow keys"))
+        self._secret_action.setText(self.tr("Make it a secret note…"))
+        self._open_secret_action.setText(self.tr("Show its text…"))
+        self._lock_secret_action.setText(self.tr("Cover its text"))
+        self._secret_title_action.setText(self.tr("Secret note's title…"))
+        self._ordinary_action.setText(self.tr("Make it an ordinary note…"))
+        for level, action in self._opacity_actions.items():
+            # Some languages put the sign first.
+            percent = QLocale().toString(round(level * 100))
+            action.setText(self.tr("%1%", "a percentage").replace("%1", percent))
+        self._collapse_action.setText(
+            self.tr("Expand note") if self.collapsed else self.tr("Collapse note")
+        )
+        for key, action in self._color_actions.items():
+            action.setText(color_name(key))
+        self._add_color_action.setText(self.tr("Add a colour…"))
+        self._delete_action.setText(self.tr("Delete note"))
+
+    def _show_menu_state(self) -> None:
+        """The menu's items as the note is now, once they are made."""
+        if not self._menu_made:
+            return
+        for key, action in (self._color_actions | self._own_color_actions).items():
+            action.setChecked(key == self.color)
+        if self.opacity in self._opacity_actions:
+            self._opacity_actions[self.opacity].setChecked(True)
+        self._on_top_action.setChecked(self.title_bar.pin_button.isChecked())
+        self._lock_action.setChecked(self.locked)
+        self._move_action.setEnabled(not self.locked)
+        self._resize_action.setEnabled(not self.locked)
+        secret, opened = self.secret, self.secret and not self.secret_locked
+        for submenu in (self._category_menu, self._marks_menu):
+            submenu.menuAction().setVisible(not secret)
+        self._secret_action.setVisible(self.can_be_secret and not secret)
+        self._open_secret_action.setVisible(self.secret_locked)
+        for action in (self._lock_secret_action, self._secret_title_action, self._ordinary_action):
+            action.setVisible(opened)
 
     @override
     def changeEvent(self, event: QEvent) -> None:
@@ -1007,12 +1088,10 @@ class NoteWindow(QWidget):
         Locking while editing leaves the editor (its owner saves first).
         """
         self.locked = locked
-        self.lock_action.setChecked(locked)
+        self._show_menu_state()
         self.title_bar.lock_button.setVisible(locked)
         self.title_bar.movable = not locked
         self.size_grip.setVisible(not locked and not self.collapsed)
-        self.move_action.setEnabled(not locked)
-        self.resize_action.setEnabled(not locked)
         self.editor.setReadOnly(locked)
         if locked:
             self.show_formatted()
@@ -1028,7 +1107,7 @@ class NoteWindow(QWidget):
     def set_opacity(self, opacity: float) -> None:
         """How see-through the note is while another window is in use."""
         self.opacity = min(OPACITIES, key=lambda level: abs(level - opacity))
-        self.opacity_actions[self.opacity].setChecked(True)
+        self._show_menu_state()
         self._show_opacity()
 
     def _show_opacity(self) -> None:
@@ -1045,27 +1124,27 @@ class NoteWindow(QWidget):
 
     def _fill_label_menus(self) -> None:
         categories, marks = self.label_choices()
-        self.category_menu.clear()
+        self._category_menu.clear()
         chosen = self.category.id if self.category is not None else None
-        group = QActionGroup(self.category_menu)
+        group = QActionGroup(self._category_menu)
         for category_id, name in [(None, self.tr("None", "no category"))] + [
             (category.id, category.name) for category in categories
         ]:
-            action = self.category_menu.addAction(name)
+            action = self._category_menu.addAction(name)
             action.setCheckable(True)
             action.setChecked(category_id == chosen)
             action.triggered.connect(
                 lambda _=False, category_id=category_id: self.category_requested.emit(category_id)
             )
             group.addAction(action)
-        self.category_menu.addSeparator()
-        new = self.category_menu.addAction(self.tr("New category…"))
+        self._category_menu.addSeparator()
+        new = self._category_menu.addAction(self.tr("New category…"))
         new.triggered.connect(self.new_category_requested)
 
-        self.marks_menu.clear()
+        self._marks_menu.clear()
         on = {mark.id for mark in self.marks}
         for mark in marks:
-            action = self.marks_menu.addAction(mark_name(mark))
+            action = self._marks_menu.addAction(mark_name(mark))
             action.setCheckable(True)
             action.setChecked(mark.id in on)
             action.triggered.connect(
@@ -1132,7 +1211,7 @@ class NoteWindow(QWidget):
     def set_always_on_top(self, on_top: bool) -> None:
         """Keep the note above other windows, or let them cover it."""
         self.title_bar.pin_button.setChecked(on_top)
-        self.on_top_action.setChecked(on_top)
+        self._show_menu_state()
         if on_top == self.always_on_top:
             return
         set_stays_on_top(self, on_top)
@@ -1375,27 +1454,26 @@ class NoteWindow(QWidget):
         self.title_bar.category_tag.set_background(qcolor(self.colors.title_bar))
         self.view.set_colors(self.colors)
         self.highlighter.set_colors(self.colors)
-        for key, action in (self.color_actions | self.own_color_actions).items():
-            action.setChecked(key == color)
+        self._show_menu_state()
         self.update()
 
     def _fill_own_colors(self) -> None:
         """The user's own colours as they are now, between their separators."""
-        for action in self.own_color_actions.values():
-            self.color_menu.removeAction(action)
+        for action in self._own_color_actions.values():
+            self._color_menu.removeAction(action)
             self._color_group.removeAction(action)
             action.deleteLater()
-        self.own_color_actions = {}
+        self._own_color_actions = {}
         for number, value in enumerate(self.own_colors(), start=1):
-            action = QAction(swatch_icon(value), own_color_name(number), self.color_menu)
+            action = QAction(swatch_icon(value), own_color_name(number), self._color_menu)
             action.setCheckable(True)
             action.setChecked(value == self.color)
             action.setToolTip(value)
             action.triggered.connect(lambda _=False, value=value: self.color_requested.emit(value))
-            self.color_menu.insertAction(self._own_colors_end, action)
+            self._color_menu.insertAction(self._own_colors_end, action)
             self._color_group.addAction(action)
-            self.own_color_actions[value] = action
-        self._own_colors_end.setVisible(bool(self.own_color_actions))
+            self._own_color_actions[value] = action
+        self._own_colors_end.setVisible(bool(self._own_color_actions))
 
     def color_label(self, color: str) -> str:
         """What the colour is called: its name, or "My colour N" for one of the
@@ -1575,12 +1653,7 @@ class NoteWindow(QWidget):
             None if not secret else "open" if opened else "locked"
         )
         self.title_bar.marks_badge.setVisible(not secret and bool(self.marks))
-        for menu in (self.category_menu, self.marks_menu):
-            menu.menuAction().setVisible(not secret)
-        self.secret_action.setVisible(self.can_be_secret and not secret)
-        self.open_secret_action.setVisible(self.secret_locked)
-        for action in (self.lock_secret_action, self.secret_title_action, self.ordinary_action):
-            action.setVisible(opened)
+        self._show_menu_state()
         # What is typed in it is not kept by the input method (its word lists).
         hints = self._ordinary_hints
         if secret:
@@ -1678,7 +1751,7 @@ class NoteWindow(QWidget):
         # No item is chosen beforehand, so Enter alone does nothing (Down picks the
         # first). Choosing the Color item would open its submenu at once, and a
         # submenu opened that way misses its first click.
-        self.menu.popup(position)
+        self._menu.popup(position)  # its items made as it opens (make_menu)
 
     def allow_close(self) -> None:
         """Let the next close through without asking to hide (the app is quitting)."""
