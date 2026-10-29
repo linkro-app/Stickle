@@ -260,6 +260,21 @@ def test_from_the_tray_about_stays_above_pinned_notes_until_left(qtbot: QtBot, a
     about.close()
 
 
+def test_a_called_up_window_taken_apart_still_takes_its_last_events(qtbot: QtBot) -> None:
+    # As the garbage collector takes a window and its OnTopWhileInUse apart, it
+    # clears their attributes before Qt hides the window.
+    window = QWidget()
+    qtbot.addWidget(window)
+    on_top = in_use.OnTopWhileInUse(window)
+    set_stays_on_top(window, True)
+    window.show()
+    on_top.__dict__.clear()
+
+    window.hide()  # nothing raised in Qt's event loop
+
+    assert not stays_on_top(window)
+
+
 def test_from_the_stickle_window_about_stays_above_pinned_notes_with_it(
     qtbot: QtBot, app: App
 ) -> None:

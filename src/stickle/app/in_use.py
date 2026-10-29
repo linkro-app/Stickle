@@ -7,7 +7,7 @@ The windows it opens (its dialogs, the system's file chooser) are kept above it
 by the system, so it stays above while the keyboard is in any of them.
 """
 
-from typing import override
+from typing import cast, override
 
 from PySide6.QtCore import QEvent, QObject, QTimer
 from PySide6.QtGui import QGuiApplication
@@ -32,12 +32,18 @@ class OnTopWhileInUse(QObject):
 
     def __init__(self, window: QWidget) -> None:
         super().__init__(window)
-        self._window = window
         window.installEventFilter(self)
         app = QGuiApplication.instance()
         assert isinstance(app, QGuiApplication)
         # From one of its windows to another app: it is not told itself.
         app.focusWindowChanged.connect(self._let_go_soon)
+
+    @property
+    def _window(self) -> QWidget:
+        # Its parent, not an attribute: the garbage collector, taking the window
+        # and this apart, clears their attributes before Qt's last events for
+        # the window come here.
+        return cast(QWidget, self.parent())
 
     @override
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
