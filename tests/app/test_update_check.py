@@ -1,7 +1,10 @@
 """The daily check for a newer Stickle, and how a newer one is shown."""
 
+import base64
+import io
 import json
 import secrets
+import sys
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
@@ -12,18 +15,20 @@ from PySide6.QtCore import QCoreApplication, QEvent, QUrl
 from PySide6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
 
-from stickle.app import note_window, update_check
+from stickle.app import note_window
 from stickle.app.about_dialog import AboutDialog
 from stickle.app.i18n import Translations
 from stickle.app.notes import NoteManager
 from stickle.app.settings_window import SettingsWindow
 from stickle.app.stickle_window import StickleWindow
 from stickle.app.tray import Tray
-from stickle.app.update_check import UpdateCheck, fetch_feed
+from stickle.app.update_check import UpdateCheck
 from stickle.core.updates import FEED_URL
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.settings import UPDATE_CHECK, UPDATE_CHECKED_AT, Settings
+from stickle.platform import feed
+from stickle.platform.feed import fetch_feed, fetch_feed_in_helper
 
 KEY = secrets.token_bytes(32)
 PAGE = "https://github.com/linkro-app/Stickle/releases/tag/v0.5.0-preview.1"
@@ -136,7 +141,7 @@ def test_the_request_carries_nothing_that_tells_users_apart(
     def build_opener(*_handlers: object) -> Opener:
         return Opener()
 
-    monkeypatch.setattr(update_check.urllib.request, "build_opener", build_opener)
+    monkeypatch.setattr(feed.urllib.request, "build_opener", build_opener)
 
     assert fetch_feed() is None
 
@@ -235,3 +240,46 @@ def test_without_a_check_nothing_about_updates_shows(qtbot: QtBot, tmp_path: Pat
         tray.hide()
         window.deleteLater()
         connection.close()
+
+
+def test_the_file_comes_from_a_helper_process(tmp_path: Path) -> None:
+    # Its HTTP and TLS libraries (4 MB) leave memory with that process.
+    script = tmp_path / "helper.py"
+    script.write_text('import base64, sys\nsys.stdout.write(base64.b64encode(b"{}").decode())\n')
+
+    assert fetch_feed_in_helper([sys.executable, str(script)]) == b"{}"
+
+
+def test_a_helper_that_could_not_read_the_file_says_why_and_is_not_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = tmp_path / "helper.py"
+    script.write_text('import sys\nsys.stderr.write("URLError\n")\nsys.exit(1)\n')
+    asked_here: list[bool] = []
+    monkeypatch.setattr(feed, "fetch_feed", lambda: asked_here.append(True))
+
+    assert fetch_feed_in_helper([sys.executable, str(script)]) is None
+    assert asked_here == []  # offline is offline here too
+
+
+def test_a_helper_that_does_not_start_leaves_it_to_this_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(feed, "fetch_feed", lambda: b"{}")
+
+    assert fetch_feed_in_helper([str(tmp_path / "no-such-program")]) == b"{}"
+
+
+def test_the_helper_writes_the_file_or_why_not(monkeypatch: pytest.MonkeyPatch) -> None:
+    out, err = io.StringIO(), io.StringIO()
+    monkeypatch.setattr(feed, "_fetch", lambda: b'{"latest": "9.9.9"}')
+    assert feed.serve(out, err) == 0
+    assert base64.b64decode(out.getvalue()) == b'{"latest": "9.9.9"}'
+
+    def offline() -> bytes:
+        raise OSError("offline")
+
+    out, err = io.StringIO(), io.StringIO()
+    monkeypatch.setattr(feed, "_fetch", offline)
+    assert feed.serve(out, err) == 1
+    assert (out.getvalue(), err.getvalue()) == ("", "OSError\n")

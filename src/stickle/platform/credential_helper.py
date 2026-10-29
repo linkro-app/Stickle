@@ -18,18 +18,18 @@ import logging
 import os
 import queue
 import subprocess
-import sys
 import threading
 from collections.abc import Callable
-from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
+
+from stickle.platform.relaunch import CREDENTIAL_HELPER, no_window, own_command
 
 if TYPE_CHECKING:
     from stickle.platform.credentials import Backend
 
 log = logging.getLogger(__name__)
 
-HELPER_FLAG = "--credential-helper"
+HELPER_FLAG = CREDENTIAL_HELPER
 READY = "ready"
 # Starting the program again takes a tenth of a second, up to two seconds the
 # first time Microsoft Defender sees a new build: well within this.
@@ -50,14 +50,6 @@ class _HelperFailedError(Exception):
     """The helper itself did not work: reach the store here instead."""
 
 
-def helper_command() -> list[str]:
-    """This program started again as the helper: the built program itself (inside
-    the AppImage's mount, which is open already), or Python running the source."""
-    if "__compiled__" in globals():  # a Nuitka build: argv[0] is the program
-        return [str(Path(sys.argv[0]).resolve()), HELPER_FLAG]
-    return [sys.executable, "-m", "stickle", HELPER_FLAG]
-
-
 class HelperBackend:
     """A credential store backend whose work is done by the helper process,
     started at the first request and kept for those that follow (until close)."""
@@ -69,7 +61,7 @@ class HelperBackend:
         ready_timeout: float = READY_TIMEOUT,
     ) -> None:
         self._fallback_factory = fallback
-        self._command = command if command is not None else helper_command()
+        self._command = command if command is not None else own_command(HELPER_FLAG)
         self._ready_timeout = ready_timeout
         self._process: subprocess.Popen[str] | None = None
         self._lines: queue.Queue[str | None] = queue.Queue()
@@ -147,9 +139,6 @@ class HelperBackend:
             return answer.get("value")
 
     def _start(self) -> subprocess.Popen[str]:
-        flags = 0
-        if sys.platform == "win32":
-            flags = subprocess.CREATE_NO_WINDOW  # Python from source has a console
         try:
             process = subprocess.Popen(
                 self._command,
@@ -158,7 +147,7 @@ class HelperBackend:
                 stderr=subprocess.DEVNULL,  # nothing of the store's ever reaches a log
                 text=True,
                 encoding="ascii",
-                creationflags=flags,
+                creationflags=no_window(),
             )
         except OSError as error:
             raise _HelperFailedError(f"could not start: {type(error).__name__}") from error

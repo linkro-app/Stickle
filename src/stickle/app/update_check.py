@@ -4,14 +4,13 @@ A minute after the start, then every hour, it asks the website's version
 file if a day has passed since it last asked (kept across restarts). The
 request carries nothing that tells users apart: no cookie, no version, no
 identifier. It runs in a thread of its own, so a slow network never holds up
-the notes, and a failure is only logged. A newer version shows in the tray
+the notes, and a failure is only logged; the file itself is fetched by a
+helper process (stickle.platform.feed). A newer version shows in the tray
 and the Stickle window for as long as it holds: nothing pops up.
 """
 
 import logging
 import threading
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
@@ -19,38 +18,14 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from stickle import __version__
 from stickle.core.clock import Clock, utc_now
-from stickle.core.updates import FEED_URL, MAX_FEED_BYTES, Release, newer_release
+from stickle.core.updates import Release, newer_release
 from stickle.data.settings import UPDATE_CHECK, UPDATE_CHECKED_AT, Settings
-from stickle.platform.tls import https_context
+from stickle.platform.feed import fetch_feed_in_helper
 
 FIRST_DELAY_MS = 60_000
 EVERY_MS = 60 * 60 * 1000
 EVERY = timedelta(days=1)
-TIMEOUT_SECONDS = 15
 log = logging.getLogger(__name__)
-
-
-class _NoRedirects(urllib.request.HTTPRedirectHandler):
-    """The file is asked for at one address only, and answered from there."""
-
-    def redirect_request(self, *_: object, **__: object) -> None:
-        return None
-
-
-def fetch_feed() -> bytes | None:
-    """The version file, or None if it could not be read (logged)."""
-    opener = urllib.request.build_opener(
-        urllib.request.HTTPSHandler(context=https_context()), _NoRedirects()
-    )
-    request = urllib.request.Request(
-        FEED_URL, headers={"User-Agent": "Stickle", "Accept": "application/json"}
-    )
-    try:
-        with opener.open(request, timeout=TIMEOUT_SECONDS) as response:
-            return bytes(response.read(MAX_FEED_BYTES + 1))
-    except (urllib.error.URLError, OSError, ValueError) as error:
-        log.info("could not check for a newer version: %s", type(error).__name__)
-        return None
 
 
 def _moment(stamp: str) -> datetime:
@@ -67,7 +42,7 @@ class UpdateCheck(QObject):
         settings: Settings,
         current: str = __version__,
         clock: Clock = utc_now,
-        fetch: Callable[[], bytes | None] = fetch_feed,
+        fetch: Callable[[], bytes | None] = fetch_feed_in_helper,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
