@@ -208,6 +208,7 @@ def test_where_the_alarm_clock_would_not_show_it_is_written_in_the_bundled_font(
 ) -> None:
     # As on Fedora: the system's emoji font has it in a form Qt draws as nothing.
     monkeypatch.setattr(fonts, "_alarm_clock_family", "Noto Emoji")
+    monkeypatch.setattr(fonts, "_alarm_clock_decided", True)
     window = app.note(f"보고서 {MARK}2026-11-05 10:00")
     window.show_formatted()
 

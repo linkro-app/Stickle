@@ -123,10 +123,10 @@ class ReminderBar(QFrame):
         self.show()
 
     def retranslate(self) -> None:
-        family = alarm_clock_family()
         if not self.when:
             self.time_label.setText("")
-        elif family is None:
+        # Asked only with an alarm clock to draw: the asking costs (see stickle.app.fonts).
+        elif (family := alarm_clock_family()) is None:
             self.time_label.setText("⏰ " + self.when)
         else:
             # The alarm clock alone in the font that draws it (see stickle.app.fonts).

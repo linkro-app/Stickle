@@ -13,7 +13,10 @@ out as nothing. Asked for as a text character (U+FE0E after it), it is drawn
 with the font given. So where it would not show, the bundled Noto Emoji is
 registered, and where Stickle writes the alarm clock itself it gives it
 that font, for that character alone: added to the families of all text, it
-took spaces and digits too, set wide apart, on Fedora.
+took spaces and digits too, set wide apart, on Fedora. Trying the alarm clock
+out loads the system's emoji font (70 MB and a third of a second on Windows),
+so it is tried only where the font is bundled (Linux builds), and only once
+an alarm clock is about to be drawn: never for notes without a reminder.
 """
 
 from pathlib import Path
@@ -36,6 +39,7 @@ EMOJI_FONT = FONTS_DIR / "NotoEmoji.ttf"
 ALARM_CLOCK = "⏰"
 AS_TEXT = chr(0xFE0E)  # after an emoji: drawn as a text character, with the font given
 _alarm_clock_family: str | None = None  # the bundled font, where it is needed
+_alarm_clock_decided = False  # whether that has been looked into (the first time it was asked)
 
 
 def has_glyphs(text: str, font: QFont | None = None) -> bool:
@@ -82,8 +86,10 @@ def alarm_clock_is_drawable() -> bool:
 def ensure_alarm_clock_font(bundled: Path = EMOJI_FONT) -> str | None:
     """Register the bundled emoji font if the alarm clock would not show; return
     its family if so. It is only used where alarm_clock_family says."""
-    global _alarm_clock_family
-    if alarm_clock_is_drawable() or not bundled.exists():
+    global _alarm_clock_family, _alarm_clock_decided
+    _alarm_clock_decided = True
+    # Nothing to use instead (Windows, macOS): not tried out, as that costs.
+    if not bundled.exists() or alarm_clock_is_drawable():
         return None
     families = QFontDatabase.applicationFontFamilies(QFontDatabase.addApplicationFont(str(bundled)))
     _alarm_clock_family = families[0] if families else None
@@ -92,7 +98,10 @@ def ensure_alarm_clock_font(bundled: Path = EMOJI_FONT) -> str | None:
 
 def alarm_clock_family() -> str | None:
     """The font to draw the alarm clock with, as a text character (ALARM_CLOCK +
-    AS_TEXT); None where it shows as it is."""
+    AS_TEXT); None where it shows as it is. Looked into the first time it is
+    asked for, as an alarm clock is about to be drawn."""
+    if not _alarm_clock_decided:
+        ensure_alarm_clock_font()
     return _alarm_clock_family
 
 
