@@ -873,18 +873,16 @@ class NoteWindow(QWidget):
         self.size_grip.installEventFilter(self)  # resized by it: lined up when let go
         grip_row.addWidget(self.size_grip)
 
-        # While its reminder rings.
-        self.reminder_bar = ReminderBar(self)
-        self.reminder_bar.dealt_with.connect(self.reminder_dealt_with)
-        self.reminder_bar.snoozed.connect(self.reminder_snoozed)
+        # While its reminder rings, under the title bar: made the first time it does
+        # (see reminder_bar), as most notes never ring.
+        self._reminder_bar: ReminderBar | None = None
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self.title_bar)
-        layout.addWidget(self.reminder_bar)
-        layout.addWidget(self.stack)
-        layout.addLayout(grip_row)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+        self._layout.addWidget(self.title_bar)
+        self._layout.addWidget(self.stack)
+        self._layout.addLayout(grip_row)
 
         self.new_note_action = self._add_action(QKeySequence.StandardKey.New)
         self.new_note_action.triggered.connect(self.new_note_requested)
@@ -1371,7 +1369,8 @@ class NoteWindow(QWidget):
         # Pinned, so a dark system theme does not paint light text on a light note.
         for part in (self.editor, self.view, self.locked_face):
             set_foreground(part, text)
-        self.reminder_bar.set_colors(text, title)
+        if self._reminder_bar is not None:
+            self._reminder_bar.set_colors(text, title)
         self.title_bar.set_icon_color(title, qcolor(self.colors.title_icon))
         self.title_bar.category_tag.set_background(qcolor(self.colors.title_bar))
         self.view.set_colors(self.colors)
@@ -1417,17 +1416,33 @@ class NoteWindow(QWidget):
             self.reminder_bar.done_button.setFocus()
         self.announce(" ".join(filter(None, [self.reminder_bar.accessibleName(), reason])))
 
+    @property
+    def reminder_bar(self) -> ReminderBar:
+        """The strip shown while its reminder rings, made the first time it is
+        needed: kept by every note, it cost each 0.14 MB (its style sheet)."""
+        if self._reminder_bar is None:
+            bar = ReminderBar(self)
+            bar.dealt_with.connect(self.reminder_dealt_with)
+            bar.snoozed.connect(self.reminder_snoozed)
+            bar.set_colors(qcolor(self.colors.text), qcolor(self.colors.title_text))
+            self._layout.insertWidget(1, bar)  # under the title bar
+            self._reminder_bar = bar
+        return self._reminder_bar
+
     def stop_ringing(self) -> None:
+        bar = self._reminder_bar
+        if bar is None:
+            return
         focus = QApplication.focusWidget()
-        had_keyboard = focus is not None and self.reminder_bar.isAncestorOf(focus)
-        self.reminder_bar.hide()
+        had_keyboard = focus is not None and bar.isAncestorOf(focus)
+        bar.hide()
         shown = self.stack.currentWidget()
         if had_keyboard and shown is not None:
             shown.setFocus()
 
     @property
     def ringing(self) -> bool:
-        return not self.reminder_bar.isHidden()
+        return self._reminder_bar is not None and not self._reminder_bar.isHidden()
 
     def refresh_formatted(self) -> None:
         """The formatted note drawn again: how its reminders show changed."""

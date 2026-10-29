@@ -18,7 +18,7 @@ from stickle.app import reminders as reminders_module
 from stickle.app.note_list import NoteList
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
-from stickle.app.reminder_bar import TOMORROW_MORNING
+from stickle.app.reminder_bar import TOMORROW_MORNING, ReminderBar
 from stickle.app.reminder_dialog import ReminderDialog
 from stickle.app.reminders import ReminderKeeper
 from stickle.core.calendars import CalendarDate
@@ -186,6 +186,14 @@ def test_weekly_shows_the_days_to_choose(app: App) -> None:
     dialog.deleteLater()
 
 
+def test_a_note_without_a_reminder_keeps_no_strip_for_one(app: App) -> None:
+    window = app.note("장보기")
+    window.stop_ringing()
+
+    assert not window.ringing
+    assert window.findChildren(ReminderBar) == []
+
+
 def test_it_rings_at_its_time_in_front_with_one_notification(
     app: App, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -204,6 +212,10 @@ def test_it_rings_at_its_time_in_front_with_one_notification(
     shown = app.window(note_id)
     assert shown.isVisible()
     assert shown.ringing
+    # Its strip, made as it rang (a note that never rings has none: 0.14 MB each),
+    # right under the title bar.
+    assert shown.reminder_bar.isVisible()
+    assert shown.reminder_bar.y() == shown.title_bar.geometry().bottom() + 1
     assert len(app.told) == 1
     assert app.told[0][0] == "회의 준비"
     app.at("2026-11-02T04:00:30.000Z")
