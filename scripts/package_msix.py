@@ -12,6 +12,10 @@ Notes are written to the real %APPDATA%\\Stickle, as the other Windows builds
 do: MSIX would otherwise keep what the app writes there in a folder of the
 package's own and delete it when the app is removed, notes and all. Starting
 at login is a StartupTask of the package, off until the user turns it on.
+
+The package's name, which the Store shows as the title of each language's
+listing, says what Stickle is, in English and in Korean; the app itself is
+still called Stickle in the Start menu and in Settings.
 """
 
 import argparse
@@ -31,6 +35,9 @@ PUBLISHER = "CN=FEE816EB-1C57-4160-B4F2-6D4C924676A5"
 PUBLISHER_NAME = "Linkro"
 STARTUP_TASK = "StickleStartup"
 LOGOS = {"Square44x44Logo.png": 44, "Square150x150Logo.png": 150, "StoreLogo.png": 50}
+# The package's name in each of its languages, English first (the default); each
+# must be a name reserved for the app in Partner Center.
+PACKAGE_NAMES = {"en-us": "Stickle - Desktop Notes", "ko-kr": "Stickle - 바탕화면 메모"}
 
 MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
 <Package
@@ -43,7 +50,7 @@ MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
   <Identity Name="{identity_name}" Publisher="{publisher}" Version="{version}"
     ProcessorArchitecture="{arch}"/>
   <Properties>
-    <DisplayName>Stickle</DisplayName>
+    <DisplayName>ms-resource:PackageDisplayName</DisplayName>
     <PublisherDisplayName>{publisher_name}</PublisherDisplayName>
     <Logo>Assets\\StoreLogo.png</Logo>
     <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
@@ -53,8 +60,7 @@ MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
       MaxVersionTested="10.0.26100.0"/>
   </Dependencies>
   <Resources>
-    <Resource Language="en-us"/>
-    <Resource Language="ko-kr"/>
+{resources}
   </Resources>
   <Applications>
     <Application Id="Stickle" Executable="stickle.exe" EntryPoint="Windows.FullTrustApplication">
@@ -76,6 +82,67 @@ MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
   </Capabilities>
 </Package>
 """
+
+RESW = """<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <data name="PackageDisplayName" xml:space="preserve"><value>{name}</value></data>
+</root>
+"""
+
+
+def render_manifest(version: str, arch: str) -> str:
+    return MANIFEST.format(
+        identity_name=IDENTITY_NAME,
+        publisher=escape(PUBLISHER, {'"': "&quot;"}),
+        publisher_name=escape(PUBLISHER_NAME),
+        version=version,
+        arch=arch,
+        startup_task=STARTUP_TASK,
+        resources="\n".join(f'    <Resource Language="{language}"/>' for language in PACKAGE_NAMES),
+    )
+
+
+def render_resw(name: str) -> str:
+    return RESW.format(name=escape(name))
+
+
+def without_packaging(config: str) -> str:
+    """The SDK's default resource config without its <packaging> section, which
+    splits each language into a file of its own: only a bundle's resource packs
+    read those, so one package would fall back to English everywhere."""
+    start, end = config.find("<packaging>"), config.find("</packaging>")
+    if start < 0 or end < start:
+        raise SystemExit("makepri's config has no <packaging> section to take out")
+    return config[:start] + config[end + len("</packaging>") :]
+
+
+def write_resources(layout: Path, work: Path) -> Path:
+    """resources.pri in layout, with the package's names and the logos. Indexed from
+    a folder of its own rather than the whole program, so that nothing else in it
+    is taken for a resource."""
+    shutil.rmtree(work, ignore_errors=True)
+    project = work / "project"
+    shutil.copytree(layout / "Assets", project / "Assets")
+    for language, name in PACKAGE_NAMES.items():
+        folder = project / "strings" / language
+        folder.mkdir(parents=True)
+        (folder / "Resources.resw").write_text(render_resw(name), encoding="utf-8")
+    makepri = windows_sdk_tool("makepri.exe")
+    config = work / "priconfig.xml"
+    subprocess.run(
+        [makepri, "createconfig", "/cf", str(config), "/dq", "en-US", "/pv", "10.0.0", "/o"],
+        check=True,
+    )
+    config.write_text(without_packaging(config.read_text(encoding="utf-8")), encoding="utf-8")
+    resources = layout / "resources.pri"
+    subprocess.run(
+        [makepri, "new", "/pr", str(project), "/cf", str(config),
+         "/mn", str(layout / "AppxManifest.xml"), "/of", str(resources), "/o"],
+        check=True,
+    )  # fmt: skip
+    return resources
 
 
 def package_version() -> str:
@@ -156,15 +223,9 @@ def main() -> int:
     shutil.rmtree(layout, ignore_errors=True)
     shutil.copytree(DIST, layout)
     write_logos(layout / "Assets")
-    manifest = MANIFEST.format(
-        identity_name=IDENTITY_NAME,
-        publisher=escape(PUBLISHER, {'"': "&quot;"}),
-        publisher_name=escape(PUBLISHER_NAME),
-        version=package_version(),
-        arch=options.arch,
-        startup_task=STARTUP_TASK,
-    )
+    manifest = render_manifest(package_version(), options.arch)
     (layout / "AppxManifest.xml").write_text(manifest, encoding="utf-8")
+    write_resources(layout, OUT / "resources")
     package = OUT / f"stickle-windows-{options.arch}.msix"
     package.unlink(missing_ok=True)
     makeappx = windows_sdk_tool("makeappx.exe")
