@@ -5,10 +5,10 @@
 [한국어](README.ko.md) · [Website](https://stickle.linkro.co) ·
 [Microsoft Store](https://apps.microsoft.com/detail/9MZ6BHN3JKFR)
 
-> **Status: preview.** The 0.5 preview is out: notes on one computer, for Windows and Linux,
-> now with daily backups you can go back to, export of every note, and notes brought over from
-> other sticky-note apps. Syncing between computers is not there yet — see
-> [Try the preview](#try-the-preview).
+> **Status: preview.** The 0.6 preview is out: notes on one computer, for Windows and Linux,
+> now with reminders (on the lunar and other calendars too), secret notes behind a password of
+> their own, colours of your own, and notes that step aside for full-screen slide shows, videos
+> and games. Syncing between computers is not there yet — see [Try the preview](#try-the-preview).
 > To hear about new versions, click **Watch → Custom → Releases** at the top of this page.
 > A star tells us you are interested, but does not notify you.
 
@@ -31,7 +31,8 @@
   if you forget your password.
 - **Free, with every feature.** No ads, no locked features, no paid tier. Stickle is free
   software (GPL) and is funded by donations only.
-- **Stays out of your way.** No reminders, banners or pop-ups asking for anything.
+- **Stays out of your way.** No banners or pop-ups asking for anything; the only reminders
+  are the ones you set yourself.
 - **Just works.** Nothing else to install: every library and font the app needs comes with
   it. Input methods work, tested with Korean on Windows and with fcitx5 and IBus on Linux.
 
@@ -44,7 +45,8 @@
 | 0.3 *(preview out)* | Categories and marks, one category on the desktop, find on the desktop, notes that line up (Shift moves them together), easier lists and code blocks, the shortcuts at a glance, a new icon |
 | 0.4 *(preview out)* | Category and mark icons, About Stickle and ways to support it, a faded tray icon while notes are hidden |
 | 0.5 *(preview out)* | Daily backups you can go back to, export of every note (Markdown and JSON), bringing notes over from Microsoft Sticky Notes and other sticky-note apps, pasting with formatting, notes that line up when resized too, a daily update check you can turn off, reporting a problem or idea from the app |
-| On the way to 1.0 | Reminders, including times written in a note; secret notes behind a password of their own; then syncing through a folder you already sync, first as an option to try, followed by end-to-end encryption and locking out a lost computer |
+| 0.6 *(preview out)* | Reminders, once or repeating or written in a line of a note, on the lunar and other calendars too; secret notes behind a password of their own; a Settings window, with a spare password beside the recovery key; colours of your own and random colours; notes that step aside for full-screen programs; bringing a Stickle export back in; the Stickle window renamed Stickle Manager |
+| On the way to 1.0 | Syncing through a folder you already sync, first as an option to try, followed by end-to-end encryption and locking out a lost computer |
 | 1.0 | Sync between your computers, ready for everyday use; macOS; packages for Linux (Flathub, AppImage, deb) and macOS (Homebrew) |
 | Later | WebDAV and S3 storage, what-you-see-is-what-you-get editing, tags, shared notes and a browser extension, a read-only viewer for phones |
 
@@ -66,9 +68,9 @@ Previews are under [Releases](https://github.com/linkro-app/Stickle/releases), m
   may say it protected your PC: choose **More info → Run anyway**. When **Start Stickle
   when I log in** was on, Microsoft Defender sometimes blocked 0.3 as
   `Trojan:Win32/Bearfoos.A!ml`: its machine learning mistook an unsigned program that starts
-  itself at login for a trojan. 0.4 and 0.5 are not blocked by an up-to-date Defender, but
+  itself at login for a trojan. 0.4 to 0.6 are not blocked by an up-to-date Defender, but
   this can change from build to build, so until signed builds are out that option starts off
-  on Windows. If Defender blocks Stickle for you, please
+  on Windows (turn it on in **Settings → General**). If Defender blocks Stickle for you, please
   [open an issue](https://github.com/linkro-app/Stickle/issues/new) so we know.
 - **Linux**: download the AppImage, make it executable (`chmod +x Stickle-x86_64.AppImage`,
   or in its file properties) and run it. Stickle offers to add itself to your application list.
@@ -79,42 +81,55 @@ Previews are under [Releases](https://github.com/linkro-app/Stickle/releases), m
   away from this computer: it opens your notes if the key stored on this computer is ever lost.
 - Downloads can be checked against `SHA256SUMS.txt` in the same release.
 
-New in 0.5.1:
+New in 0.6:
 
-- A note whose text you erased is gone for good when you hide or delete it, without going
-  through the trash.
-- Searching in the Stickle window tells you when notes in the trash match too; **Show in the
-  trash** shows them.
-- The welcome note of a first start points to more of what Stickle does, and About Stickle
-  opens the open source licenses of everything a build includes.
-- Fixed: About Stickle could open behind the Stickle window on Windows; `Enter` on a link
-  reached with `Tab` closed the window instead of opening the link; the tips of a note's
-  buttons did not show while another app was in use.
-
-New in 0.5:
-
-- **Daily backups**: Stickle keeps a copy of your notes each day, for a week. To go back to
-  one, choose **Data → Restore from a backup…** in the Stickle window or the tray menu.
-- **Export**: **Data → Export all notes…** writes each note as a Markdown file, with
-  everything in one JSON file beside them.
-- **Bring notes in** from Microsoft Sticky Notes, Zhorn Stickies, xpad and Indicator
-  Stickynotes: **Data → Bring notes in from another app…**. The other app's files are only
-  read, never changed.
-- **Paste with formatting**: bold, lists and links copied from a web page or a document stay
-  as they were.
-- **Lining up when resizing**: let a note go near the edge of the one beside it and the edges
-  meet. **Line notes up like a magnet** turns lining up on or off, for moving and resizing
-  alike; hold `Alt` to skip it once.
-- **Report a problem or idea…** in the tray menu and in About Stickle.
-- **A daily update check**: the zip and the AppImage look once a day for a newer Stickle and
-  say so in the Stickle window. It reads one small file and sends nothing about you; **Check
-  for a new version daily** turns it off. The Microsoft Store keeps its copy up to date itself.
-- A double click on the tray icon makes a new note, where the system allows it, and after an
-  update a note tells you what changed.
-- Notes made with the 0.4, 0.3, 0.2 or 0.1.2 preview open as they were: just replace the
+- **Stickle Manager** is the new name of the window with the list of notes. Settings have a
+  window of their own: **Settings…** in Stickle Manager (`Ctrl+,`) and in the tray menu, with
+  General, Notes, Reminders, Protection, Shortcuts and Connections.
+- **Reminders**: `Ctrl+R` in a note (or **Reminder…** in its menu) sets the note's reminder:
+  in an hour, this evening, tomorrow morning, next Monday or a day and time you choose, once or
+  every day, weekday, week, month or year. When it rings, the note comes forward with a bar on
+  top: **Done**, or **Remind me again** to put it off. While editing, `Ctrl+Shift+R` writes a
+  reminder into the line (`⏰2026-11-02 09:00`), so one note can hold several.
+- **Reminders ring while Stickle is running.** Those that came while it was off, or while the
+  computer slept, are listed as **missed reminders** when it starts, each saying how long ago.
+- **Other calendars**: a reminder can follow the (Korean) lunar calendar, the Chinese lunar,
+  Hebrew, Islamic (Umm al-Qura), Persian, Ethiopian, Julian, Indian national or Bengali
+  calendar, and repeat by it. When a day does not come in some year or may come a day early,
+  it rings on the earlier side.
+- **Secret notes**: **Make it a secret note…** in the note menu keeps the note's text
+  encrypted with the secret notes' password, under a title you give it. The text stays
+  covered until you double-click the note (or press `Enter`) and type the password, and is
+  covered again after a few minutes left alone (**Settings → Protection**). Forgot the
+  password? **I forgot the password** takes your recovery key and sets a new one, so secret
+  notes are turned on only once the recovery key is kept. **Export all notes…** asks whether
+  secret notes go out locked or in the clear.
+- **Protection** in Settings: make a new recovery key, or set a **spare password** to
+  remember in case you forget where you put the recovery key; it opens your notes too.
+  Stickle Manager tells you once when a key or password was changed on this computer.
+- **Your own colours**: up to 12 more colours under the note menu's colours (**Settings →
+  Notes**). **Give new notes a random colour** picks any colour but the one used just before.
+  `Ctrl+Shift+]` and `Ctrl+Shift+[` step through a note's colours.
+- **Out of the way of full screen**: while a slide show, a video or a game fills a screen, the
+  notes on it go out of sight and come back when it ends; a reminder meanwhile comes as a
+  system notification. **Full-screen exceptions…** keeps notes up over the programs you list.
+  Windows and Linux with X11 only: under Wayland, use **Hide all notes for now** instead.
+- **Bring a Stickle export back in**, on another computer or after a reinstall: **Data →
+  Bring notes in from another app… → Stickle export…** and the export's folder. Notes come
+  with their colours, categories, marks and reminders, and your own colours too; settings,
+  places on screen and passwords stay behind. Secret notes exported locked come in with the
+  secret notes' password or the recovery key of the day they were exported. Notes brought in
+  once are not brought in again.
+- Notes made with an earlier preview (0.1.2 to 0.5.1) open as they were: just replace the
   program. A copy of the notes from before is kept in the `backups` folder where the notes are
   (`%APPDATA%\Stickle\backups` on Windows, `~/.local/share/stickle/backups` on Linux).
 
+0.5 brought daily backups you can go back to (**Data → Restore from a backup…**), export of
+every note as Markdown and JSON, notes brought in from Microsoft Sticky Notes and other
+sticky-note apps, pasting with formatting, notes that line up when resized too, reporting a
+problem or idea from the tray menu, and a daily check for a new version that you can turn off
+(**Settings → General**; the Microsoft Store keeps its copy up to date itself). 0.5.1 lets a
+note whose text you erased go without the trash.
 0.4 brought icons for categories and marks, About Stickle and ways to support it, and a tray
 icon that fades while every note is hidden.
 0.3 brought categories and marks, one category on the desktop, find on the desktop, notes that
@@ -134,6 +149,32 @@ Stickle then keeps its settings and notes only in that folder: it always asks fo
 password, since it does not use this computer's password store, and it does not start at
 login or add itself to the application list. On Wayland it has no shortcuts from anywhere,
 which the desktop would have to keep.
+
+To move portable notes, move the whole `stickle-data` folder: the files that open the notes
+are kept beside them, so a single file copied out of it does not open on its own.
+
+### Differences between systems
+
+Stickle works the same way everywhere, except for what the system itself decides:
+
+- **No tray on GNOME** (the default on Fedora and some others): everything in the tray menu is
+  in Stickle Manager too, and when every note is hidden Stickle Manager comes up by itself.
+- **Wayland** (the default on Ubuntu and Fedora): Stickle runs through XWayland so that notes
+  can stay on top and where you left them, and the desktop asks once before shortcuts from
+  anywhere work. Stickle cannot tell when a program is full screen there: before a slide show
+  or a video, use **Hide all notes for now** (`Ctrl+Alt+H`). Hiding for full screen works on
+  Windows and on Linux with X11, such as Mint.
+- **Full-screen exceptions** are named by the program's file on Windows (`msedge.exe`) and by
+  the window's class on Linux (`firefox`).
+- **Reminder notifications** come from the tray icon on Windows and as desktop notifications
+  on Linux, even without a tray. Their sound follows the system's settings. On every system,
+  reminders ring only while Stickle is running.
+- Where the system cannot draw colour emoji (Fedora), the ⏰ in notes is drawn plain.
+- **Enter in a window** presses the button that has the keyboard on Linux, as other Linux apps
+  do, and the window's default button on Windows.
+- **Starting at login** is off at first in the unsigned Windows zip (see above) and on in the
+  Microsoft Store version and on Linux. The Store version does not check for new versions:
+  the Store updates it. Only the AppImage offers to add Stickle to the application list.
 
 What a preview is, and is not:
 
