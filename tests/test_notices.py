@@ -86,13 +86,13 @@ def test_a_package_without_a_license_text_is_named(tmp_path: Path) -> None:
     assert missing == ["bare"]
 
 
-def test_winrt_wheels_get_the_text_kept_beside_the_build(tmp_path: Path) -> None:
-    dist = make_dist(tmp_path, "winrt-runtime", License_Expression="MIT")
+def test_pyluach_gets_the_text_kept_beside_the_build(tmp_path: Path) -> None:
+    dist = make_dist(tmp_path, "pyluach", License_Expression="MIT")
 
     components, missing = python_components(tmp_path / "out", [dist])
 
     assert missing == []
-    assert components[0].files == ["python-packages/winrt-runtime/pywinrt-LICENSE.txt"]
+    assert components[0].files == ["python-packages/pyluach/pyluach-LICENSE.txt"]
 
 
 def test_qt_s_wheels_are_left_to_the_qt_entry(tmp_path: Path) -> None:

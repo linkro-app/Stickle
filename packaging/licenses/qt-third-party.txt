@@ -1,4 +1,4 @@
-Third-party code in the Qt 6.11.2 modules shipped with Stickle
+Third-party code in the Qt 6.12.0 modules shipped with Stickle
 (from https://doc.qt.io/qt-6/licenses-used-in-qt.html)
 
 ========================================================================

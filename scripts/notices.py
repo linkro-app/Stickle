@@ -32,10 +32,10 @@ QT = {"pyside6-essentials", "shiboken6"}
 # Compiled into the program itself, so not among the runtime requirements.
 COMPILER = "nuitka"
 # Packages whose wheels carry no license file: the text from their repository
-# (pywinrt v3.2.1, pyluach v2.3.0, both MIT), kept in packaging/licenses.
-NO_FILE_IN_WHEEL = {"winrt-": "pywinrt-LICENSE.txt", "pyluach": "pyluach-LICENSE.txt"}
+# (pyluach v2.3.0, MIT), kept in packaging/licenses.
+NO_FILE_IN_WHEEL = {"pyluach": "pyluach-LICENSE.txt"}
 # Code a wheel builds in whose license its own file leaves out: SQLite3 Multiple
-# Ciphers 2.4.0 (MIT) in apsw-sqlite3mc, beside SQLite, which is public domain.
+# Ciphers 2.6.1 (MIT) in apsw-sqlite3mc, beside SQLite, which is public domain.
 ALSO_INSIDE = {"apsw-sqlite3mc": "sqlite3mc-LICENSE.txt"}
 # What a package's metadata says too vaguely.
 LICENSES = {
