@@ -8,6 +8,7 @@ executable packing, both of which make antivirus products suspicious of
 Python applications.
 """
 
+import importlib.util
 import os
 import platform
 import shutil
@@ -24,6 +25,9 @@ BUILD_DIR = ROOT / "build"
 DIST_DIR = BUILD_DIR / "stickle.dist"
 FONTS_DIR = ROOT / "src" / "stickle" / "fonts"
 ICON_FILE = BUILD_DIR / "stickle.ico"
+# A pywinrt module reads its projection table from a file beside it when it is
+# imported, and fails to import without it.
+WINRT_TABLE_SUFFIX = ".pywinrt"
 
 # Fallback font for Linux systems without a Korean font (SIL Open Font License,
 # which must ship next to it). Pinned release, checked against its digest.
@@ -140,6 +144,24 @@ def declare_dpi_awareness() -> None:
     merged.unlink()
 
 
+def check_winrt_tables() -> None:
+    """Stop the build when a projection table of the installed pywinrt modules
+    is missing from the folder: that module, and the Store package's StartupTask
+    with it, would fail to import when the app starts."""
+    spec = importlib.util.find_spec("winrt")
+    if spec is None or not spec.submodule_search_locations:
+        raise SystemExit("pywinrt (winrt) is not installed")
+    missing: list[str] = []
+    for location in spec.submodule_search_locations:
+        package_dir = Path(location)
+        for table in package_dir.rglob(f"*{WINRT_TABLE_SUFFIX}"):
+            relative = table.relative_to(package_dir.parent)
+            if not (DIST_DIR / relative).is_file():
+                missing.append(relative.as_posix())
+    if missing:
+        raise SystemExit(f"pywinrt projection tables missing from the build: {', '.join(missing)}")
+
+
 def nuitka_command() -> list[str]:
     command = [
         sys.executable,
@@ -178,8 +200,10 @@ def nuitka_command() -> list[str]:
             # apps started at login, which showed none.
             f"--windows-icon-from-ico={ICON_FILE}",
             # The Store package's StartupTask (pywinrt): its modules load one
-            # another at run time, where Nuitka does not follow them.
+            # another at run time, where Nuitka does not follow them, and each
+            # reads the projection table kept beside it when it is imported.
             "--include-package=winrt",
+            f"--include-package-data=winrt:*{WINRT_TABLE_SUFFIX}",
         ]
     elif sys.platform == "linux":
         command += [
@@ -234,6 +258,7 @@ def main() -> int:
         write_mac_icon()
     subprocess.run(nuitka_command(), check=True, cwd=ROOT)
     if sys.platform == "win32":
+        check_winrt_tables()
         declare_dpi_awareness()
     print(f"Built {MAC_APP if sys.platform == 'darwin' else DIST_DIR}")
     notices = [sys.executable, str(ROOT / "scripts" / "notices.py")]
