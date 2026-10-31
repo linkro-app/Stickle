@@ -33,7 +33,9 @@ jobs:
           if ($version.Trim() -ne "Stickle $(uv run python -c 'import stickle; print(stickle.__version__)')") {
             throw "unexpected --version output: $version"
           }
-          & build\stickle.dist\stickle.exe --self-test
+          # Piped: PowerShell does not wait for a GUI program started bare, and
+          # its exit code would never reach $LASTEXITCODE.
+          & build\stickle.dist\stickle.exe --self-test | Out-Host
           if ($LASTEXITCODE -ne 0) { throw "self-test failed" }
           $env:QT_QPA_PLATFORM = "offscreen"
           $app = Start-Process build\stickle.dist\stickle.exe -PassThru
