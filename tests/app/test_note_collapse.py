@@ -15,7 +15,6 @@ from pytestqt.qtbot import QtBot
 from stickle.app.note_window import TITLE_BAR_HEIGHT, NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.app.palette import qcolor
-from stickle.core.layout import MAIN
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -123,8 +122,8 @@ def test_the_place_keeps_the_unfolded_height(qtbot: QtBot, app: App) -> None:
     window.move(window.pos() + QPoint(40, 30))  # moved while folded
     app.manager.save_layout(window)
 
-    place = app.layouts.places(window.note_id or "")[MAIN]
-    assert place.height == 260
+    size = app.layouts.size(window.note_id or "")
+    assert size is not None and size.height == 260
 
 
 def test_folding_keeps_the_character_being_composed(app: App) -> None:

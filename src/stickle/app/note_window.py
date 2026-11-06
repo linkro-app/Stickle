@@ -731,8 +731,6 @@ class NoteWindow(QWidget):
         self._placed: QRect | None = None
         self._scale_watched: QWindow | None = None
         self._screen_watched: QScreen | None = None
-        # False while shown in its spare place because its own monitor is missing.
-        self.own_monitor = True
         self.collapsed = False
         self._expanded_height = 0  # the height to unfold to, while folded
         self._settle = QTimer(self)
@@ -1185,7 +1183,7 @@ class NoteWindow(QWidget):
         document.deleteLater()
         self.resize(self.width(), max(self.height(), min(needed, most)))
 
-    def place(self, geometry: QRect, own_monitor: bool = True) -> None:
+    def place(self, geometry: QRect) -> None:
         """Put the note somewhere as the app, not the user, decided.
 
         geometry has the unfolded height; a folded note keeps it for later.
@@ -1195,7 +1193,6 @@ class NoteWindow(QWidget):
             geometry = QRect(geometry.topLeft(), QSize(geometry.width(), TITLE_BAR_HEIGHT))
         self.setGeometry(geometry)
         self._placed = self.geometry()
-        self.own_monitor = own_monitor
 
     def expanded_geometry(self) -> QRect:
         """Where the note is, with the height it has when unfolded."""

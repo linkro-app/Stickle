@@ -7,7 +7,7 @@ from pathlib import Path
 import apsw
 import pytest
 
-from stickle.core.layout import MAIN, Place, Rect
+from stickle.core.layout import Place, Rect, Size
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
@@ -35,9 +35,9 @@ def test_notes_come_with_what_they_carry(connection: apsw.Connection) -> None:
         ImportedNote("a", "일", "sky", category="회사", locked=True, place=Rect(10, 20, 200, 150)),
         ImportedNote("b", "집안일", "mint", category="집", hidden=True, always_on_top=False),
     )
-    place = Place(1, "screen", 0.1, 0.2, 200, 150)
+    place = Place(1, "screen", 0.1, 0.2)
 
-    brought = bring_in("xpad", imported, connection, place_for=lambda _: place)
+    brought = bring_in("xpad", imported, connection, place_for=lambda _: (1, place))
 
     repo = NoteRepository(connection)
     first, second = (repo.get(note_id) for note_id in brought.note_ids)
@@ -51,7 +51,9 @@ def test_notes_come_with_what_they_carry(connection: apsw.Connection) -> None:
         True,
     )
     assert (second.hidden, second.always_on_top, second.label) == (True, False, categories["집"])
-    assert LayoutRepository(connection).places(first.id) == {MAIN: place}
+    layouts = LayoutRepository(connection)
+    assert layouts.places(first.id) == {1: place}
+    assert layouts.size(first.id) == Size(200, 150)  # as it was in the other app
 
 
 def test_bringing_in_again_brings_only_what_is_new(connection: apsw.Connection) -> None:
@@ -92,7 +94,7 @@ def test_where_a_note_came_from_ends_it_when_asked(connection: apsw.Connection) 
 
 
 def test_all_or_nothing(connection: apsw.Connection) -> None:
-    def broken(_: Rect) -> Place | None:
+    def broken(_: Rect) -> tuple[int, Place] | None:
         raise OSError("screens gone")
 
     imported = result(

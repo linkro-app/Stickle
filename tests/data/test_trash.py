@@ -7,7 +7,7 @@ from pathlib import Path
 import apsw
 import pytest
 
-from stickle.core.layout import MAIN, Place
+from stickle.core.layout import Place, Size
 from stickle.data.database import KEY_BYTES
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import KEEP_DAYS, NoteNotBlankError, NoteNotDeletedError, NoteRepository
@@ -42,7 +42,8 @@ def repo(db: apsw.Connection, clock: Clock) -> NoteRepository:
     return NoteRepository(db, clock)
 
 
-PLACE = Place(monitor=1, name="", rel_x=0.1, rel_y=0.1, width=260, height=240)
+PLACE = Place(monitor=1, name="", rel_x=0.1, rel_y=0.1)
+SIZE = Size(260, 240)
 
 
 def test_the_trash_lists_deleted_notes_latest_first(repo: NoteRepository, clock: Clock) -> None:
@@ -59,7 +60,7 @@ def test_emptying_a_note_leaves_only_a_deletion_record(
     repo: NoteRepository, db: apsw.Connection, clock: Clock
 ) -> None:
     note = repo.create("회의록을 내일까지")
-    LayoutRepository(db, clock).save(note.id, {MAIN: PLACE})
+    LayoutRepository(db, clock).save(note.id, SIZE, (1, PLACE))
     deleted = repo.delete(note.id)
     clock.now = "2026-01-05T09:00:00.000Z"
 
@@ -68,6 +69,7 @@ def test_emptying_a_note_leaves_only_a_deletion_record(
     assert repo.get(note.id) is None
     assert repo.deleted() == []
     assert LayoutRepository(db).places(note.id) == {}
+    assert LayoutRepository(db).size(note.id) is None
     assert search(db, "회의록") == []
     assert search_index_is_consistent(db)
     assert repo.deletion_records() == [(note.id, deleted.deleted_at, "2026-01-05T09:00:00.000Z")]
@@ -80,7 +82,7 @@ def test_a_note_with_no_text_is_removed_past_the_trash(
     earlier = repo.create("먼저 지운 메모")
     repo.delete(earlier.id)
     note = repo.create("잠깐")
-    LayoutRepository(db, clock).save(note.id, {MAIN: PLACE})
+    LayoutRepository(db, clock).save(note.id, SIZE, (1, PLACE))
     repo.update_body(note.id, " \n\t")
 
     repo.discard(note.id)
@@ -89,6 +91,7 @@ def test_a_note_with_no_text_is_removed_past_the_trash(
     assert [n.id for n in repo.deleted()] == [earlier.id]
     assert repo.last_deleted() == repo.get(earlier.id)  # still the one to bring back
     assert LayoutRepository(db).places(note.id) == {}
+    assert LayoutRepository(db).size(note.id) is None
     assert [record[0] for record in repo.deletion_records()] == [note.id]
     assert search_index_is_consistent(db)
 

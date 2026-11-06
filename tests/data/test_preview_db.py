@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from old_places import upgraded
 from preview_fixture import (
     DEFAULT_COLOR_SET,
     FIXTURE,
@@ -58,7 +59,10 @@ def test_every_note_opens_as_the_preview_left_it(copy: Path) -> None:
             assert note.collapsed == expected.collapsed
             assert (note.deleted_at is not None) == expected.deleted
         placed = notes[NOTES[PLACED].body]
-        assert LayoutRepository(connection).places(placed.id) == PLACES
+        layouts = LayoutRepository(connection)
+        places, size = upgraded(PLACES)
+        assert set(places) == {1, 2}  # its spare place was stored with no names
+        assert (layouts.places(placed.id), layouts.size(placed.id)) == (places, size)
     finally:
         connection.close()
 

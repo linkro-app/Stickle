@@ -11,7 +11,7 @@ from typing import Any, cast
 import apsw
 import pytest
 
-from stickle.core.layout import Place
+from stickle.core.layout import Place, Size
 from stickle.crypto.secret_notes import SecretNoteError, open_text, seal_text
 from stickle.data.database import KEY_BYTES
 from stickle.data.export import JSON_NAME, SecretExport, export_all
@@ -96,7 +96,7 @@ def test_the_json_keeps_what_the_notes_carry(connection: apsw.Connection, tmp_pa
     notes.set_mark(note.id, "urgent", True)
     notes.set_opacity(note.id, 0.8)
     LayoutRepository(connection).save(
-        note.id, {"main": Place(1, "DELL U2720Q", 0.25, 0.5, 300, 200)}
+        note.id, Size(300, 200), (1, Place(1, "DELL U2720Q", 0.25, 0.5))
     )
     Settings(connection).set(DEFAULT_NOTE_COLOR, "pink")
 
@@ -112,7 +112,8 @@ def test_the_json_keeps_what_the_notes_carry(connection: apsw.Connection, tmp_pa
     assert {"note_id": note.id, "mark_id": "urgent"} in data["note_marks"]
     assert [c["name"] for c in data["categories"]] == ["회사"]
     (layout,) = data["note_layouts"]
-    assert (layout["rel_x"], layout["width"]) == (0.25, 300)
+    (size,) = data["note_sizes"]
+    assert (layout["config_key"], layout["rel_x"], size["width"]) == ("1", 0.25, 300)
     assert any(s["key"] == "default_color" for s in data["shared_settings"])
 
 

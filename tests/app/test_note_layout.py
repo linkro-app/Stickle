@@ -14,7 +14,7 @@ from pytestqt.qtbot import QtBot
 from stickle.app import notes as notes_module
 from stickle.app.note_window import SETTLE_MS, NoteWindow
 from stickle.app.notes import NoteManager
-from stickle.core.layout import MAIN, Monitor, Place, Rect
+from stickle.core.layout import Monitor, Place, Rect, Size
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -68,12 +68,34 @@ def test_a_moved_and_resized_note_opens_there_again(
     target = QRect(screen_area().topLeft() + QPoint(150, 90), QSize(300, 200))
 
     window.setGeometry(target)
-    qtbot.waitUntil(lambda: app.layouts.places(window.note_id or "")[MAIN].width == 300)
+    qtbot.waitUntil(lambda: app.layouts.size(window.note_id or "") == Size(300, 200))
+    # Kept for as many monitors as there are now.
+    assert set(app.layouts.places(window.note_id or "")) == {len(notes_module.monitors())}
     app.close()
 
     again = App(connection)
     again.manager.open_stored()
     assert [w.geometry() for w in again.manager.windows] == [target]
+    again.close()
+
+
+def test_where_windows_cannot_be_placed_the_size_is_kept_alone(
+    qtbot: QtBot, connection: apsw.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Wayland: the window system decides where windows go.
+    monkeypatch.setattr(notes_module, "can_place_windows", lambda: False)
+    app = App(connection)
+    window = stored_note(app)
+    note_id = window.note_id or ""
+
+    window.resize(320, 280)
+    qtbot.waitUntil(lambda: app.layouts.size(note_id) == Size(320, 280))
+    assert app.layouts.places(note_id) == {}
+    app.close()
+
+    again = App(connection)
+    again.manager.open_stored()
+    assert [w.size() for w in again.manager.windows] == [QSize(320, 280)]
     again.close()
 
 
@@ -99,7 +121,7 @@ def test_hiding_right_after_moving_keeps_the_new_place(app: App) -> None:
     window.move(target)
     app.manager.hide(window)  # before the move settled
 
-    place = app.layouts.places(note_id)[MAIN]
+    (place,) = app.layouts.places(note_id).values()
     screen = QGuiApplication.primaryScreen().geometry()
     assert round(place.rel_x * screen.width()) + screen.x() == target.x()
     assert round(place.rel_y * screen.height()) + screen.y() == target.y()
@@ -113,9 +135,9 @@ def test_a_new_note_moved_before_it_has_text_keeps_that_place(app: App) -> None:
     window.editor.insertPlainText("이제 저장")
     app.manager.save(window)
 
-    places = app.layouts.places(window.note_id or "")
+    (place,) = app.layouts.places(window.note_id or "").values()
     screen = QGuiApplication.primaryScreen().geometry()
-    assert round(places[MAIN].rel_x * screen.width()) + screen.x() == target.x()
+    assert round(place.rel_x * screen.width()) + screen.x() == target.x()
 
 
 def test_opening_a_note_where_it_was_stores_nothing_new(
@@ -128,9 +150,11 @@ def test_opening_a_note_where_it_was_stores_nothing_new(
     saves: list[str] = []
     original = LayoutRepository.save
 
-    def counting_save(self: LayoutRepository, note_id: str, places: dict[str, Place]) -> None:
+    def counting_save(
+        self: LayoutRepository, note_id: str, size: Size, placed: tuple[int, Place] | None = None
+    ) -> None:
         saves.append(note_id)
-        original(self, note_id, places)
+        original(self, note_id, size, placed)
 
     monkeypatch.setattr(LayoutRepository, "save", counting_save)
 
@@ -190,7 +214,7 @@ def test_a_place_that_makes_no_sense_opens_the_note_as_new(
     notes = NoteRepository(connection)
     note = notes.create("이상한 위치")
     connection.execute(
-        "INSERT INTO note_layouts VALUES (?, 'main', 'garbage', 0.5, 0.5, 260, 240, '2026')",
+        "INSERT INTO note_layouts VALUES (?, '1', 'garbage', 0.5, 0.5, '2026')",
         (note.id,),
     )
 
@@ -206,7 +230,7 @@ def test_every_place_the_app_restores_is_on_screen(connection: apsw.Connection) 
     layouts = LayoutRepository(connection)
     for rel in (-1.0, 0.0, 0.5, 0.99, 2.0):
         note = notes.create(f"at {rel}")
-        layouts.save(note.id, {MAIN: Place(1, "", rel, rel, 5000, 5000)})
+        layouts.save(note.id, Size(5000, 5000), (1, Place(1, "", rel, rel)))
 
     app = App(connection)
     app.manager.open_stored()

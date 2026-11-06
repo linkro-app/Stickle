@@ -11,19 +11,9 @@ The notes are made up, and the key is a test key.
 
 import sys
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
-
-from stickle.core.layout import MAIN, SPARE, Place
-from stickle.data.layouts import LayoutRepository
-from stickle.data.notes import NoteRepository
-from stickle.data.schema import open_store
-from stickle.data.settings import (
-    DEFAULT_NOTE_COLOR,
-    RECOVERY_KEY_KEPT,
-    THIS_DEVICE,
-    USAGE,
-    Settings,
-)
+from typing import Any
 
 FIXTURE = Path(__file__).parent / "fixtures" / "preview-0.1.2.db"
 KEY = bytes(range(32))  # a test key, for this made-up database only
@@ -59,19 +49,27 @@ NOTES = [
     Expected("지운 메모 — 휴지통에서 되살릴 수 있어야 함", color="coral", deleted=True),
 ]
 
+# Where NOTES[PLACED] was placed, as that version kept it, by slot: (monitor
+# number, its name, rel_x, rel_y, width, height, the names of the monitors
+# connected then). Plain values, so that this file imports in later versions.
 PLACES = {
-    MAIN: Place(
-        monitor=1, name="DELL U2720Q", rel_x=0.1, rel_y=0.2, width=260, height=400,
-        setup=("DELL U2720Q", "Built-in Retina"),
-    ),
-    SPARE: Place(monitor=1, name="Built-in Retina", rel_x=0.05, rel_y=0.05, width=260, height=240),
-}  # fmt: skip
+    "main": (1, "DELL U2720Q", 0.1, 0.2, 260, 400, ("DELL U2720Q", "Built-in Retina")),
+    "spare": (1, "Built-in Retina", 0.05, 0.05, 260, 240, ()),
+}
 PLACED = 0  # the note NOTES[0] was placed on screen
 
 DEFAULT_COLOR_SET = "mint"
 
 
 def make(path: Path) -> None:
+    """Run with the 0.1.2 code, whose names and arguments differ from later ones'."""
+    from stickle.data.notes import NoteRepository
+    from stickle.data.schema import open_store
+    from stickle.data.settings import DEFAULT_NOTE_COLOR, THIS_DEVICE, USAGE, Settings
+
+    layout: Any = import_module("stickle.core.layout")
+    layouts: Any = import_module("stickle.data.layouts")
+    settings_then: Any = import_module("stickle.data.settings")
     connection = open_store(path, KEY, clock)
     notes = NoteRepository(connection, clock)
     for index, expected in enumerate(NOTES):
@@ -85,10 +83,11 @@ def make(path: Path) -> None:
         if expected.deleted:
             notes.delete(note.id)
         if index == PLACED:
-            LayoutRepository(connection, clock).save(note.id, PLACES)
+            places = {slot: layout.Place(*values) for slot, values in PLACES.items()}
+            layouts.LayoutRepository(connection, clock).save(note.id, places)
     settings = Settings(connection, clock)
     settings.set(DEFAULT_NOTE_COLOR, DEFAULT_COLOR_SET)
-    settings.set(RECOVERY_KEY_KEPT, True)
+    settings.set(settings_then.RECOVERY_KEY_KEPT, True)
     settings.set(USAGE, THIS_DEVICE)
     connection.pragma("wal_checkpoint", "TRUNCATE")
     connection.close()

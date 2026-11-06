@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from old_places import upgraded
 from preview_fixture_0_2 import (
     DEFAULT_COLOR_SET,
     FIXTURE,
@@ -17,7 +18,6 @@ from preview_fixture_0_2 import (
 )
 
 from stickle.core.labels import BUILT_IN_MARKS
-from stickle.core.layout import MAIN
 from stickle.data.database import WrongKeyError, open_database
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
@@ -65,7 +65,8 @@ def test_every_note_opens_as_the_preview_left_it(copy: Path) -> None:
             assert note.locked == expected.locked
             assert (note.deleted_at is not None) == expected.deleted
         placed = notes[NOTES[PLACED].body]
-        assert LayoutRepository(connection).places(placed.id) == {MAIN: PLACE}
+        layouts = LayoutRepository(connection)
+        assert (layouts.places(placed.id), layouts.size(placed.id)) == upgraded({"main": PLACE})
     finally:
         connection.close()
 

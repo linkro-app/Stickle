@@ -2,24 +2,24 @@
 
 Monitors are numbered: the main (primary) monitor is 1, the others follow
 from left to right, then top to bottom, so the numbers stay put as long as
-the monitors stay where they are. A note remembers the number of its
+the monitors stay where they are. A place is the number of a note's
 monitor, that monitor's name as a hint (a model or connector name, never a
-serial number), and where it sits on it as fractions of the monitor, so a
-change of resolution or scaling leaves it in the same place.
+serial number), and where the note sits on it as fractions of the monitor,
+so a change of resolution or scaling leaves it in the same place.
 
-Each note has a main place, on its own monitor, and a spare place for when
-that monitor is not connected: then it is shown on monitor 1. Moving a note
-while it is in its spare place changes only the spare place, so it goes
-back to its own monitor when that returns. Whatever is remembered, a note
-is always put entirely inside a monitor's work area.
+A note has a place for each number of monitors it was moved with: one for a
+laptop's screen alone, another for it with a monitor plugged in. Moving it
+changes only the place for as many monitors as there are now, and computers
+with as many monitors share a place. With no place yet for that many, the
+one for the nearest number (the larger, between two) shows it until it is
+moved. Its size is one, whatever the monitors. Whatever is remembered, a
+note is always put entirely inside a monitor's work area.
 """
 
 import math
-from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
-MAIN = "main"
-SPARE = "spare"
 MIN_WIDTH = 120
 MIN_HEIGHT = 60
 MAX_SIZE = 20_000
@@ -66,19 +66,27 @@ class Place:
     name: str
     rel_x: float
     rel_y: float
-    width: int
-    height: int
     # The names of every monitor connected at the time: seeing any of them
     # again means the same computer, where the note's own monitor is missing.
     setup: tuple[str, ...] = ()
 
     def is_valid(self) -> bool:
-        return (
-            self.monitor >= 1
-            and all(math.isfinite(v) and -1 <= v <= 2 for v in (self.rel_x, self.rel_y))
-            and MIN_WIDTH <= self.width <= MAX_SIZE
-            and MIN_HEIGHT <= self.height <= MAX_SIZE
+        return self.monitor >= 1 and all(
+            math.isfinite(v) and -1 <= v <= 2 for v in (self.rel_x, self.rel_y)
         )
+
+
+@dataclass(frozen=True)
+class Size:
+    width: int
+    height: int
+
+    def is_valid(self) -> bool:
+        return MIN_WIDTH <= self.width <= MAX_SIZE and MIN_HEIGHT <= self.height <= MAX_SIZE
+
+
+def size_of(window: Rect) -> Size:
+    return Size(window.width, window.height)
 
 
 def numbered(monitors: Sequence[Monitor]) -> list[Monitor]:
@@ -109,26 +117,27 @@ def place_of(window: Rect, monitors: Sequence[Monitor]) -> Place:
         name=monitor.name,
         rel_x=(window.x - area.x) / area.width,
         rel_y=(window.y - area.y) / area.height,
-        width=window.width,
-        height=window.height,
         setup=tuple(m.name for m in numbered(monitors)),
     )
 
 
-def find_monitor(place: Place, monitors: Sequence[Monitor]) -> Monitor | None:
+def find_monitor(place: Place, monitors: Sequence[Monitor], same_count: bool) -> Monitor | None:
     """The monitor a place belongs to, or None if it is not connected.
 
-    By name when exactly one connected monitor has it. On the same computer
-    (a monitor of the remembered setup is here) a name not found means its
-    monitor is missing: going by number would put it on whichever monitor
-    moved up into that number. On another computer, by number.
+    By name when exactly one connected monitor has it. same_count: the place
+    is for as many monitors as there are now, so another monitor stands at its
+    number (one at work, another at home; the same one on another connector):
+    by number. Otherwise, on the same computer (a monitor of the remembered
+    setup is here) a name not found means its monitor is missing: going by
+    number would put it on whichever monitor moved up into that number. On
+    another computer, by number.
     """
     ordered = numbered(monitors)
     named = [m for m in ordered if place.name and m.name == place.name]
     if len(named) == 1:
         return named[0]
     same_computer = any(m.name and m.name in place.setup for m in ordered)
-    if same_computer and place.name and not named:
+    if not same_count and same_computer and place.name and not named:
         return None
     if 1 <= place.monitor <= len(ordered):
         return ordered[place.monitor - 1]
@@ -144,48 +153,40 @@ def fit(window: Rect, area: Rect) -> Rect:
     return Rect(x, y, width, height)
 
 
-def on_monitor(place: Place, monitor: Monitor) -> Rect:
+def on_monitor(place: Place, size: Size, monitor: Monitor) -> Rect:
     area = monitor.geometry
     window = Rect(
         area.x + round(place.rel_x * area.width),
         area.y + round(place.rel_y * area.height),
-        place.width,
-        place.height,
+        size.width,
+        size.height,
     )
     return fit(window, monitor.available)
 
 
-@dataclass(frozen=True)
-class Placement:
-    window: Rect
-    own_monitor: bool  # False: shown in its spare place, its monitor is missing
-
-
-def restore(places: dict[str, Place], monitors: Sequence[Monitor]) -> Placement | None:
-    """Where to show a note now, or None if nothing valid is remembered."""
-    main, spare = places.get(MAIN), places.get(SPARE)
-    if main is not None and (monitor := find_monitor(main, monitors)) is not None:
-        return Placement(on_monitor(main, monitor), own_monitor=True)
-    fallback = spare or main
-    if fallback is None:
+def chosen(places: Mapping[int, Place], count: int) -> tuple[int, Place] | None:
+    """The place shown with count monitors, and the number it is for: its own,
+    else the nearest number's (the larger, between two); None without any."""
+    if not places:
         return None
-    first = numbered(monitors)[0]
-    return Placement(on_monitor(fallback, first), own_monitor=False)
+    number = min(places, key=lambda n: (abs(n - count), -n))
+    return number, places[number]
+
+
+def restore(places: Mapping[int, Place], size: Size, monitors: Sequence[Monitor]) -> Rect | None:
+    """Where to show a note of that size now, or None if no place is remembered.
+    A place whose monitor is missing shows it on monitor 1, as far in."""
+    picked = chosen(places, len(monitors))
+    if picked is None:
+        return None
+    count, place = picked
+    monitor = find_monitor(place, monitors, same_count=count == len(monitors))
+    return on_monitor(place, size, monitor or numbered(monitors)[0])
 
 
 def remember(
-    places: dict[str, Place], window: Rect, monitors: Sequence[Monitor], own_monitor: bool
-) -> dict[str, Place]:
-    """The places after the note was moved or resized to window.
-
-    On its own monitor (or with nothing remembered yet) the main place
-    follows; in the spare place only the spare place does. Both keep the
-    same size.
-    """
-    place = place_of(window, monitors)
-    slot = MAIN if own_monitor or MAIN not in places else SPARE
-    updated = {
-        key: replace(value, width=place.width, height=place.height) for key, value in places.items()
-    }
-    updated[slot] = place
-    return updated
+    places: Mapping[int, Place], window: Rect, monitors: Sequence[Monitor]
+) -> dict[int, Place]:
+    """The places after the note was moved to window: only the one for as many
+    monitors as there are now changes."""
+    return {**places, len(monitors): place_of(window, monitors)}

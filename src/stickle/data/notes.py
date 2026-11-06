@@ -230,6 +230,7 @@ class NoteRepository:
         earlier text there not opened, left out with its places and marks."""
         with self._db:
             self._db.execute("DELETE FROM note_layouts WHERE note_id = ?", (note_id,))
+            self._db.execute("DELETE FROM note_sizes WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
@@ -319,7 +320,7 @@ class NoteRepository:
         return self._change(note_id, {"locked": int(locked)})
 
     def set_collapsed(self, note_id: str, collapsed: bool) -> Note:
-        """Folded to its title bar; its size is kept with its place (note_layouts)."""
+        """Folded to its title bar; its size is kept as it was (note_sizes)."""
         note = self._require_live(note_id)
         if note.collapsed == collapsed:
             return note
@@ -512,6 +513,7 @@ class NoteRepository:
                     (note_id, self._clock()),
                 )
             self._db.execute("DELETE FROM note_layouts WHERE note_id = ?", (note_id,))
+            self._db.execute("DELETE FROM note_sizes WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))

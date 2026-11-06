@@ -8,6 +8,7 @@ from datetime import date, time
 from pathlib import Path
 
 import pytest
+from old_places import upgraded
 from preview_fixture_0_6 import (
     DEFAULT_COLOR_SET,
     FIXTURE,
@@ -19,15 +20,17 @@ from preview_fixture_0_6 import (
     RECOVERY_KEY,
     REMINDED,
     REMINDER,
+    SAME,
     SCHEMA_VERSION,
     SECRET_PASSWORD,
     SECRET_TEXT,
     SECRET_TITLE,
     TRASHED,
+    TWO,
     UNREADABLE,
 )
 
-from stickle.core.layout import Place
+from stickle.core.layout import Place, Size
 from stickle.crypto.key_files import A, B, C
 from stickle.crypto.secret_notes import open_text
 from stickle.data.colors import ColorRepository
@@ -126,17 +129,23 @@ def test_the_reminder_stays(unlock: Unlock, key: bytes) -> None:
         connection.close()
 
 
-def test_places_on_screen_stay(unlock: Unlock, key: bytes) -> None:
+def test_places_on_screen_go_under_the_number_of_monitors_they_were_stored_with(
+    unlock: Unlock, key: bytes
+) -> None:
     connection = open_store(unlock.database, key)
     try:
         by_body = {note.body: note.id for note in NoteRepository(connection).all()}
         layouts = LayoutRepository(connection)
+
+        def stored(index: int) -> tuple[dict[int, Place], Size | None]:
+            note_id = by_body[NOTES[index][0]]
+            return layouts.places(note_id), layouts.size(note_id)
+
         for index, rows in PLACES.items():
-            assert layouts.places(by_body[NOTES[index][0]]) == {
-                slot: Place(number, name, rel_x, rel_y, width, height, setup)
-                for slot, number, name, rel_x, rel_y, width, height, setup in rows
-            }
-        assert layouts.places(by_body[NOTES[UNREADABLE][0]]) == {}
+            assert stored(index) == upgraded({row[0]: row[1:] for row in rows})
+        assert set(stored(TWO)[0]) == {1, 2}
+        assert set(stored(SAME)[0]) == {2}  # the main place's
+        assert stored(UNREADABLE) == ({}, None)
     finally:
         connection.close()
 

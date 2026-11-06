@@ -254,8 +254,52 @@ CREATE TABLE reminders (
 CREATE INDEX reminders_by_note ON reminders (note_id);
 """
 
+# A main or spare place readable as one (an invalid one, not even JSON, would
+# make SQLite's json functions fail), and the number of monitors it was stored
+# with: those named in it, or at least its monitor's number without names.
+_READABLE_PLACE = (
+    "CASE WHEN json_valid(monitor_key) THEN json_type(monitor_key, '$.number') END = 'integer'"
+)
+_MONITORS_THEN = """CAST(CASE
+    WHEN json_type(monitor_key, '$.setup') = 'array'
+        AND json_array_length(monitor_key, '$.setup') > 0
+    THEN json_array_length(monitor_key, '$.setup')
+    ELSE max(1, json_extract(monitor_key, '$.number'))
+END AS TEXT)"""
+
+V12 = f"""
+-- A note's size, one whatever the monitors, kept apart from where it is: kept
+-- too where windows cannot be placed, and changing it leaves the places as
+-- they were. Until now a note's main and spare place had one size: the main
+-- place's (else the spare's) is taken.
+CREATE TABLE note_sizes (
+    note_id TEXT PRIMARY KEY,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
+INSERT OR IGNORE INTO note_sizes (note_id, width, height, updated_at)
+    SELECT note_id, width, height, updated_at FROM note_layouts
+    WHERE config_key = 'main' AND {_READABLE_PLACE};
+INSERT OR IGNORE INTO note_sizes (note_id, width, height, updated_at)
+    SELECT note_id, width, height, updated_at FROM note_layouts
+    WHERE config_key = 'spare' AND {_READABLE_PLACE};
+
+-- A place for each number of monitors (stickle.core.layout), in place of the
+-- main and the spare one: each goes under the number of monitors it was
+-- stored with. Two for the same number keep the main one; the rest go (a
+-- spare place beside it, places that could not be read).
+UPDATE OR IGNORE note_layouts SET config_key = {_MONITORS_THEN}
+    WHERE config_key = 'main' AND {_READABLE_PLACE};
+UPDATE OR IGNORE note_layouts SET config_key = {_MONITORS_THEN}
+    WHERE config_key = 'spare' AND {_READABLE_PLACE};
+DELETE FROM note_layouts WHERE config_key IN ('main', 'spare');
+ALTER TABLE note_layouts DROP COLUMN width;
+ALTER TABLE note_layouts DROP COLUMN height;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12]
 BACKUPS_KEPT = 3
 
 

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import apsw
 
 from stickle.core.clock import Clock, utc_now
-from stickle.core.layout import MAIN, Place, Rect
+from stickle.core.layout import Place, Rect, size_of
 from stickle.data.imports import ImportRecords
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
@@ -35,7 +35,8 @@ def bring_in(
     source: str,
     result: ImportResult,
     connection: apsw.Connection,
-    place_for: Callable[[Rect], Place | None] = lambda _: None,
+    # Where a note at that spot goes, for as many monitors as there are now.
+    place_for: Callable[[Rect], tuple[int, Place] | None] = lambda _: None,
     clock: Clock = utc_now,
     source_line: str | None = None,
 ) -> BroughtIn:
@@ -72,8 +73,8 @@ def bring_in(
                 notes.set_locked(note.id, True)
             if imported.always_on_top is not None:
                 notes.set_always_on_top(note.id, imported.always_on_top)
-            if imported.place is not None and (place := place_for(imported.place)) is not None:
-                layouts.save(note.id, {MAIN: place})
+            if imported.place is not None and (placed := place_for(imported.place)) is not None:
+                layouts.save(note.id, size_of(imported.place), placed)
             records.record(source, imported.source_id, imported.body, note.id)
             brought.note_ids.append(note.id)
     return brought

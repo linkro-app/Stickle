@@ -76,26 +76,26 @@ DEFAULT_COLOR_SET = "mint"
 
 
 def make(folder: Path) -> None:
-    """Run with the 0.6 code: write the folder."""
+    """Run with the 0.6 code, whose names and arguments differ from later
+    ones' where places and settings are concerned: write the folder."""
     from datetime import date, time
+    from importlib import import_module
+    from typing import Any
 
-    from stickle.core.layout import Place
     from stickle.core.reminders import Rule
     from stickle.crypto.recovery import canonical, write_recovery
     from stickle.crypto.secret_notes import seal_text
     from stickle.data.colors import ColorRepository
-    from stickle.data.layouts import LayoutRepository
     from stickle.data.notes import NoteRepository
     from stickle.data.reminders import ReminderRepository
     from stickle.data.schema import open_store, schema_version
-    from stickle.data.settings import (
-        DEFAULT_NOTE_COLOR,
-        NEWS_SEEN,
-        RECOVERY_KEY_KEPT,
-        Settings,
-    )
+    from stickle.data.settings import DEFAULT_NOTE_COLOR, Settings
     from stickle.platform.credentials import CredentialStore
     from stickle.unlock import Unlock
+
+    layout: Any = import_module("stickle.core.layout")
+    layouts_then: Any = import_module("stickle.data.layouts")
+    settings_then: Any = import_module("stickle.data.settings")
 
     def no_store() -> CredentialStore:
         raise AssertionError("portable notes read no credential store")
@@ -111,7 +111,7 @@ def make(folder: Path) -> None:
     assert schema_version(connection) == SCHEMA_VERSION
     unlock.keep_copies(connection)
     notes = NoteRepository(connection, clock)
-    layouts = LayoutRepository(connection, clock)
+    layouts = layouts_then.LayoutRepository(connection, clock)
     ColorRepository(connection, clock).add(OWN_COLOR)
 
     ids: list[str] = []
@@ -124,7 +124,7 @@ def make(folder: Path) -> None:
         layouts.save(
             ids[index],
             {
-                slot: Place(number, name, rel_x, rel_y, width, height, setup)
+                slot: layout.Place(number, name, rel_x, rel_y, width, height, setup)
                 for slot, number, name, rel_x, rel_y, width, height, setup in rows
             },
         )
@@ -144,8 +144,8 @@ def make(folder: Path) -> None:
     notes.delete(notes.create(TRASHED).id)
 
     settings = Settings(connection, clock)
-    settings.set(NEWS_SEEN, NEWS_SEEN_SET)
-    settings.set(RECOVERY_KEY_KEPT, True)
+    settings.set(settings_then.NEWS_SEEN, NEWS_SEEN_SET)
+    settings.set(settings_then.RECOVERY_KEY_KEPT, True)
     settings.set(DEFAULT_NOTE_COLOR, DEFAULT_COLOR_SET)
     connection.pragma("wal_checkpoint", "TRUNCATE")
     connection.close()

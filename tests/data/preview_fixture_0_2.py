@@ -11,20 +11,9 @@ The notes are made up, and the key is a test key.
 
 import sys
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
-
-from stickle.core.layout import MAIN, Place
-from stickle.data.layouts import LayoutRepository
-from stickle.data.notes import NoteRepository
-from stickle.data.schema import open_store
-from stickle.data.settings import (
-    DEFAULT_NOTE_COLOR,
-    RECOVERY_KEY_KEPT,
-    SHORTCUTS,
-    THIS_DEVICE,
-    USAGE,
-    Settings,
-)
+from typing import Any
 
 FIXTURE = Path(__file__).parent / "fixtures" / "preview-0.2.0.db"
 KEY = bytes(range(32, 64))  # a test key, for this made-up database only
@@ -59,10 +48,11 @@ NOTES = [
 ]
 EMPTIED = "휴지통에서 비운 메모"  # only its deletion record stays
 
-PLACE = Place(
-    monitor=1, name="DELL U2720Q", rel_x=0.3, rel_y=0.1, width=280, height=320,
-    setup=("DELL U2720Q",),
-)  # fmt: skip
+# Where NOTES[PLACED] was placed, its main place as that version kept it:
+# (monitor number, its name, rel_x, rel_y, width, height, the names of the
+# monitors connected then). Plain values, so that this file imports in later
+# versions.
+PLACE = (1, "DELL U2720Q", 0.3, 0.1, 280, 320, ("DELL U2720Q",))
 PLACED = 0  # the note NOTES[0] was placed on screen
 
 DEFAULT_COLOR_SET = "blue"
@@ -70,7 +60,15 @@ SHORTCUTS_SET = {"hide-all": ""}  # turned off by the user
 
 
 def make(path: Path) -> list[str]:
-    """Make the database; the ids of the notes, in the order of NOTES."""
+    """Make the database; the ids of the notes, in the order of NOTES. Run with
+    the 0.2 code, whose names and arguments differ from later ones'."""
+    from stickle.data.notes import NoteRepository
+    from stickle.data.schema import open_store
+    from stickle.data.settings import DEFAULT_NOTE_COLOR, SHORTCUTS, THIS_DEVICE, USAGE, Settings
+
+    layout: Any = import_module("stickle.core.layout")
+    layouts: Any = import_module("stickle.data.layouts")
+    settings_then: Any = import_module("stickle.data.settings")
     connection = open_store(path, KEY, clock)
     notes = NoteRepository(connection, clock)
     ids: list[str] = []
@@ -90,13 +88,14 @@ def make(path: Path) -> list[str]:
         if expected.deleted:
             notes.delete(note.id)
         if index == PLACED:
-            LayoutRepository(connection, clock).save(note.id, {MAIN: PLACE})
+            places = {layout.MAIN: layout.Place(*PLACE)}
+            layouts.LayoutRepository(connection, clock).save(note.id, places)
     emptied = notes.create(EMPTIED)
     notes.delete(emptied.id)
     notes.purge(emptied.id)
     settings = Settings(connection, clock)
     settings.set(DEFAULT_NOTE_COLOR, DEFAULT_COLOR_SET)
-    settings.set(RECOVERY_KEY_KEPT, True)
+    settings.set(settings_then.RECOVERY_KEY_KEPT, True)
     settings.set(USAGE, THIS_DEVICE)
     settings.set(SHORTCUTS, SHORTCUTS_SET)
     connection.pragma("wal_checkpoint", "TRUNCATE")

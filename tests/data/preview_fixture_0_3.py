@@ -11,21 +11,9 @@ The notes are made up, and the key is a test key.
 
 import sys
 from dataclasses import dataclass, field
+from importlib import import_module
 from pathlib import Path
-
-from stickle.core.layout import MAIN, Place
-from stickle.data.labels import LabelRepository
-from stickle.data.layouts import LayoutRepository
-from stickle.data.notes import NoteRepository
-from stickle.data.schema import open_store
-from stickle.data.settings import (
-    DEFAULT_NOTE_COLOR,
-    RECOVERY_KEY_KEPT,
-    SHORTCUTS,
-    THIS_DEVICE,
-    USAGE,
-    Settings,
-)
+from typing import Any
 
 FIXTURE = Path(__file__).parent / "fixtures" / "preview-0.3.0.db"
 KEY = bytes(range(64, 96))  # a test key, for this made-up database only
@@ -77,17 +65,27 @@ NOTES = [
 ]  # fmt: skip
 PLACED = 0  # the note NOTES[0] was placed on screen
 
-PLACE = Place(
-    monitor=1, name="LG HDR 4K", rel_x=0.25, rel_y=0.15, width=300, height=340,
-    setup=("LG HDR 4K",),
-)  # fmt: skip
+# Where NOTES[PLACED] was placed, its main place as that version kept it:
+# (monitor number, its name, rel_x, rel_y, width, height, the names of the
+# monitors connected then). Plain values, so that this file imports in later
+# versions.
+PLACE = (1, "LG HDR 4K", 0.25, 0.15, 300, 340, ("LG HDR 4K",))
 
 DEFAULT_COLOR_SET = "mint"
 SHORTCUTS_SET = {"find": "Ctrl+Alt+F"}  # set by the user (it has no key at first)
 
 
 def make(path: Path) -> list[str]:
-    """Make the database; the ids of the notes, in the order of NOTES."""
+    """Make the database; the ids of the notes, in the order of NOTES. Run with
+    the 0.3 code, whose names and arguments differ from later ones'."""
+    from stickle.data.labels import LabelRepository
+    from stickle.data.notes import NoteRepository
+    from stickle.data.schema import open_store
+    from stickle.data.settings import DEFAULT_NOTE_COLOR, SHORTCUTS, THIS_DEVICE, USAGE, Settings
+
+    layout: Any = import_module("stickle.core.layout")
+    layouts: Any = import_module("stickle.data.layouts")
+    settings_then: Any = import_module("stickle.data.settings")
     connection = open_store(path, KEY, clock)
     notes = NoteRepository(connection, clock)
     labels = LabelRepository(connection, clock)
@@ -111,7 +109,8 @@ def make(path: Path) -> list[str]:
         if expected.hidden:
             notes.set_hidden(note.id, True)
         if index == PLACED:
-            LayoutRepository(connection, clock).save(note.id, {MAIN: PLACE})
+            places = {layout.MAIN: layout.Place(*PLACE)}
+            layouts.LayoutRepository(connection, clock).save(note.id, places)
     # A mark once on a note, then deleted: the note loses it.
     notes.set_mark(ids[1], dropped.id, True)
     owners = notes.remove_mark(dropped.id)
@@ -122,7 +121,7 @@ def make(path: Path) -> list[str]:
 
     settings = Settings(connection, clock)
     settings.set(DEFAULT_NOTE_COLOR, DEFAULT_COLOR_SET)
-    settings.set(RECOVERY_KEY_KEPT, True)
+    settings.set(settings_then.RECOVERY_KEY_KEPT, True)
     settings.set(USAGE, THIS_DEVICE)
     settings.set(SHORTCUTS, SHORTCUTS_SET)
     connection.pragma("wal_checkpoint", "TRUNCATE")

@@ -198,13 +198,13 @@ def data_access(
             raise WrongPasswordError("no secret notes here")
         return manager.secrets.open(password)
 
-    def place_for(rect: Rect) -> Place | None:
+    def place_for(rect: Rect) -> tuple[int, Place] | None:
         """Where a note brought in goes: where it was, if that is on a screen now."""
         screens = monitors()
         x, y = rect.x + rect.width / 2, rect.y + min(rect.height, 20) / 2
         if not any(screen.geometry.contains(x, y) for screen in screens):
             return None  # placed as a new note is
-        return place_of(rect, screens)
+        return len(screens), place_of(rect, screens)
 
     def bring(source: Source, result: ImportResult, line: str | None) -> BroughtIn:
         manager.save_all()

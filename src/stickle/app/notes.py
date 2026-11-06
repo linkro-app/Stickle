@@ -32,7 +32,6 @@ not stored.
 import logging
 import random
 from collections.abc import Callable, Iterable
-from dataclasses import replace
 from typing import TYPE_CHECKING, cast, override
 
 import apsw
@@ -65,7 +64,7 @@ from stickle.app.secret_dialogs import (
 from stickle.app.secret_notes import Relock
 from stickle.core.colors import PALETTE
 from stickle.core.labels import DEFAULT_ICON, Category, Mark
-from stickle.core.layout import MAIN, Place, Rect, fit, monitor_at, remember, restore
+from stickle.core.layout import Place, Rect, Size, fit, monitor_at, place_of, restore, size_of
 from stickle.core.note import DEFAULT_COLOR, Note
 from stickle.core.paste import pasted_text
 from stickle.core.snap import resized, snapped, together
@@ -504,7 +503,7 @@ class NoteManager(QObject):
         self._windows.append(window)
 
         if not self._restore_place(window):
-            if note is not None and not self._places(window):
+            if note is not None and self._layout(window) == ({}, None):
                 # Stored but never placed (the note of the first start): shown whole.
                 screen = QGuiApplication.primaryScreen()
                 window.fit_to_text(int(screen.availableGeometry().height() * FIT_AT_MOST))
@@ -612,23 +611,26 @@ class NoteManager(QObject):
 
     # Where notes are
 
-    def _places(self, window: NoteWindow) -> dict[str, Place]:
+    def _layout(self, window: NoteWindow) -> tuple[dict[int, Place], Size | None]:
+        """The note's places, by number of monitors, and its size."""
         if self._layouts is None or window.note_id is None:
-            return {}
-        return self._layouts.places(window.note_id)
+            return {}, None
+        return self._layouts.places(window.note_id), self._layouts.size(window.note_id)
 
     def _restore_place(self, window: NoteWindow) -> bool:
-        """Put a stored note where it was; False if nothing is remembered."""
-        places = self._places(window)
+        """Put a stored note where it was; False if no place is remembered."""
+        places, size = self._layout(window)
         if not can_place_windows():
             # Only the size can be kept: the window system decides where windows go.
-            if MAIN in places:
-                window.resize(places[MAIN].width, places[MAIN].height)
+            if size is not None:
+                window.resize(size.width, size.height)
             return False
-        placement = restore(places, monitors())
-        if placement is None:
+        where = restore(places, size or size_of(rect(window.expanded_geometry())), monitors())
+        if where is None:
+            if size is not None:
+                window.resize(size.width, size.height)
             return False
-        window.place(qrect(placement.window), placement.own_monitor)
+        window.place(qrect(where))
         return True
 
     def save_layout(self, window: NoteWindow, force: bool = False) -> None:
@@ -643,17 +645,13 @@ class NoteManager(QObject):
         # user's doing, and taken for it, it replaced the note's own place there.
         if not force and self._monitor_watch.changing:
             return
-        places = self._places(window)
+        window_rect = rect(window.expanded_geometry())  # folded or not, the full size
+        placed: tuple[int, Place] | None = None
         if can_place_windows():
-            window_rect = rect(window.expanded_geometry())  # folded or not, the full size
-            places = remember(places, window_rect, monitors(), window.own_monitor)
-        elif MAIN in places:
-            size = {"width": window.width(), "height": window.height()}
-            places = {slot: replace(place, **size) for slot, place in places.items()}
-        else:
-            return
+            current = monitors()
+            placed = len(current), place_of(window_rect, current)
         try:
-            self._layouts.save(window.note_id, places)
+            self._layouts.save(window.note_id, size_of(window_rect), placed)
         except apsw.Error as error:
             log.error("could not store where a note is: %s", type(error).__name__)
             return
@@ -768,13 +766,13 @@ class NoteManager(QObject):
             if before is not None:
                 _, monitor = monitor_at(before, current)
                 if fit(before, monitor.available) == before:
-                    window.place(qrect(before), window.own_monitor)
+                    window.place(qrect(before))
                     continue
             _, monitor = monitor_at(where, current)
             fitted = fit(where, monitor.available)
             if fitted != where or before is not None:
                 self._before_fit[window] = before or where
-            window.place(qrect(fitted), window.own_monitor)
+            window.place(qrect(fitted))
         log.info("monitors changed: %d notes on %d monitors", len(self._windows), len(current))
 
     def save_all(self) -> None:
@@ -1058,7 +1056,7 @@ class NoteManager(QObject):
             _, monitor = monitor_at(where, monitors())
             fitted = fit(where, monitor.available)
             if fitted != where:
-                window.place(qrect(fitted), window.own_monitor)
+                window.place(qrect(fitted))
         window.mark_placed()  # folding is not moving: the remembered place stays
         if self._repository is None or window.note_id is None:
             return
