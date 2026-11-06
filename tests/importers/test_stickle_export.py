@@ -37,8 +37,10 @@ from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import latest_version, open_store
 from stickle.importers import sources
 from stickle.importers.stickle_export import (
+    NOTE_ID,
     bring_in_export,
     new_in_export,
+    note_id_from,
     read,
     read_export,
     recognise,
@@ -161,6 +163,59 @@ def test_a_note_deleted_for_good_after_it_came_does_not_come_back(
     notes.purge(some.id)
 
     assert bring_in_export(export, second).note_ids == []
+
+
+def test_an_id_that_cannot_name_a_file_everywhere_gives_way_to_one_made_from_it(
+    tmp_path: Path,
+) -> None:
+    # An export edited by hand: a note's id becomes its file's name once synced,
+    # where letter case, other letters and slashes do not hold.
+    old_key, new_key = secrets.token_bytes(32), secrets.token_bytes(32)
+    first = computer(tmp_path, "first")
+    notes = NoteRepository(first)
+    odd = ("Upper-Case", "메모-1", "../x/y", "a" * 65)
+    for odd_id in odd:
+        notes.create(f"글 {odd_id}", "yellow", note_id=odd_id)
+    ReminderRepository(first).set("메모-1", Rule(date(2099, 1, 2), time(9, 30), "Asia/Seoul"))
+    notes.create("", "yellow", note_id="Secret")
+    notes.make_secret("Secret", "금고", seal_text(old_key, "Secret", "금고 번호 1234"))
+    plain = note_with(first, "보통 메모")
+    export = read_export(exported(first, tmp_path))
+    second = computer(tmp_path, "second")
+
+    brought = bring_in_export(export, second, old_key, new_key)
+
+    here = NoteRepository(second)
+    for odd_id in (*odd, "Secret"):
+        made = note_id_from(odd_id)
+        assert made != odd_id and NOTE_ID.fullmatch(made)
+        assert here.get(odd_id) is None and here.get(made) is not None
+    assert note_id_from("Upper-Case") == note_id_from("Upper-Case")  # the same each time
+    assert here.get(plain) is not None and note_id_from(plain) == plain  # as it was
+    reminder = ReminderRepository(second).of_note(note_id_from("메모-1"))
+    assert reminder is not None and reminder.rule.start == date(2099, 1, 2)
+    secret = here.get(note_id_from("Secret"))
+    assert secret is not None and secret.sealed is not None
+    assert open_text(new_key, secret.id, secret.sealed) == "금고 번호 1234"
+    assert (len(brought.note_ids), brought.secret) == (6, 1)
+
+    again = bring_in_export(export, second, old_key, new_key)
+    assert (again.note_ids, again.already_here, new_in_export(export, second)) == ([], 6, 0)
+    assert len(here.all()) == 6
+
+
+def test_a_note_brought_in_with_its_odd_id_by_an_earlier_version_does_not_come_twice(
+    tmp_path: Path,
+) -> None:
+    first = computer(tmp_path, "first")
+    NoteRepository(first).create("손으로 고친 메모", "yellow", note_id="Upper-Case")
+    export = read_export(exported(first, tmp_path))
+    second = computer(tmp_path, "second")
+    NoteRepository(second).create("손으로 고친 메모", "yellow", note_id="Upper-Case")
+
+    assert new_in_export(export, second) == 0
+    assert bring_in_export(export, second).already_here == 1
+    assert len(NoteRepository(second).all()) == 1
 
 
 # Secret notes

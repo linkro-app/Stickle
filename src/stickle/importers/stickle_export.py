@@ -9,14 +9,18 @@ note is left out for a field it does not.
 
 A note keeps its id: brought in once, or there already (its own export brought
 back), it is passed over, and the same note on two computers is one note once
-they sync. A secret note exported encrypted comes in only with its key of the
-day (opened with its password of the day, or the recovery key of the day) and
+they sync. An id that could not name a file everywhere (anything but lowercase
+letters, digits and dashes, as an export edited by hand may hold) gives way to
+one made from it, the same each time. A secret note exported encrypted comes in
+only with its key of the day (opened with its password of the day, or the
+recovery key of the day) and
 the key here, to be locked again with it; one exported in the clear comes in as
 an ordinary note.
 """
 
 import base64
 import json
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -51,7 +55,7 @@ LARGEST = 512 * 1024 * 1024  # bytes: far beyond any export, short of what would
 
 @dataclass(frozen=True)
 class ExportedNote:
-    id: str
+    id: str  # as it is here (see note_id_from)
     body: str  # its text; "" for a secret note exported encrypted
     color: str
     opacity: float = 1.0
@@ -63,12 +67,32 @@ class ExportedNote:
     category: str | None = None  # the export's id for it
     marks: tuple[str, ...] = ()  # the export's ids for them
     secret_title: str | None = None  # a secret note's title; None for an ordinary one
-    sealed: bytes | None = None  # a secret note's text, still encrypted
+    sealed: bytes | None = None  # a secret note's text, still encrypted (bound to exported_id)
+    exported_id: str = ""  # its id in the export, where it is not the one here
 
     @property
     def was_secret(self) -> bool:
         """A secret note exported in the clear: an ordinary note here."""
         return self.secret_title is not None and self.sealed is None
+
+    @property
+    def source_id(self) -> str:
+        """Its id in the export."""
+        return self.exported_id or self.id
+
+
+# A note's id names its file in a synced folder: lowercase letters, digits and
+# dashes only (Windows and macOS do not tell letter case apart in file names).
+NOTE_ID = re.compile(r"[a-z0-9-]{1,64}")
+_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "stickle.linkro.co")
+
+
+def note_id_from(exported: str) -> str:
+    """The export's id for a note, if it can be one here; else one made from it,
+    the same each time, so that the export brought in again passes it over."""
+    if NOTE_ID.fullmatch(exported):
+        return exported
+    return str(uuid.uuid5(_NAMESPACE, f"export-note/{exported}"))
 
 
 @dataclass(frozen=True)
@@ -195,8 +219,10 @@ def _note(row: dict[str, object], marks: dict[str, list[str]]) -> ExportedNote |
         return None
     sealed = _bytes(row.get("secret_body"))
     title = _text(row.get("secret_title"))
+    here = note_id_from(note_id)
     return ExportedNote(
-        id=note_id,
+        id=here,
+        exported_id=note_id if here != note_id else "",
         body="" if sealed is not None else clean_text(body),
         color=_color(row.get("color")),
         opacity=_opacity(row.get("opacity")),
@@ -284,7 +310,7 @@ def read(path: Path) -> StickleExportResult:
     export = read_export(path)
     notes = [
         ImportedNote(
-            source_id=note.id,
+            source_id=note.source_id,
             body=note.body if note.sealed is None else f"# {note.secret_title}",
             color=note.color,
             hidden=note.hidden,
@@ -294,19 +320,20 @@ def read(path: Path) -> StickleExportResult:
     return StickleExportResult(notes=notes, unreadable=export.unreadable, export=export)
 
 
-def here_already(connection: apsw.Connection, note_id: str) -> bool:
-    """The note is here (its own export brought back), or came in before."""
+def here_already(connection: apsw.Connection, note: ExportedNote) -> bool:
+    """The note is here (its own export brought back), or came in before: by
+    its id here, or by its id in the export (brought in by an earlier version)."""
     rows = connection.execute(
-        "SELECT 1 FROM notes WHERE id = ? UNION ALL"
-        " SELECT 1 FROM import_records WHERE source = ? AND source_id = ?",
-        (note_id, SOURCE, note_id),
+        "SELECT 1 FROM notes WHERE id IN (?, ?) UNION ALL"
+        " SELECT 1 FROM import_records WHERE source = ? AND source_id IN (?, ?)",
+        (note.id, note.source_id, SOURCE, note.id, note.source_id),
     ).fetchall()
     return bool(rows)
 
 
 def new_in_export(export: StickleExport, connection: apsw.Connection) -> int:
     """How many of the export's notes have not come in (for the preview)."""
-    return sum(not here_already(connection, note.id) for note in export.notes)
+    return sum(not here_already(connection, note) for note in export.notes)
 
 
 # The columns of a note's own reminder, as this version keeps them.
@@ -415,7 +442,7 @@ def bring_in_export(
         marks = _marks(export, labels)
         brought.colors_left = _own_colors(export, ColorRepository(connection, clock))
         for note in export.notes:
-            if here_already(connection, note.id):
+            if here_already(connection, note):
                 brought.already_here += 1
                 continue
             sealed: bytes | None = None
@@ -424,7 +451,8 @@ def bring_in_export(
                     brought.secret_left += 1
                     continue
                 try:
-                    sealed = seal_text(new_key, note.id, open_text(old_key, note.id, note.sealed))
+                    text = open_text(old_key, note.source_id, note.sealed)
+                    sealed = seal_text(new_key, note.id, text)
                 except SecretNoteError:
                     brought.secret_left += 1
                     continue
@@ -444,9 +472,9 @@ def bring_in_export(
             for mark_id in note.marks:
                 if mark_id in marks:
                     notes.set_mark(note.id, marks[mark_id], True)
-            if note.id in reminders:
-                _bring_reminder(connection, reminders[note.id], note.id)
-            records.record(SOURCE, note.id, note.body, note.id)
+            if note.source_id in reminders:
+                _bring_reminder(connection, reminders[note.source_id], note.id)
+            records.record(SOURCE, note.source_id, note.body, note.id)
             if sealed is not None:
                 # Its record keeps no hash of its text (see stickle.data.imports).
                 notes.make_secret(note.id, note.secret_title or "", sealed)
@@ -466,7 +494,7 @@ def secrets_waiting(export: StickleExport, connection: apsw.Connection) -> int:
     """How many of its secret notes, exported encrypted, have not come in yet:
     they wait for their key of the day."""
     return sum(
-        note.sealed is not None and not here_already(connection, note.id) for note in export.notes
+        note.sealed is not None and not here_already(connection, note) for note in export.notes
     )
 
 
