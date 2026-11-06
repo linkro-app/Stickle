@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
 from stickle.app import note_window
 from stickle.app.about_dialog import AboutDialog
 from stickle.app.backups import RestoreDialog
+from stickle.app.cloud_folder_notice import CloudFolderLine
 from stickle.app.data_menu import DataAccess, export_everything
 from stickle.app.finder import DesktopFinder
 from stickle.app.full_screen import FullScreenWatch
@@ -189,6 +190,8 @@ class StickleWindow(QWidget):
         )
         self.changes_seen_button = QPushButton(self)
         self.changes_seen_button.clicked.connect(self._changes_seen)
+        # The data folder inside a cloud program's folder, told once for that place.
+        self.cloud_folder_line = CloudFolderLine(settings, self)
 
         # Shown only when there is no tray and every note was hidden: the window
         # then opened by itself, so it says why at the top, where it is seen, and
@@ -315,6 +318,7 @@ class StickleWindow(QWidget):
         changes_buttons.addWidget(self.changes_seen_button)
         layout.addWidget(self.changes_label)
         layout.addLayout(changes_buttons)
+        layout.addWidget(self.cloud_folder_line)
         missed = QHBoxLayout()
         missed.addWidget(self.missed_label, 1)
         missed.addWidget(self.missed_button)
@@ -407,6 +411,8 @@ class StickleWindow(QWidget):
             self.notice_quit_button,
             self.changes_again_button,
             self.changes_seen_button,
+            self.cloud_folder_line.open_button,
+            self.cloud_folder_line.ok_button,
             self.missed_button,
             self.new_version_button,
             self.new_note_button,

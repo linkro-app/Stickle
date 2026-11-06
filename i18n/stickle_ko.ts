@@ -573,6 +573,29 @@
     </message>
 </context>
 <context>
+    <name>CloudFolderLine</name>
+    <message>
+        <source>Stickle&apos;s data folder is inside your %1 folder. If the %1 app uploads or replaces a file while Stickle is saving it, your notes can be damaged.</source>
+        <translation>Stickle 데이터 폴더가 %1 폴더 안에 있습니다. Stickle이 저장하는 도중에 %1 프로그램이 파일을 올리거나 바꾸면 메모가 망가질 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>Quit Stickle, then move the whole folder Stickle is in out of your %1 folder.</source>
+        <translation>Stickle을 끈 뒤, Stickle이 들어 있는 폴더를 통째로 %1 폴더 밖으로 옮기세요.</translation>
+    </message>
+    <message>
+        <source>Move the data folder out of your %1 folder.</source>
+        <translation>데이터 폴더를 %1 폴더 밖으로 옮기세요.</translation>
+    </message>
+    <message>
+        <source>Open the &amp;folder</source>
+        <translation>폴더 열기(&amp;F)</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>확인</translation>
+    </message>
+</context>
+<context>
     <name>ColorDialog</name>
     <message>
         <source>Add a colour</source>

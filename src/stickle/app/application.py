@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 from stickle import __version__
 from stickle.app.app_list import icon_png, offer_app_list
 from stickle.app.backups import BackupAccess, DailyBackups
+from stickle.app.cloud_folder_notice import InCloudFolder, in_cloud_folder
 from stickle.app.data_menu import DataAccess
 from stickle.app.first_run import welcome
 from stickle.app.fonts import ensure_korean_font
@@ -70,7 +71,7 @@ from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import MigrationError, latest_version
-from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
+from stickle.data.settings import CLOUD_FOLDER_TOLD, RECOVERY_KEY_KEPT, Settings
 from stickle.data.startup import StartupSettings
 from stickle.importers.base import ImportResult
 from stickle.importers.bring_in import BroughtIn, bring_in, new_notes
@@ -85,6 +86,7 @@ from stickle.importers.stickle_export import (
 )
 from stickle.platform.autostart import AUTOSTART_FLAG, Autostart, this_computers_autostart
 from stickle.platform.clipboard import take_back_secret
+from stickle.platform.cloud_folders import cloud_folders, folder_holding
 from stickle.platform.full_screen import full_screen_source
 from stickle.platform.hotkeys import Portal, desktop_portal
 from stickle.platform.instance import FIND, NEW_NOTE, NEXT_VIEW, SET_ASIDE
@@ -527,6 +529,23 @@ def tell_changes(changes: ProtectionChanges, window: StickleWindow, tray: Tray |
         tray.showMessage("Stickle", told)
 
 
+def tell_cloud_folder(
+    found: InCloudFolder, window: StickleWindow, tray: Tray | None, settings: Settings
+) -> None:
+    """The data folder inside a cloud program's folder: the line at the top of
+    Stickle Manager until the user says OK and, with it closed, one notification
+    of the system for that place, never again."""
+    log.warning("the data folder is inside %s's folder", found.cloud)
+    if not window.cloud_folder_line.tell(found) or settings.get(CLOUD_FOLDER_TOLD) == found.place:
+        return
+    try:
+        settings.set(CLOUD_FOLDER_TOLD, found.place)
+    except apsw.Error as error:
+        log.warning("could not keep the cloud folder told: %s", type(error).__name__)
+    if tray is not None and not window.isVisible():
+        tray.showMessage("Stickle", window.cloud_folder_line.text())
+
+
 def read_appimage_files() -> None:
     """For an AppImage, read the files it runs from in the background (see read_mapped_files)."""
     appdir = mounted_appdir()
@@ -885,6 +904,14 @@ def run(
             if told is not None:
                 tray.messageClicked.connect(lambda: stickle_window.open())
                 tell_changes(told, stickle_window, shown_tray)
+
+            if instance is not None and connection is not None:
+                held = folder_holding(instance, cloud_folders())
+                found = in_cloud_folder(instance, portable, held)
+                if found is not None:
+                    if told is None:
+                        tray.messageClicked.connect(lambda: stickle_window.open())
+                    tell_cloud_folder(found, stickle_window, shown_tray, Settings(connection))
 
             def unlocked() -> None:
                 if told is not None:

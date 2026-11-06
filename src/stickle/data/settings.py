@@ -238,6 +238,20 @@ PROTECTION_CHANGES = Setting[list[dict[str, object]]](
     "protection_changes", "device", [], _protection_changes
 )
 
+
+def _place_or_none(value: object) -> TypeGuard[str | None]:
+    """A SHA-256 in hex, or None."""
+    return value is None or (
+        isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+    )
+
+
+# Stickle's data folder found inside a cloud program's folder (OneDrive's...):
+# that place, as a hash rather than its path, once a notification of the system
+# told of it and once the user said OK to the line in Stickle Manager.
+CLOUD_FOLDER_TOLD = Setting[str | None]("cloud_folder_told", "device", None, _place_or_none)
+CLOUD_FOLDER_SEEN = Setting[str | None]("cloud_folder_seen", "device", None, _place_or_none)
+
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -262,6 +276,8 @@ SETTINGS: dict[str, Setting[object]] = {
         SNOOZE_MINUTES,
         HIDE_FOR_FULL_SCREEN,
         FULL_SCREEN_EXCEPTIONS,
+        CLOUD_FOLDER_TOLD,
+        CLOUD_FOLDER_SEEN,
     )
 }
 
