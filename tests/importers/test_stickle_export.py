@@ -131,6 +131,21 @@ def test_everything_a_note_has_comes_along(tmp_path: Path, first: apsw.Connectio
     assert (len(brought.note_ids), brought.trashed, brought.already_here) == (3, 1, 0)
 
 
+def test_earlier_versions_stay_with_the_computer_they_were_kept_on(
+    tmp_path: Path, first: apsw.Connection
+) -> None:
+    notes = NoteRepository(first)
+    note_id = note_with(first, "처음 글")
+    notes.update_body(note_id, "고친 글", keep_earlier=True)
+    export = read_export(exported(first, tmp_path))
+    second = computer(tmp_path, "second")
+
+    bring_in_export(export, second)
+
+    assert NoteRepository(second).get(note_id) is not None
+    assert second.execute("SELECT count(*) FROM note_versions").fetchall() == [(0,)]
+
+
 def test_brought_in_twice_nothing_comes_again(tmp_path: Path, first: apsw.Connection) -> None:
     export = read_export(exported(first, tmp_path))
     second = computer(tmp_path, "second")

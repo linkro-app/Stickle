@@ -18,7 +18,8 @@ with the locked copies of their key beside them in the JSON (opened again with
 their password of the day), and the recovery key's pair (its secret key
 wrapped with the recovery key of the day, which their key is sealed for); or
 opened with their key, their text in place of the encrypted one. Their files
-are named after their titles.
+are named after their titles. Their earlier texts (stickle.data.versions) go
+the same way; the Markdown files hold every note's text as it is now.
 """
 
 import base64
@@ -28,12 +29,13 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, cast
 
 import apsw
 
 from stickle.core.clock import Clock, utc_now
-from stickle.crypto.secret_notes import open_text
+from stickle.core.note import content_hash
+from stickle.crypto.secret_notes import SecretNoteError, open_text
 from stickle.data.database import open_database
 from stickle.data.schema import first_line
 
@@ -228,16 +230,34 @@ def _read_all(
 
 
 def _opened(
-    tables: dict[str, list[dict[str, object]]], texts: dict[str, str]
+    tables: dict[str, list[dict[str, object]]], texts: dict[str, str], key: bytes
 ) -> dict[str, list[dict[str, object]]]:
-    """The tables with each secret note's text in place of its encrypted one."""
+    """The tables with each secret note's text in place of its encrypted one,
+    and their earlier texts opened too (stickle.data.versions). An earlier text
+    that does not open with the key is left as it is: an export is not refused
+    for one, and an encrypted export keeps it whole."""
     notes = [
         {**row, "body": texts[str(row["id"])], "secret_body": None}
         if str(row.get("id")) in texts
         else row
         for row in tables.get("notes", [])
     ]
-    return {**tables, "notes": notes}
+    opened = {**tables, "notes": notes}
+    if "note_versions" in tables:
+        opened["note_versions"] = [_opened_version(row, key) for row in tables["note_versions"]]
+    return opened
+
+
+def _opened_version(row: dict[str, object], key: bytes) -> dict[str, object]:
+    sealed = row.get("sealed")
+    if not isinstance(sealed, dict):
+        return row
+    try:
+        data = base64.b64decode(str(cast(dict[str, object], sealed)["base64"]))
+        text = open_text(key, str(row["note_id"]), data)
+    except KeyError, ValueError, SecretNoteError:
+        return row
+    return {**row, "body": text, "sealed": None, "content_hash": content_hash(text)}
 
 
 def export_all(
@@ -258,7 +278,7 @@ def export_all(
     texts: dict[str, str] = {}
     if secret.key is not None:
         texts = {i: open_text(secret.key, i, s.sealed) for i, s in secrets.items()}
-        tables = _opened(tables, texts)
+        tables = _opened(tables, texts, secret.key)
     moment = datetime.fromisoformat(clock().replace("Z", "+00:00")).astimezone()
     folder = _free(target / f"Stickle export {moment:%Y-%m-%d %H%M}")
     folder.mkdir(parents=True)

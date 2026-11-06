@@ -212,3 +212,60 @@ def test_with_the_wrong_key_nothing_is_written(connection: apsw.Connection, tmp_
         )
 
     assert not (tmp_path / "out").exists()
+
+
+# Earlier versions (stickle.data.versions): in the JSON, as their notes go
+
+
+def with_earlier_versions(connection: apsw.Connection) -> tuple[str, str]:
+    """An ordinary note and a secret one, each with an earlier version."""
+    notes = NoteRepository(connection)
+    ordinary = notes.create("장보기: 우유")
+    notes.update_body(ordinary.id, "장보기: 우유, 빵", keep_earlier=True)
+    secret = notes.create(f"{SECRET_TEXT} 처음")
+    notes.update_body(secret.id, SECRET_TEXT, keep_earlier=True)
+    notes.make_secret(
+        secret.id,
+        "은행",
+        seal_text(SECRET_KEY, secret.id, SECRET_TEXT),
+        lambda text: seal_text(SECRET_KEY, secret.id, text),
+    )
+    return ordinary.id, secret.id
+
+
+def versions_of(document: dict[str, object], note_id: str) -> list[dict[str, Any]]:
+    return [r for r in tables_of(document)["note_versions"] if r["note_id"] == note_id]
+
+
+def test_earlier_versions_go_in_the_json_and_the_markdown_has_the_text_of_now(
+    connection: apsw.Connection, tmp_path: Path
+) -> None:
+    ordinary, secret = with_earlier_versions(connection)
+
+    result = export_all(
+        connection, tmp_path, "0.7.0", clock=lambda: NOW, secret=SecretExport(key_copies=KEY_COPIES)
+    )
+
+    document = exported(result.folder)
+    [plain] = versions_of(document, ordinary)
+    assert (plain["body"], plain["sealed"]) == ("장보기: 우유", None)
+    [locked] = versions_of(document, secret)
+    assert locked["body"] is None
+    sealed = base64.b64decode(cast(dict[str, str], locked["sealed"])["base64"])
+    assert open_text(SECRET_KEY, secret, sealed) == f"{SECRET_TEXT} 처음"
+    assert "zqxjkv" not in everything_written(result.folder)
+    assert "장보기: 우유, 빵" in markdown(result.folder).values()
+    assert "장보기: 우유" not in markdown(result.folder).values()
+
+
+def test_opened_a_secret_notes_earlier_versions_are_opened_too(
+    connection: apsw.Connection, tmp_path: Path
+) -> None:
+    _ordinary, secret = with_earlier_versions(connection)
+
+    result = export_all(
+        connection, tmp_path, "0.7.0", clock=lambda: NOW, secret=SecretExport(key=SECRET_KEY)
+    )
+
+    [opened] = versions_of(exported(result.folder), secret)
+    assert (opened["body"], opened["sealed"]) == (f"{SECRET_TEXT} 처음", None)
