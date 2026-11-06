@@ -62,6 +62,80 @@ def test_korean_says_pc_not_computer() -> None:
     assert any("이 PC" in text for text in korean)
 
 
+# Words that make a reader stop, with the plain ones to say instead: the Korean
+# is written so that a child in the last years of primary school can read it.
+HARD_WORDS = {
+    "갱신": "바뀜·받음·보임",
+    "반영": "보임·들어감",
+    "적용": "씀·바꿈",
+    "해제": "풀기·끄기",
+    "초기화": "처음으로 되돌리기",
+    "기본값": "처음 값",
+    "항목": "the thing's own name",
+    "지정": "정하기",
+    "실행": "켜기·시작",
+}
+# Other makers' names for their products: never a name for ours.
+TRADEMARKS = ("포스트잇", "Post-it", "Sticky Notes", "스티키 노트", "스티키노트")
+# Strings written before the rule, to be reworded later, and an app named as the
+# place notes come from: (context, start of the English, word). Each one must
+# still be there, so the list can only shrink.
+ALLOWED = (
+    ("AppList", "Add Stickle to your list of applications", "실행"),
+    ("LoginNote", "Windows Security has been seen to block Stickle", "항목"),
+    ("PasswordDialog", "These notes are kept in the stickle-data folder", "실행"),
+    ("PasswordDialog", "Unlock your notes", "해제"),
+    ("PasswordDialog", "Unlock", "해제"),
+    ("Portable", "Stickle cannot save notes in the folder next to it", "실행"),
+    ("RecoveryDialog", "Stickle keeps the key to your notes in the system keychain", "해제"),
+    ("RecoveryDialog", "Stickle checks each update on a copy of your notes first", "적용"),
+    ("RecoveryKeyPanel", "If the key that opens your notes is ever lost", "초기화"),
+    ("ShortcutGuide", "Next list item, or end the list", "항목"),
+    ("ShortcutGuide", "Move a list item in or out", "항목"),
+    ("ShortcutRows", "Stickle cannot set shortcuts on this desktop", "지정"),
+    ("ShortcutRows", "Stickle cannot set shortcuts on this desktop", "실행"),
+    ("StickleWindow", "Closing this window quits Stickle", "실행"),
+    ("WhatsNew", "# What's new in Stickle 0.5", "Sticky Notes"),
+)
+
+
+def korean_messages() -> list[tuple[str, str, str]]:
+    """(context, English, Korean) of every string in use."""
+    found: list[tuple[str, str, str]] = []
+    for context in ET.parse(KOREAN).getroot().iter("context"):
+        name = context.findtext("name") or ""
+        for message in context.iter("message"):
+            translation = message.find("translation")
+            if translation is None or translation.get("type") in ("obsolete", "vanished"):
+                continue
+            found.append((name, message.findtext("source") or "", "".join(translation.itertext())))
+    return found
+
+
+def test_korean_uses_plain_words_and_no_one_elses_trademark() -> None:
+    found = [
+        (context, source, word)
+        for context, source, text in korean_messages()
+        for word in (*HARD_WORDS, *TRADEMARKS)
+        if word in text or (word in TRADEMARKS and word in source)
+    ]
+
+    def same(source: str, listed: str) -> bool:
+        # A long string by its start; a short one whole ("Unlock" is not "Unlock your notes").
+        return source == listed or (len(listed) >= 25 and source.startswith(listed))
+
+    def allowed(context: str, source: str, word: str) -> bool:
+        return any(c == context and same(source, s) and w == word for c, s, w in ALLOWED)
+
+    assert [(c, s[:60], w) for c, s, w in found if not allowed(c, s, w)] == []
+    gone = [
+        (context, listed, word)
+        for context, listed, word in ALLOWED
+        if not any(c == context and same(s, listed) and w == word for c, s, w in found)
+    ]
+    assert gone == []  # reworded: take it off the list
+
+
 @pytest.fixture(scope="module")
 def extracted(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A copy of the project with its strings extracted afresh from the current
