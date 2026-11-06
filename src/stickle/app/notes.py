@@ -63,6 +63,8 @@ from stickle.app.secret_dialogs import (
     TurnOnDialog,
 )
 from stickle.app.secret_notes import Relock
+from stickle.app.titles import shown_title
+from stickle.app.versions_window import EarlierVersionsDialog
 from stickle.core.colors import PALETTE
 from stickle.core.labels import DEFAULT_ICON, Category, Mark
 from stickle.core.layout import Place, Rect, Size, fit, monitor_at, place_of, restore, size_of
@@ -210,6 +212,9 @@ def _confirm_ordinary(parent: QWidget, has_earlier: bool) -> bool:
 
 # Asks, and returns once answered (parent, whether it has earlier versions).
 confirm_ordinary: Callable[[QWidget, bool], bool] = _confirm_ordinary  # replaced in tests
+
+# Shows a note's earlier versions and waits: whether one was chosen to go back to.
+ask_versions: Callable[[QDialog], bool] = _ask  # replaced in tests
 
 # Shows the colour window and waits: whether a colour was chosen.
 ask_color: Callable[[ColorDialog], bool] = _ask  # replaced in tests
@@ -435,6 +440,8 @@ class NoteManager(QObject):
             )
         if note is not None and not note.secret:
             self._saved[window] = note.body
+        window.has_earlier = lambda: self.has_earlier(window.note_id)
+        window.versions_requested.connect(lambda: self.show_versions(window))
         window.new_note_requested.connect(lambda: self.new_note_from(window))
         window.secret_requested.connect(lambda: self.make_secret(window))
         window.open_secret_requested.connect(lambda: self.open_secret(window))
@@ -1679,7 +1686,7 @@ class NoteManager(QObject):
             or window.note_id is None
         ):
             return
-        if not confirm_ordinary(window, self._has_earlier(window.note_id)):
+        if not confirm_ordinary(window, self.has_earlier(window.note_id)):
             return
         # Locked by itself while asked, its text is no longer in the window: what
         # it holds then must not become the note's text.
@@ -1704,8 +1711,10 @@ class NoteManager(QObject):
         window.set_secret_title(None)
         self.changed.emit()
 
-    def _has_earlier(self, note_id: str | None) -> bool:
-        """Whether the note has earlier texts to show (stickle.data.versions)."""
+    # Earlier versions (stickle.data.versions)
+
+    def has_earlier(self, note_id: str | None) -> bool:
+        """Whether the note has earlier versions to show."""
         if self.versions is None or note_id is None:
             return False
         try:
@@ -1713,6 +1722,94 @@ class NoteManager(QObject):
         except apsw.Error as error:
             log.warning("could not look at earlier texts: %s", type(error).__name__)
             return False
+
+    def show_versions(self, window: NoteWindow) -> None:
+        """Its earlier versions, to read, go back to or delete; what it holds is
+        saved first (the character being composed too), and is a version then."""
+        if self.versions is None or self._repository is None or window.note_id is None:
+            return
+        if not self.flush(window, closing=True):
+            return
+        self._edit_kept.discard(window)  # what comes after is another edit
+        self._versions_dialog(window.note_id, window)
+
+    def show_versions_of(self, note_id: str) -> None:
+        """A note's earlier versions from the Stickle window: one with no window
+        (in the trash, or hidden) is not opened for it."""
+        window = self.window_for(note_id)
+        if window is not None:
+            self.show_versions(window)
+        else:
+            self._versions_dialog(note_id, None)
+
+    def _versions_dialog(self, note_id: str, window: NoteWindow | None) -> None:
+        assert self.versions is not None and self._repository is not None
+        try:
+            note = self._repository.get(note_id)
+        except apsw.Error as error:
+            log.error("could not read a note: %s", type(error).__name__)
+            return
+        if note is None:
+            return
+        dialog = EarlierVersionsDialog(
+            self.versions,
+            note.id,
+            shown_title(note) or self.tr("Note"),
+            note.color,
+            can_restore=not note.deleted,
+            opener=self._secret_opener(window),
+            open_secret=(lambda: self._open_for_versions(window))
+            if window is not None and window.secret
+            else None,
+            parent=window,
+        )
+        ask_versions(dialog)
+        if dialog.chosen is not None:
+            self._go_back(note.id, dialog.chosen, window)
+
+    def _secret_opener(self, window: NoteWindow | None) -> Callable[[bytes], str] | None:
+        """An open secret note's earlier texts opened with its key."""
+        if window is None or not window.secret or window.secret_locked or not window.note_id:
+            return None
+        key = self._keys.get(window)
+        return None if key is None else partial(open_text, bytes(key), window.note_id)
+
+    def _open_for_versions(self, window: NoteWindow) -> Callable[[bytes], str] | None:
+        """Its text shown with the password (as its own menu asks), for its versions."""
+        if window.secret_locked:
+            self.open_secret(window)
+        return self._secret_opener(window)
+
+    def _go_back(self, note_id: str, version_id: int, window: NoteWindow | None) -> None:
+        """The note's text is the earlier one now, a new edit; the window shows it."""
+        assert self._repository is not None
+        try:
+            note = self._repository.restore_version(note_id, version_id)
+        except (apsw.Error, KeyError, NoteIsSecretError, NoteNotSecretError) as error:
+            log.error("could not go back to an earlier version: %s", type(error).__name__)
+            QMessageBox.warning(
+                window, "Stickle", self.tr("The earlier version could not be restored.")
+            )
+            return
+        text: str | None = None if note.secret else note.body
+        key = self._keys.get(window) if window is not None else None
+        if note.secret and key is not None and note.sealed is not None:
+            try:
+                text = open_text(bytes(key), note.id, note.sealed)
+            except SecretNoteError:
+                text = None  # shown once opened again, as it is stored
+        # Covered meanwhile (left alone too long), it shows its new text once opened.
+        if window is not None and text is not None:
+            if note.secret:
+                self._stored_secret[window] = text
+            else:
+                self._saved[window] = text
+            window.replace_text(text)
+            self._edit_kept.discard(window)
+        if self.reminders is not None and text is not None:
+            self.reminders.text_saved(note.id, text)
+        self.note_saved.emit()
+        self.changed.emit()
 
     @property
     def relock_minutes(self) -> int:

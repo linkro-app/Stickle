@@ -651,6 +651,7 @@ class NoteWindow(QWidget):
     ordinary_requested = Signal()  # a secret note, to be an ordinary one again
     reminder_requested = Signal()  # its reminder, to be set, changed or turned off
     text_reminder_requested = Signal()  # one to be written in the line being edited
+    versions_requested = Signal()  # its earlier versions, to read, go back to or delete
     reminder_dealt_with = Signal()  # it rang and was seen
     reminder_snoozed = Signal(int)  # to ring again: in minutes, or TOMORROW_MORNING
     drag_started = Signal(bool)  # by its title bar; True: with Shift, the notes beside it along
@@ -814,6 +815,12 @@ class NoteWindow(QWidget):
         )
         # Back for the key once the menu is gone.
         self._menu.aboutToHide.connect(lambda: self.text_reminder_action.setVisible(True))
+        # Its earlier versions (stickle.app.versions_window): in the menu while it
+        # has some, as its owner tells.
+        self.has_earlier: Callable[[], bool] = lambda: False
+        self.versions_action = QAction(self)
+        self.versions_action.triggered.connect(self.versions_requested)
+        self._menu.aboutToShow.connect(lambda: self.versions_action.setVisible(self.has_earlier()))
         self._keyboard: str | None = None  # MOVE or RESIZE while the arrow keys do that
         self._keyboard_from = QRect()
         # The keys at a glance (F1, Ctrl+/), shown by the app (stickle.app.shortcut_guide).
@@ -925,6 +932,7 @@ class NoteWindow(QWidget):
         self.title_bar.marks_badge.retranslate()
         self.reminder_action.setText(self.tr("Reminder…"))
         self.text_reminder_action.setText(self.tr("Write a reminder in this line…"))
+        self.versions_action.setText(self.tr("Earlier versions…"))
         self.locked_face.setText(
             self.tr(
                 "Its text is covered. Double-click or press Enter, then type "
@@ -1016,6 +1024,7 @@ class NoteWindow(QWidget):
         self._secret_title_action.triggered.connect(self.secret_title_requested)
         self._ordinary_action = menu.addAction("")
         self._ordinary_action.triggered.connect(self.ordinary_requested)
+        menu.addAction(self.versions_action)
         menu.addAction(self.guide_action)
         menu.addSeparator()
         # The menu has the system's colours, which are the note's only by chance.
@@ -1637,6 +1646,16 @@ class NoteWindow(QWidget):
         elif not self.collapsed:
             self.edit()
         self._show_secret_state()
+
+    def replace_text(self, text: str) -> None:
+        """Its text put back from what its owner stored (an earlier version gone
+        back to): shown formatted, and not a change to save again."""
+        self._last_text = text
+        self.editor.setPlainText(text)
+        if text.strip():
+            self.show_formatted()
+        elif not self.collapsed:
+            self.edit()
 
     def set_secret_title(self, title: str | None) -> None:
         """A secret note by this title, open or locked as it is; None: an ordinary

@@ -731,6 +731,79 @@ These files are not encrypted: keep them somewhere safe.</source>
     </message>
 </context>
 <context>
+    <name>EarlierVersionsDialog</name>
+    <message>
+        <source>Earlier versions — %1</source>
+        <translation>이전 버전 — %1</translation>
+    </message>
+    <message>
+        <source>Earlier versions</source>
+        <translation>이전 버전</translation>
+    </message>
+    <message>
+        <source>The version chosen</source>
+        <translation>고른 버전</translation>
+    </message>
+    <message>
+        <source>This secret note&apos;s text is covered. Show it to read its earlier versions.</source>
+        <translation>비밀 메모의 내용이 가려져 있습니다. 내용을 보이면 이전 버전도 읽을 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>Show its text…</source>
+        <translation>내용 보기…</translation>
+    </message>
+    <message>
+        <source>Earlier versions stay on this computer only, for 30 days (up to 50 per note).</source>
+        <translation>이전 버전은 이 PC에만 30일 동안(메모마다 50개까지) 남습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Restore this version</source>
+        <translation>이 버전으로 되돌리기(&amp;R)</translation>
+    </message>
+    <message>
+        <source>&amp;Delete this version…</source>
+        <translation>이 버전 삭제(&amp;D)…</translation>
+    </message>
+    <message>
+        <source>Delete &amp;all versions…</source>
+        <translation>모두 삭제(&amp;A)…</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>닫기</translation>
+    </message>
+    <message>
+        <source>Before restoring</source>
+        <translation>되돌리기 전</translation>
+    </message>
+    <message>
+        <source>Changed here</source>
+        <translation>이 PC에서 고침</translation>
+    </message>
+    <message>
+        <source>From %1</source>
+        <translation>%1에서 받음</translation>
+    </message>
+    <message>
+        <source>Delete this version? This cannot be undone.</source>
+        <translation>이 버전을 삭제할까요? 되돌릴 수 없습니다.</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>삭제</translation>
+    </message>
+    <message numerus="yes">
+        <source>Delete all %n earlier versions of this note? This cannot be undone.</source>
+        <translation>
+            <numerusform>이 메모의 이전 버전 %n개를 모두 삭제할까요? 되돌릴 수 없습니다.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Delete all</source>
+        <translation>모두 삭제</translation>
+    </message>
+</context>
+<context>
     <name>EnterRecoveryKeyDialog</name>
     <message>
         <source>Open with the recovery key</source>
@@ -2012,6 +2085,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>되살리기</translation>
     </message>
     <message>
+        <source>Earlier versions…</source>
+        <translation>이전 버전…</translation>
+    </message>
+    <message>
         <source>Empty from the trash…</source>
         <translation>휴지통에서 영구 삭제…</translation>
     </message>
@@ -2070,6 +2147,14 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <source>The note could not be made ordinary.</source>
         <translation>보통 메모로 바꾸지 못했습니다.</translation>
     </message>
+    <message>
+        <source>Note</source>
+        <translation>메모</translation>
+    </message>
+    <message>
+        <source>The earlier version could not be restored.</source>
+        <translation>이전 버전으로 되돌리지 못했습니다.</translation>
+    </message>
 </context>
 <context>
     <name>NoteView</name>
@@ -2115,6 +2200,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Always on top</source>
         <translation>항상 위에 표시</translation>
+    </message>
+    <message>
+        <source>Earlier versions…</source>
+        <translation>이전 버전…</translation>
     </message>
     <message>
         <source>Color</source>

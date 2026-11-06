@@ -428,8 +428,15 @@ class NoteList(QWidget):
         note_id = str(item.data(NOTE_ID))
         menu = QMenu(self)
         menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        earlier = self._notes.has_earlier(note_id)
         if self.in_trash:
             self._add(menu, self.tr("Restore"), lambda: self._notes.restore_note(note_id))
+            if earlier:  # to read or delete: gone back to once restored
+                self._add(
+                    menu,
+                    self.tr("Earlier versions…"),
+                    lambda: self._notes.show_versions_of(note_id),
+                )
             menu.addSeparator()
             self._add(menu, self.tr("Empty from the trash…"), lambda: self._remove(note_id))
             return menu
@@ -439,6 +446,10 @@ class NoteList(QWidget):
         else:
             self._add(menu, self.tr("Open"), lambda: self._notes.open_note(note_id))
             self._add(menu, self.tr("Hide"), lambda: self._notes.hide_note(note_id))
+        if earlier:
+            self._add(
+                menu, self.tr("Earlier versions…"), lambda: self._notes.show_versions_of(note_id)
+            )
         menu.addSeparator()
         self._add(menu, self.tr("Delete"), lambda: self._notes.delete_note(note_id))
         return menu

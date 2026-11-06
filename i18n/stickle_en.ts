@@ -52,6 +52,16 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>EarlierVersionsDialog</name>
+    <message numerus="yes">
+        <source>Delete all %n earlier versions of this note? This cannot be undone.</source>
+        <translation>
+            <numerusform>Delete this note&apos;s %n earlier version? This cannot be undone.</numerusform>
+            <numerusform>Delete all %n earlier versions of this note? This cannot be undone.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>ExportedSecretsDialog</name>
     <message numerus="yes">
         <source>%n secret note(s) went out locked. Type the secret notes&apos; password of the day they were exported, or use the recovery key of that day.</source>

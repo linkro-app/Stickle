@@ -20,9 +20,9 @@ from dataclasses import dataclass
 import apsw
 
 from stickle.core.clock import Clock, days_before, utc_now
+from stickle.core.markdown import note_title
 from stickle.core.note import content_hash
 from stickle.crypto.secret_notes import SecretNoteError
-from stickle.data.schema import first_line
 
 KEEP_DAYS = 30
 KEEP_PER_NOTE = 50
@@ -37,7 +37,8 @@ class EarlierVersion:
     at: str
     came_from: str | None  # the device it came from; None: this computer
     restored: bool  # put aside by going back to an earlier one
-    first_line: str | None  # None while sealed (a secret note's)
+    # As its title shows (Markdown marks left out); None while sealed (a secret note's).
+    first_line: str | None
 
     @property
     def sealed(self) -> bool:
@@ -192,7 +193,7 @@ class VersionRepository:
                 at=str(at),
                 came_from=None if made_by is None else str(made_by),
                 restored=bool(restored),
-                first_line=None if start is None else first_line(str(start)),
+                first_line=None if start is None else note_title(str(start)),
             )
             for version_id, at, made_by, restored, start in self._listed_rows(note_id)
         ]

@@ -44,6 +44,7 @@ from stickle.app.settings_window import SettingsWindow
 from stickle.app.times import local_time
 from stickle.app.titles import shown_title
 from stickle.app.tray import menu_title
+from stickle.app.versions_window import EarlierVersionsDialog
 from stickle.core.note import Note
 from stickle.crypto.key_files import B, C
 from stickle.crypto.keyfile import encode_slot, wrap_with_password
@@ -274,6 +275,42 @@ def test_a_secret_notes_edit_keeps_its_earlier_text_sealed_once(
     assert [open_text(key, note_id, sealed) for _, sealed in rows if isinstance(sealed, bytes)] == [
         TEXT
     ]
+
+
+def test_covered_its_versions_show_their_times_until_its_text_is_shown(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    qtbot.wait(20)
+    window.edit()
+    type_into(window, " 고침")
+    qtbot.waitUntil(lambda: opened_text(connection, unlock, window) == window.text)
+    leave_text(window)
+    manager.lock_secret(window)
+    seen: list[list[str]] = []
+
+    def look_then_go_back(dialog: QDialog) -> bool:
+        assert isinstance(dialog, EarlierVersionsDialog)
+        rows = [dialog.list.item(row).text() for row in range(dialog.list.count())]
+        seen.append(rows)
+        assert dialog.covered.isVisibleTo(dialog) and not dialog.restore_button.isEnabled()
+        answers.queue.append(password())
+        dialog.show_button.click()  # the secret notes' password, as the note asks it
+        seen.append([dialog.list.item(row).text() for row in range(dialog.list.count())])
+        dialog.restore_chosen()
+        return True
+
+    monkeypatch.setattr(notes, "ask_versions", look_then_go_back)
+    manager.show_versions(window)
+
+    assert [row.split(" · ")[1:] for row in seen[0]] == [["Changed here"]]  # no first line
+    assert seen[1][0].endswith("· 은행 비밀번호 힌트 zqxjkv-plorbit")
+    assert window.text == TEXT and opened_text(connection, unlock, window) == TEXT
 
 
 def test_made_ordinary_its_earlier_versions_are_opened_and_it_is_said_first(

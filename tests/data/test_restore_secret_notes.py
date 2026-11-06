@@ -351,7 +351,8 @@ def test_with_the_key_its_earlier_texts_in_the_backup_are_sealed_too(
 
     rows = earlier_rows(staged(database), KEY, note.id)
     assert [r[0] for r in rows] == [None, None]
-    assert [open_text(SECRET_KEY, note.id, r[1]) for r in rows] == [EARLIER, "둘째 PLAINWORD"]  # type: ignore[arg-type]
+    sealed = [r[1] for r in rows if isinstance(r[1], bytes)]
+    assert [open_text(SECRET_KEY, note.id, s) for s in sealed] == [EARLIER, "둘째 PLAINWORD"]
     assert plain_anywhere(staged(database), KEY, "PLAINWORD") == []
     assert digest(backup) == before
 
