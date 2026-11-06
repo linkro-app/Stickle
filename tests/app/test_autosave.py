@@ -39,10 +39,10 @@ class Recorder:
             self.saved.append(body)
             return create(body, color)
 
-        def recording_update(note_id: str, body: str):
+        def recording_update(note_id: str, body: str, keep_earlier: bool = False):
             self._maybe_fail()
             self.saved.append(body)
-            return update(note_id, body)
+            return update(note_id, body, keep_earlier)
 
         monkeypatch.setattr(repository, "create", recording_create)
         monkeypatch.setattr(repository, "update_body", recording_update)

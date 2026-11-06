@@ -2035,6 +2035,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>보통 메모로 바꿀까요? 더는 잠기지 않고, 내용이 다시 검색됩니다.</translation>
     </message>
     <message>
+        <source>Its earlier versions from while it was secret are unlocked too. You can delete them in Earlier versions if you don&apos;t need them.</source>
+        <translation>비밀이던 때의 이전 버전도 풀립니다. 필요 없으면 이전 버전 창에서 삭제할 수 있습니다.</translation>
+    </message>
+    <message>
         <source>All notes</source>
         <translation>모든 메모</translation>
     </message>

@@ -629,6 +629,8 @@ class NoteWindow(QWidget):
     hide_requested = Signal()
     delete_requested = Signal()
     editing_finished = Signal()  # the text lost focus: a moment to save
+    # The text or the note was left (not for its own menu): an edit of it ends.
+    left = Signal()
     text_changed = Signal()
     retry_requested = Signal()
     color_requested = Signal(str)  # a palette key
@@ -1078,6 +1080,8 @@ class NoteWindow(QWidget):
                 # Left for another window: kept where it got to.
                 self._end_keyboard()
                 self.geometry_settled.emit()
+            if not self.isActiveWindow():
+                self.left.emit()
         super().changeEvent(event)
 
     def set_locked(self, locked: bool) -> None:
@@ -1790,6 +1794,7 @@ class NoteWindow(QWidget):
             self.editing_finished.emit()
             # A menu opened from the note leaves it being edited.
             if event.reason() != Qt.FocusReason.PopupFocusReason:
+                self.left.emit()
                 QTimer.singleShot(0, self, self._leave_editing)
         if (
             watched is self.editor

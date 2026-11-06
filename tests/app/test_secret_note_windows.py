@@ -8,7 +8,7 @@ from pathlib import Path
 import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QFocusEvent, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 from pytestqt.qtbot import QtBot
@@ -62,6 +62,7 @@ from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.search import search
 from stickle.data.settings import Settings
+from stickle.data.versions import VersionRepository
 from stickle.unlock import Unlock
 
 KEY = secrets.token_bytes(32)
@@ -156,6 +157,7 @@ def manager(
         idle_ms=50,
         settings=Settings(connection),
         labels=LabelRepository(connection),
+        versions=VersionRepository(connection),
     )
     # Its recovery key, kept at the first start.
     application.kept_recovery_key(unlock, Settings(connection)).keep()
@@ -205,6 +207,99 @@ def secret_note(
 def type_into(window: NoteWindow, text: str) -> None:
     window.editor.moveCursor(QTextCursor.MoveOperation.End)
     window.editor.insertPlainText(text)
+
+
+def leave_text(window: NoteWindow) -> None:
+    """The text loses the keyboard: the edit ends."""
+    out = QFocusEvent(QEvent.Type.FocusOut, Qt.FocusReason.OtherFocusReason)
+    QCoreApplication.sendEvent(window.editor, out)
+
+
+def earlier_rows(connection: apsw.Connection, window: NoteWindow) -> list[tuple[object, object]]:
+    rows = connection.execute(
+        "SELECT body, sealed FROM note_versions WHERE note_id = ? ORDER BY id", (window.note_id,)
+    ).fetchall()
+    return [(body, sealed) for body, sealed in rows]
+
+
+# Its earlier versions follow it: sealed when made secret, opened when made ordinary
+
+
+def test_made_secret_its_earlier_versions_are_sealed_too(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+) -> None:
+    window = manager.new_note()
+    qtbot.waitExposed(window)
+    type_into(window, TEXT)
+    qtbot.waitUntil(lambda: window.note_id is not None and stored(connection, window).body == TEXT)
+    leave_text(window)
+    type_into(window, " 둘째")
+    qtbot.waitUntil(lambda: stored(connection, window).body == TEXT + " 둘째")
+    leave_text(window)
+    assert earlier_rows(connection, window) == [(TEXT, None)]
+
+    answers.queue += [turn_on(), title("은행")]
+    window.secret_action.trigger()
+
+    [(body, sealed)] = earlier_rows(connection, window)
+    assert body is None and isinstance(sealed, bytes)
+    assert (
+        open_text(unlock.open_secret_notes(SECRET), stored(connection, window).id, sealed) == TEXT
+    )
+    assert search(connection, "plorbit") == []
+
+
+def test_a_secret_notes_edit_keeps_its_earlier_text_sealed_once(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    qtbot.wait(20)  # shown formatted once made secret
+    window.edit()  # as a double click does
+    for more in (" 하나", " 둘"):
+        type_into(window, more)
+        qtbot.waitUntil(lambda: opened_text(connection, unlock, window) == window.text)
+    leave_text(window)
+
+    rows = earlier_rows(connection, window)
+    assert all(body is None and isinstance(sealed, bytes) for body, sealed in rows)
+    key, note_id = unlock.open_secret_notes(SECRET), stored(connection, window).id
+    assert [open_text(key, note_id, sealed) for _, sealed in rows if isinstance(sealed, bytes)] == [
+        TEXT
+    ]
+
+
+def test_made_ordinary_its_earlier_versions_are_opened_and_it_is_said_first(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    told: list[bool] = []
+
+    def confirm(_parent: object, has_earlier: bool) -> bool:
+        told.append(has_earlier)
+        return True
+
+    monkeypatch.setattr(notes, "confirm_ordinary", confirm)
+    type_into(window, " 고침")
+    qtbot.waitUntil(lambda: opened_text(connection, unlock, window) == window.text)
+    leave_text(window)
+
+    window.ordinary_action.trigger()
+
+    assert told == [True] and not window.secret
+    assert earlier_rows(connection, window) == [(TEXT, None)]
 
 
 # Making one
@@ -523,7 +618,7 @@ def test_a_note_that_cannot_be_saved_stays_open(
     repository = manager._repository  # pyright: ignore[reportPrivateUsage]
     assert repository is not None
 
-    def full(note_id: str, sealed: bytes) -> Note:
+    def full(note_id: str, sealed: bytes, keep_earlier: bool = False) -> Note:
         raise apsw.FullError("database or disk is full")
 
     monkeypatch.setattr(repository, "update_secret_body", full)
@@ -707,7 +802,7 @@ def test_made_ordinary_it_is_found_again(
     window = secret_note(qtbot, manager, answers)
     asked: list[bool] = []
 
-    def confirm(_parent: object) -> bool:
+    def confirm(_parent: object, _has_earlier: bool) -> bool:
         asked.append(True)
         return True
 
@@ -739,7 +834,7 @@ def test_the_input_method_is_told_to_keep_nothing_typed_while_secret(
 
     answers.queue.append(password())
     window.open_secret_action.trigger()
-    monkeypatch.setattr(notes, "confirm_ordinary", always)
+    monkeypatch.setattr(notes, "confirm_ordinary", always_ordinary)
     window.ordinary_action.trigger()
 
     assert not window.secret and not sensitive(window)
@@ -822,6 +917,10 @@ def with_recovery_key(manager: NoteManager, unlock: Unlock, connection: apsw.Con
 
 
 def always(_window: QWidget) -> bool:
+    return True
+
+
+def always_ordinary(_window: QWidget, _has_earlier: bool) -> bool:
     return True
 
 
@@ -1419,7 +1518,7 @@ def test_locked_while_asked_to_make_it_ordinary_its_text_stays(
 ) -> None:
     window = secret_note(qtbot, manager, answers)
 
-    def locked_meanwhile(_parent: object) -> bool:
+    def locked_meanwhile(_parent: object, _has_earlier: bool) -> bool:
         manager.lock_secret_notes()  # left alone too long, or the computer locked
         return True
 

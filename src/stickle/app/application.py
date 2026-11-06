@@ -73,6 +73,7 @@ from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import MigrationError, latest_version
 from stickle.data.settings import CLOUD_FOLDER_TOLD, KeptRecoveryKey, Settings
 from stickle.data.startup import StartupSettings
+from stickle.data.versions import VersionRepository
 from stickle.importers.base import ImportResult
 from stickle.importers.bring_in import BroughtIn, bring_in, new_notes
 from stickle.importers.sources import Source, found_here, recognise
@@ -736,6 +737,7 @@ def run(
             layouts=LayoutRepository(connection) if connection else None,
             labels=LabelRepository(connection) if connection else None,
             colors=ColorRepository(connection) if connection else None,
+            versions=VersionRepository(connection) if connection else None,
         )
         manager.watch_quit(app)
         app.aboutToQuit.connect(manager.save_all)

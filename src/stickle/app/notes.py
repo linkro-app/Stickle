@@ -32,6 +32,7 @@ not stored.
 import logging
 import random
 from collections.abc import Callable, Iterable
+from functools import partial
 from typing import TYPE_CHECKING, cast, override
 
 import apsw
@@ -83,6 +84,7 @@ from stickle.data.settings import (
     RELOCK_MINUTES,
     Settings,
 )
+from stickle.data.versions import VersionRepository
 from stickle.platform.linux.x11 import activate
 
 if TYPE_CHECKING:
@@ -189,20 +191,25 @@ def _ask(dialog: QDialog) -> bool:
 ask_secret: Callable[[QDialog], bool] = _ask  # replaced in tests
 
 
-def _confirm_ordinary(parent: QWidget) -> bool:
-    answer = QMessageBox.question(
-        parent,
-        "Stickle",
-        QCoreApplication.translate(
-            "NoteManager",
-            "Make it an ordinary note? It will no longer lock, and its text can be"
-            " found by searching again.",
-        ),
+def _confirm_ordinary(parent: QWidget, has_earlier: bool) -> bool:
+    """has_earlier: the note has earlier versions, opened with it."""
+    question = QCoreApplication.translate(
+        "NoteManager",
+        "Make it an ordinary note? It will no longer lock, and its text can be"
+        " found by searching again.",
     )
+    if has_earlier:
+        question += "\n\n" + QCoreApplication.translate(
+            "NoteManager",
+            "Its earlier versions from while it was secret are unlocked too. You can"
+            " delete them in Earlier versions if you don't need them.",
+        )
+    answer = QMessageBox.question(parent, "Stickle", question)
     return answer == QMessageBox.StandardButton.Yes
 
 
-confirm_ordinary: Callable[[QWidget], bool] = _confirm_ordinary  # replaced in tests
+# Asks, and returns once answered (parent, whether it has earlier versions).
+confirm_ordinary: Callable[[QWidget, bool], bool] = _confirm_ordinary  # replaced in tests
 
 # Shows the colour window and waits: whether a colour was chosen.
 ask_color: Callable[[ColorDialog], bool] = _ask  # replaced in tests
@@ -251,9 +258,16 @@ class NoteManager(QObject):
         layouts: LayoutRepository | None = None,
         labels: LabelRepository | None = None,
         colors: ColorRepository | None = None,
+        versions: VersionRepository | None = None,
     ) -> None:
         super().__init__()
         self._repository = repository
+        self.versions = versions
+        # An edit lasts until its note is left (stickle.data.versions): the
+        # windows whose edit kept the text they had, and each one's text as last
+        # stored (an ordinary note's; a secret one's is in _stored_secret).
+        self._edit_kept: set[NoteWindow] = set()
+        self._saved: dict[NoteWindow, str] = {}
         self._settings = settings
         self._layouts = layouts
         self._labels = labels
@@ -419,6 +433,8 @@ class NoteManager(QObject):
                 color or self._new_note_color(),
                 can_be_secret=self.secrets is not None,
             )
+        if note is not None and not note.secret:
+            self._saved[window] = note.body
         window.new_note_requested.connect(lambda: self.new_note_from(window))
         window.secret_requested.connect(lambda: self.make_secret(window))
         window.open_secret_requested.connect(lambda: self.open_secret(window))
@@ -487,6 +503,7 @@ class NoteManager(QObject):
         self._autosaves[window] = autosave
         window.text_changed.connect(autosave.changed)
         window.editing_finished.connect(autosave.save_now)
+        window.left.connect(lambda: self._edit_ended(window))
         window.retry_requested.connect(autosave.save_now)
         window.closed.connect(lambda: self._forget(window))
         window.geometry_settled.connect(lambda: self._settled(window))
@@ -523,6 +540,7 @@ class NoteManager(QObject):
 
     def _forget(self, window: NoteWindow) -> None:
         self._forget_key(window)
+        self._saved.pop(window, None)
         self._before_fit.pop(window, None)
         self._windows.remove(window)
         self._autosaves.pop(window).stop()
@@ -543,8 +561,14 @@ class NoteManager(QObject):
             if window.note_id is None:
                 if text.strip():
                     self._store_new(window)
+                    self._edit_kept.add(window)  # its first text is this edit's
             else:
-                self._repository.update_body(window.note_id, text)
+                changed = text != self._saved_text(window)
+                first = changed and window not in self._edit_kept
+                self._repository.update_body(window.note_id, text, keep_earlier=first)
+                if changed:
+                    self._edit_kept.add(window)
+            self._saved[window] = text
         except (apsw.Error, OSError, NoteIsSecretError) as error:
             # Secret where the window took it for ordinary: marked, never raised
             # (raised, it stopped the other notes being saved on quitting).
@@ -557,6 +581,23 @@ class NoteManager(QObject):
                 self.reminders.text_saved(window.note_id, text)
             self.note_saved.emit()
         return True
+
+    def _saved_text(self, window: NoteWindow) -> str | None:
+        """The window's text as last stored: as it is in the database if this
+        window has not stored or read it yet."""
+        if window not in self._saved and self._repository is not None and window.note_id:
+            note = self._repository.get(window.note_id)
+            if note is not None and not note.secret:
+                self._saved[window] = note.body
+        return self._saved.get(window)
+
+    def _edit_ended(self, window: NoteWindow) -> None:
+        """The note was left: what it waited to save is saved, and its next
+        change is a new edit, which keeps the text it had then."""
+        autosave = self._autosaves.get(window)
+        if autosave is not None and autosave.waiting:
+            autosave.save_now()
+        self._edit_kept.discard(window)
 
     def _store_new(self, window: NoteWindow) -> str:
         """Store a note for the first time, as it is now; its id."""
@@ -587,14 +628,16 @@ class NoteManager(QObject):
             return True
         text = window.text
         if text != self._stored_secret.get(window):
+            first = window not in self._edit_kept
             try:
                 sealed = seal_text(bytes(key), window.note_id, text)
-                self._repository.update_secret_body(window.note_id, sealed)
+                self._repository.update_secret_body(window.note_id, sealed, keep_earlier=first)
             except (apsw.Error, OSError, NoteNotSecretError) as error:
                 log.error("could not save a secret note: %s", type(error).__name__)
                 window.set_unsaved(True)
                 return False
             self._stored_secret[window] = text
+            self._edit_kept.add(window)
             if self.reminders is not None:
                 # Only the times are kept, for it to ring while covered.
                 self.reminders.text_saved(window.note_id, text)
@@ -1508,7 +1551,12 @@ class NoteManager(QObject):
         note_id = window.note_id
         try:
             note_id = note_id or self._store_new(window)
-            self._repository.make_secret(note_id, title, seal_text(bytes(key), note_id, text))
+            self._repository.make_secret(
+                note_id,
+                title,
+                seal_text(bytes(key), note_id, text),
+                partial(seal_text, bytes(key), note_id),  # its earlier texts too
+            )
         except (apsw.Error, OSError) as error:
             # Failed only after it was stored secret: the window follows the note,
             # or its later edits would be refused.
@@ -1523,6 +1571,8 @@ class NoteManager(QObject):
             assert note_id is not None
         self._keys[window] = key
         self._stored_secret[window] = text
+        self._saved.pop(window, None)
+        self._edit_kept.discard(window)
         window.set_secret_title(title)
         self._relock.opened(window)
         self.changed.emit()
@@ -1598,6 +1648,7 @@ class NoteManager(QObject):
         if key is not None:
             _wipe(key)
         self._stored_secret.pop(window, None)
+        self._edit_kept.discard(window)
         self._relock.closed(window)
 
     def change_secret_title(self, window: NoteWindow) -> None:
@@ -1628,7 +1679,7 @@ class NoteManager(QObject):
             or window.note_id is None
         ):
             return
-        if not confirm_ordinary(window):
+        if not confirm_ordinary(window, self._has_earlier(window.note_id)):
             return
         # Locked by itself while asked, its text is no longer in the window: what
         # it holds then must not become the note's text.
@@ -1636,15 +1687,32 @@ class NoteManager(QObject):
             return
         if not self.flush(window, closing=True):
             return
+        key = self._keys.get(window)
         try:
-            self._repository.make_ordinary(window.note_id, window.text)
+            self._repository.make_ordinary(
+                window.note_id,
+                window.text,
+                # Its earlier texts opened too: it is not secret any more.
+                None if key is None else partial(open_text, bytes(key), window.note_id),
+            )
         except apsw.Error as error:
             log.error("could not make a note ordinary: %s", type(error).__name__)
             QMessageBox.warning(window, "Stickle", self.tr("The note could not be made ordinary."))
             return
         self._forget_key(window)
+        self._saved[window] = window.text
         window.set_secret_title(None)
         self.changed.emit()
+
+    def _has_earlier(self, note_id: str | None) -> bool:
+        """Whether the note has earlier texts to show (stickle.data.versions)."""
+        if self.versions is None or note_id is None:
+            return False
+        try:
+            return self.versions.has_any(note_id)
+        except apsw.Error as error:
+            log.warning("could not look at earlier texts: %s", type(error).__name__)
+            return False
 
     @property
     def relock_minutes(self) -> int:
@@ -1917,13 +1985,22 @@ class NoteManager(QObject):
 
     def empty_old_trash(self) -> None:
         """At start: empty notes a year in the trash, forget old deletion records,
-        and clear away old text a note made secret may have left behind."""
+        put away earlier texts past their 30 days, and clear away old text a
+        note made secret may have left behind."""
         if self._repository is None:
             return
         try:
             self._repository.forget_old_text_left()
         except (apsw.Error, OSError) as error:
             log.warning("old text not cleared away yet: %s", type(error).__name__)
+        if self.versions is not None:
+            try:
+                gone = self.versions.prune()
+            except apsw.Error as error:
+                log.warning("could not put away old earlier texts: %s", type(error).__name__)
+            else:
+                if gone:
+                    log.info("put away %d earlier texts past their days", gone)
         try:
             emptied = self._repository.purge_expired()
         except apsw.Error as error:
