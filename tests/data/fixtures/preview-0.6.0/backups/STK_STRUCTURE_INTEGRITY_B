@@ -1,0 +1,19 @@
+{
+  "warning": [
+    "Do not delete, move or edit this file: Stickle needs it to open your notes.",
+    "이 파일을 지우거나 옮기거나 고치지 마세요. Stickle이 메모를 여는 데 필요합니다."
+  ],
+  "format": 1,
+  "slots": {
+    "recovery_key": {
+      "kdf": "argon2id",
+      "opslimit": 2,
+      "memlimit": 67108864,
+      "salt": "0mfQA3UrCRr58VBUVi5JDA==",
+      "box": "RM22n0x1HnAihgkctXJgkbybV/GLhzzZyvY135qT5R3zpx6L3yrrz8yB2hhxtBHUAekm54oQUB5f0lyvJM8kwfN7oJjyUaT8",
+      "set_at": "2026-11-06T09:01:00.000Z",
+      "public": "aOCEMFr1c8BAmFSe41GAH5qYdVKsJ37zzPmJbN6OBB8=",
+      "sealed": "7SIAKM/h+1HEGXRnW2DZSquOh2w3m12B1+jG2KnskFK5UvVxN8Btr+iOW3KeKiNKAi9Q+8ZVZ1+F6r7vkD7DFi60d+lXvSaQp9kIx3XebQw="
+    }
+  }
+}
