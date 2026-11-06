@@ -213,7 +213,7 @@ class TurnOnDialog(_PasswordWindow):
         self.recovery_line.setWordWrap(True)
         self.layout_parts.addWidget(self.recovery_line)
         self.type_button = QPushButton()
-        self.type_button.clicked.connect(self.type_recovery_key)
+        self.type_button.clicked.connect(self.check_recovery_key)
         self.make_button = QPushButton()
         self.make_button.clicked.connect(self.make_recovery_key)
         row = QHBoxLayout()
@@ -250,7 +250,7 @@ class TurnOnDialog(_PasswordWindow):
         self.confirm_label.setText(self.tr("C&onfirm:"))
         self.password.setAccessibleName(self.tr("Secret notes' password"))
         self.confirm.setAccessibleName(self.tr("Confirm the secret notes' password"))
-        self.type_button.setText(self.tr("&Type the recovery key…"))
+        self.type_button.setText(self.tr("&Check my existing recovery key…"))
         self.ok_button.setText(self.tr("Turn on"))
         self.show_recovery_state()
 
@@ -272,9 +272,10 @@ class TurnOnDialog(_PasswordWindow):
             )
         elif state == "not_kept":
             line = self.tr(
-                "You have not kept a recovery key yet. If you forget the password, only"
-                " the recovery key sets a new one: make a new one and keep it, away from"
-                " this computer, then turn them on."
+                "Stickle doesn't know yet whether you kept a recovery key. If you forget"
+                " the password, only the recovery key sets a new one: check the one you"
+                " have, or make a new one and keep it away from this computer, then turn"
+                " them on."
             )
         elif made_at is not None:
             line = self.tr(
@@ -288,7 +289,7 @@ class TurnOnDialog(_PasswordWindow):
             )
         self.recovery_line.setText(line)
         self.recovery_line.setVisible(recovery is not None)
-        self.type_button.setVisible(state == "old")
+        self.type_button.setVisible(state in ("old", "not_kept"))
         self.make_button.setVisible(recovery is not None)
         self.make_button.setText(
             self.tr("&Make a recovery key…")
@@ -298,16 +299,19 @@ class TurnOnDialog(_PasswordWindow):
         self.ok_button.setEnabled(state == "ready")
         self.ok_button.setAccessibleDescription(line if state != "ready" else "")
 
-    def type_recovery_key(self) -> None:
-        """A recovery key from before 0.6, typed once: it opens secret notes too from now on."""
+    def check_recovery_key(self) -> None:
+        """The recovery key the user has, typed: one from before 0.6 opens secret
+        notes too from now on, and one not known to be kept counts as kept. A
+        wrong one changes nothing."""
         recovery = self._passwords.recovery
         if recovery is None:
             return
+        take = recovery.upgrade if self.recovery_state() == "old" else recovery.confirm
         dialog: EnterRecoveryKeyDialog
 
         def submit(typed: str) -> str | None:
             try:
-                recovery.upgrade(typed)
+                take(typed)
             except RecoveryKeyTypoError:
                 return dialog.typo()
             except WrongRecoveryKeyError:

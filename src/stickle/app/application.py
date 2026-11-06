@@ -392,6 +392,11 @@ def recovery_keys(
         unlock.upgrade_recovery_key(typed)
         settings.set(RECOVERY_KEY_KEPT, True)  # typed: the user has it
 
+    def confirm(typed: str) -> None:
+        if unlock.open_with_recovery_key(typed) != key:
+            raise WrongRecoveryKeyError("it opens other notes")
+        settings.set(RECOVERY_KEY_KEPT, True)  # typed: the user has it
+
     return RecoveryKeys(
         exists=lambda: unlock.has_recovery_key,
         make=make,
@@ -401,6 +406,7 @@ def recovery_keys(
         make_with_secret=make_with_secret,
         is_old=lambda: unlock.recovery_key_is_old,
         upgrade=upgrade,
+        confirm=confirm,
     )
 
 

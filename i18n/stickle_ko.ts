@@ -3838,8 +3838,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>비밀 메모 암호 한 번 더</translation>
     </message>
     <message>
-        <source>&amp;Type the recovery key…</source>
-        <translation>복구 키 입력(&amp;T)…</translation>
+        <source>&amp;Check my existing recovery key…</source>
+        <translation>기존 복구 키 확인(&amp;C)…</translation>
     </message>
     <message>
         <source>If you forget the password, you set a new one with the recovery key. Make one first: it opens secret notes too, so do not keep it on this computer.</source>
@@ -3848,6 +3848,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Your recovery key was made with an earlier Stickle and cannot open secret notes yet. Type it once, or make a new one if you cannot find it.</source>
         <translation>지금 복구 키는 예전 Stickle에서 만든 것이라 아직 비밀 메모를 열지 못합니다. 한 번 입력하거나, 찾을 수 없으면 새로 만드세요.</translation>
+    </message>
+    <message>
+        <source>Stickle doesn&apos;t know yet whether you kept a recovery key. If you forget the password, only the recovery key sets a new one: check the one you have, or make a new one and keep it away from this computer, then turn them on.</source>
+        <translation>복구 키를 보관했는지 아직 확인되지 않았습니다. 암호를 잊으면 복구 키로만 새 암호를 정할 수 있으니, 가진 복구 키를 확인하거나 새로 만들어 이 PC가 아닌 곳에 보관한 뒤 켜세요.</translation>
     </message>
     <message>
         <source>If you forget the password, you set a new one with the recovery key made on %1. It opens secret notes too: do not keep it on this computer.</source>
@@ -3876,10 +3880,6 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Turn on</source>
         <translation>켜기</translation>
-    </message>
-    <message>
-        <source>You have not kept a recovery key yet. If you forget the password, only the recovery key sets a new one: make a new one and keep it, away from this computer, then turn them on.</source>
-        <translation>아직 복구 키를 보관하지 않았습니다. 암호를 잊으면 복구 키로만 새 암호를 정할 수 있으니, 새 복구 키를 만들어 이 PC가 아닌 곳에 보관한 뒤 켜세요.</translation>
     </message>
     <message>
         <source>Secret notes could not be turned on (%1).</source>

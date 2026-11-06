@@ -55,6 +55,10 @@ class RecoveryKeys:
     # upgrade does (RecoveryKeyTypoError, WrongRecoveryKeyError).
     is_old: Callable[[], bool] = lambda: False
     upgrade: Callable[[str], None] = _no_upgrade
+    # Not kept as far as Stickle knows ("Later" at the first start): the one the
+    # user has, typed, is these notes' own, and counts as kept from then on
+    # (RecoveryKeyTypoError, WrongRecoveryKeyError).
+    confirm: Callable[[str], None] = _no_upgrade
 
 
 class EnterRecoveryKeyDialog(QDialog):

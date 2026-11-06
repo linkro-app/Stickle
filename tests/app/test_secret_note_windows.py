@@ -991,7 +991,7 @@ def test_not_turned_on_until_a_recovery_key_is_kept(
     assert manager.secrets is not None
     dialog = TurnOnDialog(manager.secrets)
     qtbot.addWidget(dialog)
-    assert "You have not kept a recovery key yet." in dialog.recovery_line.text()
+    assert "doesn't know yet whether you kept a recovery key" in dialog.recovery_line.text()
     assert not dialog.ok_button.isEnabled()
     for field in (dialog.password, dialog.confirm):
         field.setText(SECRET)
@@ -1016,13 +1016,48 @@ def test_not_turned_on_until_a_recovery_key_is_kept(
     dialog.make_button.click()
 
     assert dialog.ok_button.isEnabled()
-    assert "You have not kept" not in dialog.recovery_line.text()
+    assert "doesn't know yet" not in dialog.recovery_line.text()
     assert Settings(connection).get(RECOVERY_KEY_KEPT)
     for field in (dialog.password, dialog.confirm):
         field.setText(SECRET)
     dialog.accept()
     assert dialog.key is not None
     assert unlock.open_secret_notes_with_recovery_key(shown[-1]) == dialog.key
+
+
+def test_a_recovery_key_not_known_to_be_kept_can_be_checked_instead_of_made_anew(
+    qtbot: QtBot,
+    manager: NoteManager,
+    unlock: Unlock,
+    connection: apsw.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # "Later" at the first start, but written down after all: typed and found to
+    # be these notes' own, it counts as kept. One that is not theirs changes nothing.
+    recovery_key = unlock.make_recovery_key(KEY)
+    Settings(connection).set(RECOVERY_KEY_KEPT, False)
+    assert manager.secrets is not None
+    dialog = TurnOnDialog(manager.secrets)
+    qtbot.addWidget(dialog)
+    assert not dialog.ok_button.isEnabled() and dialog.type_button.isVisibleTo(dialog)
+    assert dialog.type_button.text() == "&Check my existing recovery key…"
+    assert dialog.make_button.text() == "&Make a new recovery key…"
+
+    monkeypatch.setattr(secret_dialogs, "ask_recovery_key", recovery_key_typed(generate()))
+    dialog.type_button.click()  # not theirs, then Back
+    assert not dialog.ok_button.isEnabled() and not Settings(connection).get(RECOVERY_KEY_KEPT)
+
+    typed = recovery_key_typed(generate(), recovery_key)
+    monkeypatch.setattr(secret_dialogs, "ask_recovery_key", typed)
+    dialog.type_button.click()
+
+    assert Settings(connection).get(RECOVERY_KEY_KEPT)
+    assert dialog.ok_button.isEnabled() and not dialog.type_button.isVisibleTo(dialog)
+    for field in (dialog.password, dialog.confirm):
+        field.setText(SECRET)
+    dialog.accept()
+    assert dialog.key is not None
+    assert unlock.open_secret_notes_with_recovery_key(recovery_key) == dialog.key
 
 
 def test_an_old_recovery_key_is_typed_once_before_turning_on(
