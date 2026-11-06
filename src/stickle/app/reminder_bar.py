@@ -7,6 +7,7 @@ is used.
 """
 
 import html
+from functools import cache
 from typing import override
 
 from PySide6.QtCore import QCoreApplication, QEvent, Signal
@@ -16,7 +17,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QProxyStyle,
     QPushButton,
+    QStyle,
+    QStyleOption,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -26,6 +30,30 @@ from stickle.app.fonts import AS_TEXT, alarm_clock_family
 
 TOMORROW_MORNING = -1  # in place of minutes: the morning time, tomorrow
 SNOOZES = (5, 10, 30, 60, TOMORROW_MORNING)
+# The arrow's part of [Remind me again], wide enough to hit: the styles give it
+# 12-15 pixels, too narrow beside a button that acts at once when missed.
+ARROW_WIDTH = 24
+
+
+class WideArrowStyle(QProxyStyle):
+    """The style as it is, with a wider arrow beside a button that has a menu."""
+
+    @override
+    def pixelMetric(
+        self,
+        metric: QStyle.PixelMetric,
+        option: QStyleOption | None = None,
+        widget: QWidget | None = None,
+    ) -> int:
+        if metric == QStyle.PixelMetric.PM_MenuButtonIndicator:
+            return ARROW_WIDTH
+        return super().pixelMetric(metric, option, widget)
+
+
+@cache
+def wide_arrow_style() -> WideArrowStyle:
+    """One for every [Remind me again]: a widget does not own the style it is given."""
+    return WideArrowStyle()
 
 
 class SnoozeButton(QToolButton):
@@ -36,6 +64,7 @@ class SnoozeButton(QToolButton):
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.minutes = 10  # the usual wait
+        self.setStyle(wide_arrow_style())
         self.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.clicked.connect(lambda: self.snoozed.emit(self.minutes))
         self.again_menu = QMenu(self)
@@ -121,6 +150,13 @@ class ReminderBar(QFrame):
             f" border: 1px solid rgba({rgb}, 0.35); border-radius: 4px; padding: 2px 8px; }}"
             f"QPushButton:hover, QToolButton:hover {{ background: rgba({rgb}, 0.18); }}"
             f"QPushButton:focus, QToolButton:focus {{ border: 2px solid rgba({rgb}, 0.8); }}"
+            # Its arrow set apart by a line, room made for it, lit on its own.
+            f"QToolButton {{ padding-right: {ARROW_WIDTH + 6}px; }}"
+            "QToolButton::menu-button {"
+            f" width: {ARROW_WIDTH}px; background: transparent;"
+            f" border: none; border-left: 1px solid rgba({rgb}, 0.35);"
+            " border-top-right-radius: 4px; border-bottom-right-radius: 4px; }"
+            f"QToolButton::menu-button:hover {{ background: rgba({rgb}, 0.22); }}"
         )
 
     @property
