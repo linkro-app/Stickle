@@ -816,7 +816,8 @@ def run(
         )
         if unlock is not None and connection is not None:
             try:
-                kept_recovery_key(unlock, Settings(connection)).carry_over()
+                if kept_recovery_key(unlock, Settings(connection)).carry_over():
+                    log.info("recovery key kept: taken for the one there is")
             except apsw.Error as error:
                 log.error("recovery key kept: not carried over: %s", type(error).__name__)
         recovery = recovery_keys(

@@ -363,13 +363,16 @@ class KeptRecoveryKey:
         """A new one is about to be made: none is kept until the user says so."""
         self._settings.set(RECOVERY_KEY_KEPT, None)
 
-    def carry_over(self) -> None:
+    def carry_over(self) -> bool:
         """Yes or no on this device, as kept until 0.6, said of the key the notes
         had then: still theirs, as making one cleared it first. Taken once the
-        key can be read (else tried again next time)."""
+        key can be read (else tried again next time); whether a yes was taken."""
+        taken = False
         if self._settings.get(RECOVERY_KEY_KEPT_UNTIL_0_6):
             current = self._key_id()
             if current is None:
-                return
+                return False
             self._settings.set(RECOVERY_KEY_KEPT, current)
+            taken = True
         self._settings.clear(RECOVERY_KEY_KEPT_UNTIL_0_6)
+        return taken

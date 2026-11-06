@@ -205,7 +205,8 @@ def test_what_0_6_kept_is_taken_for_the_key_there_is(
         settings.set(RECOVERY_KEY_KEPT_UNTIL_0_6, until_0_6)
     kept = KeptRecoveryKey(settings, lambda: FIRST)
 
-    kept.carry_over()
+    assert kept.carry_over() == kept_now
+    assert not kept.carry_over()  # once
 
     assert kept.is_kept() == kept_now
     assert (
