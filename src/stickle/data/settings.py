@@ -124,9 +124,12 @@ def _version_or_none(value: object) -> TypeGuard[str | None]:
     return value is None or (isinstance(value, str) and version_key(value) is not None)
 
 
-# The version whose "what's new" note was last given. Shared: seen on one device,
-# it does not come up again on another.
-NEWS_SEEN = Setting[str | None]("news_seen", "shared", None, _version_or_none)
+# The version whose "what's new" note was last given here. This device's own:
+# shared, a device still on an older version would write its older one over a
+# newer device's, which would then give again the note deleted there. Seen on
+# one device, a note still does not come again on another: its id comes from
+# the version, so a device that has it (in the trash too) makes none.
+NEWS_SEEN = Setting[str | None]("news_seen", "device", None, _version_or_none)
 # Notes line up with the notes and screen edges near them when moved or resized.
 MAGNET = Setting[bool]("magnet", "shared", True, _flag)
 

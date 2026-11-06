@@ -155,6 +155,9 @@ def test_settings_stay(unlock: Unlock, key: bytes) -> None:
     try:
         settings = Settings(connection)
         assert settings.get(NEWS_SEEN) == NEWS_SEEN_SET
+        # This device's own now: not among those that will follow to other devices.
+        shared = connection.execute("SELECT key FROM shared_settings").fetchall()
+        assert (NEWS_SEEN.key,) not in shared
         assert settings.get(RECOVERY_KEY_KEPT) is True
         assert settings.get(DEFAULT_NOTE_COLOR) == DEFAULT_COLOR_SET
     finally:

@@ -1,3 +1,4 @@
+import json
 import secrets
 import uuid
 from collections.abc import Iterator
@@ -6,11 +7,13 @@ from pathlib import Path
 import apsw
 import pytest
 
+from stickle.data import schema
 from stickle.data.database import KEY_BYTES
 from stickle.data.schema import open_store
 from stickle.data.settings import (
     DEFAULT_NOTE_COLOR,
     DEVICE_ID,
+    NEWS_SEEN,
     SETTINGS,
     InvalidSettingError,
     Settings,
@@ -104,3 +107,50 @@ def test_the_device_id_is_a_device_setting() -> None:
 def test_every_setting_is_registered_under_its_key() -> None:
     assert all(key == setting.key for key, setting in SETTINGS.items())
     assert {DEVICE_ID.key, DEFAULT_NOTE_COLOR.key} <= SETTINGS.keys()
+
+
+def test_the_version_of_the_last_whats_new_note_is_a_device_setting() -> None:
+    # Shared, a device on an older version would give a newer one's deleted note again.
+    assert NEWS_SEEN.scope == "device"
+
+
+def shared_until_0_6(
+    path: Path, monkeypatch: pytest.MonkeyPatch, here: str | None
+) -> apsw.Connection:
+    """A database where 0.6 kept news_seen in common (and this device, here, its
+    own), opened by this version."""
+    monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS[:12])
+    connection = open_store(path, KEY)
+    with connection:
+        connection.execute(
+            "INSERT INTO shared_settings VALUES ('news_seen', '\"0.6.0\"', ?, ?)", (NOW, AN_ID)
+        )
+        if here is not None:
+            connection.execute(
+                "INSERT INTO device_settings VALUES ('news_seen', ?)", (json.dumps(here),)
+            )
+    connection.close()
+    monkeypatch.undo()
+    return open_store(path, KEY)
+
+
+def test_the_upgrade_moves_what_was_kept_in_common_to_this_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connection = shared_until_0_6(tmp_path / "notes.db", monkeypatch, here=None)
+    try:
+        assert Settings(connection).get(NEWS_SEEN) == "0.6.0"
+        shared = connection.execute("SELECT key FROM shared_settings").fetchall()
+        assert ("news_seen",) not in shared
+    finally:
+        connection.close()
+
+
+def test_the_upgrade_keeps_what_this_device_has(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connection = shared_until_0_6(tmp_path / "notes.db", monkeypatch, here="0.6.1")
+    try:
+        assert Settings(connection).get(NEWS_SEEN) == "0.6.1"
+    finally:
+        connection.close()

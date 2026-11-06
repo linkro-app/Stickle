@@ -298,8 +298,16 @@ ALTER TABLE note_layouts DROP COLUMN width;
 ALTER TABLE note_layouts DROP COLUMN height;
 """
 
+V13 = """
+-- The version whose "what's new" note was last given is this device's own
+-- (stickle.data.settings): its value moves over, unless this device has one.
+INSERT OR IGNORE INTO device_settings (key, value)
+    SELECT key, value FROM shared_settings WHERE key = 'news_seen';
+DELETE FROM shared_settings WHERE key = 'news_seen';
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13]
 BACKUPS_KEPT = 3
 
 
