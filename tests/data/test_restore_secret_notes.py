@@ -292,3 +292,119 @@ def test_a_backup_from_before_secret_notes_is_upgraded_in_the_copy_only(
     assert restored is not None and restored.secret and restored.body == ""
     assert search(connection, "0.5에서") == []
     connection.close()
+
+
+# Its earlier texts (stickle.data.versions): never back in the clear either
+
+
+def edited(notes: NoteRepository, note_id: str, *texts: str) -> None:
+    for text in texts:
+        notes.update_body(note_id, text, keep_earlier=True)
+
+
+def earlier_rows(path: Path, key: bytes, note_id: str) -> list[tuple[object, ...]]:
+    copy = open_database(path, key, read_only=True)
+    try:
+        return [
+            tuple(r)
+            for r in copy.execute(
+                "SELECT body, sealed, content_hash, made_at, made_by, restored, kept_at"
+                " FROM note_versions WHERE note_id = ? ORDER BY id",
+                (note_id,),
+            ).fetchall()
+        ]
+    finally:
+        copy.close()
+
+
+def plain_anywhere(path: Path, key: bytes, word: str) -> list[str]:
+    copy = open_database(path, key, read_only=True)
+    try:
+        found: list[str] = []
+        for (table,) in copy.execute(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall():
+            for values in copy.execute(f'SELECT * FROM "{table}"').fetchall():
+                if any(word in str(value) for value in values if not isinstance(value, bytes)):
+                    found.append(str(table))
+        return found
+    finally:
+        copy.close()
+
+
+def make_secret_with_earlier(notes: NoteRepository, note_id: str, text: str) -> None:
+    notes.make_secret(note_id, "은행", seal(note_id, text), lambda earlier: seal(note_id, earlier))
+
+
+def test_with_the_key_its_earlier_texts_in_the_backup_are_sealed_too(
+    connection: apsw.Connection, database: Path
+) -> None:
+    notes = NoteRepository(connection)
+    note = notes.create(EARLIER)
+    edited(notes, note.id, "둘째 PLAINWORD", "셋째 PLAINWORD")
+    backup = take(connection, database, FakeClock())
+    make_secret_with_earlier(notes, note.id, "지금 글")
+    before = digest(backup)
+    stage_restore(database, backup)
+
+    assert keep_secret_notes_secret(database, KEY, secret_notes_known(connection), seal) == 1
+
+    rows = earlier_rows(staged(database), KEY, note.id)
+    assert [r[0] for r in rows] == [None, None]
+    assert [open_text(SECRET_KEY, note.id, r[1]) for r in rows] == [EARLIER, "둘째 PLAINWORD"]  # type: ignore[arg-type]
+    assert plain_anywhere(staged(database), KEY, "PLAINWORD") == []
+    assert digest(backup) == before
+
+
+def test_without_the_key_its_earlier_texts_are_as_they_are_now(
+    connection: apsw.Connection, database: Path
+) -> None:
+    notes = NoteRepository(connection)
+    note = notes.create(EARLIER)
+    edited(notes, note.id, "둘째 PLAINWORD")
+    backup = take(connection, database, FakeClock())
+    edited(notes, note.id, "셋째 PLAINWORD")
+    make_secret_with_earlier(notes, note.id, "셋째 PLAINWORD")
+    now = earlier_rows(database, KEY, note.id)
+    assert len(now) == 2
+    stage_restore(database, backup)
+
+    assert keep_secret_notes_secret(database, KEY, secret_notes_known(connection), None) == 1
+
+    assert earlier_rows(staged(database), KEY, note.id) == now
+    assert plain_anywhere(staged(database), KEY, "PLAINWORD") == []
+
+
+def test_one_with_only_its_earlier_texts_in_the_clear_is_counted_and_kept_secret(
+    connection: apsw.Connection, database: Path
+) -> None:
+    notes = NoteRepository(connection)
+    note = notes.create(EARLIER)
+    notes.update_body(note.id, "", keep_earlier=True)  # its text cleared, the old one kept
+    backup = take(connection, database, FakeClock())
+    notes.update_body(note.id, "새 글")
+    make_secret_with_earlier(notes, note.id, "새 글")
+    known = secret_notes_known(connection)
+
+    assert old_secret_texts(backup, KEY, known) == 1
+    stage_restore(database, backup)
+    assert keep_secret_notes_secret(database, KEY, known, seal) == 1
+    assert plain_anywhere(staged(database), KEY, "PLAINWORD") == []
+
+
+def test_emptied_since_without_the_key_its_earlier_texts_stay_out_too(
+    connection: apsw.Connection, database: Path
+) -> None:
+    notes = NoteRepository(connection)
+    note = notes.create(EARLIER)
+    edited(notes, note.id, "둘째 PLAINWORD")
+    backup = take(connection, database, FakeClock())
+    make_secret_with_earlier(notes, note.id, "둘째 PLAINWORD")
+    notes.delete(note.id)
+    notes.empty_trash()
+    stage_restore(database, backup)
+
+    assert keep_secret_notes_secret(database, KEY, secret_notes_known(connection), None) == 1
+
+    assert earlier_rows(staged(database), KEY, note.id) == []
+    assert plain_anywhere(staged(database), KEY, "PLAINWORD") == []

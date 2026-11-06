@@ -8,12 +8,13 @@ next change number, which never goes backwards even if the clock does.
 
 import logging
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 import apsw
 
 from stickle.core.clock import Clock, days_before, utc_now
 from stickle.core.note import DEFAULT_COLOR, Note, content_hash
+from stickle.data import versions
 from stickle.data.imports import hide_text_hashes
 from stickle.data.search import search
 
@@ -156,14 +157,32 @@ class NoteRepository:
             )
         return self._require(note_id)
 
-    def _change(self, note_id: str, assignments: dict[str, object]) -> Note:
+    def _change(self, note_id: str, assignments: dict[str, object], now: str | None = None) -> Note:
         with self._db:
             self._require(note_id)
             columns = "".join(f"{name} = ?, " for name in assignments)
             self._db.execute(
                 f"UPDATE notes SET {columns}updated_at = ?, change_seq = ? WHERE id = ?",
-                (*assignments.values(), self._clock(), self._next_seq(), note_id),  # pyright: ignore[reportArgumentType]
+                (*assignments.values(), now or self._clock(), self._next_seq(), note_id),  # pyright: ignore[reportArgumentType]
             )
+        return self._require(note_id)
+
+    def _new_text(
+        self,
+        note_id: str,
+        assignments: dict[str, object],
+        keep_earlier: bool,
+        came_from: str | None = None,
+        restored: bool = False,
+    ) -> Note:
+        """The note's text changed, the one it had kept first as an earlier one
+        if asked (stickle.data.versions); the new one marked as made now, here
+        or on the device it came from."""
+        now = self._clock()
+        with self._db:
+            if keep_earlier:
+                versions.keep(self._db, note_id, now, restored)
+            self._change(note_id, {**assignments, "text_at": now, "text_from": came_from}, now)
         return self._require(note_id)
 
     def _require_live(self, note_id: str) -> Note:
@@ -172,20 +191,74 @@ class NoteRepository:
             raise NoteDeletedError(note_id)
         return note
 
-    def update_body(self, note_id: str, body: str) -> Note:
+    def update_body(self, note_id: str, body: str, keep_earlier: bool = False) -> Note:
+        """keep_earlier: the first save of an edit, which keeps the text it had."""
         note = self._require_live(note_id)
         if note.secret:
             raise NoteIsSecretError(note_id)  # its text goes in sealed only
         if body == note.body:
             return note  # nothing changed: no new change number
-        return self._change(note_id, {"body": body, "content_hash": content_hash(body)})
+        return self._new_text(
+            note_id, {"body": body, "content_hash": content_hash(body)}, keep_earlier
+        )
+
+    def replace_text(self, note_id: str, text: str | bytes, came_from: str | None) -> Note:
+        """The note's text replaced by one from elsewhere (another device's, a
+        conflict copy's; came_from: the device it was made on, None: this one),
+        in the clear or, for a secret note, encrypted; the text it had kept first."""
+        note = self._require_live(note_id)
+        if isinstance(text, bytes) != note.secret:
+            raise NoteIsSecretError(note_id) if note.secret else NoteNotSecretError(note_id)
+        if isinstance(text, bytes):
+            if text == note.sealed:
+                return note
+            assignments: dict[str, object] = {
+                "secret_body": text,
+                "content_hash": content_hash(text.hex()),
+            }
+        else:
+            if text == note.body:
+                return note
+            assignments = {"body": text, "content_hash": content_hash(text)}
+        return self._new_text(note_id, assignments, True, came_from)
+
+    def restore_version(self, note_id: str, version_id: int) -> Note:
+        """Back to an earlier text, as a new edit made here; the text the note had
+        kept, marked as put aside by going back. A secret note's earlier text is
+        encrypted for it already: it goes back as it is."""
+        text = versions.text_of(self._db, note_id, version_id)
+        if text is None:
+            raise KeyError(version_id)
+        note = self._require_live(note_id)
+        if isinstance(text, bytes) != note.secret:
+            raise NoteIsSecretError(note_id) if note.secret else NoteNotSecretError(note_id)
+        if isinstance(text, bytes):
+            assignments: dict[str, object] = {
+                "secret_body": text,
+                "content_hash": content_hash(text.hex()),
+            }
+        else:
+            assignments = {"body": text, "content_hash": content_hash(text)}
+        if assignments["content_hash"] == note.content_hash:
+            return note
+        return self._new_text(note_id, assignments, True, restored=True)
 
     # Secret notes: the text only ever encrypted here (stickle.crypto.secret_notes)
 
-    def make_secret(self, note_id: str, title: str, sealed: bytes) -> Note:
+    def make_secret(
+        self,
+        note_id: str,
+        title: str,
+        sealed: bytes,
+        seal_earlier: Callable[[str], bytes] | None = None,
+    ) -> Note:
         """The note's text replaced by sealed (it, encrypted), in one step, and gone
-        from the database: overwritten where it was, out of the search index."""
+        from the database: overwritten where it was, out of the search index. Its
+        earlier texts are sealed alike (seal_earlier: text -> encrypted, needed
+        when it has any in the clear)."""
         note = self._require_live(note_id)
+        if seal_earlier is None and versions.plain_count(self._db, note_id):
+            raise ValueError("earlier texts in the clear, and nothing to seal them with")
         with self._db:  # secret, and its old text owed a clearing away, together
             note = self._change(
                 note_id,
@@ -196,6 +269,8 @@ class NoteRepository:
                     "content_hash": content_hash(sealed.hex()),
                 },
             )
+            if seal_earlier is not None:
+                versions.seal_all(self._db, note_id, seal_earlier)
             hide_text_hashes(self._db, note_id)  # brought in from another app
             self._db.execute(
                 "INSERT INTO local_counters (key, value) VALUES (?, 1)"
@@ -233,6 +308,7 @@ class NoteRepository:
             self._db.execute("DELETE FROM note_sizes WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
+            versions.forget(self._db, note_id)
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
             hide_text_hashes(self._db, note_id)
 
@@ -244,14 +320,17 @@ class NoteRepository:
             [(note_id, self._clock()) for note_id in note_ids],
         )
 
-    def update_secret_body(self, note_id: str, sealed: bytes) -> Note:
+    def update_secret_body(self, note_id: str, sealed: bytes, keep_earlier: bool = False) -> Note:
+        """keep_earlier: the first save of an edit, which keeps the text it had."""
         note = self._require_live(note_id)
         if not note.secret:
             raise NoteNotSecretError(note_id)
         if sealed == note.sealed:
             return note
-        return self._change(
-            note_id, {"secret_body": sealed, "content_hash": content_hash(sealed.hex())}
+        return self._new_text(
+            note_id,
+            {"secret_body": sealed, "content_hash": content_hash(sealed.hex())},
+            keep_earlier,
         )
 
     def set_secret_title(self, note_id: str, title: str) -> Note:
@@ -259,19 +338,27 @@ class NoteRepository:
             raise NoteNotSecretError(note_id)
         return self._change(note_id, {"secret_title": title})
 
-    def make_ordinary(self, note_id: str, body: str) -> Note:
-        """A secret note an ordinary one again, its text (decrypted) as given."""
+    def make_ordinary(
+        self, note_id: str, body: str, open_earlier: Callable[[bytes], str] | None = None
+    ) -> Note:
+        """A secret note an ordinary one again, its text (decrypted) as given, and
+        its earlier texts opened too (open_earlier: encrypted -> text) — it is not
+        secret any more. One that does not open stays sealed, not lost."""
         if not self._require_live(note_id).secret:
             raise NoteNotSecretError(note_id)
-        return self._change(
-            note_id,
-            {
-                "body": body,
-                "secret_body": None,
-                "secret_title": None,
-                "content_hash": content_hash(body),
-            },
-        )
+        with self._db:
+            self._change(
+                note_id,
+                {
+                    "body": body,
+                    "secret_body": None,
+                    "secret_title": None,
+                    "content_hash": content_hash(body),
+                },
+            )
+            if open_earlier is not None:
+                versions.open_all(self._db, note_id, open_earlier)
+        return self._require(note_id)
 
     def forget_old_text(self) -> None:
         """Text replaced or removed leaves no trace a key to the database would
@@ -494,8 +581,8 @@ class NoteRepository:
     def purge(self, note_id: str) -> None:
         """Empty a deleted note from the trash for good: only a deletion record stays.
 
-        The note, its places on screen, its marks, its reminders and its search
-        entry go, in one transaction.
+        The note, its places on screen, its marks, its reminders, its earlier
+        texts and its search entry go, in one transaction.
         """
         with self._db:
             note = self._require(note_id)
@@ -516,6 +603,7 @@ class NoteRepository:
             self._db.execute("DELETE FROM note_sizes WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
+            versions.forget(self._db, note_id)
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
 
     def discard(self, note_id: str) -> None:

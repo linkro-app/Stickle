@@ -306,8 +306,35 @@ INSERT OR IGNORE INTO device_settings (key, value)
 DELETE FROM shared_settings WHERE key = 'news_seen';
 """
 
+V14 = """
+-- A note's earlier texts (stickle.data.versions), on this computer only: the
+-- text it had before it changed. A secret note's are encrypted as its text is
+-- (sealed; body NULL). content_hash is worked out as the note's: the same text
+-- is kept once, and the one the note has now is not shown. made_at, made_by:
+-- when it became the note's text and where (NULL: here); restored: put aside by
+-- going back to an earlier one, at kept_at. Kept 30 days from kept_at.
+CREATE TABLE note_versions (
+    id INTEGER PRIMARY KEY,
+    note_id TEXT NOT NULL,
+    body TEXT CHECK (body IS NULL OR instr(body, char(0)) = 0),
+    sealed BLOB,
+    content_hash TEXT NOT NULL,
+    made_at TEXT NOT NULL,
+    made_by TEXT,
+    restored INTEGER NOT NULL DEFAULT 0,
+    kept_at TEXT NOT NULL,
+    CHECK ((body IS NULL) != (sealed IS NULL))
+);
+CREATE INDEX note_versions_by_note ON note_versions (note_id, kept_at);
+
+-- When a note's text became what it is, and where from (NULL: here), for when
+-- it is kept as an earlier one. Before now: NULL, its updated_at taken instead.
+ALTER TABLE notes ADD COLUMN text_at TEXT;
+ALTER TABLE notes ADD COLUMN text_from TEXT;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14]
 BACKUPS_KEPT = 3
 
 

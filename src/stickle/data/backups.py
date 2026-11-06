@@ -20,10 +20,12 @@ told. A backup's would bring back an older key, or a word about one: with
 both copies of a key file lost, its older copy would come back at start.
 
 A backup may hold, in the clear, the earlier text of a note made secret
-since. Going back never brings that text back plain: in the copy put in
-place, it is sealed with the secret notes' key when their password is given,
-or else the note keeps its text as it is now. The backup itself is not
-changed (it opens only with the database key, which is never copied out).
+since, as its text or among its earlier texts (stickle.data.versions). Going
+back never brings that text back plain: in the copy put in place, it is
+sealed with the secret notes' key when their password is given, or else the
+note keeps its text, and its earlier texts, as they are now. The backup itself
+is not changed (it opens only with the database key, which is never copied
+out).
 
 The copies made before an upgrade (stickle.data.schema.backup) are kept
 apart, in backups itself.
@@ -35,11 +37,13 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from pathlib import Path
 
 import apsw
 
 from stickle.core.clock import Clock, utc_now
+from stickle.data import versions
 from stickle.data.database import WrongKeyError, open_database
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import latest_version, schema_version, upgrade
@@ -191,14 +195,20 @@ def contents(backup: Path, key: bytes, latest_version: int) -> Contents | None:
         connection.close()
 
 
+# An earlier text's columns as stickle.data.versions keeps them, its id aside.
+_VERSION_COLUMNS = "body, sealed, content_hash, made_at, made_by, restored, kept_at"
+
+
 @dataclass(frozen=True)
 class SecretNow:
-    """A note secret now: the title it is shown by, and its text, encrypted. Or
-    one secret once and gone since (emptied from the trash while secret, or not
-    in a backup gone back to): neither."""
+    """A note secret now: the title it is shown by, its text, encrypted, and its
+    earlier texts (as their rows hold them, encrypted too). Or one secret once
+    and gone since (emptied from the trash while secret, or not in a backup gone
+    back to): none of them."""
 
     title: str = ""
     sealed: bytes | None = None
+    earlier: tuple[tuple[object, ...], ...] = ()
 
 
 def secret_notes_known(connection: apsw.Connection) -> dict[str, SecretNow]:
@@ -210,12 +220,28 @@ def secret_notes_known(connection: apsw.Connection) -> dict[str, SecretNow]:
     }
     rows = connection.execute(
         "SELECT id, secret_title, secret_body FROM notes WHERE secret_body IS NOT NULL"
-    )
-    known.update(
-        (str(note_id), SecretNow(str(title or ""), bytes(sealed)))  # pyright: ignore[reportArgumentType]
-        for note_id, title, sealed in rows
-    )
+    ).fetchall()
+    for note_id, title, sealed in rows:
+        earlier = connection.execute(
+            f"SELECT {_VERSION_COLUMNS} FROM note_versions WHERE note_id = ? ORDER BY id",
+            (note_id,),
+        ).fetchall()
+        known[str(note_id)] = SecretNow(
+            str(title or ""),
+            bytes(sealed),  # pyright: ignore[reportArgumentType]
+            tuple(tuple(row) for row in earlier),
+        )
     return known
+
+
+def _plain_earlier(connection: apsw.Connection, known: Mapping[str, SecretNow]) -> set[str]:
+    """The notes secret now or once whose earlier texts this copy holds in the
+    clear, some of them. A copy made before earlier texts were kept has none."""
+    tables = {str(row[0]) for row in connection.execute("SELECT name FROM sqlite_schema")}
+    if "note_versions" not in tables:
+        return set()
+    rows = connection.execute("SELECT DISTINCT note_id FROM note_versions WHERE sealed IS NULL")
+    return {str(note_id) for (note_id,) in rows if note_id in known}
 
 
 def _plain_texts(connection: apsw.Connection, known: Mapping[str, SecretNow]) -> dict[str, str]:
@@ -229,14 +255,24 @@ def _plain_texts(connection: apsw.Connection, known: Mapping[str, SecretNow]) ->
 
 def old_secret_texts(backup: Path, key: bytes, known: Mapping[str, SecretNow]) -> int:
     """How many notes secret now or once the backup holds the earlier text of in
-    the clear (from before they were made secret)."""
+    the clear (from before they were made secret), as their text or as one of
+    their earlier texts."""
     if not known:
         return 0
     connection = open_database(backup, key, read_only=True)
     try:
-        return len(_plain_texts(connection, known))
+        return len(_plain_texts(connection, known).keys() | _plain_earlier(connection, known))
     finally:
         connection.close()
+
+
+def _earlier_as_now(connection: apsw.Connection, note_id: str, secret: SecretNow) -> None:
+    """The note's earlier texts in the copy as they are now (none for one gone)."""
+    connection.execute("DELETE FROM note_versions WHERE note_id = ?", (note_id,))
+    connection.executemany(
+        f"INSERT INTO note_versions (note_id, {_VERSION_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [(note_id, *row) for row in secret.earlier],  # pyright: ignore[reportArgumentType]
+    )
 
 
 def keep_secret_notes_secret(
@@ -248,19 +284,21 @@ def keep_secret_notes_secret(
     """The staged backup's notes that are secret now or once, yet plain there,
     made secret there too: their earlier text sealed (seal: note id, text ->
     encrypted) or, without seal, their text as it is now (one gone since is left
-    out). Their old text is cleared away from the copy, and those it has no note
-    for are remembered in it, for a later going back. The backup itself is left
-    as it is. How many were plain there."""
+    out). Their earlier texts kept in the clear there go the same way: sealed,
+    or as they are now. Their old text is cleared away from the copy, and those
+    it has no note for are remembered in it, for a later going back. The backup
+    itself is left as it is. How many were plain there."""
     staged = database.with_name(database.name + RESTORING)
     looked = open_database(staged, key, read_only=True)
     try:
         version = schema_version(looked)
         found = _plain_texts(looked, known)
+        earlier = _plain_earlier(looked, known)
         there = {str(row[0]) for row in looked.execute("SELECT id FROM notes")}
     finally:
         looked.close()
     missing = [note_id for note_id in known if note_id not in there]
-    if not found and not missing:
+    if not found and not earlier and not missing:
         return 0  # the copy left as the backup is
     if version < latest_version():
         upgrade(staged, key, version)  # columns for secret notes first, no copy kept aside
@@ -277,10 +315,15 @@ def keep_secret_notes_secret(
                 else:
                     notes.leave_out(note_id)
                     missing.append(note_id)
+            for note_id in found.keys() | earlier:
+                if seal is not None:
+                    versions.seal_all(connection, note_id, partial(seal, note_id))
+                else:
+                    _earlier_as_now(connection, note_id, known[note_id])
             notes.remember_once_secret(missing)
-        if found:
+        if found or earlier:
             notes.forget_old_text()
-        return len(found)
+        return len(found.keys() | earlier)
     finally:
         connection.close()
 

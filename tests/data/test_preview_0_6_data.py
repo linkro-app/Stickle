@@ -47,6 +47,7 @@ from stickle.data.settings import (
     KeptRecoveryKey,
     Settings,
 )
+from stickle.data.versions import VersionRepository
 from stickle.platform.credentials import CredentialStore
 from stickle.unlock import NeedPassword, Unlock
 
@@ -99,6 +100,25 @@ def test_every_note_opens_as_it_was(unlock: Unlock, key: bytes) -> None:
             )
         assert plain[TRASHED].deleted
         assert [c.hex for c in ColorRepository(connection).colors()] == [OWN_COLOR]
+    finally:
+        connection.close()
+
+
+def test_its_notes_have_no_earlier_texts_and_the_first_edit_keeps_the_0_6_one(
+    unlock: Unlock, key: bytes
+) -> None:
+    connection = open_store(unlock.database, key)
+    try:
+        notes = NoteRepository(connection)
+        kept = VersionRepository(connection)
+        note = next(n for n in notes.live() if n.body == NOTES[0][0])
+        assert all(not kept.has_any(n.id) for n in notes.all())
+
+        notes.update_body(note.id, "0.7에서 고친 글", keep_earlier=True)
+
+        [version] = kept.listed(note.id)
+        assert kept.text(note.id, version.id) == NOTES[0][0]
+        assert (version.at, version.came_from) == (note.updated_at, None)  # its 0.6 time
     finally:
         connection.close()
 
