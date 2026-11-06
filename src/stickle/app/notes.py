@@ -1791,6 +1791,7 @@ class NoteManager(QObject):
                 window, "Stickle", self.tr("The earlier version could not be restored.")
             )
             return
+        log.info("a note went back to an earlier version")
         text: str | None = None if note.secret else note.body
         key = self._keys.get(window) if window is not None else None
         if note.secret and key is not None and note.sealed is not None:

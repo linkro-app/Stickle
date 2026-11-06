@@ -3,6 +3,7 @@ and its first line; the one picked shown formatted; going back to it as a new
 edit (what the note held is a version then); deleting one or all; from the
 note's menu while it has some, and from the Stickle window's list."""
 
+import logging
 import secrets
 import tracemalloc
 from collections.abc import Callable, Iterator
@@ -149,7 +150,9 @@ def test_going_back_from_the_notes_menu_is_a_new_edit_shown_in_the_note(
     repository: NoteRepository,
     connection: apsw.Connection,
     shown: Shown,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO)
     note_id = with_versions(repository, "처음 글", "둘째 글")
     manager.open_stored()
     window = manager.window_for(note_id)
@@ -172,6 +175,9 @@ def test_going_back_from_the_notes_menu_is_a_new_edit_shown_in_the_note(
     kept = VersionRepository(connection)
     top = kept.listed(note_id)[0]
     assert top.restored and kept.text(note_id, top.id) == "둘째 글"
+    logged = [r.getMessage() for r in caplog.records]
+    assert "a note went back to an earlier version" in logged
+    assert not any("처음" in line or "둘째" in line for line in logged)  # no text in the log
 
 
 def test_what_the_note_held_unsaved_is_a_version_before_going_back(
