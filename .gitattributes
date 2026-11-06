@@ -10,3 +10,6 @@
 *.otf binary
 *.ttf binary
 *.ttc binary
+
+# The vault format sample is read byte for byte
+tests/sync/vault_sample_*/** binary
