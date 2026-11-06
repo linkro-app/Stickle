@@ -40,10 +40,10 @@ from stickle.app.tray import switch_autostart
 from stickle.data.notes import NoteRepository
 from stickle.data.settings import (
     APP_MENU_ASKED,
-    RECOVERY_KEY_KEPT,
     SEVERAL_DEVICES,
     THIS_DEVICE,
     USAGE,
+    KeptRecoveryKey,
     Settings,
 )
 from stickle.platform.autostart import Autostart, may_be_blocked
@@ -335,6 +335,7 @@ class FirstRunDialog(QDialog):
 def welcome(
     notes: NoteRepository,
     settings: Settings,
+    kept: KeptRecoveryKey,
     make_recovery_key: Callable[[], str],
     autostart: Autostart | None,
     app_list: AppMenuEntry | None,
@@ -375,7 +376,7 @@ def welcome(
         if choices.app_list:
             switch_app_list(app_list, True)
     if choices.recovery_key_kept:
-        settings.set(RECOVERY_KEY_KEPT, True)
+        kept.keep()
     log.info(
         "first start: usage %s, start at login %s, recovery key %s",
         choices.usage,

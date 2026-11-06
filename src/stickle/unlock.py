@@ -47,6 +47,7 @@ from stickle.crypto.recovery import (
     open_recovery_pair,
     pair_for_export,
     read_recovery,
+    recovery_key_id,
     save_recovery_slot,
 )
 from stickle.crypto.recovery import generate as generate_recovery_key
@@ -207,6 +208,16 @@ class Unlock:
         except KeyFileError, OSError:
             return None
         return None if slot is None else slot.set_at
+
+    @property
+    def recovery_key_id(self) -> str | None:
+        """Which recovery key the notes have now (stickle.crypto.recovery), None
+        without one or with its file unreadable."""
+        try:
+            slot = read_recovery(self.files)
+        except KeyFileError, OSError:
+            return None
+        return None if slot is None else recovery_key_id(slot)
 
     def open_with_recovery_key(self, typed: str) -> bytes:
         """The key, or RecoveryKeyTypoError / WrongRecoveryKeyError.

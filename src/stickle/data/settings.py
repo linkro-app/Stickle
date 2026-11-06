@@ -89,6 +89,13 @@ def _uuid_or_none(value: object) -> TypeGuard[str | None]:
         return False
 
 
+def _sha256_or_none(value: object) -> TypeGuard[str | None]:
+    """A SHA-256 in hex, or None."""
+    return value is None or (
+        isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+    )
+
+
 # The interface language is not here: it is needed before the database is
 # open (see stickle.data.startup).
 DEVICE_ID = Setting[str | None]("device_id", "device", None, _uuid_or_none)
@@ -97,8 +104,12 @@ DEFAULT_NOTE_COLOR = Setting[str]("default_color", "shared", DEFAULT_COLOR, _col
 APP_MENU_ASKED = Setting[bool]("app_menu_asked", "device", False, _flag)
 # Asked at first start: notes on this computer only, or on several (sync comes later).
 USAGE = Setting[str | None]("usage", "device", None, _usage)
-# The user said they kept the recovery key (Done, not Later).
-RECOVERY_KEY_KEPT = Setting[bool]("recovery_key_kept", "device", False, _flag)
+# Which recovery key the user said they keep (Done, not Later), by its id
+# (stickle.crypto.recovery): it counts only while it is the one the notes have,
+# so a new one made since, here or elsewhere, is not taken for kept.
+RECOVERY_KEY_KEPT = Setting[str | None]("recovery_key_kept_id", "shared", None, _sha256_or_none)
+# Until 0.6, kept as yes or no on each device: taken for the key there, once.
+RECOVERY_KEY_KEPT_UNTIL_0_6 = Setting[bool]("recovery_key_kept", "device", False, _flag)
 # Skipped at first start, the recovery key is offered once more, never again after.
 RECOVERY_KEY_OFFERED_AGAIN = Setting[bool]("recovery_key_offered_again", "device", False, _flag)
 # The Stickle window's size as the user left it (screens differ between devices).
@@ -242,18 +253,11 @@ PROTECTION_CHANGES = Setting[list[dict[str, object]]](
 )
 
 
-def _place_or_none(value: object) -> TypeGuard[str | None]:
-    """A SHA-256 in hex, or None."""
-    return value is None or (
-        isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
-    )
-
-
 # Stickle's data folder found inside a cloud program's folder (OneDrive's...):
 # that place, as a hash rather than its path, once a notification of the system
 # told of it and once the user said OK to the line in Stickle Manager.
-CLOUD_FOLDER_TOLD = Setting[str | None]("cloud_folder_told", "device", None, _place_or_none)
-CLOUD_FOLDER_SEEN = Setting[str | None]("cloud_folder_seen", "device", None, _place_or_none)
+CLOUD_FOLDER_TOLD = Setting[str | None]("cloud_folder_told", "device", None, _sha256_or_none)
+CLOUD_FOLDER_SEEN = Setting[str | None]("cloud_folder_seen", "device", None, _sha256_or_none)
 
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
@@ -263,6 +267,7 @@ SETTINGS: dict[str, Setting[object]] = {
         APP_MENU_ASKED,
         USAGE,
         RECOVERY_KEY_KEPT,
+        RECOVERY_KEY_KEPT_UNTIL_0_6,
         RECOVERY_KEY_OFFERED_AGAIN,
         LIST_WINDOW_SIZE,
         SHORTCUTS,
@@ -321,6 +326,12 @@ class Settings:
                     (setting.key, encoded, self._clock(), self.device_id()),
                 )
 
+    def clear[T](self, setting: Setting[T]) -> None:
+        """Back to its default, its row gone."""
+        table = "device_settings" if setting.scope == "device" else "shared_settings"
+        with self._db:
+            self._db.execute(f"DELETE FROM {table} WHERE key = ?", (setting.key,))
+
     def device_id(self) -> str:
         """This device's identity, created on first use."""
         current = self.get(DEVICE_ID)
@@ -328,3 +339,37 @@ class Settings:
             current = str(uuid.uuid4())
             self.set(DEVICE_ID, current)
         return current
+
+
+class KeptRecoveryKey:
+    """Whether the user said they keep the recovery key the notes have now;
+    key_id says which one that is (None without one, or unreadable)."""
+
+    def __init__(self, settings: Settings, key_id: Callable[[], str | None]) -> None:
+        self._settings = settings
+        self._key_id = key_id
+
+    def is_kept(self) -> bool:
+        current = self._key_id()
+        return current is not None and self._settings.get(RECOVERY_KEY_KEPT) == current
+
+    def keep(self) -> None:
+        """The user said the one the notes have now is kept somewhere safe."""
+        current = self._key_id()
+        if current is not None:
+            self._settings.set(RECOVERY_KEY_KEPT, current)
+
+    def forget(self) -> None:
+        """A new one is about to be made: none is kept until the user says so."""
+        self._settings.set(RECOVERY_KEY_KEPT, None)
+
+    def carry_over(self) -> None:
+        """Yes or no on this device, as kept until 0.6, said of the key the notes
+        had then: still theirs, as making one cleared it first. Taken once the
+        key can be read (else tried again next time)."""
+        if self._settings.get(RECOVERY_KEY_KEPT_UNTIL_0_6):
+            current = self._key_id()
+            if current is None:
+                return
+            self._settings.set(RECOVERY_KEY_KEPT, current)
+        self._settings.clear(RECOVERY_KEY_KEPT_UNTIL_0_6)

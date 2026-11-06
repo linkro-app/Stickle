@@ -13,7 +13,7 @@ from PySide6.QtCore import QCoreApplication
 
 from stickle.app.recovery_key_dialog import RecoveryKeyDialog
 from stickle.data.notes import NoteRepository
-from stickle.data.settings import RECOVERY_KEY_KEPT, RECOVERY_KEY_OFFERED_AGAIN, Settings
+from stickle.data.settings import RECOVERY_KEY_OFFERED_AGAIN, KeptRecoveryKey, Settings
 
 log = logging.getLogger(__name__)
 NOTES_WORTH_KEEPING = 5
@@ -27,12 +27,14 @@ class RecoveryOffer:
     def __init__(
         self,
         settings: Settings,
+        kept: KeptRecoveryKey,
         notes: NoteRepository,
         make_recovery_key: Callable[[], str],
         show: Callable[[RecoveryKeyDialog], bool] = _exec,
         secret_notes_on: Callable[[], bool] = lambda: False,
     ) -> None:
         self._settings = settings
+        self._kept = kept
         self._notes = notes
         self._make = make_recovery_key
         self._show = show
@@ -40,7 +42,7 @@ class RecoveryOffer:
 
     def check(self) -> None:
         """Offer it now if it is due; at most once, ever."""
-        if self._settings.get(RECOVERY_KEY_KEPT) or self._settings.get(RECOVERY_KEY_OFFERED_AGAIN):
+        if self._kept.is_kept() or self._settings.get(RECOVERY_KEY_OFFERED_AGAIN):
             return
         if self._secret_notes_on():
             # A new key here would not open them (their key is not at hand to seal
@@ -61,7 +63,7 @@ class RecoveryOffer:
             "is a new one. Keep it now if you can; Stickle will not ask again.",
         )
         if self._show(RecoveryKeyDialog(recovery_key, reason=reason)):
-            self._settings.set(RECOVERY_KEY_KEPT, True)
+            self._kept.keep()
             log.info("recovery key kept when offered again")
         else:
             log.info("recovery key skipped again; not offered any more")

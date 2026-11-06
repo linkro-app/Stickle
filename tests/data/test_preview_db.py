@@ -23,7 +23,7 @@ from stickle.data.schema import latest_version, open_store, schema_version
 from stickle.data.search import search
 from stickle.data.settings import (
     DEFAULT_NOTE_COLOR,
-    RECOVERY_KEY_KEPT,
+    RECOVERY_KEY_KEPT_UNTIL_0_6,
     THIS_DEVICE,
     USAGE,
     Settings,
@@ -83,7 +83,8 @@ def test_settings_stay(copy: Path) -> None:
     try:
         settings = Settings(connection)
         assert settings.get(DEFAULT_NOTE_COLOR) == DEFAULT_COLOR_SET
-        assert settings.get(RECOVERY_KEY_KEPT) is True
+        # As it was, until the app takes it for the recovery key it finds.
+        assert settings.get(RECOVERY_KEY_KEPT_UNTIL_0_6) is True
         assert settings.get(USAGE) == THIS_DEVICE
     finally:
         connection.close()

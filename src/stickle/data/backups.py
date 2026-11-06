@@ -43,11 +43,22 @@ from stickle.core.clock import Clock, utc_now
 from stickle.data.database import WrongKeyError, open_database
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import latest_version, schema_version, upgrade
-from stickle.data.settings import PROTECTION_CHANGES, RECOVERY_KEY_KEPT
+from stickle.data.settings import (
+    PROTECTION_CHANGES,
+    RECOVERY_KEY_KEPT,
+    RECOVERY_KEY_KEPT_UNTIL_0_6,
+    Setting,
+)
 
 KEPT_DAYS = 7
-# Settings of this computer about its key files, kept as they are now.
-KEY_SETTINGS = (RECOVERY_KEY_KEPT.key, PROTECTION_CHANGES.key)
+# Settings about the key files, kept as they are now: the key files are not gone
+# back to. The one kept until 0.6 too, so that one in a backup is not taken for
+# the recovery key there is now.
+KEY_SETTINGS: tuple[Setting[object], ...] = (
+    RECOVERY_KEY_KEPT,  # pyright: ignore[reportAssignmentType]
+    RECOVERY_KEY_KEPT_UNTIL_0_6,  # pyright: ignore[reportAssignmentType]
+    PROTECTION_CHANGES,  # pyright: ignore[reportAssignmentType]
+)
 BEFORE_RESTORE = "-before-restore"
 PARTIAL = ".partial"
 RESTORING = ".restoring"
@@ -278,9 +289,16 @@ def keep_key_state(database: Path, key: bytes, now: apsw.Connection) -> None:
     """The staged backup given what goes with the key files as it is in now (the
     database open): their copies, and this computer's settings about them."""
     copies = now.execute("SELECT name, content FROM key_copies").fetchall()
-    marks = ", ".join("?" * len(KEY_SETTINGS))
-    settings = now.execute(
-        f"SELECT key, value FROM device_settings WHERE key IN ({marks})", KEY_SETTINGS
+    device = tuple(s.key for s in KEY_SETTINGS if s.scope == "device")
+    shared = tuple(s.key for s in KEY_SETTINGS if s.scope == "shared")
+    on_device, in_common = ", ".join("?" * len(device)), ", ".join("?" * len(shared))
+    device_rows = now.execute(
+        f"SELECT key, value FROM device_settings WHERE key IN ({on_device})", device
+    ).fetchall()
+    shared_rows = now.execute(
+        "SELECT key, value, updated_at, updated_by FROM shared_settings"
+        f" WHERE key IN ({in_common})",
+        shared,
     ).fetchall()
     staged = database.with_name(database.name + RESTORING)
     looked = open_database(staged, key, read_only=True)
@@ -295,9 +313,15 @@ def keep_key_state(database: Path, key: bytes, now: apsw.Connection) -> None:
         with connection:
             connection.execute("DELETE FROM key_copies")
             connection.executemany("INSERT INTO key_copies (name, content) VALUES (?, ?)", copies)
-            connection.execute(f"DELETE FROM device_settings WHERE key IN ({marks})", KEY_SETTINGS)
+            connection.execute(f"DELETE FROM device_settings WHERE key IN ({on_device})", device)
             connection.executemany(
-                "INSERT INTO device_settings (key, value) VALUES (?, ?)", settings
+                "INSERT INTO device_settings (key, value) VALUES (?, ?)", device_rows
+            )
+            connection.execute(f"DELETE FROM shared_settings WHERE key IN ({in_common})", shared)
+            connection.executemany(
+                "INSERT INTO shared_settings (key, value, updated_at, updated_by)"
+                " VALUES (?, ?, ?, ?)",
+                shared_rows,
             )
     finally:
         connection.close()

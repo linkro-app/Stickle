@@ -11,15 +11,21 @@ from pytestqt.qtbot import QtBot
 from stickle.app.first_run import FirstRunDialog, sample_note, welcome
 from stickle.app.i18n import Translations
 from stickle.crypto.key_files import KeyFiles
-from stickle.crypto.recovery import generate, read_recovery, unwrap, write_recovery
+from stickle.crypto.recovery import (
+    generate,
+    read_recovery,
+    recovery_key_id,
+    unwrap,
+    write_recovery,
+)
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.settings import (
     APP_MENU_ASKED,
-    RECOVERY_KEY_KEPT,
     SEVERAL_DEVICES,
     THIS_DEVICE,
     USAGE,
+    KeptRecoveryKey,
     Settings,
 )
 from stickle.platform.autostart import Autostart, Places
@@ -39,7 +45,12 @@ class Place:
             Places(home=folder, config=folder / "config", appdata=folder), "linux", ["/x"]
         )
         self.app_list = AppMenuEntry(folder / "Stickle.AppImage", b"png", folder / "share")
+        self.kept = KeptRecoveryKey(self.settings, self.recovery_key_id)
         self.shown: list[str] = []
+
+    def recovery_key_id(self) -> str | None:
+        slot = read_recovery(KeyFiles(self.folder))
+        return None if slot is None else recovery_key_id(slot)
 
     def make_recovery_key(self) -> str:
         recovery_key = generate()
@@ -59,6 +70,7 @@ class Place:
         welcome(
             self.notes,
             self.settings,
+            self.kept,
             self.make_recovery_key,
             self.autostart if offers else None,
             self.app_list if offers else None,
@@ -101,7 +113,7 @@ def test_going_through_sets_everything_up(place: Place) -> None:
     assert place.autostart.enabled
     assert place.app_list.added
     assert place.settings.get(APP_MENU_ASKED)
-    assert place.settings.get(RECOVERY_KEY_KEPT)
+    assert place.kept.is_kept()
     # The key shown is the one that opens the notes.
     slot = read_recovery(KeyFiles(place.folder))
     assert slot is not None
@@ -112,7 +124,7 @@ def test_later_leaves_the_recovery_key_to_be_offered_again(place: Place) -> None
     place.welcome(go_through(kept=False, several=True))
 
     assert place.settings.get(USAGE) == SEVERAL_DEVICES
-    assert not place.settings.get(RECOVERY_KEY_KEPT)
+    assert not place.kept.is_kept()
     assert place.autostart.enabled
 
 
@@ -124,7 +136,7 @@ def test_closing_it_at_once_chooses_nothing_for_the_user(place: Place) -> None:
     assert not place.autostart.enabled
     assert not place.app_list.added
     assert not place.settings.get(APP_MENU_ASKED)
-    assert not place.settings.get(RECOVERY_KEY_KEPT)
+    assert not place.kept.is_kept()
 
 
 def test_unchecked_choices_are_respected(place: Place) -> None:
@@ -163,11 +175,11 @@ def test_without_a_recovery_key_the_welcome_ends_after_the_first_page(
         return None
 
     welcome(
-        place.notes, place.settings, fail, place.autostart, None, answer,
+        place.notes, place.settings, place.kept, fail, place.autostart, None, answer,
         login_may_be_blocked=False,
     )  # fmt: skip
     assert place.autostart.enabled
-    assert not place.settings.get(RECOVERY_KEY_KEPT)
+    assert not place.kept.is_kept()
     place.connection.close()
 
 
@@ -189,6 +201,7 @@ def test_the_language_is_chosen_first_and_the_sample_note_follows(
     welcome(
         place.notes,
         place.settings,
+        place.kept,
         place.make_recovery_key,
         place.autostart,
         place.app_list,

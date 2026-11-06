@@ -23,7 +23,12 @@ from stickle.data.database import KEY_BYTES, WrongKeyError, open_database
 from stickle.data.key_copies import KeyCopies
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import latest_version, open_store
-from stickle.data.settings import PROTECTION_CHANGES, RECOVERY_KEY_KEPT, Settings
+from stickle.data.settings import (
+    PROTECTION_CHANGES,
+    RECOVERY_KEY_KEPT,
+    RECOVERY_KEY_KEPT_UNTIL_0_6,
+    Settings,
+)
 
 KEY = secrets.token_bytes(KEY_BYTES)
 
@@ -196,11 +201,13 @@ def test_going_back_keeps_what_goes_with_the_key_files_as_it_is_now(database: Pa
     copies = KeyCopies(connection)
     copies.put("STK_STRUCTURE_INTEGRITY_B", b"recovery key then")
     copies.put("STK_STRUCTURE_INTEGRITY_C", b"secret notes then")
-    settings.set(RECOVERY_KEY_KEPT, True)
+    settings.set(RECOVERY_KEY_KEPT, "a" * 64)
+    settings.set(RECOVERY_KEY_KEPT_UNTIL_0_6, True)  # as 0.6 kept it
     backup = take(connection, database, FakeClock())
     copies.put("STK_STRUCTURE_INTEGRITY_B", b"recovery key now")
     connection.execute("DELETE FROM key_copies WHERE name = 'STK_STRUCTURE_INTEGRITY_C'")
-    settings.set(RECOVERY_KEY_KEPT, False)  # a new one made, not kept yet
+    settings.set(RECOVERY_KEY_KEPT, "b" * 64)  # a new one made, and kept
+    settings.clear(RECOVERY_KEY_KEPT_UNTIL_0_6)  # taken for the key there was
     told: list[dict[str, object]] = [
         {"what": "master_password_set", "at": "2026-10-27T09:00:00.000Z", "told": False}
     ]
@@ -217,7 +224,9 @@ def test_going_back_keeps_what_goes_with_the_key_files_as_it_is_now(database: Pa
     kept = KeyCopies(reopened)
     assert kept.get("STK_STRUCTURE_INTEGRITY_B") == b"recovery key now"
     assert kept.get("STK_STRUCTURE_INTEGRITY_C") is None
-    assert not Settings(reopened).get(RECOVERY_KEY_KEPT)
+    assert Settings(reopened).get(RECOVERY_KEY_KEPT) == "b" * 64
+    # Not taken again, for the recovery key there is now.
+    assert not Settings(reopened).get(RECOVERY_KEY_KEPT_UNTIL_0_6)
     assert Settings(reopened).get(PROTECTION_CHANGES) == told
     reopened.close()
 

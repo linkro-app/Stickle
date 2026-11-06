@@ -39,7 +39,14 @@ from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import latest_version, open_store, schema_version
-from stickle.data.settings import DEFAULT_NOTE_COLOR, NEWS_SEEN, RECOVERY_KEY_KEPT, Settings
+from stickle.data.settings import (
+    DEFAULT_NOTE_COLOR,
+    NEWS_SEEN,
+    RECOVERY_KEY_KEPT,
+    RECOVERY_KEY_KEPT_UNTIL_0_6,
+    KeptRecoveryKey,
+    Settings,
+)
 from stickle.platform.credentials import CredentialStore
 from stickle.unlock import NeedPassword, Unlock
 
@@ -158,8 +165,25 @@ def test_settings_stay(unlock: Unlock, key: bytes) -> None:
         # This device's own now: not among those that will follow to other devices.
         shared = connection.execute("SELECT key FROM shared_settings").fetchall()
         assert (NEWS_SEEN.key,) not in shared
-        assert settings.get(RECOVERY_KEY_KEPT) is True
         assert settings.get(DEFAULT_NOTE_COLOR) == DEFAULT_COLOR_SET
+    finally:
+        connection.close()
+
+
+def test_the_recovery_key_said_to_be_kept_is_the_one_there_is(unlock: Unlock, key: bytes) -> None:
+    connection = open_store(unlock.database, key)
+    try:
+        settings = Settings(connection)
+        kept = KeptRecoveryKey(settings, lambda: unlock.recovery_key_id)
+        assert settings.get(RECOVERY_KEY_KEPT_UNTIL_0_6) is True  # yes, on this device
+
+        kept.carry_over()
+
+        assert kept.is_kept()
+        assert settings.get(RECOVERY_KEY_KEPT) == unlock.recovery_key_id
+        assert not settings.get(RECOVERY_KEY_KEPT_UNTIL_0_6)
+        unlock.make_recovery_key(key)  # another one since: not said to be kept
+        assert not kept.is_kept()
     finally:
         connection.close()
 

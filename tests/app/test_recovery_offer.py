@@ -1,5 +1,6 @@
 """The recovery key, offered once more to whoever skipped it, and only once."""
 
+import hashlib
 import secrets
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,7 +14,7 @@ from stickle.app.recovery_offer import NOTES_WORTH_KEEPING, RecoveryOffer
 from stickle.crypto.recovery import generate
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
-from stickle.data.settings import RECOVERY_KEY_KEPT, RECOVERY_KEY_OFFERED_AGAIN, Settings
+from stickle.data.settings import RECOVERY_KEY_OFFERED_AGAIN, KeptRecoveryKey, Settings
 
 KEY = secrets.token_bytes(32)
 
@@ -25,10 +26,13 @@ class Offer:
         self.shown: list[RecoveryKeyDialog] = []
         self.made: list[str] = []
         self._answer = answer
-        self.offer = RecoveryOffer(self.settings, self.notes, self.make, self.show)
+        self.key_id = "a" * 64  # the one made at first start
+        self.kept = KeptRecoveryKey(self.settings, lambda: self.key_id)
+        self.offer = RecoveryOffer(self.settings, self.kept, self.notes, self.make, self.show)
 
     def make(self) -> str:
         self.made.append(generate())
+        self.key_id = hashlib.sha256(self.made[-1].encode()).hexdigest()
         return self.made[-1]
 
     def show(self, dialog: RecoveryKeyDialog) -> bool:
@@ -69,7 +73,7 @@ def test_offered_at_five_notes_with_the_reason(connection: apsw.Connection) -> N
     assert dialog.panel.recovery_key == offer.made[0]
     assert "will not ask again" in dialog.reason.text()
     assert not dialog.reason.isHidden()
-    assert offer.settings.get(RECOVERY_KEY_KEPT)
+    assert offer.kept.is_kept()  # the new one
 
 
 def test_skipped_again_it_is_never_offered_again(connection: apsw.Connection) -> None:
@@ -81,12 +85,12 @@ def test_skipped_again_it_is_never_offered_again(connection: apsw.Connection) ->
     offer.offer.check()
 
     assert len(offer.shown) == 1
-    assert not offer.settings.get(RECOVERY_KEY_KEPT)
+    assert not offer.kept.is_kept()
 
 
 def test_kept_at_first_start_means_never_offered(connection: apsw.Connection) -> None:
     offer = Offer(connection, answer=True)
-    offer.settings.set(RECOVERY_KEY_KEPT, True)
+    offer.kept.keep()
     notes(offer, NOTES_WORTH_KEEPING)
 
     offer.offer.check()
@@ -128,7 +132,12 @@ def test_not_offered_once_there_are_secret_notes(connection: apsw.Connection) ->
     # for would stop working: a new key here would leave them to their password.
     offer = Offer(connection, answer=True)
     offer.offer = RecoveryOffer(
-        offer.settings, offer.notes, offer.make, offer.show, secret_notes_on=lambda: True
+        offer.settings,
+        offer.kept,
+        offer.notes,
+        offer.make,
+        offer.show,
+        secret_notes_on=lambda: True,
     )
     notes(offer, NOTES_WORTH_KEEPING)
 

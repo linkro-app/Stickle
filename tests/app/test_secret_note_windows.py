@@ -61,7 +61,7 @@ from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.search import search
-from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
+from stickle.data.settings import Settings
 from stickle.unlock import Unlock
 
 KEY = secrets.token_bytes(32)
@@ -157,7 +157,8 @@ def manager(
         settings=Settings(connection),
         labels=LabelRepository(connection),
     )
-    Settings(connection).set(RECOVERY_KEY_KEPT, True)  # its recovery key, kept at the first start
+    # Its recovery key, kept at the first start.
+    application.kept_recovery_key(unlock, Settings(connection)).keep()
     manager.secrets = application.secret_passwords(
         unlock,
         application.master_passwords(unlock),
@@ -167,6 +168,13 @@ def manager(
     yield manager
     for window in manager.windows:
         window.release()
+
+
+def kept_new_recovery_key(unlock: Unlock, connection: apsw.Connection) -> str:
+    """A new recovery key, said to be kept, as the windows have it."""
+    recovery_key = unlock.make_recovery_key(KEY)
+    application.kept_recovery_key(unlock, Settings(connection)).keep()
+    return recovery_key
 
 
 def stored(connection: apsw.Connection, window: NoteWindow) -> Note:
@@ -835,7 +843,7 @@ def test_forgotten_the_recovery_key_opens_it_and_a_new_one_is_set(
     connection: apsw.Connection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    recovery_key = unlock.make_recovery_key(KEY)
+    recovery_key = kept_new_recovery_key(unlock, connection)
     with_recovery_key(manager, unlock, connection)
     window = secret_note(qtbot, manager, answers)
     manager.lock_secret(window)
@@ -867,7 +875,7 @@ def test_a_wrong_recovery_key_or_none_set_changes_nothing(
     connection: apsw.Connection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    recovery_key = unlock.make_recovery_key(KEY)
+    recovery_key = kept_new_recovery_key(unlock, connection)
     with_recovery_key(manager, unlock, connection)
     window = secret_note(qtbot, manager, answers)
     manager.lock_secret(window)
@@ -908,7 +916,7 @@ def test_a_recovery_key_whose_key_opens_none_of_them_is_refused(
 ) -> None:
     # A key that opens no secret note, sealed for the recovery key somehow (a
     # key file from elsewhere): never taken, nor kept for their password.
-    recovery_key = unlock.make_recovery_key(KEY)
+    recovery_key = kept_new_recovery_key(unlock, connection)
     with_recovery_key(manager, unlock, connection)
     window = secret_note(qtbot, manager, answers)
     manager.lock_secret(window)
@@ -959,7 +967,7 @@ def test_opened_with_their_password_they_are_kept_for_the_recovery_key_again(
 def test_turning_on_asks_one_password_and_says_when_the_recovery_key_was_made(
     qtbot: QtBot, manager: NoteManager, unlock: Unlock, connection: apsw.Connection
 ) -> None:
-    Settings(connection).set(RECOVERY_KEY_KEPT, True)
+    application.kept_recovery_key(unlock, Settings(connection)).keep()
     assert manager.secrets is not None
     dialog = TurnOnDialog(manager.secrets)
     qtbot.addWidget(dialog)
@@ -987,7 +995,7 @@ def test_not_turned_on_until_a_recovery_key_is_kept(
 ) -> None:
     # Skipped at the first start ("Later"): the user may not have it at all, and
     # a forgotten password would lock the secret notes away for good.
-    Settings(connection).set(RECOVERY_KEY_KEPT, False)
+    application.kept_recovery_key(unlock, Settings(connection)).forget()
     assert manager.secrets is not None
     dialog = TurnOnDialog(manager.secrets)
     qtbot.addWidget(dialog)
@@ -1017,7 +1025,7 @@ def test_not_turned_on_until_a_recovery_key_is_kept(
 
     assert dialog.ok_button.isEnabled()
     assert "doesn't know yet" not in dialog.recovery_line.text()
-    assert Settings(connection).get(RECOVERY_KEY_KEPT)
+    assert application.kept_recovery_key(unlock, Settings(connection)).is_kept()
     for field in (dialog.password, dialog.confirm):
         field.setText(SECRET)
     dialog.accept()
@@ -1035,7 +1043,8 @@ def test_a_recovery_key_not_known_to_be_kept_can_be_checked_instead_of_made_anew
     # "Later" at the first start, but written down after all: typed and found to
     # be these notes' own, it counts as kept. One that is not theirs changes nothing.
     recovery_key = unlock.make_recovery_key(KEY)
-    Settings(connection).set(RECOVERY_KEY_KEPT, False)
+    kept = application.kept_recovery_key(unlock, Settings(connection))
+    assert not kept.is_kept()  # another one than the first start's, kept then
     assert manager.secrets is not None
     dialog = TurnOnDialog(manager.secrets)
     qtbot.addWidget(dialog)
@@ -1045,13 +1054,13 @@ def test_a_recovery_key_not_known_to_be_kept_can_be_checked_instead_of_made_anew
 
     monkeypatch.setattr(secret_dialogs, "ask_recovery_key", recovery_key_typed(generate()))
     dialog.type_button.click()  # not theirs, then Back
-    assert not dialog.ok_button.isEnabled() and not Settings(connection).get(RECOVERY_KEY_KEPT)
+    assert not dialog.ok_button.isEnabled() and not kept.is_kept()
 
     typed = recovery_key_typed(generate(), recovery_key)
     monkeypatch.setattr(secret_dialogs, "ask_recovery_key", typed)
     dialog.type_button.click()
 
-    assert Settings(connection).get(RECOVERY_KEY_KEPT)
+    assert kept.is_kept()
     assert dialog.ok_button.isEnabled() and not dialog.type_button.isVisibleTo(dialog)
     for field in (dialog.password, dialog.confirm):
         field.setText(SECRET)
@@ -1292,9 +1301,10 @@ def test_a_new_recovery_key_asks_their_password_and_opens_them_too(
     answers: Answers,
     settings: SettingsWindow,
     unlock: Unlock,
+    connection: apsw.Connection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    first = unlock.make_recovery_key(KEY)
+    first = kept_new_recovery_key(unlock, connection)
     secret_note(qtbot, manager, answers)
     key = unlock.open_secret_notes(SECRET)
     shown: list[str] = []
@@ -1328,11 +1338,12 @@ def test_without_their_password_no_new_recovery_key_is_made(
     answers: Answers,
     settings: SettingsWindow,
     unlock: Unlock,
+    connection: apsw.Connection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Made anyway, the one their key is sealed for would stop working, and the
     # new one would not open them.
-    first = unlock.make_recovery_key(KEY)
+    first = kept_new_recovery_key(unlock, connection)
     secret_note(qtbot, manager, answers)
     monkeypatch.setattr(settings_window.QMessageBox, "question", yes)
     monkeypatch.setattr(settings_window, "show_secret_dialog", cancel)
@@ -1348,11 +1359,12 @@ def test_forgotten_the_master_password_the_recovery_key_sets_it_and_they_stay(
     manager: NoteManager,
     answers: Answers,
     unlock: Unlock,
+    connection: apsw.Connection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Taken off the secret notes, the master password is set again the way it
     # always is, and nothing of theirs changes.
-    recovery_key = unlock.make_recovery_key(KEY)
+    recovery_key = kept_new_recovery_key(unlock, connection)
     unlock.set_master_password(KEY, MASTER)
     secret_note(qtbot, manager, answers)
     key = unlock.open_secret_notes(SECRET)

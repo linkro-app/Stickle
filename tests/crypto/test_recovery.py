@@ -19,6 +19,7 @@ from stickle.crypto.recovery import (
     canonical,
     generate,
     read_recovery,
+    recovery_key_id,
     unwrap,
     write_recovery,
 )
@@ -136,6 +137,40 @@ def test_a_recovery_key_from_before_0_6_still_opens_until_replaced(tmp_path: Pat
     with pytest.raises(WrongRecoveryKeyError):
         unwrap(replaced, old)
     assert unwrap(replaced, new) == KEY
+
+
+def test_each_recovery_key_has_an_id_of_its_own_that_tells_nothing(tmp_path: Path) -> None:
+    files = files_in(tmp_path)
+    first_key = generate()
+    write_recovery(files, KEY, first_key, NOW)
+    first = read_recovery(files)
+    assert first is not None
+    files.prepare()  # read again, the same key: the same id
+    again = read_recovery(files)
+    assert again is not None and recovery_key_id(again) == recovery_key_id(first)
+
+    write_recovery(files, KEY, generate(), NOW)
+    second = read_recovery(files)
+    assert second is not None
+
+    assert recovery_key_id(second) != recovery_key_id(first)
+    assert re.fullmatch("[0-9a-f]{64}", recovery_key_id(first))
+    assert canonical(first_key).lower() not in recovery_key_id(first)
+
+
+def test_one_from_before_0_6_has_an_id_too_and_another_once_typed(tmp_path: Path) -> None:
+    old = generate()
+    wrapped = wrap_with_password(KEY, canonical(old), 2, 8192, slot_name=OLD_SLOT)
+    files = files_in(tmp_path)
+    files.save(B, {OLD_SLOT: encode_slot(wrapped)})
+    slot = read_recovery(files)
+    assert isinstance(slot, PasswordSlot)
+
+    write_recovery(files, KEY, old, NOW)  # typed once: a pair for the same key
+    pair = read_recovery(files)
+    assert isinstance(pair, SealedSlot)
+
+    assert recovery_key_id(pair) != recovery_key_id(slot)
 
 
 def test_a_new_key_keeps_the_files_other_slots(tmp_path: Path) -> None:

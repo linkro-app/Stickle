@@ -123,6 +123,17 @@ def read_recovery(files: KeyFiles) -> RecoverySlot | None:
     return None
 
 
+def recovery_key_id(slot: RecoverySlot) -> str:
+    """An id of the recovery key a slot opens with, to tell it from any other:
+    from its pair's public key (from the slot's salt, for one made before 0.6).
+    It opens nothing and says nothing of the key."""
+    if isinstance(slot, SealedSlot):
+        seed = b"stickle recovery key pair\0" + slot.public
+    else:
+        seed = b"stickle recovery key before 0.6\0" + slot.salt
+    return hashlib.sha256(seed).hexdigest()
+
+
 def pair_for_export(files: KeyFiles) -> dict[str, object] | None:
     """The recovery key's pair as it is kept (its secret key wrapped with the
     recovery key), to go out with secret notes exported encrypted: whatever is

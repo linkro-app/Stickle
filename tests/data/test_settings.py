@@ -14,8 +14,11 @@ from stickle.data.settings import (
     DEFAULT_NOTE_COLOR,
     DEVICE_ID,
     NEWS_SEEN,
+    RECOVERY_KEY_KEPT,
+    RECOVERY_KEY_KEPT_UNTIL_0_6,
     SETTINGS,
     InvalidSettingError,
+    KeptRecoveryKey,
     Settings,
 )
 
@@ -144,6 +147,85 @@ def test_the_upgrade_moves_what_was_kept_in_common_to_this_device(
         assert ("news_seen",) not in shared
     finally:
         connection.close()
+
+
+FIRST, SECOND = "a" * 64, "b" * 64  # ids of two recovery keys
+
+
+class Notes:
+    """Which recovery key the notes have: one, another, or none."""
+
+    def __init__(self, key_id: str | None) -> None:
+        self.key_id = key_id
+
+
+def test_kept_counts_only_for_the_recovery_key_the_notes_have(db: apsw.Connection) -> None:
+    notes = Notes(FIRST)
+    kept = KeptRecoveryKey(Settings(db), lambda: notes.key_id)
+    assert not kept.is_kept()
+
+    kept.keep()
+    assert kept.is_kept()
+
+    notes.key_id = SECOND  # another one made since, here or on another device
+    assert not kept.is_kept()
+    notes.key_id = None  # none any more, or its file unreadable
+    assert not kept.is_kept()
+
+
+def test_a_new_one_on_the_way_is_not_kept(db: apsw.Connection) -> None:
+    notes = Notes(FIRST)
+    kept = KeptRecoveryKey(Settings(db), lambda: notes.key_id)
+    kept.keep()
+
+    kept.forget()
+
+    assert not kept.is_kept()
+
+
+def test_kept_with_no_recovery_key_marks_nothing(db: apsw.Connection) -> None:
+    kept = KeptRecoveryKey(Settings(db), lambda: None)
+
+    kept.keep()
+
+    assert Settings(db).get(RECOVERY_KEY_KEPT) is None
+
+
+def test_which_one_is_kept_will_follow_to_other_devices() -> None:
+    # The same recovery key on every device once sync exists.
+    assert RECOVERY_KEY_KEPT.scope == "shared"
+
+
+@pytest.mark.parametrize(("until_0_6", "kept_now"), [(True, True), (False, False), (None, False)])
+def test_what_0_6_kept_is_taken_for_the_key_there_is(
+    db: apsw.Connection, until_0_6: bool | None, kept_now: bool
+) -> None:
+    settings = Settings(db)
+    if until_0_6 is not None:
+        settings.set(RECOVERY_KEY_KEPT_UNTIL_0_6, until_0_6)
+    kept = KeptRecoveryKey(settings, lambda: FIRST)
+
+    kept.carry_over()
+
+    assert kept.is_kept() == kept_now
+    assert (
+        db.execute("SELECT key FROM device_settings WHERE key = 'recovery_key_kept'").fetchall()
+        == []
+    )
+
+
+def test_what_0_6_kept_waits_for_a_key_that_can_be_read(db: apsw.Connection) -> None:
+    settings = Settings(db)
+    settings.set(RECOVERY_KEY_KEPT_UNTIL_0_6, True)
+    notes = Notes(None)
+    kept = KeptRecoveryKey(settings, lambda: notes.key_id)
+
+    kept.carry_over()
+    assert settings.get(RECOVERY_KEY_KEPT_UNTIL_0_6)  # not lost
+
+    notes.key_id = FIRST
+    kept.carry_over()
+    assert kept.is_kept()
 
 
 def test_the_upgrade_keeps_what_this_device_has(

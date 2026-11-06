@@ -71,7 +71,7 @@ from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import MigrationError, latest_version
-from stickle.data.settings import CLOUD_FOLDER_TOLD, RECOVERY_KEY_KEPT, Settings
+from stickle.data.settings import CLOUD_FOLDER_TOLD, KeptRecoveryKey, Settings
 from stickle.data.startup import StartupSettings
 from stickle.importers.base import ImportResult
 from stickle.importers.bring_in import BroughtIn, bring_in, new_notes
@@ -360,6 +360,10 @@ def fits_any(_key: bytes) -> bool:
     return True
 
 
+def kept_recovery_key(unlock: Unlock, settings: Settings) -> KeptRecoveryKey:
+    return KeptRecoveryKey(settings, lambda: unlock.recovery_key_id)
+
+
 def recovery_keys(
     unlock: Unlock | None,
     settings: Settings | None,
@@ -374,6 +378,7 @@ def recovery_keys(
     if unlock is None or unlock.opened_key is None or settings is None:
         return None
     key = unlock.opened_key
+    kept = kept_recovery_key(unlock, settings)
 
     def made(recovery_key: str) -> str:
         if changes is not None:
@@ -381,30 +386,30 @@ def recovery_keys(
         return recovery_key
 
     def make() -> str:
-        settings.set(RECOVERY_KEY_KEPT, False)
+        kept.forget()
         return made(unlock.make_recovery_key(key))
 
     def make_with_secret(secret_key: bytes) -> str:
         if not fits(secret_key):
             raise NotKeptForRecoveryKeyError("the key opens no secret note")
-        settings.set(RECOVERY_KEY_KEPT, False)
+        kept.forget()
         return made(unlock.make_recovery_key(key, secret_key))
 
     def upgrade(typed: str) -> None:
         unlock.upgrade_recovery_key(typed)
-        settings.set(RECOVERY_KEY_KEPT, True)  # typed: the user has it
+        kept.keep()  # typed: the user has it
 
     def confirm(typed: str) -> None:
         if unlock.open_with_recovery_key(typed) != key:
             raise WrongRecoveryKeyError("it opens other notes")
-        settings.set(RECOVERY_KEY_KEPT, True)  # typed: the user has it
+        kept.keep()  # typed: the user has it
 
     return RecoveryKeys(
         exists=lambda: unlock.has_recovery_key,
         make=make,
-        kept=lambda: settings.set(RECOVERY_KEY_KEPT, True),
+        kept=kept.keep,
         made_at=lambda: unlock.recovery_key_made_at,
-        was_kept=lambda: settings.get(RECOVERY_KEY_KEPT),
+        was_kept=kept.is_kept,
         make_with_secret=make_with_secret,
         is_old=lambda: unlock.recovery_key_is_old,
         upgrade=upgrade,
@@ -809,6 +814,11 @@ def run(
             if connection is not None and perf is None
             else None
         )
+        if unlock is not None and connection is not None:
+            try:
+                kept_recovery_key(unlock, Settings(connection)).carry_over()
+            except apsw.Error as error:
+                log.error("recovery key kept: not carried over: %s", type(error).__name__)
         recovery = recovery_keys(
             unlock, Settings(connection) if connection else None, changes, manager.secret_key_fits
         )
@@ -876,6 +886,7 @@ def run(
                 welcome(
                     NoteRepository(connection),
                     Settings(connection),
+                    kept_recovery_key(opened, Settings(connection)),
                     lambda: opened.make_recovery_key(key),
                     autostart,
                     app_list,
@@ -943,6 +954,7 @@ def run(
                 opened_key, offering = unlock.opened_key, unlock
                 offer = RecoveryOffer(
                     Settings(connection),
+                    kept_recovery_key(offering, Settings(connection)),
                     repository,
                     lambda: offering.make_recovery_key(opened_key),
                     secret_notes_on=lambda: offering.has_secret_notes,
