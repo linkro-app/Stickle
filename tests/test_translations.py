@@ -51,6 +51,17 @@ def test_stickle_manager_goes_by_its_name_with_the_right_particles() -> None:
     assert any("Stickle 관리자" in text for text in korean)
 
 
+def test_korean_says_pc_not_computer() -> None:
+    # The word Koreans use for their own machine, shorter and as easy for children;
+    # the English stays "computer". The label icon of a computer keeps its name.
+    root = ET.parse(KOREAN).getroot()
+    korean = ["".join(element.itertext()) for element in root.iter("translation")]
+    assert [text for text in korean if "컴퓨터" in text and text != "컴퓨터"] == []
+    for page in ("README.ko.md", "PRIVACY.md"):
+        assert "컴퓨터" not in (ROOT / page).read_text(encoding="utf-8"), page
+    assert any("이 PC" in text for text in korean)
+
+
 @pytest.fixture(scope="module")
 def extracted(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A copy of the project with its strings extracted afresh from the current

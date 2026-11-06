@@ -13,7 +13,7 @@
     </message>
     <message>
         <source>Notes that stay on your desktop, saved as you type and kept encrypted on your computer. No account, no server.</source>
-        <translation>바탕화면에 붙여 두는 메모. 입력하는 대로 저장되고 내 컴퓨터에 암호화해 둡니다. 계정도 서버도 없습니다.</translation>
+        <translation>바탕화면에 붙여 두는 메모. 입력하는 대로 저장되고 내 PC에 암호화해 둡니다. 계정도 서버도 없습니다.</translation>
     </message>
     <message>
         <source>Website</source>
@@ -850,7 +850,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>Stickle keeps sticky notes on your desktop. They are saved as you type, encrypted on this computer, and nothing is sent anywhere.</source>
-        <translation>Stickle은 바탕화면에 메모를 붙여 둡니다. 메모는 입력하는 대로 저장되고, 이 컴퓨터 안에서 암호화되며, 어디로도 보내지지 않습니다.</translation>
+        <translation>Stickle은 바탕화면에 메모를 붙여 둡니다. 메모는 입력하는 대로 저장되고, 이 PC 안에서 암호화되며, 어디로도 보내지지 않습니다.</translation>
     </message>
     <message>
         <source>Where will you use your notes?</source>
@@ -858,7 +858,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>On this &amp;computer only</source>
-        <translation>이 컴퓨터에서만(&amp;C)</translation>
+        <translation>이 PC에서만(&amp;C)</translation>
     </message>
     <message>
         <source>On several &amp;devices (syncing through your own cloud comes later)</source>
@@ -886,7 +886,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>Keep the recovery key somewhere other than this computer. In case you forget where you put it, you can also set a spare password to remember.</source>
-        <translation>복구 키는 꼭 이 컴퓨터가 아닌 곳에 따로 보관하세요. 보관한 곳을 잊을 때를 대비해, 외워 둘 예비 암호도 함께 정해 둘 수 있습니다.</translation>
+        <translation>복구 키는 꼭 이 PC가 아닌 곳에 따로 보관하세요. 보관한 곳을 잊을 때를 대비해, 외워 둘 예비 암호도 함께 정해 둘 수 있습니다.</translation>
     </message>
     <message>
         <source>Spare password set</source>
@@ -933,7 +933,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>Only the names of the programs you add are kept, on this computer. The programs that hid notes are not kept.</source>
-        <translation>넣은 앱의 이름만 이 컴퓨터에 저장합니다. 메모를 숨기게 한 앱은 저장하지 않습니다.</translation>
+        <translation>넣은 앱의 이름만 이 PC에 저장합니다. 메모를 숨기게 한 앱은 저장하지 않습니다.</translation>
     </message>
 </context>
 <context>
@@ -993,11 +993,11 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>Apps with notes on this computer</source>
-        <translation>이 컴퓨터에서 찾은 메모 앱</translation>
+        <translation>이 PC에서 찾은 메모 앱</translation>
     </message>
     <message>
         <source>No other app&apos;s notes were found on this computer.</source>
-        <translation>이 컴퓨터에서 다른 앱의 메모를 찾지 못했습니다.</translation>
+        <translation>이 PC에서 다른 앱의 메모를 찾지 못했습니다.</translation>
     </message>
     <message>
         <source>Choose a &amp;file…</source>
@@ -1082,7 +1082,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message numerus="yes">
         <source>%n note(s) not brought in before, with their colours, categories, marks and reminders. Settings, places on screen and passwords stay with the computer they were made on.</source>
         <translation>
-            <numerusform>아직 가져오지 않은 메모 %n개 — 색·카테고리·표시·알림도 함께 옵니다. 설정·화면 위치·암호는 만든 컴퓨터에 남습니다.</numerusform>
+            <numerusform>아직 가져오지 않은 메모 %n개 — 색·카테고리·표시·알림도 함께 옵니다. 설정·화면 위치·암호는 만든 PC에 남습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -1160,7 +1160,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message numerus="yes">
         <source>%n secret note(s), locked with this computer&apos;s password.</source>
         <translation>
-            <numerusform>비밀 메모 %n개는 이 컴퓨터의 비밀 메모 암호로 잠갔습니다.</numerusform>
+            <numerusform>비밀 메모 %n개는 이 PC의 비밀 메모 암호로 잠갔습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -1669,7 +1669,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>These reminders came while Stickle was not running or the computer was asleep. Choose one to go to its note.</source>
-        <translation>Stickle이 꺼져 있거나 컴퓨터가 잠자는 사이 울리지 못한 알림입니다. 하나를 고르면 그 메모로 갑니다.</translation>
+        <translation>Stickle이 꺼져 있거나 PC가 잠자는 사이 울리지 못한 알림입니다. 하나를 고르면 그 메모로 갑니다.</translation>
     </message>
     <message>
         <source>&amp;All done</source>
@@ -2291,7 +2291,7 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message numerus="yes">
         <source>Type the secret notes&apos; password of this computer: the %n secret note(s) brought in are locked with it.</source>
         <translation>
-            <numerusform>이 컴퓨터의 비밀 메모 암호를 넣으세요. 가져오는 비밀 메모 %n개를 그 암호로 잠급니다.</numerusform>
+            <numerusform>이 PC의 비밀 메모 암호를 넣으세요. 가져오는 비밀 메모 %n개를 그 암호로 잠급니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -2359,11 +2359,11 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
     <message>
         <source>These notes are kept in the stickle-data folder next to Stickle, to go with it from computer to computer. They are locked with a password, which you will enter each time Stickle starts.</source>
-        <translation>이 메모는 Stickle 옆의 stickle-data 폴더에 두어, Stickle과 함께 이 컴퓨터 저 컴퓨터로 옮겨 다닙니다. 메모는 암호로 잠기며, Stickle을 실행할 때마다 그 암호를 입력합니다.</translation>
+        <translation>이 메모는 Stickle 옆의 stickle-data 폴더에 두어, Stickle과 함께 이 PC 저 PC로 옮겨 다닙니다. 메모는 암호로 잠기며, Stickle을 실행할 때마다 그 암호를 입력합니다.</translation>
     </message>
     <message>
         <source>This computer has no keychain where Stickle can keep the key to your notes, so they are locked with a password instead. You will enter it each time Stickle starts.</source>
-        <translation>이 컴퓨터에는 Stickle이 메모를 여는 키를 보관할 키 저장소가 없어서, 대신 암호로 메모를 잠급니다. Stickle을 시작할 때마다 이 암호를 입력합니다.</translation>
+        <translation>이 PC에는 Stickle이 메모를 여는 키를 보관할 키 저장소가 없어서, 대신 암호로 메모를 잠급니다. Stickle을 시작할 때마다 이 암호를 입력합니다.</translation>
     </message>
     <message>
         <source>Create password</source>
@@ -2485,7 +2485,7 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     </message>
     <message>
         <source>Your notes are here, but the system keychain no longer holds the key that opens them. Stickle did not create a new key, because it could not open these notes. If you copied them from another computer or user account, open them there.</source>
-        <translation>메모는 그대로 있지만, 시스템 키 저장소에 메모를 여는 키가 더 이상 없습니다. 새 키로는 이 메모를 열 수 없으므로 Stickle은 새 키를 만들지 않았습니다. 다른 컴퓨터나 사용자 계정에서 복사해 온 메모라면 그곳에서 여세요.</translation>
+        <translation>메모는 그대로 있지만, 시스템 키 저장소에 메모를 여는 키가 더 이상 없습니다. 새 키로는 이 메모를 열 수 없으므로 Stickle은 새 키를 만들지 않았습니다. 다른 PC나 사용자 계정에서 복사해 온 메모라면 그곳에서 여세요.</translation>
     </message>
     <message>
         <source>The key file could not be read</source>
@@ -2501,7 +2501,7 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     </message>
     <message>
         <source>The notes file does not open with the key Stickle has. It may come from another computer or user account, or it may be damaged.</source>
-        <translation>Stickle이 가진 키로 메모 파일이 열리지 않습니다. 다른 컴퓨터나 사용자 계정에서 온 파일이거나 손상되었을 수 있습니다.</translation>
+        <translation>Stickle이 가진 키로 메모 파일이 열리지 않습니다. 다른 PC나 사용자 계정에서 온 파일이거나 손상되었을 수 있습니다.</translation>
     </message>
     <message>
         <source>These notes were saved by a newer Stickle</source>
@@ -2649,7 +2649,7 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     </message>
     <message>
         <source>If the key that opens your notes is ever lost (a new computer, a reset keychain, a forgotten password), this recovery key opens them again, secret notes included. Stickle does not keep it: write it down or save it somewhere safe, away from this computer. Avoid places that may go up by themselves to the cloud you have set up, such as a photo app or a folder synced with OneDrive, iCloud, Google Drive or Dropbox. Anyone with it can read your notes.</source>
-        <translation>메모를 여는 키를 잃어버렸을 때(새 컴퓨터, 초기화된 키 저장소, 잊어버린 암호) 이 복구 키로 메모를 다시 열 수 있습니다. 비밀 메모까지 엽니다. Stickle은 복구 키를 보관하지 않습니다. 적어 두거나 이 컴퓨터가 아닌 안전한 곳에 저장하세요. 사진 앱이나 OneDrive·iCloud·Google Drive·Dropbox와 동기화되는 폴더처럼 본인이 설정해 둔 클라우드로 저절로 올라갈 수 있는 곳은 피하세요. 복구 키가 있으면 누구나 메모를 읽을 수 있습니다.</translation>
+        <translation>메모를 여는 키를 잃어버렸을 때(새 PC, 초기화된 키 저장소, 잊어버린 암호) 이 복구 키로 메모를 다시 열 수 있습니다. 비밀 메모까지 엽니다. Stickle은 복구 키를 보관하지 않습니다. 적어 두거나 이 PC가 아닌 안전한 곳에 저장하세요. 사진 앱이나 OneDrive·iCloud·Google Drive·Dropbox와 동기화되는 폴더처럼 본인이 설정해 둔 클라우드로 저절로 올라갈 수 있는 곳은 피하세요. 복구 키가 있으면 누구나 메모를 읽을 수 있습니다.</translation>
     </message>
     <message>
         <source>The same key as a QR code: scan it into a password manager on your phone. Do not take a photo of it, as photos may go up by themselves to the cloud you have set up. It holds only the key: scanning it opens nothing.</source>
@@ -2689,7 +2689,7 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     </message>
     <message>
         <source>Saved. Move the file off this computer, to a USB stick for instance, and not into a folder synced with the cloud.</source>
-        <translation>저장했습니다. USB처럼 이 컴퓨터 밖으로 옮기고, 클라우드와 동기화되는 폴더에는 두지 마세요.</translation>
+        <translation>저장했습니다. USB처럼 이 PC 밖으로 옮기고, 클라우드와 동기화되는 폴더에는 두지 마세요.</translation>
     </message>
 </context>
 <context>
@@ -2977,7 +2977,7 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>Copies Stickle cannot change still hold the text as it is now: files exported before, folders a cloud service syncs, and your computer&apos;s own backups (such as File History).</source>
-        <translation>Stickle이 바꿀 수 없는 사본에는 지금 글이 그대로 남습니다. 예전에 내보낸 파일, 클라우드가 동기화하는 폴더, 컴퓨터 자체 백업(Windows 파일 기록 등)이 그렇습니다.</translation>
+        <translation>Stickle이 바꿀 수 없는 사본에는 지금 글이 그대로 남습니다. 예전에 내보낸 파일, 클라우드가 동기화하는 폴더, PC 자체 백업(Windows 파일 기록 등)이 그렇습니다.</translation>
     </message>
     <message>
         <source>OK</source>
@@ -3545,23 +3545,23 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>On %1 a new recovery key was made on this computer.</source>
-        <translation>%1에 이 컴퓨터에서 새 복구 키를 만들었습니다.</translation>
+        <translation>%1에 이 PC에서 새 복구 키를 만들었습니다.</translation>
     </message>
     <message>
         <source>On %1 a spare password was set on this computer.</source>
-        <translation>%1에 이 컴퓨터에서 예비 암호를 새로 정했습니다.</translation>
+        <translation>%1에 이 PC에서 예비 암호를 새로 정했습니다.</translation>
     </message>
     <message>
         <source>On %1 the spare password was changed on this computer.</source>
-        <translation>%1에 이 컴퓨터에서 예비 암호를 바꿨습니다.</translation>
+        <translation>%1에 이 PC에서 예비 암호를 바꿨습니다.</translation>
     </message>
     <message>
         <source>On %1 the secret notes&apos; password was changed on this computer.</source>
-        <translation>%1에 이 컴퓨터에서 비밀 메모 암호를 바꿨습니다.</translation>
+        <translation>%1에 이 PC에서 비밀 메모 암호를 바꿨습니다.</translation>
     </message>
     <message>
         <source>On %1 the secret notes&apos; password was set anew with the recovery key on this computer.</source>
-        <translation>%1에 이 컴퓨터에서 복구 키로 비밀 메모 암호를 새로 정했습니다.</translation>
+        <translation>%1에 이 PC에서 복구 키로 비밀 메모 암호를 새로 정했습니다.</translation>
     </message>
     <message>
         <source>If it was not you, set it again in the settings.</source>
@@ -3843,7 +3843,7 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>If you forget the password, you set a new one with the recovery key. Make one first: it opens secret notes too, so do not keep it on this computer.</source>
-        <translation>암호를 잊으면 복구 키로 새 암호를 정합니다. 먼저 복구 키를 만드세요. 복구 키는 비밀 메모까지 열므로 이 컴퓨터에 두지 마세요.</translation>
+        <translation>암호를 잊으면 복구 키로 새 암호를 정합니다. 먼저 복구 키를 만드세요. 복구 키는 비밀 메모까지 열므로 이 PC에 두지 마세요.</translation>
     </message>
     <message>
         <source>Your recovery key was made with an earlier Stickle and cannot open secret notes yet. Type it once, or make a new one if you cannot find it.</source>
@@ -3851,11 +3851,11 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>If you forget the password, you set a new one with the recovery key made on %1. It opens secret notes too: do not keep it on this computer.</source>
-        <translation>암호를 잊으면 %1에 만든 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 컴퓨터에 두지 마세요.</translation>
+        <translation>암호를 잊으면 %1에 만든 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 PC에 두지 마세요.</translation>
     </message>
     <message>
         <source>If you forget the password, you set a new one with your recovery key. It opens secret notes too: do not keep it on this computer.</source>
-        <translation>암호를 잊으면 지금 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 컴퓨터에 두지 마세요.</translation>
+        <translation>암호를 잊으면 지금 복구 키로 새 암호를 정합니다. 복구 키는 비밀 메모까지 엽니다. 이 PC에 두지 마세요.</translation>
     </message>
     <message>
         <source>&amp;Make a recovery key…</source>
@@ -3879,7 +3879,7 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
     <message>
         <source>You have not kept a recovery key yet. If you forget the password, only the recovery key sets a new one: make a new one and keep it, away from this computer, then turn them on.</source>
-        <translation>아직 복구 키를 보관하지 않았습니다. 암호를 잊으면 복구 키로만 새 암호를 정할 수 있으니, 새 복구 키를 만들어 이 컴퓨터가 아닌 곳에 보관한 뒤 켜세요.</translation>
+        <translation>아직 복구 키를 보관하지 않았습니다. 암호를 잊으면 복구 키로만 새 암호를 정할 수 있으니, 새 복구 키를 만들어 이 PC가 아닌 곳에 보관한 뒤 켜세요.</translation>
     </message>
     <message>
         <source>Secret notes could not be turned on (%1).</source>
