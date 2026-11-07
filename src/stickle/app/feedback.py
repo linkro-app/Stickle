@@ -11,7 +11,7 @@ apart; the log file is only named, for the user to attach if they like.
 import os
 import platform
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from urllib.parse import urlencode
 
 from PySide6.QtCore import QLocale, QUrl, qVersion
@@ -54,7 +54,10 @@ def log_place(portable: bool) -> str:
     return "~/.local/share/stickle/logs/stickle.log"
 
 
-def this_copy(portable: bool, env: Mapping[str, str] | None = None) -> list[str]:
+def this_copy(
+    portable: bool, env: Mapping[str, str] | None = None, sync: Sequence[str] = ()
+) -> list[str]:
+    """How this copy runs; sync: what sync says of itself (stickle.sync.diagnostics)."""
     env = os.environ if env is None else env
     lines = [
         f"Stickle {__version__} ({how_installed(portable, env)})",
@@ -70,12 +73,13 @@ def this_copy(portable: bool, env: Mapping[str, str] | None = None) -> list[str]
         lines.append(f"Input method: {im}")
     scales = sorted({f"{screen.devicePixelRatio():g}" for screen in QGuiApplication.screens()})
     lines.append(f"Screens: {len(QGuiApplication.screens())}, scale {', '.join(scales)}")
+    lines += sync
     return [redact(line) for line in lines]
 
 
-def draft(portable: bool, env: Mapping[str, str] | None = None) -> str:
+def draft(portable: bool, env: Mapping[str, str] | None = None, sync: Sequence[str] = ()) -> str:
     """The issue's text: headings to fill in, then how this copy runs."""
-    about = "\n".join(this_copy(portable, env))
+    about = "\n".join(this_copy(portable, env, sync))
     return (
         "**What happened, or what would you like?**\n\n\n\n"
         "**Steps, if it is a problem**\n\n1. \n2. \n\n"
@@ -87,9 +91,11 @@ def draft(portable: bool, env: Mapping[str, str] | None = None) -> str:
     )
 
 
-def issue_url(portable: bool, env: Mapping[str, str] | None = None) -> QUrl:
-    return QUrl(f"{ISSUE_URL}?{urlencode({'body': draft(portable, env)})}")
+def issue_url(
+    portable: bool, env: Mapping[str, str] | None = None, sync: Sequence[str] = ()
+) -> QUrl:
+    return QUrl(f"{ISSUE_URL}?{urlencode({'body': draft(portable, env, sync)})}")
 
 
-def open_feedback(portable: bool) -> bool:
-    return note_window.open_url(issue_url(portable))
+def open_feedback(portable: bool, sync: Sequence[str] = ()) -> bool:
+    return note_window.open_url(issue_url(portable, sync=sync))

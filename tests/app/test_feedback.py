@@ -30,6 +30,14 @@ def test_the_draft_says_how_this_copy_runs(qtbot: QtBot) -> None:
     assert "stickle.log" in text
 
 
+def test_the_draft_says_what_sync_says_of_itself(qtbot: QtBot) -> None:
+    del qtbot
+    said = ["Sync: format 1, 3 notes, 1 records, 2 devices, last round never"]
+    text = draft(portable=False, env=LINUX, sync=said)
+
+    assert said[0] in text
+
+
 def test_the_draft_holds_nothing_personal(qtbot: QtBot) -> None:
     del qtbot
     text = draft(portable=False, env=LINUX)
