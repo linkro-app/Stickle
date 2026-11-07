@@ -49,6 +49,7 @@ from stickle.sync.format import (
 )
 from stickle.sync.note_file import NoteFile
 from stickle.sync.record_file import record_id
+from stickle.sync.targets.base import UnavailableError
 from stickle.sync.vault import (
     NoWayInError,
     VaultChangedError,
@@ -323,6 +324,33 @@ def test_a_vault_gone_back_to_an_earlier_day_is_not_taken_for_a_copy(
     assert (a.id, b.id) == old
     a.close()
     b.close()
+
+
+def test_a_device_whose_round_ended_after_it_took_a_new_id_goes_on_as_that_one(
+    tmp_path: Path, clock: Clock
+) -> None:
+    cloud, a, b = two_on(DROPBOX, tmp_path, clock)
+    a.notes.create("메모")
+    settle([a, b])
+    old = a.id
+    a2 = copy_of(a, "a2", tmp_path, cloud, clock)
+    clock.tick(DAY)
+    a2.sync()
+    cloud.trouble = lambda request: (
+        Trouble.UNAVAILABLE
+        if (request.device, request.op) == ("a", "list") and request.path == "records"
+        else None
+    )
+    with pytest.raises(UnavailableError):
+        a.sync_as(old)  # it took a new id, then the round failed: its caller never heard
+    cloud.trouble = lambda _request: None
+    report = a.sync_as(old)
+    assert report.device not in (old, a2.id)
+    assert a.sync_as(old).device == report.device  # the same one: not taken again
+    devices = [path for path in cloud.files() if path.startswith(f"{DEVICES}/")]
+    assert len(devices) == 3
+    for device in (a, a2, b):
+        device.close()
 
 
 def test_a_device_renewing_its_id_puts_nothing_of_what_it_changed_before_again(

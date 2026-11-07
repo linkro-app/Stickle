@@ -57,6 +57,7 @@ import apsw
 from stickle.data import sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
+from stickle.data.settings import DEVICE_ID, Settings
 from stickle.data.sync_left import NOT_OURS, READ_ONLY
 from stickle.data.sync_state import NoteState
 from stickle.sync import local, local_reminders
@@ -162,7 +163,13 @@ def sync_vault(
     others'; the records, so that the categories and marks notes name are here
     when the notes come; then the notes, and again those that name a category
     or mark that came, a field of theirs perhaps not taken before for want of
-    it. full: a full look (at start, once a day), with what only that reads."""
+    it. full: a full look (at start, once a day), with what only that reads.
+
+    The device goes as the id its settings hold, if they hold one: a round that
+    took a new id may have ended before its caller heard (Report.device)."""
+    held = Settings(connection).get(DEVICE_ID)
+    if held is not None and held != place.device:
+        place = replace(place, device=held)
     confirm(place.target, place.vault)
     if about is not None:
         place = replace(place, device=sync_devices(connection, place, cloud_now, about, full))

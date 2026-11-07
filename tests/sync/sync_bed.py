@@ -139,6 +139,13 @@ class Device:
             return report
         return sync_notes(self.db, self.place, self.clock, self.notes)
 
+    def sync_as(self, device: str) -> Report:
+        """A round of the whole vault with this place, as a caller holding the
+        id device would run it (not following a new one)."""
+        place = Place(self.place.target, VAULT, KEYS, device, self.place.aside)
+        about = About(f"{self.name.upper()}-PC 표식", "Linux", "0.7.0")
+        return sync_vault(self.db, place, self.clock, self.notes, self.mark_name, about)
+
     def round(self) -> None:
         """A round, on a thread of its own (fake_cloud.Turns)."""
         self.sync()
