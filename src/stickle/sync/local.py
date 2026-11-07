@@ -31,13 +31,16 @@ import apsw
 
 from stickle.core.clock import moment_of
 from stickle.core.colors import is_color
-from stickle.core.hlc import Hlc
+from stickle.core.hlc import Hlc, after
 from stickle.core.note import Note
 from stickle.crypto.vault_keys import DataKeys
 from stickle.data import stamps
 from stickle.data.notes import NoteRepository
+from stickle.data.record_stamps import CATEGORY
+from stickle.data.record_stamps import MARK as MARKS
 from stickle.data.stamps import Stamp
 from stickle.data.sync_state import NoteState
+from stickle.sync import local_records
 from stickle.sync.contents import Contents, Field
 from stickle.sync.format import Json, json_bytes, parse_json
 from stickle.sync.merge import COPY_OF
@@ -253,3 +256,46 @@ def take(
         return at.note.change_seq
     came_from = None if note.body.device == device else note.body.device
     return notes.take_in(note_id, text, came_from, columns, marks, stamped)
+
+
+@dataclass(frozen=True)
+class Redirects:
+    """The categories and marks that became one with another: each, and the one it is now."""
+
+    categories: Mapping[str, str]
+    marks: Mapping[str, str]
+
+    @classmethod
+    def here(cls, connection: apsw.Connection) -> Redirects:
+        return cls(
+            local_records.merged(connection, CATEGORY), local_records.merged(connection, MARKS)
+        )
+
+
+def redirect(note: NoteFile, to: Redirects) -> NoteFile:
+    """The note naming, for a category or mark that became one with another,
+    that one: each field changed just after it was, by the device that changed
+    it, so that every device makes it alike and a change made since still wins.
+    A mark moved is taken off; the one it became is put on, unless that was
+    changed later."""
+    fields = dict(note.contents.fields)
+    category = fields.get("category")
+    if category is not None and isinstance(category.value, str) and category.value in to.categories:
+        fields["category"] = replace(
+            category, value=to.categories[category.value], hlc=after(0, category.hlc), sent=None
+        )
+    for name, each in sorted(note.contents.fields.items()):
+        mark = name.removeprefix(MARK)
+        if not name.startswith(MARK) or each.value is not True or mark not in to.marks:
+            continue
+        moved = after(0, each.hlc)
+        fields[name] = replace(each, value=False, hlc=moved, sent=None)
+        target = stamps.mark_field(to.marks[mark])
+        present = fields.get(target)
+        if present is None:
+            fields[target] = Field(True, moved, each.device)
+        elif present.stamp < (moved, each.device):
+            fields[target] = replace(present, value=True, hlc=moved, device=each.device, sent=None)
+    if fields == note.contents.fields:
+        return note
+    return NoteFile(replace(note.contents, fields=fields), note.body)

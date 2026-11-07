@@ -17,7 +17,7 @@ in the file and not taken here.
 """
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import cast
 
@@ -25,8 +25,10 @@ import apsw
 
 from stickle.core.colors import PALETTE, is_hex
 from stickle.core.hlc import Hlc
+from stickle.core.labels import BUILT_IN_MARKS
 from stickle.data import record_stamps
 from stickle.data.imports import SECRET_MARK
+from stickle.data.labels import become
 from stickle.data.record_stamps import CATEGORY, COLOR, IMPORT, MARK, imported_field
 from stickle.data.stamps import Stamp
 from stickle.sync.contents import Contents, Field
@@ -204,11 +206,7 @@ def _write_row(
         if kind != MARK and values.get(_REQUIRED[kind]) is None:
             return False  # nothing it could be made with
         row = {**_DEFAULTS[kind], **values}
-        if (
-            kind == MARK
-            and row.get("name") is None
-            and item not in ("todo", "urgent", "important", "waiting")
-        ):
+        if kind == MARK and row.get("name") is None and item not in BUILT_IN_MARKS:
             return False
         names = ["id", *(columns[name] for name in row), "updated_at"]
         connection.execute(
@@ -288,3 +286,88 @@ def take(
     for name, (stamp, sent) in stamped.items():
         record_stamps.put(connection, kind, item, name, stamp, sent)
     return record_stamps.touched(connection, kind, item)
+
+
+# Of categories, marks or colours alike, which stays
+
+type Shown = Callable[[str, str | None], str]  # a mark's id and name -> the name it shows here
+
+
+def own_name(mark_id: str, name: str | None) -> str:
+    return name or mark_id
+
+
+def _first(kind: str, item: str, made: object) -> tuple[object, ...]:
+    """The order every device keeps the first of alike by: a built-in mark first,
+    then the first made, then the lowest id."""
+    built_in = BUILT_IN_MARKS.index(item) if kind == MARK and item in BUILT_IN_MARKS else None
+    return (built_in is None, built_in or 0, "" if made is None else str(made), item)
+
+
+def _groups(names: Mapping[str, set[str]]) -> list[set[str]]:
+    """Items that share a name, together (through one another, too)."""
+    owner: dict[str, str] = {}
+    groups: dict[str, set[str]] = {}
+    for item, each in sorted(names.items()):
+        joined = {item}
+        for name in each:
+            if name in owner:
+                joined |= groups.pop(owner[name], set())
+        for member in joined:
+            for name in names[member]:
+                owner[name] = item
+        groups[item] = joined
+    return [group for group in groups.values() if len(group) > 1]
+
+
+def merge_alike(
+    connection: apsw.Connection, millis: int, now: str, shown: Shown = own_name
+) -> list[tuple[str, str]]:
+    """Categories of one name, marks of one name (as stored, or as shown here),
+    colours alike: each the one that comes first (_first), the others become one
+    with it (a colour: deleted). Those changed, as (kind, item)."""
+    changed: list[tuple[str, str]] = []
+    live = "deleted_at IS NULL AND merged_into IS NULL"
+    for kind, query in (
+        (CATEGORY, f"SELECT id, name, NULL, created_at FROM categories WHERE {live}"),
+        (MARK, f"SELECT id, name, NULL, created_at FROM marks WHERE {live}"),
+        (COLOR, "SELECT id, NULL, hex, created_at FROM custom_colors WHERE deleted_at IS NULL"),
+    ):
+        made: dict[str, object] = {}
+        names: dict[str, set[str]] = {}
+        for item, name, hex_value, created in connection.execute(query):
+            item = str(item)
+            made[item] = created
+            if kind == COLOR:
+                names[item] = {str(hex_value)}
+            else:
+                own = None if name is None else str(name)
+                found = {own_name(item, own).casefold()}
+                if kind == MARK:
+                    found.add(shown(item, own).casefold())
+                names[item] = found
+        for group in _groups(names):
+            first, *others = sorted(group, key=lambda item: _first(kind, item, made[item]))
+            for item in others:
+                if kind == COLOR:
+                    connection.execute(
+                        "UPDATE custom_colors SET deleted_at = ?, updated_at = ? WHERE id = ?",
+                        (now, now, item),
+                    )
+                    record_stamps.changed(connection, kind, item, [DELETED], millis)
+                else:
+                    connection.execute(
+                        f"UPDATE {TABLES[kind]} SET merged_into = ?, updated_at = ? WHERE id = ?",
+                        (first, now, item),
+                    )
+                    record_stamps.changed(connection, kind, item, [MERGED_INTO], millis)
+                changed.append((kind, item))
+    return changed
+
+
+def merged(connection: apsw.Connection, kind: str) -> dict[str, str]:
+    """The categories or marks that became one with another: each, and the one it is now."""
+    table = TABLES[kind]
+    rows = connection.execute(f"SELECT id FROM {table} WHERE merged_into IS NOT NULL")
+    found = {str(item): become(connection, table, str(item)) for (item,) in rows}
+    return {item: now for item, now in found.items() if now != item}

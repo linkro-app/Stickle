@@ -18,6 +18,7 @@ from stickle.core.hlc import wall_millis
 from stickle.core.note import DEFAULT_COLOR, Note, content_hash
 from stickle.data import record_stamps, stamps, sync_state, versions
 from stickle.data.imports import hide_text_hashes
+from stickle.data.labels import become
 from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.search import search
 
@@ -510,7 +511,9 @@ class NoteRepository:
             return note
         if category_id is not None:
             rows = self._db.execute(
-                "SELECT 1 FROM categories WHERE id = ? AND deleted_at IS NULL", (category_id,)
+                "SELECT 1 FROM categories WHERE id = ? AND deleted_at IS NULL"
+                " AND merged_into IS NULL",
+                (category_id,),
             ).fetchall()
             if not rows:
                 raise KeyError(category_id)
@@ -523,7 +526,8 @@ class NoteRepository:
             return note
         if on:
             rows = self._db.execute(
-                "SELECT 1 FROM marks WHERE id = ? AND deleted_at IS NULL", (mark_id,)
+                "SELECT 1 FROM marks WHERE id = ? AND deleted_at IS NULL AND merged_into IS NULL",
+                (mark_id,),
             ).fetchall()
             if not rows:
                 raise KeyError(mark_id)
@@ -560,10 +564,12 @@ class NoteRepository:
         return self._require(note_id)
 
     def _category_back(self, category_id: str | None) -> str | None:
-        """The category a note coming back from the trash goes into: its own, brought
-        back too if it was deleted, or another of the same name made since."""
+        """The category a note coming back from the trash goes into: its own (or
+        the one it became one with), brought back too if it was deleted, or
+        another of the same name made since."""
         if category_id is None:
             return None
+        category_id = become(self._db, "categories", category_id)
         rows = self._db.execute(
             "SELECT name, deleted_at FROM categories WHERE id = ?", (category_id,)
         ).fetchall()
@@ -574,7 +580,8 @@ class NoteRepository:
             return category_id
         folded = str(name).casefold()
         live = self._db.execute(
-            "SELECT id, name FROM categories WHERE deleted_at IS NULL ORDER BY position"
+            "SELECT id, name FROM categories WHERE deleted_at IS NULL AND merged_into IS NULL"
+            " ORDER BY position"
         ).fetchall()
         same = next((str(i) for i, n in live if str(n).casefold() == folded), None)
         if same is not None:

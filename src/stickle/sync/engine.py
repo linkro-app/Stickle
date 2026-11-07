@@ -51,6 +51,7 @@ from stickle.sync.format import (
     open_envelope,
     seal,
 )
+from stickle.sync.local_records import Shown, own_name
 from stickle.sync.merge import Merged, as_sent, deletion_due, merge, trash_due
 from stickle.sync.note_file import NoteFile, Step
 from stickle.sync.place import Place, writing
@@ -99,12 +100,13 @@ def sync_vault(
     place: Place,
     cloud_now: Callable[[], int],
     notes: NoteRepository | None = None,
+    shown: Shown = own_name,
 ) -> Report:
     """One round of the whole vault: the records first, so that the categories
     and marks notes name are here when the notes come; then the notes, and
     again those that name a category or mark that came, a field of theirs
     perhaps not taken before for want of it."""
-    records = RecordRound(connection, place, cloud_now).run()
+    records = RecordRound(connection, place, cloud_now, shown=shown).run()
     came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
     also = sync_state.mentioning(connection, place.vault, came)
     report = _Round(connection, notes or NoteRepository(connection), place, cloud_now).run(also)
@@ -126,6 +128,7 @@ class _Round:
         self._now = cloud_now
         self._report = Report()
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
+        self._redirects = local.Redirects({}, {})
 
     def run(self, also: list[str] | None = None) -> Report:
         """also: notes merged whether or not they changed."""
@@ -143,6 +146,7 @@ class _Round:
                 to_read.add(note_id)
         here = set(sync_state.changed(self._db, vault)) | set(sync_state.emptied(self._db, vault))
         here |= set(also or [])
+        self._redirects = local.Redirects.here(self._db)
         queue = sorted(to_read | here)
         done: set[str] = set()
         while queue:
@@ -232,6 +236,7 @@ class _Round:
             else:
                 assert cloud.note is not None
                 merged = Merged(cloud.note, Step.RECEIVE)
+            merged = self._redirected(merged)
             now = self._now()
             put = None
             if cloud.note is None or not _same(merged.note, cloud.note):
@@ -263,6 +268,14 @@ class _Round:
                 self._report.changed.append(note_id)
             return put, copies
         raise _LaterError()
+
+    def _redirected(self, merged: Merged) -> Merged:
+        """As it names categories and marks now (stickle.sync.local.redirect)."""
+        note = local.redirect(merged.note, self._redirects)
+        copy = merged.copy
+        if copy is not None:
+            copy = (copy[0], local.redirect(copy[1], self._redirects))
+        return replace(merged, note=note, copy=copy)
 
     def _copy(self, merged: Merged, now: int) -> list[str]:
         """The conflict copy the merge made, here, to put: unless it is here already."""

@@ -91,11 +91,14 @@ class RecordRound:
         place: Place,
         cloud_now: Callable[[], int],
         clock: Clock = utc_now,
+        shown: local_records.Shown = local_records.own_name,
     ) -> None:
+        """shown: the name a mark shows here (a built-in one's, in this language)."""
         self._db = connection
         self._place = place
         self._now = cloud_now
         self._clock = clock
+        self._shown = shown
         self._report = RecordReport()
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
 
@@ -116,13 +119,21 @@ class RecordRound:
             for kind, item in [*record_state.changed(self._db, vault), *(also or [])]
         }
         for record in sorted(to_read | here.keys()):
-            try:
-                self.sync(record, record in to_read, here.get(record))
-            except _LaterError:
-                self._report.left.append(record)
-            except _LeftError:
-                pass
+            self._try(record, record in to_read, here.get(record))
+        with writing(self._db):
+            alike = local_records.merge_alike(self._db, self._now(), self._clock(), self._shown)
+        for kind, item in alike:
+            self._report.changed.append((kind, item))
+            self._try(record_id(keys, kind, item), False, (kind, item))
         return self._report
+
+    def _try(self, record: str, read: bool, item: tuple[str, str] | None) -> None:
+        try:
+            self.sync(record, read, item)
+        except _LaterError:
+            self._report.left.append(record)
+        except _LeftError:
+            pass
 
     def _read(self, record: str) -> _Read:
         place = self._place

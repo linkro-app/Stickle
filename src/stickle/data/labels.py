@@ -33,6 +33,23 @@ class MarkNameError(ValueError):
     """Empty (for a new mark), or the name of another mark."""
 
 
+def become(connection: apsw.Connection, table: str, item_id: str) -> str:
+    """The category or mark (table: "categories" or "marks") item_id is now: the
+    one of the same name it became one with on syncing, and the one that became
+    one with, to the last that is here."""
+    seen = {item_id}
+    while True:
+        rows = connection.execute(
+            f"SELECT b.id FROM {table} AS a JOIN {table} AS b ON b.id = a.merged_into"
+            " WHERE a.id = ?",
+            (item_id,),
+        ).fetchall()
+        if not rows or str(rows[0][0]) in seen:
+            return item_id
+        item_id = str(rows[0][0])
+        seen.add(item_id)
+
+
 def _own_name(mark: Mark) -> str:
     return mark.name or mark.id
 
@@ -76,10 +93,10 @@ class LabelRepository:
         record_stamps.changed(self._db, kind, item, fields, self._millis())
 
     def categories(self) -> list[Category]:
-        """Categories not deleted, in their order."""
+        """Categories not deleted, nor become one with another, in their order."""
         rows = self._db.execute(
             "SELECT id, name, color, position, icon, deleted_at FROM categories"
-            " WHERE deleted_at IS NULL ORDER BY position, created_at"
+            " WHERE deleted_at IS NULL AND merged_into IS NULL ORDER BY position, created_at"
         )
         return [_category(row) for row in rows]
 
@@ -189,10 +206,10 @@ class LabelRepository:
         return self.categories()
 
     def marks(self) -> list[Mark]:
-        """Marks not deleted, in their order."""
+        """Marks not deleted, nor become one with another, in their order."""
         rows = self._db.execute(
             "SELECT id, name, icon, position, deleted_at FROM marks"
-            " WHERE deleted_at IS NULL ORDER BY position, id"
+            " WHERE deleted_at IS NULL AND merged_into IS NULL ORDER BY position, id"
         )
         return [_mark(row) for row in rows]
 
