@@ -12,12 +12,13 @@ read when their tags change, and kept (stickle.data.record_state), for what
 each device is called. One that does not open is passed over.
 
 Each write of its own file is marked anew ("mark"), the mark kept here before
-the file is put. Its file there with a tag other than the one it was left
-with (with no tags: on a full look, at start and once a day) is read: marked
-as this device last marked it, it is this device's write, its answer lost on
-the way. Marked otherwise, another device wrote it under this device's id: a
-copy of its disk, or of its virtual machine. The device that sees it takes a
-new id, and what was changed here until then keeps the old one.
+the file is put (a year's of them). Its file there with a tag other than the
+one it was left with (with no tags: on a full look, at start and once a day)
+is read: marked as this device marked it, lately or a while ago, it is this
+device's write, its answer lost on the way or the vault gone back to an
+earlier day. Marked otherwise, another device wrote it under this device's
+id: a copy of its disk, or of its virtual machine. The device that sees it
+takes a new id, and what was changed here until then keeps the old one.
 """
 
 import platform
@@ -145,8 +146,8 @@ def _copied(connection: apsw.Connection, place: Place, own: Entry, full: bool) -
     if head.item != device:
         return False
     mark = contents.fields.get(MARK)
-    ours = sync_state.own_mark(connection, vault)
-    if ours is not None and (mark is None or mark.value != ours):
+    ours = sync_state.own_marks(connection, vault)
+    if ours and (mark is None or mark.value not in ours):
         return True
     with writing(connection):
         record_state.put_device(connection, vault, device, _as_kept(contents), read.tag)
@@ -185,7 +186,7 @@ def _put_own(
         contents = Contents(fields, {} if before is None else before.others)
         condition = Absent() if before is None else AsRead(tag)
         with writing(connection):
-            sync_state.set_own_mark(connection, vault, mark)
+            sync_state.add_own_mark(connection, vault, mark)
         try:
             written = target.put(
                 path, seal(keys, vault, DEVICES, device, contents.to_json()), condition

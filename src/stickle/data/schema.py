@@ -483,9 +483,10 @@ UPDATE reminders SET first_day = next_day WHERE kind = 'note';
 V19 = """
 -- Of each vault: when this device last went through a round with it, by the
 -- cloud's clock (a note's file gone from it is taken for a deletion cleared
--- a year after only when that was more than a year back), and the mark of the
--- last write of this device's own file there (one there with another mark was
--- written by another device under this one's id: a copy of its disk).
+-- a year after only when that was more than a year back), and the marks of this
+-- device's writes of its own file there, the last year's (one there with a
+-- mark of none of them was written by another device under this one's id: a
+-- copy of its disk; one with an earlier one, the vault gone back a while).
 ALTER TABLE sync_vaults ADD COLUMN synced_at INTEGER;
 ALTER TABLE sync_vaults ADD COLUMN own_mark TEXT;
 -- A note whose file the vault lost while this device was away for more than

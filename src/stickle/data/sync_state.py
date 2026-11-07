@@ -201,10 +201,16 @@ def set_synced_at(connection: apsw.Connection, vault: str, at: int) -> None:
     _set_vault_value(connection, vault, "synced_at", at)
 
 
-def own_mark(connection: apsw.Connection, vault: str) -> str | None:
-    """The mark of the last write of this device's own file in the vault."""
-    return _text(_vault_value(connection, vault, "own_mark"))
+MARKS_KEPT = 400  # more than a year's: a device writes its own file once a day, or on a change
 
 
-def set_own_mark(connection: apsw.Connection, vault: str, mark: str) -> None:
-    _set_vault_value(connection, vault, "own_mark", mark)
+def own_marks(connection: apsw.Connection, vault: str) -> list[str]:
+    """The marks of this device's last writes of its own file in the vault,
+    the latest first."""
+    text = _text(_vault_value(connection, vault, "own_mark"))
+    return [] if text is None else text.split()
+
+
+def add_own_mark(connection: apsw.Connection, vault: str, mark: str) -> None:
+    marks = [mark, *own_marks(connection, vault)][:MARKS_KEPT]
+    _set_vault_value(connection, vault, "own_mark", " ".join(marks))

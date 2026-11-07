@@ -307,6 +307,24 @@ def test_a_device_whose_own_write_lost_its_answer_keeps_its_id(
     b.close()
 
 
+def test_a_vault_gone_back_to_an_earlier_day_is_not_taken_for_a_copy(
+    tmp_path: Path, clock: Clock
+) -> None:
+    cloud, a, b = two_on(DROPBOX, tmp_path, clock)
+    a.notes.create("메모")
+    settle([a, b])
+    back_to = cloud.requests
+    for _ in range(3):  # days on, each device saying again it synced
+        clock.tick(DAY)
+        settle([a, b])
+    old = (a.id, b.id)
+    cloud.go_back_to(back_to)
+    settle([a, b])
+    assert (a.id, b.id) == old
+    a.close()
+    b.close()
+
+
 def test_a_device_renewing_its_id_puts_nothing_of_what_it_changed_before_again(
     tmp_path: Path, clock: Clock
 ) -> None:
