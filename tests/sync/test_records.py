@@ -228,6 +228,26 @@ def test_a_record_of_a_kind_not_known_is_left_as_it_is(
     assert record_state.get(a.db, VAULT, record) is None
 
 
+def test_one_text_brought_in_from_one_source_into_two_notes_is_recorded_alike_on_both(
+    devices: tuple[Device, Device], times: Times
+) -> None:
+    a, b = devices
+    first, second = a.notes.create("장보기"), b.notes.create("장보기")
+    a.imports.record("xpad", "x-1", "장보기", first.id)  # offline, each its own note
+    b.imports.record("xpad", "x-1", "장보기", second.id)
+
+    settle(a, b)
+
+    rows = [
+        sorted(
+            device.db.execute("SELECT source, source_id, content_hash, note_id FROM import_records")
+        )
+        for device in devices
+    ]
+    assert rows[0] == rows[1]
+    assert [row[3] for row in rows[0]] == [min(first.id, second.id)]
+
+
 def test_a_note_recorded_twice_from_one_source_has_one_text_on_both(
     devices: tuple[Device, Device], times: Times
 ) -> None:

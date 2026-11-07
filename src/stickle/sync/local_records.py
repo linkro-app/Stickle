@@ -251,9 +251,18 @@ def _write_imported(connection: apsw.Connection, item: str, values: Mapping[str,
                 " AND content_hash != ?",
                 (source, source_id, note_id, text),
             )
+        there = connection.execute(
+            "SELECT note_id FROM import_records"
+            " WHERE source = ? AND source_id = ? AND content_hash = ?",
+            (source, source_id, text),
+        ).fetchall()
+        if there and str(there[0][0]) < note_id:
+            continue  # one text brought into two notes: the one every device keeps names the first
         connection.execute(
-            "INSERT OR IGNORE INTO import_records"
-            " (source, source_id, content_hash, note_id, imported_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO import_records"
+            " (source, source_id, content_hash, note_id, imported_at) VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT (source, source_id, content_hash) DO UPDATE SET"
+            " note_id = excluded.note_id, imported_at = excluded.imported_at",
             (source, source_id, text, note_id, at),
         )
 
