@@ -320,10 +320,10 @@ class _Round:
         place = self._place
         now = self._now()
         for note_id, state in sorted(sync_state.known(self._db, place.vault).items()):
+            if not state.deleted or state.outbox is not None:
+                continue  # only deletions seen in the vault are read here
             seen = local.kept(state.seen)
-            if not state.deleted or state.outbox is not None or seen is None:
-                continue
-            if not deletion_due(seen, now):
+            if seen is None or not deletion_due(seen, now):
                 continue
             tag = state.tag
             if not self._trusted:
