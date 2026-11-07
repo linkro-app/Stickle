@@ -43,6 +43,9 @@ back as it is.
 
 By the cloud's time: notes a year in the trash since that reached the cloud
 are emptied, and a deletion a year in the vault is removed from it.
+
+A cloud full turns a put down: the round goes on taking in what changed
+there, and puts nothing more; what was not put stays in the outbox.
 """
 
 from collections.abc import Callable
@@ -76,7 +79,15 @@ from stickle.sync.merge import TRASH, YEAR, Merged, as_sent, deletion_due, merge
 from stickle.sync.note_file import NoteFile, Step
 from stickle.sync.place import Place, writing
 from stickle.sync.records import RecordReport, RecordRound
-from stickle.sync.targets.base import Absent, AsRead, Entry, NotThereError, Read, RefusedError
+from stickle.sync.targets.base import (
+    Absent,
+    AsRead,
+    Entry,
+    FullError,
+    NotThereError,
+    Read,
+    RefusedError,
+)
 from stickle.sync.vault import confirm
 
 TRIES = 5  # merges of one note in a round, refused each time, before it is left
@@ -91,6 +102,7 @@ class Report:
     # Notes put in the trash here, their files gone from the vault while this
     # device was away for more than a year (said once: emptied elsewhere).
     trashed: list[str] = field(default_factory=list[str])
+    full: bool = False  # a put turned down, the cloud full: nothing more put
     records: RecordReport = field(default_factory=RecordReport)
     device: str = ""  # the id the device went on as (a new one if its old one was taken)
 
@@ -157,7 +169,10 @@ def sync_vault(
     records = RecordRound(connection, place, cloud_now, shown=shown).run()
     came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
     also = sync_state.mentioning(connection, place.vault, came)
-    report = _Round(connection, notes or NoteRepository(connection), place, cloud_now).run(also)
+    notes_round = _Round(connection, notes or NoteRepository(connection), place, cloud_now)
+    notes_round.full = records.full
+    report = notes_round.run(also)
+    report.full = report.full or records.full
     report.records = records
     return report
 
@@ -180,6 +195,7 @@ class _Round:
         self._leaving = Leaving(connection, place, cloud_now)
         self._copies: dict[str, list[_Copy]] = {}
         self._last = sync_state.synced_at(connection, place.vault)
+        self.full = False  # the cloud full: nothing put
 
     def run(self, also: list[str] | None = None) -> Report:
         """also: notes merged whether or not they changed."""
@@ -230,6 +246,7 @@ class _Round:
         self._remove_old_deletions()
         with writing(self._db):
             sync_state.set_synced_at(self._db, vault, started)
+        self._report.full = self.full
         return self._report
 
     def _copy_of(self, entry: Entry) -> str | None:
@@ -335,6 +352,8 @@ class _Round:
             put, copies = outcome
             if put is None:
                 return copies
+            if self.full:
+                raise _LaterError()  # kept in the outbox, put once there is room
             try:
                 tag = self._place.target.put(
                     item_path(NOTES, note_id),
@@ -344,6 +363,9 @@ class _Round:
             except RefusedError:
                 read = True
                 continue
+            except FullError as error:
+                self.full = True
+                raise _LaterError() from error
             self._sent(note_id, put, tag)
             return copies
         raise _LaterError()

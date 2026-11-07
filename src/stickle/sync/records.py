@@ -48,7 +48,15 @@ from stickle.sync.left import Leaving
 from stickle.sync.merge import merge_fields
 from stickle.sync.place import Place, writing
 from stickle.sync.record_file import RecordFile, record_id
-from stickle.sync.targets.base import Absent, AsRead, Entry, NotThereError, Read, RefusedError
+from stickle.sync.targets.base import (
+    Absent,
+    AsRead,
+    Entry,
+    FullError,
+    NotThereError,
+    Read,
+    RefusedError,
+)
 
 TRIES = 5
 
@@ -58,6 +66,7 @@ class RecordReport:
     changed: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])  # here
     put: list[str] = field(default_factory=list[str])  # records put in the vault
     left: list[str] = field(default_factory=list[str])  # left for a later round
+    full: bool = False  # a put turned down, the cloud full: nothing more put
 
 
 @dataclass(frozen=True)
@@ -257,6 +266,8 @@ class RecordRound:
             put = self._merge(record, state, cloud, item)
             if put is None:
                 return
+            if self._report.full:
+                raise _LaterError()  # kept in the outbox, put once there is room
             try:
                 tag = self._place.target.put(
                     item_path(RECORDS, record),
@@ -266,6 +277,9 @@ class RecordRound:
             except RefusedError:
                 read = True
                 continue
+            except FullError as error:
+                self._report.full = True
+                raise _LaterError() from error
             self._sent(record, put, tag)
             return
         raise _LaterError()

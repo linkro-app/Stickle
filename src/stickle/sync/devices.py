@@ -45,7 +45,14 @@ from stickle.sync.format import (
     seal,
 )
 from stickle.sync.place import Place, writing
-from stickle.sync.targets.base import Absent, AsRead, Entry, NotThereError, RefusedError
+from stickle.sync.targets.base import (
+    Absent,
+    AsRead,
+    Entry,
+    FullError,
+    NotThereError,
+    RefusedError,
+)
 
 DAY = 24 * 60 * 60 * 1000
 APP = "app"
@@ -191,6 +198,8 @@ def _put_own(
             written = target.put(
                 path, seal(keys, vault, DEVICES, device, contents.to_json()), condition
             )
+        except FullError:
+            return  # written again once there is room
         except RefusedError:
             try:
                 read = target.get(path)
