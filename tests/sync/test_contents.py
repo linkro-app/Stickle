@@ -33,7 +33,9 @@ FIELDS = st.builds(
     st.sampled_from([LAPTOP, DESKTOP]),
     st.booleans(),
     st.dictionaries(
-        st.text(max_size=6).filter(lambda n: n not in ("device", "hlc", "readonly", "value")),
+        st.text(max_size=6).filter(
+            lambda n: n not in ("device", "hlc", "readonly", "sent", "value")
+        ),
         VALUES,
         max_size=2,
     ),
