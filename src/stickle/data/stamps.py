@@ -105,5 +105,16 @@ def put(
     )
 
 
+def touch(connection: apsw.Connection, note_id: str) -> int:
+    """The note counts as changed (one of its reminders did, say), for sync to
+    notice: its change number now. When it last changed, as shown, stays."""
+    rows = connection.execute(
+        "UPDATE local_counters SET value = value + 1 WHERE key = 'change_seq' RETURNING value"
+    ).fetchall()
+    seq = int(rows[0][0])  # pyright: ignore[reportArgumentType]
+    connection.execute("UPDATE notes SET change_seq = ? WHERE id = ?", (seq, note_id))
+    return seq
+
+
 def forget(connection: apsw.Connection, note_id: str) -> None:
     connection.execute("DELETE FROM note_stamps WHERE note_id = ?", (note_id,))

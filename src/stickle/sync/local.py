@@ -24,7 +24,7 @@ one; emptied here before the vault was seen to have the note, one made on none.
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC
 
 import apsw
@@ -40,7 +40,7 @@ from stickle.data.record_stamps import CATEGORY
 from stickle.data.record_stamps import MARK as MARKS
 from stickle.data.stamps import Stamp
 from stickle.data.sync_state import NoteState
-from stickle.sync import local_records
+from stickle.sync import local_records, local_reminders
 from stickle.sync.contents import Contents, Field
 from stickle.sync.format import Json, json_bytes, parse_json
 from stickle.sync.merge import COPY_OF
@@ -63,7 +63,12 @@ def millis_of(timestamp: str) -> int:
 
 def known(contents: Contents) -> set[str]:
     """The note's fields that this version knows."""
-    return {*COLUMNS, COPY_OF, *(name for name in contents.fields if name.startswith(MARK))}
+    return {
+        *COLUMNS,
+        COPY_OF,
+        *(name for name in contents.fields if name.startswith(MARK)),
+        *(name for name in contents.fields if local_reminders.is_reminder_field(name)),
+    }
 
 
 def _ours(name: str) -> bool:
@@ -95,6 +100,8 @@ class Here:
     stamps: Mapping[str, Stamp]
     sent: Mapping[str, int]
     text_at: str | None = None  # when its text was last saved
+    # Its reminders, as their fields' values (stickle.sync.local_reminders).
+    reminders: Mapping[str, Json] = field(default_factory=dict[str, Json])
 
     @property
     def mark(self) -> tuple[int | None, str | None]:
@@ -121,6 +128,7 @@ def here(connection: apsw.Connection, notes: NoteRepository, note_id: str) -> He
         stamps.of(connection, note_id),
         stamps.sent_of(connection, note_id),
         text_at,
+        {} if note is None else local_reminders.values(connection, note_id),
     )
 
 
@@ -175,6 +183,8 @@ def mine(keys: DataKeys, device: str, at: Here, state: NoteState | None) -> Note
     fields = {name: each for name, each in before.fields.items() if not _ours(name)}
     for name in sorted(names):
         fields[name] = _field(at, note, name, device, before.fields.get(name))
+    earliest = Field(None, EARLIEST, device)
+    fields |= local_reminders.fields(device, at.reminders, at.stamps, at.sent, before, earliest)
     contents = Contents(fields, before.others)
     if head is not None and not head.body.deleted and head.body.text == note.body:
         return NoteFile(contents, head.body)
@@ -252,10 +262,25 @@ def take(
                 continue
             columns[COLUMNS[name]] = value
         stamped[name] = (stamp, each.sent)
-    if at.note is not None and text is None and not columns and not marks and not stamped:
-        return at.note.change_seq
-    came_from = None if note.body.device == device else note.body.device
-    return notes.take_in(note_id, text, came_from, columns, marks, stamped)
+    seq = None if at.note is None else at.note.change_seq
+    if at.note is None or text is not None or columns or marks or stamped:
+        came_from = None if note.body.device == device else note.body.device
+        seq = notes.take_in(note_id, text, came_from, columns, marks, stamped)
+    copy = note.contents.fields.get(COPY_OF)
+    copy_of = copy.value.get("note") if copy is not None and isinstance(copy.value, dict) else None
+    made_copy = at.note is None and isinstance(copy_of, str)
+    reminded = local_reminders.take(
+        connection,
+        device,
+        note_id,
+        note.contents,
+        at.reminders,
+        at.stamps,
+        copy_of if made_copy and isinstance(copy_of, str) else None,
+    )
+    if reminded:
+        seq = stamps.touch(connection, note_id)
+    return seq
 
 
 @dataclass(frozen=True)

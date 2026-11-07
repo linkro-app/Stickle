@@ -39,7 +39,7 @@ from stickle.data import sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.sync_state import NoteState
-from stickle.sync import local
+from stickle.sync import local, local_reminders
 from stickle.sync.contents import ReadOnlyItemError
 from stickle.sync.format import (
     NOTES,
@@ -236,6 +236,11 @@ class _Round:
             else:
                 assert cloud.note is not None
                 merged = Merged(cloud.note, Step.RECEIVE)
+            if mine is not None and cloud.note is not None:
+                fitting = local_reminders.for_this_setting(
+                    merged.note.contents, mine.contents, cloud.note.contents
+                )
+                merged = replace(merged, note=replace(merged.note, contents=fitting))
             merged = self._redirected(merged)
             now = self._now()
             put = None

@@ -123,9 +123,16 @@ def _in_trash(fields: Contents, mine: Contents, cloud: Contents, gone: Version) 
 def _copy(keys: DataKeys, note_id: str, fields: Contents, other: Version) -> tuple[str, NoteFile]:
     of: Json = {"note": note_id, "device": other.device, "edited": other.edited}
     marked = Field(of, after(other.edited, None), other.device)
-    copy_fields = replace(fields, fields={**fields.fields, COPY_OF: marked})
+    # The note's own reminder stays with the note; those written in the text
+    # the copy makes afresh, on each device (stickle.sync.local_reminders).
+    kept = {name: each for name, each in fields.fields.items() if not _a_reminder(name)}
+    copy_fields = replace(fields, fields={**kept, COPY_OF: marked})
     first = new_version(keys, [], other.text, other.edited, other.device)
     return copy_id(keys, note_id, other.id), NoteFile(copy_fields, first)
+
+
+def _a_reminder(name: str) -> bool:
+    return name in ("reminder", "reminder_state") or name.startswith("text_reminder:")
 
 
 def merge(keys: DataKeys, note_id: str, mine: NoteFile, cloud: NoteFile) -> Merged:

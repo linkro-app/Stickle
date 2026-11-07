@@ -258,7 +258,9 @@ class ReminderKeeper(QObject):
         try:
             for note in self._notes.listed_notes():
                 if not note.secret:
-                    self._repository.match_text(note.id, due(note.body, morning).keys())
+                    self._repository.match_text(
+                        note.id, due(note.body, morning).keys(), fresh=False
+                    )
         except apsw.Error as error:
             log.error("could not follow the notes' reminders: %s", type(error).__name__)
         self.changed.emit()

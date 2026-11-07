@@ -8,10 +8,17 @@ so the times it rang (or would have) before are dealt with together; one that
 does not repeat keeps its row, dealt with for good (no next day), so that sync
 can quiet it on other devices. Turning one off, or taking it out of the text,
 marks its row deleted, for the same reason.
+
+For sync, each change stamps a field of the note (stickle.data.stamps), and
+the note counts as changed: its own reminder is the field "reminder", how it
+was dealt with "reminder_state"; one written in its text is dealt with as
+"text_reminder:<day> <time>" (text_field). A time newly written when the text
+is saved here starts afresh, so that writing a time again outdoes having dealt
+with it before, as it does on one device.
 """
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, time, tzinfo
 
@@ -19,6 +26,7 @@ import apsw
 
 from stickle.core.calendars import CALENDARS, CalendarDate, resolve
 from stickle.core.clock import Clock, moment_of, stamp_of, utc_now
+from stickle.core.hlc import wall_millis
 from stickle.core.reminders import (
     Rule,
     first_after,
@@ -30,10 +38,20 @@ from stickle.core.reminders import (
 from stickle.core.reminders import (
     next_day as day_after,
 )
+from stickle.data import stamps
 
 NOTE = "note"  # kind: a note's own reminder
 TEXT = "text"  # kind: one written in its text
 GREGORIAN = "gregorian"
+RULE_FIELD = "reminder"  # a note's field: its own reminder, as set
+STATE_FIELD = "reminder_state"  # a note's field: how its own reminder was dealt with
+TEXT_FIELD = "text_reminder:"
+
+
+def text_field(day: str, at: str) -> str:
+    """A note's field: how the reminder written in its text for day at at was dealt with."""
+    return f"{TEXT_FIELD}{day} {at}"
+
 
 _COLUMNS = (
     "id, note_id, calendar, start_day, at_time, time_zone, repeat, weekdays, next_day,"
@@ -128,11 +146,30 @@ def _reminder(row: apsw.SQLiteValues) -> Reminder | None:
 
 class ReminderRepository:
     def __init__(
-        self, connection: apsw.Connection, clock: Clock = utc_now, device: str | None = None
+        self,
+        connection: apsw.Connection,
+        clock: Clock = utc_now,
+        device: str | None = None,
+        millis: Callable[[], int] = wall_millis,
     ) -> None:
+        """millis: the time fields are stamped with (as NoteRepository's)."""
         self._db = connection
         self._clock = clock
         self._device = device  # this device's id, recorded when one is dealt with
+        self._millis = millis
+
+    def _stamp(self, note_id: str, *fields: str) -> None:
+        stamps.changed(self._db, note_id, fields, self._millis())
+        stamps.touch(self._db, note_id)
+
+    def _field_of(self, reminder_id: str) -> tuple[str, str]:
+        """The note a reminder is of, and the field it is dealt with as."""
+        note_id, kind, day, at = self._db.execute(
+            "SELECT note_id, kind, start_day, at_time FROM reminders WHERE id = ?", (reminder_id,)
+        ).fetchall()[0]
+        if kind == TEXT:
+            return str(note_id), text_field(str(day), str(at))
+        return str(note_id), STATE_FIELD
 
     def _rows(self, where: str, params: tuple[str, ...] = ()) -> list[Reminder]:
         rows = self._db.execute(f"SELECT {_COLUMNS} FROM reminders WHERE {where}", params)
@@ -184,20 +221,23 @@ class ReminderRepository:
             (note_id, NOTE),
         ).fetchall()
         reminder_id = str(old[0][0]) if old else str(uuid.uuid4())
-        if old:
-            self._db.execute(
-                "UPDATE reminders SET start_day = ?, at_time = ?, time_zone = ?, repeat = ?,"
-                " weekdays = ?, next_day = ?, hide_note = ?, calendar = ?, updated_at = ?,"
-                " snoozed_until = NULL WHERE id = ?",
-                (*values, reminder_id),
-            )
-        else:
-            self._db.execute(
-                "INSERT INTO reminders (start_day, at_time, time_zone, repeat, weekdays,"
-                " next_day, hide_note, calendar, updated_at, id, note_id, kind, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (*values, reminder_id, note_id, NOTE, now),
-            )
+        with self._db:
+            if old:
+                self._db.execute(
+                    "UPDATE reminders SET start_day = ?, at_time = ?, time_zone = ?, repeat = ?,"
+                    " weekdays = ?, next_day = ?, hide_note = ?, calendar = ?, updated_at = ?,"
+                    " snoozed_until = NULL, acked_at = NULL, acked_device = NULL, first_day = ?"
+                    " WHERE id = ?",
+                    (*values, first.isoformat(), reminder_id),
+                )
+            else:
+                self._db.execute(
+                    "INSERT INTO reminders (start_day, at_time, time_zone, repeat, weekdays,"
+                    " next_day, hide_note, calendar, updated_at, id, note_id, kind, created_at,"
+                    " first_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (*values, reminder_id, note_id, NOTE, now, first.isoformat()),
+                )
+            self._stamp(note_id, RULE_FIELD, STATE_FIELD)
         return self._require(reminder_id)
 
     def _require(self, reminder_id: str) -> Reminder:
@@ -209,17 +249,24 @@ class ReminderRepository:
     def turn_off(self, note_id: str) -> None:
         """The note's own reminder, gone."""
         now = self._clock()
-        self._db.execute(
-            "UPDATE reminders SET deleted_at = ?, updated_at = ?"
-            " WHERE note_id = ? AND kind = ? AND deleted_at IS NULL",
-            (now, now, note_id, NOTE),
-        )
+        with self._db:
+            self._db.execute(
+                "UPDATE reminders SET deleted_at = ?, updated_at = ?"
+                " WHERE note_id = ? AND kind = ? AND deleted_at IS NULL",
+                (now, now, note_id, NOTE),
+            )
+            if self._db.changes():
+                self._stamp(note_id, RULE_FIELD)
 
-    def match_text(self, note_id: str, times: Iterable[datetime]) -> bool:
+    def match_text(self, note_id: str, times: Iterable[datetime], fresh: bool = True) -> bool:
         """The reminders written in the note's text, as it was saved: one for each
         time written (on this computer's clock). A time still written keeps its
         reminder as it is (rung, snoozed or not); a new one gets a reminder; one
-        no longer written loses it. Whether anything changed."""
+        no longer written loses it. Whether anything changed.
+
+        fresh: the text was saved here, and a time new to it starts afresh
+        everywhere; not: the text came from elsewhere, or is only being
+        followed, and how each time was dealt with comes with it (or stays)."""
         wanted = {(when.date().isoformat(), when.strftime("%H:%M")) for when in times}
         now = self._clock()
         rows = self._db.execute(
@@ -242,6 +289,8 @@ class ReminderRepository:
                 " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [(str(uuid.uuid4()), note_id, TEXT, day, at, day, now, now) for day, at in new],
             )
+            if fresh and new:
+                self._stamp(note_id, *(text_field(day, at) for day, at in sorted(new)))
         return True
 
     def dealt_with(self, reminder_id: str, here: tzinfo | None = None) -> Reminder:
@@ -253,23 +302,27 @@ class ReminderRepository:
             after = max(after, moment(reminder.rule, reminder.next_day, here))
         repeats = reminder.rule.repeat != "none"
         following = first_after(reminder.rule, after, here) if repeats else None
-        self._db.execute(
-            "UPDATE reminders SET next_day = ?, snoozed_until = NULL, acked_at = ?,"
-            " acked_device = ?, updated_at = ? WHERE id = ?",
-            (
-                None if following is None else following.isoformat(),
-                now,
-                self._device,
-                now,
-                reminder_id,
-            ),
-        )
+        with self._db:
+            self._db.execute(
+                "UPDATE reminders SET next_day = ?, snoozed_until = NULL, acked_at = ?,"
+                " acked_device = ?, updated_at = ? WHERE id = ?",
+                (
+                    None if following is None else following.isoformat(),
+                    now,
+                    self._device,
+                    now,
+                    reminder_id,
+                ),
+            )
+            self._stamp(*self._field_of(reminder_id))
         return self._require(reminder_id)
 
     def snooze(self, reminder_id: str, until: datetime) -> Reminder:
         """Ring again at until, in place of its time."""
-        self._db.execute(
-            "UPDATE reminders SET snoozed_until = ?, updated_at = ? WHERE id = ?",
-            (stamp_of(until), self._clock(), reminder_id),
-        )
+        with self._db:
+            self._db.execute(
+                "UPDATE reminders SET snoozed_until = ?, updated_at = ? WHERE id = ?",
+                (stamp_of(until), self._clock(), reminder_id),
+            )
+            self._stamp(*self._field_of(reminder_id))
         return self._require(reminder_id)
