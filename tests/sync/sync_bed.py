@@ -14,7 +14,12 @@ every device has synced:
 - each field of a note never emptied has the value of its latest change, by
   its stamp (the later time, then the device, then the value);
 - a note emptied is not back out of the trash, unless a user took it out after
-  it was emptied: nothing deleted comes back by itself.
+  it was emptied: nothing deleted comes back by itself;
+- a note's category is its latest change's, or the one that became one with
+  it (devices syncing the whole vault, records too: whole).
+
+Of the records (whole devices), they expect every device to have them alike,
+one of each name, nothing made gone (records_agree).
 """
 
 import secrets
@@ -29,11 +34,16 @@ from fake_cloud import FakeCloud
 from stickle.core.clock import stamp_of
 from stickle.core.hlc import Hlc
 from stickle.crypto.vault_keys import DataKeys
-from stickle.data import stamps, sync_state
+from stickle.data import record_state, stamps, sync_state
+from stickle.data.colors import ColorRepository
+from stickle.data.imports import ImportRecords
+from stickle.data.labels import LabelRepository, become
 from stickle.data.notes import NoteRepository
+from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import open_store
 from stickle.sync import local
-from stickle.sync.engine import Place, Report, sync_notes
+from stickle.sync.devices import About
+from stickle.sync.engine import Place, Report, sync_notes, sync_vault
 from stickle.sync.format import NOTES, Json, item_at, json_bytes, open_envelope
 from stickle.sync.merge import COPY_OF
 from stickle.sync.note_file import NoteFile
@@ -66,15 +76,38 @@ class Device:
     """One device: its database, its clock (the cloud's, and skew off it: the
     time its notes are stamped with), and its way into the cloud."""
 
-    def __init__(self, name: str, folder: Path, cloud: FakeCloud, clock: Clock) -> None:
+    def __init__(
+        self,
+        name: str,
+        folder: Path,
+        cloud: FakeCloud,
+        clock: Clock,
+        whole: bool = False,
+        names: dict[str, str] | None = None,
+    ) -> None:
+        """whole: syncs the whole vault, records and its own file too (else its
+        notes only); names: what its built-in marks show as, in its language."""
         self.name = name
         self.id = device_id(name)
         self.path = folder / f"{name}.db"
         self.clock = clock
         self.skew = 0
+        self.whole = whole
+        self.names = names or {}
         self.place = Place(cloud.target(name), VAULT, KEYS, self.id)
         self.db = open_store(self.path, KEY)
-        self.notes = NoteRepository(self.db, clock=self.stamp, millis=self.millis)
+        self._repositories()
+
+    def _repositories(self) -> None:
+        stamp, millis = self.stamp, self.millis
+        self.notes = NoteRepository(self.db, clock=stamp, millis=millis)
+        self.labels = LabelRepository(self.db, clock=stamp, millis=millis)
+        self.colors = ColorRepository(self.db, clock=stamp, millis=millis)
+        self.reminders = ReminderRepository(self.db, clock=stamp, device=self.id, millis=millis)
+        self.imports = ImportRecords(self.db, clock=stamp, millis=millis)
+
+    def mark_name(self, mark_id: str, name: str | None) -> str:
+        return name or self.names.get(mark_id, mark_id)
 
     def millis(self) -> int:
         return self.clock.now + self.skew
@@ -83,6 +116,9 @@ class Device:
         return stamp_of(datetime.fromtimestamp(self.millis() / 1000, UTC))
 
     def sync(self) -> Report:
+        if self.whole:
+            about = About(f"{self.name.upper()}-PC 표식", "Linux", "0.7.0")
+            return sync_vault(self.db, self.place, self.clock, self.notes, self.mark_name, about)
         return sync_notes(self.db, self.place, self.clock, self.notes)
 
     def round(self) -> None:
@@ -93,7 +129,7 @@ class Device:
         """As after the app was ended in the middle of something, and started again."""
         self.db.close()
         self.db = open_store(self.path, KEY)
-        self.notes = NoteRepository(self.db, clock=self.stamp, millis=self.millis)
+        self._repositories()
 
     def close(self) -> None:
         self.db.close()
@@ -130,7 +166,7 @@ class Device:
 def value_of(device: Device, note_id: str, name: str) -> object:
     note = device.notes.get(note_id)
     assert note is not None
-    return getattr(note, name)
+    return getattr(note, "label" if name == "category" else name)
 
 
 def settle(devices: Iterable[Device], passes: int = 12) -> None:
@@ -140,7 +176,9 @@ def settle(devices: Iterable[Device], passes: int = 12) -> None:
         busy = False
         for device in devices:
             report = device.sync()
+            records = report.records
             busy = busy or bool(report.put or report.changed or report.left)
+            busy = busy or bool(records.put or records.changed or records.left)
         if not busy:
             return
     raise AssertionError("the devices never settled")
@@ -242,3 +280,54 @@ class Model:
                 _, latest = max(self.changes[(note_id, name)], key=lambda change: change[0])
                 there = value_of(first, note_id, name)
                 assert there == latest, f"{note_id} {name}: {there!r}, not {latest!r}"
+            if (note_id, "category") in self.changes:
+                _, latest = max(self.changes[(note_id, "category")], key=lambda c: c[0])
+                if isinstance(latest, str):
+                    latest = become(first.db, "categories", latest)
+                there = value_of(first, note_id, "category")
+                assert there == latest, f"{note_id} category: {there!r}, not {latest!r}"
+
+
+_TABLES = {
+    "categories": "id, name, color, icon, position, created_at, deleted_at, merged_into",
+    "marks": "id, name, icon, position, created_at, deleted_at, merged_into",
+    "custom_colors": "id, hex, position, created_at, deleted_at",
+    "import_records": "source, source_id, content_hash, note_id, imported_at",
+    "reminders WHERE deleted_at IS NULL": "note_id, kind, calendar, start_day, at_time,"
+    " time_zone, repeat, weekdays, hide_note, first_day, next_day, snoozed_until, acked_at,"
+    " acked_device",
+}
+
+
+def _rows(device: Device, table: str, columns: str) -> list[tuple[object, ...]]:
+    return sorted(
+        (tuple(row) for row in device.db.execute(f"SELECT {columns} FROM {table}")), key=repr
+    )
+
+
+def records_agree(devices: list[Device], made: dict[str, set[str]]) -> None:
+    """Every device has the records alike: categories, marks, colours, notes
+    brought in, reminders; of those not deleted nor become one with another, one
+    of each name (a mark's, as it is stored; a colour's value); and every one
+    made (made: table -> ids) is there."""
+    first = devices[0]
+    for table, columns in _TABLES.items():
+        rows = _rows(first, table, columns)
+        for device in devices[1:]:
+            assert _rows(device, table, columns) == rows, f"{device.name}'s {table} differ"
+    for device in devices:
+        assert record_state.unconfirmed(device.db, VAULT) == [], f"{device.name} still sending"
+    live = "deleted_at IS NULL AND merged_into IS NULL"
+    for table, column in (("categories", "name"), ("marks", "coalesce(name, id)")):
+        names = [
+            str(n).casefold()
+            for (n,) in first.db.execute(f"SELECT {column} FROM {table} WHERE {live}")
+        ]
+        assert len(names) == len(set(names)), f"{table} of one name: {sorted(names)}"
+    hexes = [
+        h for (h,) in first.db.execute("SELECT hex FROM custom_colors WHERE deleted_at IS NULL")
+    ]
+    assert len(hexes) == len(set(hexes)), f"colours alike: {sorted(hexes)}"  # pyright: ignore[reportUnknownArgumentType]
+    for table, ids in made.items():
+        there = {str(i) for (i,) in first.db.execute(f"SELECT id FROM {table}")}
+        assert ids <= there, f"{table} gone: {sorted(ids - there)}"

@@ -3,12 +3,16 @@
 with requests failing, answers lost, the app ended in the middle of a round,
 clocks set wrong and a year passing: once every device has synced, they all
 have the notes the model says, and nothing written is lost (sync_bed.Model).
+They make categories and marks of the same few names apart, colours alike,
+set reminders and deal with them, bring in notes: once synced, they have the
+same records, one of each name (sync_bed.records_agree).
 
 STICKLE_SYNC_EXAMPLES runs more of them (the default is what a commit can wait for).
 """
 
 import os
 import tempfile
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
@@ -27,9 +31,13 @@ from fake_cloud import (
 )
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from sync_bed import Clock, Device, Model, settle
+from sync_bed import Clock, Device, Model, records_agree, settle
 from test_vault_rules import plain_in
 
+from stickle.core.reminders import Rule
+from stickle.core.text_reminders import due
+from stickle.data.colors import OwnColorsFullError
+from stickle.data.labels import CategoryNameError, MarkNameError
 from stickle.data.notes import NoteRepository
 from stickle.sync.merge import YEAR
 from stickle.sync.targets.base import TargetError
@@ -66,14 +74,28 @@ TROUBLES: tuple[Trouble | str | None, ...] = (
 )
 COLORS = ("blue", "pink", "green", "yellow")
 SWITCHES = ("always_on_top", "hidden", "collapsed", "locked")
+# Few names, so that two devices make one of a name apart (case aside, too).
+CATEGORIES = ("Work-표식", "work-표식", "Home-marker")
+MARKS = ("Later-표식", "later-표식", "To do")
+OWN_COLORS = ("#336699", "#993366")
+SOURCES = (("sticky_notes", "s-1"), ("xpad", "x-1"))
+NAMES: tuple[dict[str, str], ...] = ({"todo": "To do"}, {"todo": "할 일"}, {}, {})  # languages
 
 
 class Bed:
     def __init__(self, folder: Path, kind: Kind, count: int) -> None:
         self.clock = Clock()
         self.cloud = FakeCloud(kind)
-        self.devices = [Device(name, folder, self.cloud, self.clock) for name in "abcd"[:count]]
+        self.devices = [
+            Device(name, folder, self.cloud, self.clock, whole=True, names=NAMES[i])
+            for i, name in enumerate("abcd"[:count])
+        ]
         self.model = Model()
+        self.records: dict[str, set[str]] = {
+            "categories": set(),
+            "marks": set(),
+            "custom_colors": set(),
+        }
         self.written = 0
         self.made = 0
         self.done: list[str] = []  # what was done, for a test that failed
@@ -137,6 +159,8 @@ def _do(bed: Bed, data: st.DataObject) -> None:
             + ["sync"] * 5
             + ["together"] * 3
             + ["skew", "tick", "tick", "year"]
+            + ["category", "rename", "uncategorise", "categorise", "categorise"]
+            + ["mark", "marked", "colour", "uncolour", "remind", "remind", "import"]
         )
     )
     bed.cloud.trouble = lambda _request: None
@@ -172,6 +196,7 @@ def _do(bed: Bed, data: st.DataObject) -> None:
     elif action == "restore" and (note_id := _pick(data, trashed)) is not None:
         notes.restore(note_id)
         bed.model.taken_out(device, note_id)
+        bed.model.changed(device, note_id, "category")  # back in its own, or one of its name
         bed.did(device, f"restore {note_id[:8]}")
     elif action == "empty" and (note_id := _pick(data, trashed)) is not None:
         note = notes.get(note_id)
@@ -195,6 +220,8 @@ def _do(bed: Bed, data: st.DataObject) -> None:
         bed.did(device, f"skew {device.skew}")
     elif action == "tick":
         bed.clock.tick(draw(st.sampled_from((1, 300, 1_000, 60_000, HOUR, 24 * HOUR))))
+    elif action in RECORDS:
+        RECORDS[action](bed, device, data, live)
     elif action == "year":
         # A year passes once all have synced (a device away a year is another matter).
         settle(bed.devices)
@@ -202,6 +229,144 @@ def _do(bed: Bed, data: st.DataObject) -> None:
             bed.model.emptying(bed.devices[0], note.id, note.body)  # a year in the trash
         bed.clock.tick(YEAR + 1_000)
         bed.did(device, "a year on")
+
+
+def _category(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    name = data.draw(st.sampled_from(CATEGORIES))
+    try:
+        made = device.labels.create_category(name, data.draw(st.sampled_from(COLORS)))
+    except CategoryNameError:
+        return
+    bed.records["categories"].add(made.id)
+    bed.did(device, f"category {made.id[:8]} {name!r}")
+
+
+def _rename(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    categories = device.labels.categories()
+    if not categories:
+        return
+    category = data.draw(st.sampled_from(categories))
+    name = data.draw(st.sampled_from(CATEGORIES))
+    try:
+        device.labels.rename_category(category.id, name)
+    except CategoryNameError:
+        return
+    bed.did(device, f"rename {category.id[:8]} {name!r}")
+
+
+def _uncategorise(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    categories = device.labels.categories()
+    if not categories:
+        return
+    category = data.draw(st.sampled_from(categories))
+    for note_id in device.notes.remove_category(category.id, with_notes=False):
+        bed.model.changed(device, note_id, "category")
+    bed.did(device, f"remove category {category.id[:8]}")
+
+
+def _categorise(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    note_id = _pick(data, live)
+    if note_id is None:
+        return
+    chosen = data.draw(st.sampled_from([None, *(c.id for c in device.labels.categories())]))
+    device.notes.set_category(note_id, chosen)
+    bed.model.changed(device, note_id, "category")
+    bed.did(device, f"categorise {note_id[:8]} {chosen and chosen[:8]}")
+
+
+def _mark(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    name = data.draw(st.sampled_from(MARKS))
+    try:
+        made = device.labels.create_mark(name, "flag", lambda m: device.mark_name(m.id, m.name))
+    except MarkNameError:
+        return
+    bed.records["marks"].add(made.id)
+    bed.did(device, f"mark {made.id[:8]} {name!r}")
+
+
+def _marked(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    note_id = _pick(data, live)
+    marks = device.labels.marks()
+    if note_id is None or not marks:
+        return
+    mark = data.draw(st.sampled_from(marks))
+    on = data.draw(st.booleans())
+    device.notes.set_mark(note_id, mark.id, on)
+    bed.did(device, f"marked {note_id[:8]} {mark.id[:8]} {on}")
+
+
+def _colour(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    try:
+        made = device.colors.add(data.draw(st.sampled_from(OWN_COLORS)))
+    except OwnColorsFullError:
+        return
+    bed.records["custom_colors"].add(made.id)
+    bed.did(device, f"colour {made.hex}")
+
+
+def _uncolour(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    colors = device.colors.colors()
+    if colors:
+        color = data.draw(st.sampled_from(colors))
+        device.colors.remove(color.id)
+        bed.did(device, f"uncolour {color.hex}")
+
+
+def _remind(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    note_id = _pick(data, live)
+    if note_id is None:
+        return
+    reminders = device.reminders
+    own = reminders.of_note(note_id)
+    what = data.draw(st.sampled_from(("set", "deal", "snooze", "off", "write")))
+    now = datetime.fromtimestamp(device.millis() / 1000, UTC)
+    if what == "set" or (own is None and what in ("deal", "snooze")):
+        start = now.date().toordinal() + data.draw(st.integers(1, 3))
+        repeat = data.draw(st.sampled_from(("none", "daily")))
+        reminders.set(note_id, Rule(date.fromordinal(start), time(9), "Asia/Seoul", repeat))
+    elif what == "deal" and own is not None:
+        reminders.dealt_with(own.id)
+    elif what == "snooze" and own is not None:
+        reminders.snooze(own.id, now + timedelta(minutes=10))
+    elif what == "off":
+        reminders.turn_off(note_id)
+    elif what == "write":
+        note = device.notes.get(note_id)
+        assert note is not None
+        day = date.fromordinal(now.date().toordinal() + 2).isoformat()
+        after = (
+            f"{note.body}\n⏰{day} 15:00" if "⏰" not in note.body else note.body.split("\n⏰")[0]
+        )
+        before = note.body
+        device.notes.update_body(note_id, after, keep_earlier=True)
+        bed.model.edited(device, note_id, before, after)
+        reminders.match_text(note_id, due(after, time(9)).keys())
+    bed.did(device, f"remind {note_id[:8]} {what}")
+
+
+def _import(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    note_id = _pick(data, live)
+    if note_id is None:
+        return
+    note = device.notes.get(note_id)
+    assert note is not None
+    source, source_id = data.draw(st.sampled_from(SOURCES))
+    device.imports.record(source, source_id, note.body, note_id)
+    bed.did(device, f"import {note_id[:8]} {source}")
+
+
+RECORDS = {
+    "category": _category,
+    "rename": _rename,
+    "uncategorise": _uncategorise,
+    "categorise": _categorise,
+    "mark": _mark,
+    "marked": _marked,
+    "colour": _colour,
+    "uncolour": _uncolour,
+    "remind": _remind,
+    "import": _import,
+}
 
 
 @pytest.mark.parametrize("kind", KINDS, ids=lambda kind: kind.name)
@@ -220,7 +385,14 @@ def test_devices_agree_with_the_model_and_lose_nothing(kind: Kind, data: st.Data
             bed.cloud.trouble = lambda _request: None
             settle(bed.devices)
             bed.model.check(bed.devices, bed.cloud)
+            records_agree(bed.devices, bed.records)
             texts = {f"text {i}": text for i, (_, text) in enumerate(bed.model.written)}
+            said = (
+                *CATEGORIES[:2],
+                *MARKS[:2],
+                *(f"{d.name.upper()}-PC 표식" for d in bed.devices),
+            )
+            texts |= {f"said {i}": text for i, text in enumerate(said)}
             assert plain_in(bed.cloud.files(), texts) == []
         except BaseException:
             print(*bed.done, sep=chr(10))
