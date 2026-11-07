@@ -116,6 +116,17 @@ class Version:
     def from_json(cls, keys: DataKeys, value: Json) -> Version:
         """The version as written; UnreadableError if it is not one, or its id is
         not what its parents and text make."""
+        return cls._read(value, keys)
+
+    @classmethod
+    def kept(cls, value: Json) -> Version:
+        """The version as this device keeps it (stickle.data.sync_state): its id
+        not made again, and its text maybe taken out (None, not deleted all the
+        same), leaving what versions are made on."""
+        return cls._read(value, None)
+
+    @classmethod
+    def _read(cls, value: Json, keys: DataKeys | None) -> Version:
         if not isinstance(value, dict):
             raise UnreadableError("a body is not an object")
         made, parents, history = value.get("version"), value.get("parents"), value.get("history")
@@ -123,7 +134,8 @@ class Version:
         edited, device = value.get("edited"), value.get("device")
         if not (isinstance(made, str) and _ids(parents) and _ids(history)):
             raise UnreadableError("a body without its version")
-        if not isinstance(deleted, bool) or (text is None) != deleted:
+        taken_out = keys is None and "text" not in value
+        if not isinstance(deleted, bool) or ((text is None) != deleted and not taken_out):
             raise UnreadableError("a body neither text nor deleted")
         if text is not None and (not isinstance(text, str) or "\0" in text):
             raise UnreadableError("a body's text is not one")
@@ -135,7 +147,7 @@ class Version:
         parents, history = cast(list[str], parents), cast(list[str], history)
         if len(parents) > 2 or len(set(parents)) != len(parents) or made in history:
             raise UnreadableError("a body's versions do not hold together")
-        if version_id(keys, parents, text, deleted) != made:
+        if keys is not None and version_id(keys, parents, text, deleted) != made:
             raise UnreadableError("a body is not what its version says")
         others = {name: each for name, each in value.items() if name not in _VERSION_NAMES}
         return cls(
@@ -194,11 +206,22 @@ class NoteFile:
 
     @classmethod
     def from_json(cls, keys: DataKeys, value: Json) -> NoteFile:
+        return cls._read(value, keys)
+
+    @classmethod
+    def kept(cls, value: Json) -> NoteFile:
+        """As this device keeps it (Version.kept)."""
+        return cls._read(value, None)
+
+    @classmethod
+    def _read(cls, value: Json, keys: DataKeys | None) -> NoteFile:
         if not isinstance(value, dict) or BODY not in value:
             raise UnreadableError("a note without its text")
         contents = Contents.from_json(value)
         others = {name: each for name, each in contents.others.items() if name != BODY}
-        return cls(replace(contents, others=others), Version.from_json(keys, value[BODY]))
+        body = value[BODY]
+        version = Version.kept(body) if keys is None else Version.from_json(keys, body)
+        return cls(replace(contents, others=others), version)
 
 
 class Step(Enum):

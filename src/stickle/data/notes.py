@@ -9,14 +9,14 @@ each field it changes with when (stickle.data.stamps).
 
 import logging
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 
 import apsw
 
 from stickle.core.clock import Clock, days_before, utc_now
 from stickle.core.hlc import wall_millis
 from stickle.core.note import DEFAULT_COLOR, Note, content_hash
-from stickle.data import stamps, versions
+from stickle.data import stamps, sync_state, versions
 from stickle.data.imports import hide_text_hashes
 from stickle.data.search import search
 
@@ -233,6 +233,75 @@ class NoteRepository:
             assignments = {"body": text, "content_hash": content_hash(text)}
         return self._new_text(note_id, assignments, True, came_from)
 
+    def take_in(
+        self,
+        note_id: str,
+        text: str | None,
+        came_from: str | None,
+        columns: Mapping[str, object],
+        marks: Mapping[str, bool],
+        stamped: Mapping[str, tuple[stamps.Stamp, int | None]],
+    ) -> int:
+        """The note as another device left it (stickle.sync): made here if it is
+        not here, back if it was emptied here; text (None: the one it has) in
+        place of its own, which is kept first as an earlier one (came_from: the
+        device the text was made on, None: this one); these columns and marks
+        (id -> on) set, and these fields stamped as they are there (with when
+        they first reached the cloud), in the trash or not. Its change number now."""
+        now = self._clock()
+        with self._db:
+            note = self.get(note_id)
+            if note is None:
+                body = text or ""
+                self._db.execute(
+                    "INSERT INTO notes (id, body, color, created_at, updated_at, content_hash,"
+                    " change_seq, text_at, text_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (note_id, body, DEFAULT_COLOR, now, now, content_hash(body), 0, now, came_from),
+                )
+                self._db.execute("DELETE FROM deletion_records WHERE note_id = ?", (note_id,))
+            elif text is not None and text != note.body:
+                if note.secret:
+                    raise NoteIsSecretError(note_id)
+                versions.keep(self._db, note_id, now)
+                self._db.execute(
+                    "UPDATE notes SET body = ?, content_hash = ?, text_at = ?, text_from = ?"
+                    " WHERE id = ?",
+                    (text, content_hash(text), now, came_from, note_id),
+                )
+            if columns:
+                listed = ", ".join(f"{name} = ?" for name in columns)
+                self._db.execute(
+                    f"UPDATE notes SET {listed} WHERE id = ?",
+                    (*columns.values(), note_id),  # pyright: ignore[reportArgumentType]
+                )
+            for mark_id, on in marks.items():
+                self._db.execute(
+                    "INSERT OR IGNORE INTO note_marks (note_id, mark_id) VALUES (?, ?)"
+                    if on
+                    else "DELETE FROM note_marks WHERE note_id = ? AND mark_id = ?",
+                    (note_id, mark_id),
+                )
+            for name, (stamp, sent) in stamped.items():
+                stamps.put(self._db, note_id, name, stamp, sent)
+            self._db.execute(
+                "UPDATE notes SET updated_at = ?, change_seq = ? WHERE id = ?",
+                (now, self._next_seq(), note_id),
+            )
+        return self._require(note_id).change_seq
+
+    def take_in_emptied(self, note_id: str) -> None:
+        """The note emptied from the trash on another device: gone here too, in
+        the trash or not, a deletion record in its place. Nothing for one not here."""
+        with self._db:
+            note = self.get(note_id)
+            if note is None:
+                return
+            if note.deleted_at is None:
+                self._db.execute(
+                    "UPDATE notes SET deleted_at = ? WHERE id = ?", (self._clock(), note_id)
+                )
+            self.purge(note_id)
+
     def restore_version(self, note_id: str, version_id: int) -> Note:
         """Back to an earlier text, as a new edit made here; the text the note had
         kept, marked as put aside by going back. A secret note's earlier text is
@@ -282,6 +351,7 @@ class NoteRepository:
             )
             if seal_earlier is not None:
                 versions.seal_all(self._db, note_id, seal_earlier)
+            sync_state.forget_text(self._db, note_id)
             hide_text_hashes(self._db, note_id)  # brought in from another app
             self._db.execute(
                 "INSERT INTO local_counters (key, value) VALUES (?, 1)"
@@ -321,6 +391,7 @@ class NoteRepository:
             self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
             versions.forget(self._db, note_id)
             stamps.forget(self._db, note_id)
+            sync_state.forget_text(self._db, note_id)
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
             hide_text_hashes(self._db, note_id)
 
@@ -621,6 +692,7 @@ class NoteRepository:
             self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
             versions.forget(self._db, note_id)
             stamps.forget(self._db, note_id)
+            sync_state.forget_text(self._db, note_id)
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
 
     def discard(self, note_id: str) -> None:
@@ -652,6 +724,11 @@ class NoteRepository:
                 self.purge(note.id)
             self._db.execute("DELETE FROM deletion_records WHERE purged_at < ?", (cutoff,))
         return len(expired)
+
+    def forget_deletion(self, note_id: str) -> None:
+        """The deletion record of a note emptied long since, gone: the vault it
+        was synced with has let go of it too (stickle.sync)."""
+        self._db.execute("DELETE FROM deletion_records WHERE note_id = ?", (note_id,))
 
     def deletion_records(self) -> list[tuple[str, str, str]]:
         """(note id, deleted at, emptied at) of notes emptied from the trash."""

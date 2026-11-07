@@ -366,8 +366,29 @@ INSERT INTO note_stamps (note_id, field, hlc)
     WHERE notes.updated_at != notes.created_at;
 """
 
+V16 = """
+-- What sync knows of each note in a vault it syncs with (stickle.data.sync_state):
+-- the note's file as last seen there, as JSON, and that file's tag; the file
+-- put there and not seen there yet (kept until it is: what this device's next
+-- version is made on); the note's change number when it was last merged; and
+-- whether its text is at a version that deletes it. A note emptied or made
+-- secret has its text taken out of both files.
+CREATE TABLE sync_notes (
+    vault TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    seen TEXT,
+    tag TEXT,
+    outbox TEXT,
+    merged_seq INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (vault, note_id)
+) WITHOUT ROWID;
+-- Where the cloud's list of changes was last followed to, for a cloud that tells them.
+CREATE TABLE sync_vaults (vault TEXT PRIMARY KEY, cursor TEXT);
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16]
 BACKUPS_KEPT = 3
 
 

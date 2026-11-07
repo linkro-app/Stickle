@@ -384,6 +384,10 @@ class FakeTarget:
     def keeps_conditions(self) -> bool:
         return self.cloud.kind.keeps_conditions
 
+    @property
+    def unique_tags(self) -> bool:
+        return self.cloud.kind.tags in ("rev", "etag", "strong")
+
     def list(self, folder: str) -> Iterator[Entry]:
         return iter(
             self.cloud.request(self.device, "list", folder, lambda _t: self.cloud.listing(folder))

@@ -76,5 +76,34 @@ def of(connection: apsw.Connection, note_id: str) -> dict[str, Stamp]:
     return found
 
 
+def sent_of(connection: apsw.Connection, note_id: str) -> dict[str, int]:
+    """When the note's fields first reached the cloud, those that have."""
+    return {
+        str(name): int(sent)  # pyright: ignore[reportArgumentType]
+        for name, sent in connection.execute(
+            "SELECT field, sent FROM note_stamps WHERE note_id = ? AND sent IS NOT NULL",
+            (note_id,),
+        )
+    }
+
+
+def put(
+    connection: apsw.Connection,
+    note_id: str,
+    name: str,
+    stamp: Stamp,
+    sent: int | None,
+) -> None:
+    """A field's stamp as it is elsewhere (taken from the cloud, or sent there):
+    the time and device it was changed at, and when it first reached the cloud."""
+    when, device = stamp
+    connection.execute(
+        "INSERT INTO note_stamps (note_id, field, hlc, device, sent) VALUES (?, ?, ?, ?, ?)"
+        " ON CONFLICT (note_id, field) DO UPDATE"
+        " SET hlc = excluded.hlc, device = excluded.device, sent = excluded.sent",
+        (note_id, name, when.text, device, sent),
+    )
+
+
 def forget(connection: apsw.Connection, note_id: str) -> None:
     connection.execute("DELETE FROM note_stamps WHERE note_id = ?", (note_id,))

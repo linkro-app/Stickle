@@ -159,6 +159,30 @@ def test_a_note_file_without_its_text_is_not_read() -> None:
         NoteFile.from_json(KEYS, Contents().to_json())
 
 
+def test_as_a_device_keeps_it_its_text_may_be_taken_out() -> None:
+    """What a device keeps of a note emptied or made secret since: the versions
+    a next one is made on, not the text. Never so from the cloud."""
+    version = then(first(), "다음 글")
+    written: dict[str, Json] = {
+        name: each for name, each in version.to_json().items() if name != "text"
+    }
+    note: dict[str, Json] = {**Contents().to_json(), "body": written}
+
+    kept = NoteFile.kept(note).body
+
+    assert (kept.id, kept.history, kept.text, kept.deleted) == (
+        version.id,
+        version.history,
+        None,
+        False,
+    )
+    assert then(kept, None).parents == (version.id,)
+    with pytest.raises(UnreadableError):
+        Version.from_json(KEYS, written)
+    with pytest.raises(UnreadableError):
+        Version.kept(damaged(version, parents=["not a version"]))
+
+
 def test_read_with_another_vaults_key_it_does_not_hold_together() -> None:
     with pytest.raises(UnreadableError):
         read(then(first(), "다음 글"), DataKeys({1: secrets.token_bytes(32)}))

@@ -68,6 +68,14 @@ class Target(Protocol):
         """False: Absent and AsRead are not checked, and every write goes through."""
         ...
 
+    @property
+    def unique_tags(self) -> bool:
+        """True: a write leaves its file a tag no other content of it had, so a
+        tag seen again is the same content. False: two writes may leave one tag
+        (as some WebDAV servers make them from the second and the size), or there
+        are none, so what was written is read back to be sure it is there."""
+        ...
+
     def list(self, folder: str) -> Iterator[Entry]:
         """The files right in folder ("notes"), as they come: not all at once."""
         ...
