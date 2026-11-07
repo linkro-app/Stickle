@@ -65,12 +65,13 @@ class EarlierVersionsDialog(QDialog):
         can_restore: bool = True,
         opener: Callable[[bytes], str] | None = None,
         open_secret: Callable[[], Callable[[bytes], str] | None] | None = None,
-        device_name: Callable[[str], str] = str,
+        device_name: Callable[[str], str | None] = lambda _: None,
         parent: QWidget | None = None,
     ) -> None:
         """opener: a secret note's earlier texts opened (None while it is covered,
         or for an ordinary note); open_secret: asks for the password and gives
-        the opener (None when it cannot be asked for here, as in the trash)."""
+        the opener (None when it cannot be asked for here, as in the trash);
+        device_name: what a device is called, as it says itself (None: not known)."""
         super().__init__(parent)
         self._versions = versions
         self._note_id = note_id
@@ -175,7 +176,8 @@ class EarlierVersionsDialog(QDialog):
             return self.tr("Before restoring")
         if version.came_from is None:
             return self.tr("Changed here")
-        return self.tr("From %1").replace("%1", self._device_name(version.came_from))
+        name = self._device_name(version.came_from) or self.tr("another PC")
+        return self.tr("From %1").replace("%1", name)
 
     def _first_line(self, version: EarlierVersion) -> str | None:
         """Its first line: a secret note's opened for it, while it is shown."""

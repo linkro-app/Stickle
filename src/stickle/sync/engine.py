@@ -41,6 +41,7 @@ from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.sync_state import NoteState
 from stickle.sync import local, local_reminders
 from stickle.sync.contents import ReadOnlyItemError
+from stickle.sync.devices import About, sync_devices
 from stickle.sync.format import (
     NOTES,
     NotOursError,
@@ -101,11 +102,15 @@ def sync_vault(
     cloud_now: Callable[[], int],
     notes: NoteRepository | None = None,
     shown: Shown = own_name,
+    about: About | None = None,
 ) -> Report:
-    """One round of the whole vault: the records first, so that the categories
-    and marks notes name are here when the notes come; then the notes, and
-    again those that name a category or mark that came, a field of theirs
-    perhaps not taken before for want of it."""
+    """One round of the whole vault: this device's own file (about: what it
+    says of itself; None: not now) and the others'; the records, so that the
+    categories and marks notes name are here when the notes come; then the
+    notes, and again those that name a category or mark that came, a field of
+    theirs perhaps not taken before for want of it."""
+    if about is not None:
+        sync_devices(connection, place, cloud_now, about)
     records = RecordRound(connection, place, cloud_now, shown=shown).run()
     came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
     also = sync_state.mentioning(connection, place.vault, came)

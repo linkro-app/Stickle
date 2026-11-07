@@ -69,6 +69,7 @@ from stickle.data.export import ExportResult, SecretExport, export_all
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
+from stickle.data.record_state import device_name
 from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import MigrationError, latest_version
 from stickle.data.settings import CLOUD_FOLDER_TOLD, KeptRecoveryKey, Settings
@@ -738,6 +739,9 @@ def run(
             labels=LabelRepository(connection) if connection else None,
             colors=ColorRepository(connection) if connection else None,
             versions=VersionRepository(connection) if connection else None,
+            device_names=(lambda device: device_name(connection, device))
+            if connection
+            else lambda _: None,
         )
         manager.watch_quit(app)
         app.aboutToQuit.connect(manager.save_all)

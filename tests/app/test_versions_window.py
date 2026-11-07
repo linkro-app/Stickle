@@ -144,6 +144,19 @@ def test_a_text_from_another_computer_says_where_from(
     ]
 
 
+def test_a_text_from_a_computer_not_known_yet_says_another(
+    qtbot: QtBot, repository: NoteRepository, connection: apsw.Connection
+) -> None:
+    note = repository.create("처음")
+    repository.replace_text(note.id, "어디선가 쓴 글", came_from="laptop-id")
+    repository.update_body(note.id, "다시 여기서", keep_earlier=True)
+
+    dialog = EarlierVersionsDialog(VersionRepository(connection), note.id, "처음", "yellow")
+    qtbot.addWidget(dialog)
+
+    assert rows(dialog)[0].split(" · ")[1] == "From another PC"
+
+
 def test_going_back_from_the_notes_menu_is_a_new_edit_shown_in_the_note(
     qtbot: QtBot,
     manager: NoteManager,

@@ -781,6 +781,10 @@ These files are not encrypted: keep them somewhere safe.</source>
         <translation>이 PC에서 고침</translation>
     </message>
     <message>
+        <source>another PC</source>
+        <translation>다른 PC</translation>
+    </message>
+    <message>
         <source>From %1</source>
         <translation>%1에서 받음</translation>
     </message>

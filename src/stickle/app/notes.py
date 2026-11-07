@@ -264,10 +264,12 @@ class NoteManager(QObject):
         labels: LabelRepository | None = None,
         colors: ColorRepository | None = None,
         versions: VersionRepository | None = None,
+        device_names: Callable[[str], str | None] = lambda _: None,
     ) -> None:
         super().__init__()
         self._repository = repository
         self.versions = versions
+        self._device_names = device_names  # what other devices are called, as they say
         # An edit lasts until its note is left (stickle.data.versions): the
         # windows whose edit kept the text they had, and each one's text as last
         # stored (an ordinary note's; a secret one's is in _stored_secret).
@@ -1761,6 +1763,7 @@ class NoteManager(QObject):
             open_secret=(lambda: self._open_for_versions(window))
             if window is not None and window.secret
             else None,
+            device_name=self._device_names,
             parent=window,
         )
         ask_versions(dialog)
