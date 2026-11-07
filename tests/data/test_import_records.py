@@ -58,7 +58,11 @@ def test_the_upgrade_marks_the_secret_notes_there_were(
     monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS[:9])
     connection = open_store(path, KEY)
     note = NoteRepository(connection).create("통장 비밀번호")
-    ImportRecords(connection).record("sticky", "s1", "통장 비밀번호", note.id)
+    connection.execute(  # as that version recorded it
+        "INSERT INTO import_records (source, source_id, content_hash, note_id, imported_at)"
+        " VALUES ('sticky', 's1', ?, ?, '2026-10-20T09:00:00.000Z')",
+        (text_hash("통장 비밀번호"), note.id),
+    )
     with connection:  # made secret before version 10 marked the records
         connection.execute(
             "UPDATE notes SET body = '', secret_body = x'00', secret_title = '은행' WHERE id = ?",

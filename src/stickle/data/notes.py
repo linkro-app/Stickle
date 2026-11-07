@@ -16,8 +16,9 @@ import apsw
 from stickle.core.clock import Clock, days_before, utc_now
 from stickle.core.hlc import wall_millis
 from stickle.core.note import DEFAULT_COLOR, Note, content_hash
-from stickle.data import stamps, sync_state, versions
+from stickle.data import record_stamps, stamps, sync_state, versions
 from stickle.data.imports import hide_text_hashes
+from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.search import search
 
 log = logging.getLogger(__name__)
@@ -352,7 +353,7 @@ class NoteRepository:
             if seal_earlier is not None:
                 versions.seal_all(self._db, note_id, seal_earlier)
             sync_state.forget_text(self._db, note_id)
-            hide_text_hashes(self._db, note_id)  # brought in from another app
+            hide_text_hashes(self._db, note_id, self._millis)  # brought in from another app
             self._db.execute(
                 "INSERT INTO local_counters (key, value) VALUES (?, 1)"
                 " ON CONFLICT (key) DO UPDATE SET value = 1",
@@ -379,7 +380,7 @@ class NoteRepository:
                     "content_hash": content_hash(sealed.hex()),
                 },
             )
-            hide_text_hashes(self._db, note_id)
+            hide_text_hashes(self._db, note_id, self._millis)
 
     def leave_out(self, note_id: str) -> None:
         """In a backup being gone back to: a note secret once and gone since, its
@@ -393,7 +394,7 @@ class NoteRepository:
             stamps.forget(self._db, note_id)
             sync_state.forget_text(self._db, note_id)
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
-            hide_text_hashes(self._db, note_id)
+            hide_text_hashes(self._db, note_id, self._millis)
 
     def remember_once_secret(self, note_ids: Iterable[str]) -> None:
         """Notes secret elsewhere (in the notes before going back) that this copy
@@ -583,6 +584,9 @@ class NoteRepository:
             " position = (SELECT coalesce(max(position), 0) + 1 FROM categories) WHERE id = ?",
             (self._clock(), category_id),
         )
+        record_stamps.changed(
+            self._db, CATEGORY, category_id, ["deleted_at", "position"], self._millis()
+        )
         return category_id
 
     def remove_category(self, category_id: str, with_notes: bool) -> list[str]:
@@ -601,6 +605,7 @@ class NoteRepository:
                 "UPDATE categories SET deleted_at = ?, updated_at = ? WHERE id = ?",
                 (now, now, category_id),
             )
+            record_stamps.changed(self._db, CATEGORY, category_id, ["deleted_at"], self._millis())
             ids = [
                 str(row[0])
                 for row in self._db.execute(
@@ -626,6 +631,7 @@ class NoteRepository:
             self._db.execute(
                 "UPDATE marks SET deleted_at = ?, updated_at = ? WHERE id = ?", (now, now, mark_id)
             )
+            record_stamps.changed(self._db, MARK, mark_id, ["deleted_at"], self._millis())
             owners = self._db.execute(
                 "SELECT note_id FROM note_marks WHERE mark_id = ?", (mark_id,)
             ).fetchall()

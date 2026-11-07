@@ -387,8 +387,72 @@ CREATE TABLE sync_notes (
 CREATE TABLE sync_vaults (vault TEXT PRIMARY KEY, cursor TEXT);
 """
 
+
+def _changed_at(column: str) -> str:
+    """A row's time as a field's (stickle.core.hlc); one not a time, 0."""
+    return f"printf('%013d-0000', CAST(round(unixepoch({column}, 'subsec') * 1000) AS INTEGER))"
+
+
+_BUILT_IN_MARKS = "('todo', 'urgent', 'important', 'waiting')"
+
+V17 = f"""
+-- When each field of a category, a mark, a colour of the user's own and a note
+-- brought in from another app was last changed, and where, as note_stamps for
+-- notes (stickle.data.record_stamps): kind 'category', 'mark', 'color' or
+-- 'import'; item the row's id (one brought in: its app and its id there, a line
+-- apart). record_changes: the change number each was last changed at here.
+CREATE TABLE record_stamps (
+    kind TEXT NOT NULL,
+    item TEXT NOT NULL,
+    field TEXT NOT NULL,
+    hlc TEXT NOT NULL,
+    device TEXT,
+    sent INTEGER,
+    PRIMARY KEY (kind, item, field)
+) WITHOUT ROWID;
+CREATE TABLE record_changes (
+    kind TEXT NOT NULL,
+    item TEXT NOT NULL,
+    change_seq INTEGER NOT NULL,
+    PRIMARY KEY (kind, item)
+) WITHOUT ROWID;
+
+-- Of two categories or marks of one name, or two colours alike, made on two
+-- devices, the one made first is kept: marks and colours keep when they were
+-- made too (before now: when they last changed; a built-in mark comes first,
+-- and has none). merged_into: the one a category or mark became one with.
+ALTER TABLE marks ADD COLUMN created_at TEXT;
+ALTER TABLE custom_colors ADD COLUMN created_at TEXT;
+ALTER TABLE categories ADD COLUMN merged_into TEXT;
+ALTER TABLE marks ADD COLUMN merged_into TEXT;
+UPDATE marks SET created_at = updated_at WHERE id NOT IN {_BUILT_IN_MARKS};
+UPDATE custom_colors SET created_at = updated_at;
+
+-- Rows from before now take the time they last changed for all their fields; a
+-- built-in mark never changed, none.
+WITH fields(name) AS (VALUES ('name'), ('color'), ('icon'), ('position'), ('deleted_at'))
+INSERT INTO record_stamps (kind, item, field, hlc)
+    SELECT 'category', categories.id, fields.name, {_changed_at("categories.updated_at")}
+    FROM categories, fields;
+WITH fields(name) AS (VALUES ('name'), ('icon'), ('position'), ('deleted_at'))
+INSERT INTO record_stamps (kind, item, field, hlc)
+    SELECT 'mark', marks.id, fields.name, {_changed_at("marks.updated_at")} FROM marks, fields
+    WHERE marks.id NOT IN {_BUILT_IN_MARKS} OR marks.updated_at != '2026-10-02T00:00:00.000Z';
+WITH fields(name) AS (VALUES ('hex'), ('position'), ('deleted_at'))
+INSERT INTO record_stamps (kind, item, field, hlc)
+    SELECT 'color', custom_colors.id, fields.name, {_changed_at("custom_colors.updated_at")}
+    FROM custom_colors, fields;
+INSERT OR IGNORE INTO record_stamps (kind, item, field, hlc)
+    SELECT 'import', source || char(10) || source_id, 'note:' || note_id,
+        {_changed_at("imported_at")}
+    FROM import_records;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16]
+MIGRATIONS: list[str] = [
+    *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
+    V17,
+]
 BACKUPS_KEPT = 3
 
 

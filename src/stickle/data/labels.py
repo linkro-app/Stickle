@@ -1,7 +1,8 @@
 """Reading and changing the categories and marks notes can have.
 
 Which category and marks a note has is changed through NoteRepository, as
-any other property of the note.
+any other property of the note. Each change to a category or a mark stamps
+the fields it changes (stickle.data.record_stamps), for sync.
 """
 
 import uuid
@@ -11,6 +12,7 @@ import apsw
 
 from stickle.core.clock import Clock, utc_now
 from stickle.core.colors import PALETTE
+from stickle.core.hlc import wall_millis
 from stickle.core.labels import (
     BUILT_IN_MARKS,
     DEFAULT_ICON,
@@ -19,6 +21,8 @@ from stickle.core.labels import (
     Mark,
     clean_name,
 )
+from stickle.data import record_stamps
+from stickle.data.record_stamps import CATEGORY, MARK
 
 
 class CategoryNameError(ValueError):
@@ -57,9 +61,19 @@ def _mark(row: apsw.SQLiteValues) -> Mark:
 
 
 class LabelRepository:
-    def __init__(self, connection: apsw.Connection, clock: Clock = utc_now) -> None:
+    def __init__(
+        self,
+        connection: apsw.Connection,
+        clock: Clock = utc_now,
+        millis: Callable[[], int] = wall_millis,
+    ) -> None:
+        """millis: the time fields are stamped with (as NoteRepository's)."""
         self._db = connection
         self._clock = clock
+        self._millis = millis
+
+    def _stamp(self, kind: str, item: str, *fields: str) -> None:
+        record_stamps.changed(self._db, kind, item, fields, self._millis())
 
     def categories(self) -> list[Category]:
         """Categories not deleted, in their order."""
@@ -112,6 +126,7 @@ class LabelRepository:
                 " ?, ?)",
                 (category_id, name, color, icon, now, now),
             )
+            record_stamps.touched(self._db, CATEGORY, category_id)
         category = self.category(category_id)
         assert category is not None
         return category
@@ -124,6 +139,7 @@ class LabelRepository:
                 "UPDATE categories SET name = ?, updated_at = ? WHERE id = ?",
                 (name, self._clock(), category_id),
             )
+            self._stamp(CATEGORY, category_id, "name")
         return self._require(category_id)
 
     def set_category_color(self, category_id: str, color: str) -> Category:
@@ -135,6 +151,7 @@ class LabelRepository:
                 "UPDATE categories SET color = ?, updated_at = ? WHERE id = ?",
                 (color, self._clock(), category_id),
             )
+            self._stamp(CATEGORY, category_id, "color")
         return self._require(category_id)
 
     def set_category_icon(self, category_id: str, icon: str) -> Category:
@@ -146,6 +163,7 @@ class LabelRepository:
                 "UPDATE categories SET icon = ?, updated_at = ? WHERE id = ?",
                 (icon, self._clock(), category_id),
             )
+            self._stamp(CATEGORY, category_id, "icon")
         return self._require(category_id)
 
     def move_category(self, category_id: str, step: int) -> list[Category]:
@@ -167,6 +185,7 @@ class LabelRepository:
                         "UPDATE categories SET position = ?, updated_at = ? WHERE id = ?",
                         (position, now, category.id),
                     )
+                    self._stamp(CATEGORY, category.id, "position")
         return self.categories()
 
     def marks(self) -> list[Mark]:
@@ -211,12 +230,14 @@ class LabelRepository:
             raise ValueError(f"icon {icon}")
         self._check_mark_name(name, shown, None)
         mark_id = str(uuid.uuid4())
+        now = self._clock()
         with self._db:
             self._db.execute(
-                "INSERT INTO marks (id, name, icon, position, updated_at)"
-                " VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM marks), ?)",
-                (mark_id, name, icon, self._clock()),
+                "INSERT INTO marks (id, name, icon, position, created_at, updated_at)"
+                " VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM marks), ?, ?)",
+                (mark_id, name, icon, now, now),
             )
+            record_stamps.touched(self._db, MARK, mark_id)
         return self._require_mark(mark_id)
 
     def rename_mark(
@@ -235,6 +256,7 @@ class LabelRepository:
                 "UPDATE marks SET name = ?, updated_at = ? WHERE id = ?",
                 (name or None, self._clock(), mark_id),
             )
+            self._stamp(MARK, mark_id, "name")
         return self._require_mark(mark_id)
 
     def set_mark_icon(self, mark_id: str, icon: str) -> Mark:
@@ -246,6 +268,7 @@ class LabelRepository:
                 "UPDATE marks SET icon = ?, updated_at = ? WHERE id = ?",
                 (icon, self._clock(), mark_id),
             )
+            self._stamp(MARK, mark_id, "icon")
         return self._require_mark(mark_id)
 
     def move_mark(self, mark_id: str, step: int) -> list[Mark]:
@@ -264,4 +287,5 @@ class LabelRepository:
                         "UPDATE marks SET position = ?, updated_at = ? WHERE id = ?",
                         (position, now, mark.id),
                     )
+                    self._stamp(MARK, mark.id, "position")
         return self.marks()
