@@ -32,7 +32,14 @@ from stickle.data.versions import VersionRepository
 from stickle.sync import engine, local
 from stickle.sync.contents import Contents, Field
 from stickle.sync.engine import Place, Report, sync_notes
-from stickle.sync.format import NOTES, item_path, open_envelope, seal
+from stickle.sync.format import (
+    NOTES,
+    NewerFormatError,
+    UnknownKeyError,
+    item_path,
+    open_envelope,
+    seal,
+)
 from stickle.sync.merge import COPY_OF, YEAR, copy_id
 from stickle.sync.note_file import NoteFile, new_version
 from stickle.sync.targets.base import RefusedError, UnavailableError
@@ -445,6 +452,33 @@ def test_what_this_version_does_not_know_is_kept(
     assert after.contents.others["extra"] == 1
     assert after.contents.fields["category"].value == category.id
     assert after.contents.fields["color"].value == "blue"
+
+
+@pytest.mark.parametrize(
+    ("written", "stopped"),
+    [(b'"format":2', NewerFormatError), (b'"key":2', UnknownKeyError)],
+    ids=["a newer format", "a key this device has not"],
+)
+def test_a_note_a_newer_version_wrote_stops_the_round(
+    devices: tuple[Device, Device],
+    cloud: FakeCloud,
+    written: bytes,
+    stopped: type[Exception],
+) -> None:
+    """Until the app is updated: not taken for a damaged file, nor written over."""
+    a, b = devices
+    note = a.notes.create("새 판이 쓴 메모")
+    a.sync()
+    path = item_path(NOTES, note.id)
+    newer = cloud.files()[path].replace(written[:-1] + b"1", written)
+    cloud.put_by_hand(path, newer)
+    with pytest.raises(stopped):
+        b.sync()
+    a.notes.set_color(note.id, "blue")
+    with pytest.raises(stopped):
+        a.sync()
+    assert cloud.files()[path] == newer
+    assert b.texts() == {}
 
 
 def test_a_note_another_version_may_not_change_is_left_alone(
