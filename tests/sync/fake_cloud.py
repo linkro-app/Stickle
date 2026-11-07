@@ -159,6 +159,10 @@ class FakeCloud:
         if long_ago:
             self._halves.discard(path)
 
+    def remove_by_hand(self, path: str) -> None:
+        """Deleted by something other than Stickle (the user, from the cloud's web page)."""
+        self._remove(path)
+
     def copy_by_hand(self, path: str, copy: str) -> None:
         """A copy under another name, as a cloud's web page or app makes one."""
         self._write(copy, self._files[path].data, late=False)

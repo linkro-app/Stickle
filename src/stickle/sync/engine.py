@@ -29,8 +29,17 @@ place is neither read nor written over, unless this device has that note: its
 own is put there. A note with a field this version may not change is neither
 taken in nor written over, and passed over until it changes. A copy of a
 note's file under another name (as a cloud's web page makes one) is merged
-into the note, then deleted. Secret notes are not synced yet. A note the
-vault had and has no file for any more, it says nothing of yet.
+into the note, then deleted. Secret notes are not synced yet.
+
+A note the vault had and has no file for any more (read, and none there: a
+list may show a file late) is taken for one emptied elsewhere and its
+deletion cleared a year after only if this device last went through a round
+with the vault more than a year ago: it goes to the trash here, not emptied,
+and is put with its text if it was edited here since, else kept here only.
+Otherwise it cannot have been cleared: the vault went back to an earlier day,
+or the file was deleted, and this device's is put back. One this device
+emptied too is let go of if its deletion was a year in the vault, else put
+back as it is.
 
 By the cloud's time: notes a year in the trash since that reached the cloud
 are emptied, and a deletion a year in the vault is removed from it.
@@ -63,7 +72,7 @@ from stickle.sync.format import (
 )
 from stickle.sync.left import Leaving
 from stickle.sync.local_records import Shown, own_name
-from stickle.sync.merge import Merged, as_sent, deletion_due, merge, trash_due
+from stickle.sync.merge import TRASH, YEAR, Merged, as_sent, deletion_due, merge, trash_due
 from stickle.sync.note_file import NoteFile, Step
 from stickle.sync.place import Place, writing
 from stickle.sync.records import RecordReport, RecordRound
@@ -79,6 +88,9 @@ class Report:
     changed: list[str] = field(default_factory=list[str])  # notes changed here
     put: list[str] = field(default_factory=list[str])  # notes put in the vault
     left: list[str] = field(default_factory=list[str])  # notes left for a later round
+    # Notes put in the trash here, their files gone from the vault while this
+    # device was away for more than a year (said once: emptied elsewhere).
+    trashed: list[str] = field(default_factory=list[str])
     records: RecordReport = field(default_factory=RecordReport)
     device: str = ""  # the id the device went on as (a new one if its old one was taken)
 
@@ -167,13 +179,16 @@ class _Round:
         self._redirects = local.Redirects({}, {})
         self._leaving = Leaving(connection, place, cloud_now)
         self._copies: dict[str, list[_Copy]] = {}
+        self._last = sync_state.synced_at(connection, place.vault)
 
     def run(self, also: list[str] | None = None) -> Report:
         """also: notes merged whether or not they changed."""
         vault, target = self._place.vault, self._place.target
+        started = self._now()
         self._empty_old_trash()
         known = sync_state.known(self._db, vault)
         to_read: set[str] = set(sync_state.unconfirmed(self._db, vault))
+        listed: set[str] = set()
         for entry in target.list(NOTES):
             passed = self._leaving.listed(entry)
             found = item_at(entry.path)
@@ -183,6 +198,7 @@ class _Round:
                     to_read.add(copy_of)
                 continue
             note_id = found[1]
+            listed.add(note_id)
             if passed:
                 left = self._leaving.passed(entry.path)
                 mine = note_id in known or self._notes.get(note_id) is not None
@@ -191,6 +207,9 @@ class _Round:
                 continue
             state = known.get(note_id)
             if entry.tag is None or state is None or state.seen is None or state.tag != entry.tag:
+                to_read.add(note_id)
+        for note_id, state in known.items():  # not listed: looked for, a list may be late
+            if note_id not in listed and state.seen is not None and not state.gone:
                 to_read.add(note_id)
         here = set(sync_state.changed(self._db, vault)) | set(sync_state.emptied(self._db, vault))
         here |= set(also or [])
@@ -209,6 +228,8 @@ class _Round:
             except _PassedError:
                 pass
         self._remove_old_deletions()
+        with writing(self._db):
+            sync_state.set_synced_at(self._db, vault, started)
         return self._report
 
     def _copy_of(self, entry: Entry) -> str | None:
@@ -302,7 +323,9 @@ class _Round:
             if read or not self._place.target.keeps_conditions:
                 cloud = self._read(note_id)
                 if cloud.note is None and not cloud.foreign and seen is not None and not folded:
-                    raise _LaterError()  # gone from the vault: not taken for a deletion here
+                    assert state is not None
+                    if not self._lost(note_id, state, seen):
+                        return []
             else:
                 tag, kept = (None, None) if state is None else (state.tag, state.seen)
                 cloud = _Read(seen, tag, kept)
@@ -390,6 +413,43 @@ class _Round:
             return put, copies
         raise _LaterError()
 
+    def _lost(self, note_id: str, state: NoteState, seen: NoteFile) -> bool:
+        """Its file read, and none there: True to put this device's back; False,
+        dealt with here."""
+        at = local.here(self._db, self._notes, note_id)
+        if at.note is not None and at.note.secret:
+            return False  # not synced yet
+        vault, now = self._place.vault, self._now()
+        if state.gone:  # kept here only: put back if changed here since
+            if at.note is None:
+                with writing(self._db):
+                    sync_state.drop(self._db, vault, note_id)
+                return False
+            return at.note.change_seq > state.merged_seq
+        if state.deleted:
+            if not deletion_due(seen, now):
+                return True
+            with writing(self._db):
+                sync_state.drop(self._db, vault, note_id)
+                self._notes.forget_deletion(note_id)
+            return False
+        if self._last is None or now - self._last <= YEAR:
+            return True  # it cannot have been cleared: the vault went back, or it was deleted
+        mine = local.mine(self._place.keys, self._place.device, at, state)
+        if at.note is not None and at.note.deleted_at is None:
+            self._notes.delete(note_id)
+            self._report.trashed.append(note_id)
+            self._report.changed.append(note_id)
+        if mine is not None and mine.body.id != seen.body.id:
+            return True  # edited here since: put in the trash, with its text
+        with writing(self._db):
+            here = local.here(self._db, self._notes, note_id)
+            seq = state.merged_seq if here.note is None else here.note.change_seq
+            sync_state.put(
+                self._db, vault, note_id, replace(state, merged_seq=seq, outbox=None, gone=True)
+            )
+        return False
+
     def _redirected(self, merged: Merged) -> Merged:
         """As it names categories and marks now (stickle.sync.local.redirect)."""
         note = local.redirect(merged.note, self._redirects)
@@ -445,7 +505,15 @@ class _Round:
                 continue
             at = local.here(self._db, self._notes, note.id)
             mine = local.mine(place.keys, place.device, at, state)
-            if mine is None or not trash_due(mine, now):
+            if mine is None:
+                continue
+            if state.gone:  # kept here only: a year from when it went in the trash
+                trash = mine.contents.fields.get(TRASH)
+                if trash is None or trash.value is None or now - trash.hlc.millis < YEAR:
+                    continue
+                with writing(self._db):
+                    sync_state.drop(self._db, place.vault, note.id)
+            elif not trash_due(mine, now):
                 continue
             self._notes.purge(note.id)
             self._report.changed.append(note.id)

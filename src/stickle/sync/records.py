@@ -15,7 +15,9 @@ does not open whole is left for a later round, and set aside if the same
 bytes keep failing (stickle.sync.left). Another vault's file, or one that is
 not where its own id says, is neither read nor written over, unless this
 device has the record whose place it is in: its own is put there. A copy of a
-record's file under another name is merged into the record, then deleted.
+record's file under another name is merged into the record, then deleted. A
+record's file is never deleted: one the vault had and has no more (read, and
+none there) is put back.
 """
 
 from collections.abc import Callable
@@ -128,6 +130,7 @@ class RecordRound:
         vault, keys = self._place.vault, self._place.keys
         known = record_state.known(self._db, vault)
         to_read: set[str] = set(record_state.unconfirmed(self._db, vault))
+        listed: set[str] = set()
         for entry in self._place.target.list(RECORDS):
             passed = self._leaving.listed(entry)
             found = item_at(entry.path)
@@ -136,6 +139,7 @@ class RecordRound:
                 if copy_of is not None:
                     to_read.add(copy_of)
                 continue
+            listed.add(found[1])
             if passed:
                 left = self._leaving.passed(entry.path)
                 if left is not None and left.why != READ_ONLY and found[1] in known:
@@ -144,6 +148,9 @@ class RecordRound:
             state = known.get(found[1])
             if entry.tag is None or state is None or state.seen is None or state.tag != entry.tag:
                 to_read.add(found[1])
+        for record, state in known.items():  # not listed: looked for, a list may be late
+            if record not in listed and state.seen is not None:
+                to_read.add(record)
         here = {
             record_id(keys, kind, item): (kind, item)
             for kind, item in [*record_state.changed(self._db, vault), *(also or [])]
@@ -234,21 +241,17 @@ class RecordRound:
                 self._leaving.leave(copy.path, copy.read, NOT_OURS)
                 continue
             folded.append(copy)
-        self._sync_record(record, read or bool(folded), item, bool(folded))
+        self._sync_record(record, read or bool(folded), item)
         for copy in folded:
             with suppress(NotThereError, RefusedError):  # gone, or changed since: next round
                 self._place.target.delete(copy.path, AsRead(copy.read.tag))
 
-    def _sync_record(
-        self, record: str, read: bool, item: tuple[str, str] | None, folded: bool
-    ) -> None:
+    def _sync_record(self, record: str, read: bool, item: tuple[str, str] | None) -> None:
         for _ in range(TRIES):
             state = record_state.get(self._db, self._place.vault, record)
             seen = kept(None if state is None else state.seen)
             if read or not self._place.target.keeps_conditions:
-                cloud = self._read(record)
-                if cloud.record is None and not cloud.foreign and seen is not None and not folded:
-                    raise _LaterError()  # gone from the vault: nothing to make of it yet
+                cloud = self._read(record)  # none there: this device's put back
             else:
                 cloud = _Read(seen, None if state is None else state.tag)
             put = self._merge(record, state, cloud, item)
