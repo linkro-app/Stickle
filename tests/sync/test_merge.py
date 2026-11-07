@@ -208,6 +208,20 @@ def test_emptied_there_edited_here_the_edit_stays_in_the_trash() -> None:
     assert merged.note.contents.fields[TRASH].hlc > Hlc(NOW + 90)
 
 
+def test_emptied_there_edited_here_its_year_in_the_trash_starts_again() -> None:
+    base = first()
+    trashed = field(TRASHED, NOW + 50, LAPTOP, sent=NOW + 60)  # in the trash, a year ago
+    emptied = note(then(base, None, LAPTOP), deleted_at=trashed)
+    edited = note(then(base, "아무도 못 본 새 글"), deleted_at=trashed)
+
+    merged = agreed(edited, emptied)
+
+    assert merged.note.body.text == "아무도 못 본 새 글"
+    assert value(merged.note, TRASH) == TRASHED
+    there = merged.note.contents.fields[TRASH]
+    assert there.sent is None and there.hlc > trashed.hlc  # counted from when this is put
+
+
 def test_emptied_there_taken_out_or_a_field_changed_here_it_stays_emptied() -> None:
     base = first()
     gone = then(base, None, LAPTOP)

@@ -107,15 +107,18 @@ def _time_text(millis: int) -> str:
 
 def _in_trash(fields: Contents, mine: Contents, cloud: Contents, gone: Version) -> Contents:
     """The fields with the note in the trash: as it was where it was emptied, and
-    after any change either made to that."""
+    after any change either made to that. Its year in the trash starts again
+    from when this reaches the cloud: the text in it is one the emptying did
+    not see, and a year counted from before would empty it at once."""
     trash = fields.fields.get(TRASH)
-    if trash is not None and trash.value is not None:
-        return fields
     both = [each for each in (mine.fields.get(TRASH), cloud.fields.get(TRASH)) if each is not None]
     stamps = [each.hlc for each in both]
-    # At most one had it in the trash, or the later one would have kept it there.
-    emptied = [each.value for each in both if each.value is not None]
-    value = emptied[0] if emptied else _time_text(gone.edited)
+    if trash is not None and trash.value is not None:
+        value = trash.value
+    else:
+        # At most one had it in the trash, or the later one would have kept it there.
+        emptied = [each.value for each in both if each.value is not None]
+        value = emptied[0] if emptied else _time_text(gone.edited)
     put = Field(value, after(0, max(stamps)) if stamps else after(gone.edited, None), gone.device)
     return replace(fields, fields={**fields.fields, TRASH: put})
 

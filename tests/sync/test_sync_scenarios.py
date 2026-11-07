@@ -131,6 +131,24 @@ def test_emptied_on_one_taken_out_on_the_other_stays_emptied(
     assert a.notes.get(note_id) is None and b.notes.get(note_id) is None
 
 
+def test_a_text_edited_while_the_trash_it_was_in_was_emptied_after_a_year_stays_in_the_trash(
+    two: tuple[Device, Device], clock: Clock
+) -> None:
+    a, b = two
+    note_id = shared(a, b)
+    b.notes.update_body(note_id, "아무도 못 본 새 글")  # b offline all the while
+    a.notes.delete(note_id)
+    a.sync()
+    clock.tick(YEAR + 1_000)
+    a.sync()  # a year in the trash: emptied
+    assert a.notes.get(note_id) is None
+    settle([a, b])
+    for device in (a, b):
+        there = device.notes.get(note_id)
+        assert there is not None and there.body == "아무도 못 본 새 글"
+        assert there.deleted_at is not None
+
+
 def test_emptied_on_both_and_by_the_year_is_one_deletion(
     two: tuple[Device, Device], cloud: FakeCloud, clock: Clock
 ) -> None:
