@@ -103,6 +103,28 @@ def changed(connection: apsw.Connection, vault: str) -> list[str]:
     )
 
 
+def mentioning(connection: apsw.Connection, vault: str, ids: Iterable[str]) -> list[str]:
+    """Notes whose file in the vault, as last seen or put, or whose category or
+    marks here, name one of these ids (of categories and marks): by id."""
+    found: set[str] = set()
+    for each in ids:
+        # A category is a value ("<id>"), a mark a field's name ("mark:<id>").
+        value, mark = f'"{each}"', f'"mark:{each}"'
+        found.update(
+            _ids(
+                connection.execute(
+                    "SELECT note_id FROM sync_notes WHERE vault = ?"
+                    " AND (instr(coalesce(seen, ''), ?) OR instr(coalesce(outbox, ''), ?)"
+                    " OR instr(coalesce(seen, ''), ?) OR instr(coalesce(outbox, ''), ?))"
+                    " UNION SELECT id FROM notes WHERE label = ?"
+                    " UNION SELECT note_id FROM note_marks WHERE mark_id = ?",
+                    (vault, value, value, mark, mark, each, each),
+                )
+            )
+        )
+    return sorted(found)
+
+
 def emptied(connection: apsw.Connection, vault: str) -> list[str]:
     """Notes emptied from the trash here that the vault has, not deleted there yet."""
     return _ids(

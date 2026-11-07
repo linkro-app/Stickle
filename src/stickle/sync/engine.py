@@ -30,15 +30,14 @@ By the cloud's time: notes a year in the trash since that reached the cloud
 are emptied, and a deletion a year in the vault is removed from it.
 """
 
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 import apsw
 
-from stickle.crypto.vault_keys import DataKeys
 from stickle.data import sync_state
 from stickle.data.notes import NoteRepository
+from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.sync_state import NoteState
 from stickle.sync import local
 from stickle.sync.contents import ReadOnlyItemError
@@ -54,19 +53,12 @@ from stickle.sync.format import (
 )
 from stickle.sync.merge import Merged, as_sent, deletion_due, merge, trash_due
 from stickle.sync.note_file import NoteFile, Step
-from stickle.sync.targets.base import Absent, AsRead, NotThereError, RefusedError, Target
+from stickle.sync.place import Place, writing
+from stickle.sync.records import RecordReport, RecordRound
+from stickle.sync.targets.base import Absent, AsRead, NotThereError, RefusedError
 
 TRIES = 5  # merges of one note in a round, refused each time, before it is left
-
-
-@dataclass(frozen=True)
-class Place:
-    """Where a round syncs, and as which device."""
-
-    target: Target
-    vault: str
-    keys: DataKeys
-    device: str
+__all__ = ["Place", "Report", "sync_notes", "sync_vault"]
 
 
 @dataclass
@@ -74,6 +66,7 @@ class Report:
     changed: list[str] = field(default_factory=list[str])  # notes changed here
     put: list[str] = field(default_factory=list[str])  # notes put in the vault
     left: list[str] = field(default_factory=list[str])  # notes left for a later round
+    records: RecordReport = field(default_factory=RecordReport)
 
 
 @dataclass(frozen=True)
@@ -85,18 +78,6 @@ class _Read:
 
 class _LaterError(Exception):
     """The note is left for a later round."""
-
-
-@contextmanager
-def _writing(connection: apsw.Connection) -> Generator[None]:
-    """One transaction that writes, begun as one: no other may write in between."""
-    connection.execute("BEGIN IMMEDIATE")
-    try:
-        yield
-    except BaseException:
-        connection.execute("ROLLBACK")
-        raise
-    connection.execute("COMMIT")
 
 
 def _same(a: NoteFile, b: NoteFile) -> bool:
@@ -111,6 +92,24 @@ def sync_notes(
 ) -> Report:
     """One round; cloud_now: the time by the cloud's clock (stickle.core.cloud_time)."""
     return _Round(connection, notes or NoteRepository(connection), place, cloud_now).run()
+
+
+def sync_vault(
+    connection: apsw.Connection,
+    place: Place,
+    cloud_now: Callable[[], int],
+    notes: NoteRepository | None = None,
+) -> Report:
+    """One round of the whole vault: the records first, so that the categories
+    and marks notes name are here when the notes come; then the notes, and
+    again those that name a category or mark that came, a field of theirs
+    perhaps not taken before for want of it."""
+    records = RecordRound(connection, place, cloud_now).run()
+    came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
+    also = sync_state.mentioning(connection, place.vault, came)
+    report = _Round(connection, notes or NoteRepository(connection), place, cloud_now).run(also)
+    report.records = records
+    return report
 
 
 class _Round:
@@ -128,7 +127,8 @@ class _Round:
         self._report = Report()
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
 
-    def run(self) -> Report:
+    def run(self, also: list[str] | None = None) -> Report:
+        """also: notes merged whether or not they changed."""
         vault, target = self._place.vault, self._place.target
         self._empty_old_trash()
         known = sync_state.known(self._db, vault)
@@ -142,6 +142,7 @@ class _Round:
             if entry.tag is None or state is None or state.seen is None or state.tag != entry.tag:
                 to_read.add(note_id)
         here = set(sync_state.changed(self._db, vault)) | set(sync_state.emptied(self._db, vault))
+        here |= set(also or [])
         queue = sorted(to_read | here)
         done: set[str] = set()
         while queue:
@@ -235,7 +236,7 @@ class _Round:
             put = None
             if cloud.note is None or not _same(merged.note, cloud.note):
                 put = as_sent(merged.note, now)
-            with _writing(self._db):
+            with writing(self._db):
                 if local.here(self._db, self._notes, note_id) != at:
                     continue  # changed here meanwhile: merged again
                 before = None if at.note is None else at.note.change_seq
@@ -288,7 +289,7 @@ class _Round:
     def _sent(self, note_id: str, put: NoteFile, tag: str | None) -> None:
         """The file put went through: seen, and let go of if that is enough to know."""
         vault = self._place.vault
-        with _writing(self._db):
+        with writing(self._db):
             state = sync_state.get(self._db, vault, note_id)
             if state is None or state.outbox != local.as_kept(put):
                 return
@@ -340,6 +341,6 @@ class _Round:
                 pass
             except RefusedError:
                 continue
-            with _writing(self._db):
+            with writing(self._db):
                 sync_state.drop(self._db, place.vault, note_id)
                 self._notes.forget_deletion(note_id)

@@ -448,10 +448,42 @@ INSERT OR IGNORE INTO record_stamps (kind, item, field, hlc)
     FROM import_records;
 """
 
+V18 = """
+-- What sync knows of each record (a category, a mark, a colour, a note brought
+-- in) in a vault it syncs with (stickle.data.record_state), as sync_notes for
+-- notes: record, the file's id there; kind and item, what it is here (as
+-- record_stamps); the file as last seen there and its tag, the file put there
+-- and not seen there yet, and the item's change number when it was last merged.
+CREATE TABLE sync_records (
+    vault TEXT NOT NULL,
+    record TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    item TEXT NOT NULL,
+    seen TEXT,
+    tag TEXT,
+    outbox TEXT,
+    merged_seq INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (vault, record)
+) WITHOUT ROWID;
+-- The devices that sync with a vault, as each one's own file there was last
+-- seen (what it is called, its system and version), and that file's tag.
+CREATE TABLE sync_devices (
+    vault TEXT NOT NULL,
+    device TEXT NOT NULL,
+    seen TEXT,
+    tag TEXT,
+    PRIMARY KEY (vault, device)
+) WITHOUT ROWID;
+-- The day a note's own reminder first rings, as it was set: what it rings on
+-- when how it was dealt with elsewhere was for an earlier setting of it.
+ALTER TABLE reminders ADD COLUMN first_day TEXT;
+UPDATE reminders SET first_day = next_day WHERE kind = 'note';
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    V17,
+    *(V17, V18),
 ]
 BACKUPS_KEPT = 3
 

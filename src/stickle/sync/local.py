@@ -9,9 +9,10 @@ of all, by this device. Fields this version does not keep here (a newer
 version's, a conflict copy's mark) go as they were last seen in the vault.
 
 A value taken in is checked first. One this version cannot take (a category
-or a mark this device does not have, a value of another shape) is left in the
-file as it is and not taken here: the note keeps what it has, and the later
-change stays the file's.
+or a mark this device does not know yet, a value of another shape) is left in
+the file as it is and not taken here: the note keeps what it has, and the
+later change stays the file's, taken once the category or mark comes. One
+deleted is taken: the note names it on every device alike.
 
 The text is at a version: the one this device put in the vault and has not
 seen there yet, else the one last seen there, if it has not changed here
@@ -180,11 +181,9 @@ def mine(keys: DataKeys, device: str, at: Here, state: NoteState | None) -> Note
 
 
 def _exists(connection: apsw.Connection, table: str, row_id: str) -> bool:
-    return bool(
-        connection.execute(
-            f"SELECT 1 FROM {table} WHERE id = ? AND deleted_at IS NULL", (row_id,)
-        ).fetchall()
-    )
+    """Whether the category or mark is known here, deleted or not: a note may
+    name one deleted on another device and shows it, there and here alike."""
+    return bool(connection.execute(f"SELECT 1 FROM {table} WHERE id = ?", (row_id,)).fetchall())
 
 
 def _column_value(connection: apsw.Connection, name: str, value: Json) -> object:
