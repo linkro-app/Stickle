@@ -342,15 +342,17 @@ V15 = f"""
 -- When each field of a note was last changed (stickle.data.stamps), so that
 -- sync keeps the later of two changes to it: the time (stickle.core.hlc) and
 -- the device (NULL: here). A field never changed has none, the earliest time
--- of all. The fields are the note's own but its text, which goes by versions,
--- and one for each mark on it. Notes changed before now take the time they
--- last changed for all their fields; a note never changed since it was made,
--- none.
+-- of all. sent: when the value first reached the cloud, by the cloud's clock
+-- (NULL: not yet), which a year in the trash is counted from. The fields are
+-- the note's own but its text, which goes by versions, and one for each mark
+-- on it. Notes changed before now take the time they last changed for all
+-- their fields; a note never changed since it was made, none.
 CREATE TABLE note_stamps (
     note_id TEXT NOT NULL,
     field TEXT NOT NULL,
     hlc TEXT NOT NULL,
     device TEXT,
+    sent INTEGER,
     PRIMARY KEY (note_id, field)
 ) WITHOUT ROWID;
 WITH fields(name) AS (VALUES ('color'), ('opacity'), ('category'), ('always_on_top'),

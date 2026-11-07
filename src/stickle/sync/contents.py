@@ -12,6 +12,11 @@ A field may say "readonly": true. A version that does not know such a field
 must neither show nor change its item, only keep it as it is (a body locked
 some newer way, say), and says it opens after an update. A version that knows
 the field reads it as any other.
+
+A field may say "sent": when its value first reached the cloud, by the cloud's
+clock as the device that sent it knew it (milliseconds). What is counted from
+then (a year in the trash) goes by it, not by the clock of the device where the
+change was made, which may have been wrong before it was first in touch.
 """
 
 from collections.abc import Collection, Mapping
@@ -19,10 +24,15 @@ from dataclasses import dataclass, field, replace
 from typing import cast
 
 from stickle.core.hlc import Hlc
-from stickle.sync.format import Json, UnreadableError, is_id
+from stickle.sync.format import LARGEST, Json, UnreadableError, is_id
 
 FIELDS = "fields"
-_FIELD_NAMES = ("device", "hlc", "readonly", "value")
+_FIELD_NAMES = ("device", "hlc", "readonly", "sent", "value")
+
+
+def is_millis(value: object) -> bool:
+    """A time in milliseconds as the format writes one."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= LARGEST
 
 
 class ReadOnlyItemError(Exception):
@@ -40,6 +50,7 @@ class Field:
     device: str  # the id of the device that changed it
     readonly: bool = False
     others: Mapping[str, Json] = field(default_factory=dict[str, Json])  # kept as they are
+    sent: int | None = None  # when the value first reached the cloud, by its clock
 
     @property
     def stamp(self) -> tuple[Hlc, str]:
@@ -55,6 +66,8 @@ class Field:
         }
         if self.readonly:
             written["readonly"] = True
+        if self.sent is not None:
+            written["sent"] = self.sent
         return written
 
     @classmethod
@@ -70,8 +83,11 @@ class Field:
             when = Hlc.parse(hlc)
         except ValueError as error:
             raise UnreadableError("a field's time is not one") from error
+        sent = value.get("sent")
+        if sent is not None and not is_millis(sent):
+            raise UnreadableError("a field's sending time is not one")
         others = {name: each for name, each in value.items() if name not in _FIELD_NAMES}
-        return cls(value["value"], when, device, readonly, others)
+        return cls(value["value"], when, device, readonly, others, cast(int | None, sent))
 
 
 @dataclass(frozen=True)
@@ -96,12 +112,12 @@ class Contents:
 
     def changed(self, name: str, value: Json, hlc: Hlc, device: str) -> Contents:
         """With name's value changed, at hlc by device; whatever else the field
-        holds is kept."""
+        holds is kept, but when the value it had was sent."""
         before = self.fields.get(name)
         after = (
             Field(value, hlc, device)
             if before is None
-            else replace(before, value=value, hlc=hlc, device=device)
+            else replace(before, value=value, hlc=hlc, device=device, sent=None)
         )
         return replace(self, fields={**self.fields, name: after})
 

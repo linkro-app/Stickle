@@ -49,7 +49,8 @@ def _time(text: object) -> Hlc | None:
 
 def changed(connection: apsw.Connection, note_id: str, fields: Iterable[str], millis: int) -> None:
     """These fields of the note changed here, at millis: each stamped then, or
-    just after the time of the value it replaced if that is not earlier."""
+    just after the time of the value it replaced if that is not earlier; not
+    sent yet."""
     for name in fields:
         rows = connection.execute(
             "SELECT hlc FROM note_stamps WHERE note_id = ? AND field = ?", (note_id, name)
@@ -57,7 +58,8 @@ def changed(connection: apsw.Connection, note_id: str, fields: Iterable[str], mi
         made = after(millis, _time(rows[0][0]) if rows else None)
         connection.execute(
             "INSERT INTO note_stamps (note_id, field, hlc, device) VALUES (?, ?, ?, NULL)"
-            " ON CONFLICT (note_id, field) DO UPDATE SET hlc = excluded.hlc, device = NULL",
+            " ON CONFLICT (note_id, field) DO UPDATE"
+            " SET hlc = excluded.hlc, device = NULL, sent = NULL",
             (note_id, name, made.text),
         )
 

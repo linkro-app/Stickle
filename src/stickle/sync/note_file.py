@@ -40,13 +40,13 @@ from enum import Enum
 from typing import cast
 
 from stickle.crypto.vault_keys import DataKeys
-from stickle.sync.contents import Contents
-from stickle.sync.format import LARGEST, Json, UnreadableError, is_id
+from stickle.sync.contents import Contents, is_millis
+from stickle.sync.format import Json, UnreadableError, is_id
 
 VERSIONS = b"stickle-versions"  # the use of the lasting key that versions' ids are made with
 HISTORY = 32
 BODY = "body"
-_VERSION_NAMES = ("deleted", "device", "edited", "history", "parents", "text", "version")
+_VERSION_NAMES = ("deleted", "device", "edited", "history", "parents", "sent", "text", "version")
 _ID = re.compile(r"([1-9][0-9]{0,14})-([0-9a-f]{32})")
 
 
@@ -85,6 +85,9 @@ class Version:
     edited: int  # when, in milliseconds, by the device's time (stickle.core.cloud_time)
     device: str
     others: Mapping[str, Json] = field(default_factory=dict[str, Json])  # kept as they are
+    # When it first reached the cloud, by the cloud's clock as its sender knew it
+    # (stickle.sync.contents): a deletion's year is counted from then.
+    sent: int | None = None
 
     @property
     def generation(self) -> int:
@@ -95,7 +98,7 @@ class Version:
         return other == self.id or other in self.history
 
     def to_json(self) -> dict[str, Json]:
-        return {
+        written: dict[str, Json] = {
             **self.others,
             "deleted": self.deleted,
             "device": self.device,
@@ -105,6 +108,9 @@ class Version:
             "text": self.text,
             "version": self.id,
         }
+        if self.sent is not None:
+            written["sent"] = self.sent
+        return written
 
     @classmethod
     def from_json(cls, keys: DataKeys, value: Json) -> Version:
@@ -121,9 +127,8 @@ class Version:
             raise UnreadableError("a body neither text nor deleted")
         if text is not None and (not isinstance(text, str) or "\0" in text):
             raise UnreadableError("a body's text is not one")
-        if not (
-            isinstance(edited, int) and not isinstance(edited, bool) and 0 <= edited <= LARGEST
-        ):
+        sent = value.get("sent")
+        if not is_millis(edited) or not (sent is None or is_millis(sent)):
             raise UnreadableError("a body without when it was edited")
         if not isinstance(device, str) or not is_id(device):
             raise UnreadableError("a body without its device")
@@ -133,7 +138,17 @@ class Version:
         if version_id(keys, parents, text, deleted) != made:
             raise UnreadableError("a body is not what its version says")
         others = {name: each for name, each in value.items() if name not in _VERSION_NAMES}
-        return cls(made, tuple(parents), tuple(history), text, deleted, edited, device, others)
+        return cls(
+            made,
+            tuple(parents),
+            tuple(history),
+            text,
+            deleted,
+            cast(int, edited),
+            device,
+            others,
+            cast(int | None, sent),
+        )
 
 
 def _ids(value: object) -> bool:
