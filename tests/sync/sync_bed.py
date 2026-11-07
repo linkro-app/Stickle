@@ -93,9 +93,11 @@ class Device:
         clock: Clock,
         whole: bool = False,
         names: dict[str, str] | None = None,
+        aside: Path | None = None,
     ) -> None:
         """whole: syncs the whole vault, records and its own file too (else its
-        notes only); names: what its built-in marks show as, in its language."""
+        notes only); names: what its built-in marks show as, in its language;
+        aside: where it keeps files it sets aside (None: it sets none aside)."""
         self.name = name
         self.id = device_id(name)
         self.path = folder / f"{name}.db"
@@ -103,7 +105,7 @@ class Device:
         self.skew = 0
         self.whole = whole
         self.names = names or {}
-        self.place = Place(cloud.target(name), VAULT, KEYS, self.id)
+        self.place = Place(cloud.target(name), VAULT, KEYS, self.id, aside)
         self.db = open_store(self.path, KEY)
         self._repositories()
         if whole and VAULT_FILE not in cloud.files():
@@ -132,7 +134,7 @@ class Device:
             report = sync_vault(self.db, self.place, self.clock, self.notes, self.mark_name, about)
             if report.device != self.id:  # another device had its id: a copy of its disk
                 self.id = report.device
-                self.place = Place(self.place.target, VAULT, KEYS, self.id)
+                self.place = Place(self.place.target, VAULT, KEYS, self.id, self.place.aside)
                 self._repositories()
             return report
         return sync_notes(self.db, self.place, self.clock, self.notes)

@@ -10,13 +10,16 @@ one transaction, only if the item did not change here meanwhile; put, made if
 the vault has none, else written over only if it is as read.
 
 A record of a kind this version does not know, or with a field it may not
-change, is left as it is. One whose file does not open whole is left for a
-later round. Another vault's file, or one that is not where its own id says,
-is neither read nor written over, unless this device has the record whose
-place it is in: its own is put there.
+change, is left as it is, and passed over until it changes. One whose file
+does not open whole is left for a later round, and set aside if the same
+bytes keep failing (stickle.sync.left). Another vault's file, or one that is
+not where its own id says, is neither read nor written over, unless this
+device has the record whose place it is in: its own is put there. A copy of a
+record's file under another name is merged into the record, then deleted.
 """
 
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 
 import apsw
@@ -24,10 +27,12 @@ import apsw
 from stickle.core.clock import Clock, utc_now
 from stickle.data import record_state
 from stickle.data.record_state import RecordState
+from stickle.data.sync_left import NOT_OURS, READ_ONLY
 from stickle.sync import local_records
 from stickle.sync.contents import Contents, ReadOnlyItemError
 from stickle.sync.format import (
     RECORDS,
+    FormatError,
     NotOursError,
     UnreadableError,
     item_at,
@@ -37,10 +42,11 @@ from stickle.sync.format import (
     parse_json,
     seal,
 )
+from stickle.sync.left import Leaving
 from stickle.sync.merge import merge_fields
 from stickle.sync.place import Place, writing
 from stickle.sync.record_file import RecordFile, record_id
-from stickle.sync.targets.base import Absent, AsRead, NotThereError, RefusedError
+from stickle.sync.targets.base import Absent, AsRead, Entry, NotThereError, Read, RefusedError
 
 TRIES = 5
 
@@ -57,6 +63,16 @@ class _Read:
     record: RecordFile | None  # None: no file of this record's
     tag: str | None
     foreign: bool = False  # a file there that is not the record's: another vault's, say
+    raw: Read | None = None  # as read
+
+
+@dataclass(frozen=True)
+class _Copy:
+    """A copy of a record's file under another name, to merge into the record."""
+
+    path: str
+    read: Read
+    record: RecordFile
 
 
 class _LaterError(Exception):
@@ -104,6 +120,8 @@ class RecordRound:
         self._shown = shown
         self._report = RecordReport()
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
+        self._leaving = Leaving(connection, place, cloud_now)
+        self._copies: dict[str, list[_Copy]] = {}
 
     def run(self, also: list[tuple[str, str]] | None = None) -> RecordReport:
         """also: items changed here in this round already, merged again."""
@@ -111,8 +129,17 @@ class RecordRound:
         known = record_state.known(self._db, vault)
         to_read: set[str] = set(record_state.unconfirmed(self._db, vault))
         for entry in self._place.target.list(RECORDS):
+            passed = self._leaving.listed(entry)
             found = item_at(entry.path)
             if found is None or found[0] != RECORDS:
+                copy_of = None if passed else self._copy_of(entry)
+                if copy_of is not None:
+                    to_read.add(copy_of)
+                continue
+            if passed:
+                left = self._leaving.passed(entry.path)
+                if left is not None and left.why != READ_ONLY and found[1] in known:
+                    to_read.add(found[1])  # this device's own to be put in its place
                 continue
             state = known.get(found[1])
             if entry.tag is None or state is None or state.seen is None or state.tag != entry.tag:
@@ -138,33 +165,89 @@ class RecordRound:
         except _LeftError:
             pass
 
-    def _read(self, record: str) -> _Read:
+    def _copy_of(self, entry: Entry) -> str | None:
+        """A file named otherwise in records/: the record it is a copy of, if it
+        opens as one of this vault's, kept to merge into it; else it is left."""
         place = self._place
         try:
-            read = place.target.get(item_path(RECORDS, record))
+            read = place.target.get(entry.path)
+        except NotThereError:
+            return None
+        try:
+            head, value = open_envelope(place.keys, read.data, place.vault, RECORDS)
+            found = RecordFile.from_json(value)
+        except FormatError:
+            self._leaving.leave(entry.path, read, NOT_OURS)
+            return None
+        if found.known and record_id(place.keys, found.kind, found.item) != head.item:
+            self._leaving.leave(entry.path, read, NOT_OURS)
+            return None
+        self._copies.setdefault(head.item, []).append(_Copy(entry.path, read, found))
+        return head.item
+
+    def _read(self, record: str) -> _Read:
+        place, path = self._place, item_path(RECORDS, record)
+        left = self._leaving.passed(path)
+        if left is not None:  # listed as it was left: not read again
+            if left.why == READ_ONLY:
+                raise _LeftError()
+            return _Read(None, left.tag, foreign=True)
+        try:
+            read = place.target.get(path)
         except NotThereError:
             return _Read(None, None)
+        why = self._leaving.why(path, read)
+        if why == READ_ONLY:
+            raise _LeftError()
+        if why is not None:
+            return _Read(None, read.tag, foreign=True)
         try:
             head, value = open_envelope(place.keys, read.data, place.vault, RECORDS)
             found = RecordFile.from_json(value)
         except NotOursError:
+            self._leaving.leave(path, read, NOT_OURS)
             return _Read(None, read.tag, foreign=True)
         except UnreadableError as error:
+            if self._leaving.unreadable(path, read):
+                return _Read(None, read.tag, foreign=True)  # set aside: written over
             raise _LaterError() from error
         if head.item != record or (
             found.known and record_id(place.keys, found.kind, found.item) != record
         ):
+            self._leaving.leave(path, read, NOT_OURS)
             return _Read(None, read.tag, foreign=True)  # not where its id says
-        return _Read(found, read.tag)
+        self._leaving.opened(path)
+        return _Read(found, read.tag, raw=read)
 
     def sync(self, record: str, read: bool, item: tuple[str, str] | None) -> None:
-        """Merged, taken in, put."""
+        """Merged (with its copies under other names first), taken in, put; its
+        copies, then deleted."""
+        left = self._leaving.passed(item_path(RECORDS, record))
+        if left is not None and left.why == READ_ONLY:
+            raise _LeftError()
+        folded: list[_Copy] = []
+        for copy in self._copies.pop(record, []):
+            state = record_state.get(self._db, self._place.vault, record)
+            try:
+                self._merge(record, state, _Read(copy.record, None), item)
+            except _LeftError:
+                self._leaving.leave(copy.path, copy.read, NOT_OURS)
+                continue
+            folded.append(copy)
+        self._sync_record(record, read or bool(folded), item, bool(folded))
+        for copy in folded:
+            with suppress(NotThereError, RefusedError):  # gone, or changed since: next round
+                self._place.target.delete(copy.path, AsRead(copy.read.tag))
+
+    def _sync_record(
+        self, record: str, read: bool, item: tuple[str, str] | None, folded: bool
+    ) -> None:
         for _ in range(TRIES):
             state = record_state.get(self._db, self._place.vault, record)
             seen = kept(None if state is None else state.seen)
             if read or not self._place.target.keeps_conditions:
                 cloud = self._read(record)
-                if cloud.record is None and not cloud.foreign and seen is not None:
+                if cloud.record is None and not cloud.foreign and seen is not None and not folded:
                     raise _LaterError()  # gone from the vault: nothing to make of it yet
             else:
                 cloud = _Read(seen, None if state is None else state.tag)
@@ -189,13 +272,15 @@ class RecordRound:
     ) -> RecordFile | None:
         """The record merged and taken in: the file to put (None: the vault has it)."""
         if cloud.record is not None:
-            if not cloud.record.known:
-                raise _LeftError()
             try:
+                if not cloud.record.known:
+                    raise ReadOnlyItemError([])  # a kind this version does not know
                 cloud.record.contents.check_writable(
                     local_records.COLUMNS.get(cloud.record.kind, {})
                 )
             except ReadOnlyItemError as error:
+                if cloud.raw is not None:
+                    self._leaving.leave(item_path(RECORDS, record), cloud.raw, READ_ONLY)
                 raise _LeftError() from error
             kind, name = cloud.record.kind, cloud.record.item
         elif item is not None:

@@ -24,7 +24,7 @@ from fake_cloud import (
 
 from stickle.core.clock import stamp_of
 from stickle.crypto.vault_keys import DataKeys
-from stickle.data import stamps, sync_state
+from stickle.data import stamps, sync_left, sync_state
 from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -494,8 +494,9 @@ def test_a_note_another_version_may_not_change_is_left_alone(
         note.id,
         NoteFile(type(there.contents)({**there.contents.fields, "lock": locked}), there.body),
     )
-    assert b.sync().left == [note.id]
+    assert b.sync().left == []  # not left for later: passed over until it changes
     assert b.texts() == {}
+    assert sync_left.count(b.db, VAULT, sync_left.READ_ONLY, NOTES) == 1
 
 
 def test_a_change_made_while_merging_is_merged_too(

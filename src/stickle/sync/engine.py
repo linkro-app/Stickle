@@ -21,18 +21,23 @@ on the way is so taken care of. With a cloud whose tags tell every write apart
 and that keeps conditions, the put going through is enough to know it is there.
 With one that does not keep them, a note is read before it is put.
 
-A file that does not open whole is left for a later round; one written by a
-newer version, or with a key this device does not have, stops the round
+A file that does not open whole is left for a later round, and set aside
+if the same bytes keep failing (stickle.sync.left); one written by a newer
+version, or with a key this device does not have, stops the round
 (stickle.sync.format). Another vault's file, or another note's, in a note's
 place is neither read nor written over, unless this device has that note: its
-own is put there. Secret notes are not synced yet. A note the vault had and
-has no file for any more, it says nothing of yet.
+own is put there. A note with a field this version may not change is neither
+taken in nor written over, and passed over until it changes. A copy of a
+note's file under another name (as a cloud's web page makes one) is merged
+into the note, then deleted. Secret notes are not synced yet. A note the
+vault had and has no file for any more, it says nothing of yet.
 
 By the cloud's time: notes a year in the trash since that reached the cloud
 are emptied, and a deletion a year in the vault is removed from it.
 """
 
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 
 import apsw
@@ -40,12 +45,14 @@ import apsw
 from stickle.data import sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
+from stickle.data.sync_left import NOT_OURS, READ_ONLY
 from stickle.data.sync_state import NoteState
 from stickle.sync import local, local_reminders
 from stickle.sync.contents import ReadOnlyItemError
 from stickle.sync.devices import About, sync_devices
 from stickle.sync.format import (
     NOTES,
+    FormatError,
     NotOursError,
     UnreadableError,
     item_at,
@@ -54,12 +61,13 @@ from stickle.sync.format import (
     open_envelope,
     seal,
 )
+from stickle.sync.left import Leaving
 from stickle.sync.local_records import Shown, own_name
 from stickle.sync.merge import Merged, as_sent, deletion_due, merge, trash_due
 from stickle.sync.note_file import NoteFile, Step
 from stickle.sync.place import Place, writing
 from stickle.sync.records import RecordReport, RecordRound
-from stickle.sync.targets.base import Absent, AsRead, NotThereError, RefusedError
+from stickle.sync.targets.base import Absent, AsRead, Entry, NotThereError, Read, RefusedError
 from stickle.sync.vault import confirm
 
 TRIES = 5  # merges of one note in a round, refused each time, before it is left
@@ -81,10 +89,24 @@ class _Read:
     tag: str | None
     kept: str | None = None  # the file as kept here, when it is not read but taken as last seen
     foreign: bool = False  # a file there that is not the note's: another vault's, say
+    raw: Read | None = None  # as read
+
+
+@dataclass(frozen=True)
+class _Copy:
+    """A copy of a note's file under another name, to merge into the note."""
+
+    path: str
+    read: Read
+    note: NoteFile
 
 
 class _LaterError(Exception):
     """The note is left for a later round."""
+
+
+class _PassedError(Exception):
+    """The note is not this version's to change: passed over."""
 
 
 def _same(a: NoteFile, b: NoteFile) -> bool:
@@ -143,6 +165,8 @@ class _Round:
         self._report = Report(device=place.device)
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
         self._redirects = local.Redirects({}, {})
+        self._leaving = Leaving(connection, place, cloud_now)
+        self._copies: dict[str, list[_Copy]] = {}
 
     def run(self, also: list[str] | None = None) -> Report:
         """also: notes merged whether or not they changed."""
@@ -151,10 +175,20 @@ class _Round:
         known = sync_state.known(self._db, vault)
         to_read: set[str] = set(sync_state.unconfirmed(self._db, vault))
         for entry in target.list(NOTES):
+            passed = self._leaving.listed(entry)
             found = item_at(entry.path)
             if found is None or found[0] != NOTES:
-                continue  # a copy under another name, say
+                copy_of = None if passed else self._copy_of(entry)
+                if copy_of is not None:
+                    to_read.add(copy_of)
+                continue
             note_id = found[1]
+            if passed:
+                left = self._leaving.passed(entry.path)
+                mine = note_id in known or self._notes.get(note_id) is not None
+                if left is not None and left.why != READ_ONLY and mine:
+                    to_read.add(note_id)  # this device's own to be put in its place
+                continue
             state = known.get(note_id)
             if entry.tag is None or state is None or state.seen is None or state.tag != entry.tag:
                 to_read.add(note_id)
@@ -172,27 +206,91 @@ class _Round:
                 queue += self._sync(note_id, note_id in to_read)
             except _LaterError:
                 self._report.left.append(note_id)
+            except _PassedError:
+                pass
         self._remove_old_deletions()
         return self._report
 
-    def _read(self, note_id: str) -> _Read:
+    def _copy_of(self, entry: Entry) -> str | None:
+        """A file named otherwise in notes/: the note it is a copy of, if it opens
+        as one of this vault's, kept to merge into it; else it is left as it is."""
         place = self._place
         try:
-            read = place.target.get(item_path(NOTES, note_id))
+            read = place.target.get(entry.path)
         except NotThereError:
-            return _Read(None, None)
+            return None
         try:
             head, value = open_envelope(place.keys, read.data, place.vault, NOTES)
-            if head.item != note_id:
-                return _Read(None, read.tag, foreign=True)  # another note's file in its place
-            return _Read(NoteFile.from_json(place.keys, value), read.tag)
+            note = NoteFile.from_json(place.keys, value)
+        except FormatError:
+            self._leaving.leave(entry.path, read, NOT_OURS)
+            return None
+        self._copies.setdefault(head.item, []).append(_Copy(entry.path, read, note))
+        return head.item
+
+    def _read(self, note_id: str) -> _Read:
+        place, path = self._place, item_path(NOTES, note_id)
+        left = self._leaving.passed(path)
+        if left is not None:  # listed as it was left: not read again
+            if left.why == READ_ONLY:
+                raise _PassedError()
+            return _Read(None, left.tag, foreign=True)
+        try:
+            read = place.target.get(path)
+        except NotThereError:
+            return _Read(None, None)
+        why = self._leaving.why(path, read)
+        if why == READ_ONLY:
+            raise _PassedError()
+        if why is not None:
+            return _Read(None, read.tag, foreign=True)
+        try:
+            head, value = open_envelope(place.keys, read.data, place.vault, NOTES)
+            note = NoteFile.from_json(place.keys, value)
         except NotOursError:
+            self._leaving.leave(path, read, NOT_OURS)
             return _Read(None, read.tag, foreign=True)
         except UnreadableError as error:
+            if self._leaving.unreadable(path, read):
+                return _Read(None, read.tag, foreign=True)  # set aside: written over
             raise _LaterError() from error
+        if head.item != note_id:  # another note's file in its place
+            self._leaving.leave(path, read, NOT_OURS)
+            return _Read(None, read.tag, foreign=True)
+        self._leaving.opened(path)
+        return _Read(note, read.tag, raw=read)
 
     def _sync(self, note_id: str, read: bool) -> list[str]:
-        """Merged, taken in, put; the conflict copies it made, to sync after it."""
+        """Merged (with its copies under other names first), taken in, put; the
+        conflict copies it made, to sync after it. Its copies, then deleted."""
+        left = self._leaving.passed(item_path(NOTES, note_id))
+        if left is not None and left.why == READ_ONLY:
+            raise _PassedError()
+        made: list[str] = []
+        folded: list[_Copy] = []
+        for copy in self._copies.pop(note_id, []):
+            copies = self._fold(note_id, copy)
+            if copies is not None:
+                made += copies
+                folded.append(copy)
+        made += self._sync_note(note_id, read or bool(folded), bool(folded))
+        for copy in folded:
+            with suppress(NotThereError, RefusedError):  # gone, or changed since: next round
+                self._place.target.delete(copy.path, AsRead(copy.read.tag))
+        return made
+
+    def _fold(self, note_id: str, copy: _Copy) -> list[str] | None:
+        """A copy merged into the note here, as if the vault had it: the conflict
+        copies made. One this version may not change is left as it is (None)."""
+        state = sync_state.get(self._db, self._place.vault, note_id)
+        try:
+            outcome = self._merge(note_id, state, _Read(copy.note, None))
+        except _PassedError:
+            self._leaving.leave(copy.path, copy.read, NOT_OURS)
+            return None
+        return [] if outcome is None else outcome[1]
+
+    def _sync_note(self, note_id: str, read: bool, folded: bool) -> list[str]:
         for _ in range(TRIES):
             state = sync_state.get(self._db, self._place.vault, note_id)
             seen = local.kept(None if state is None else state.seen)
@@ -203,7 +301,7 @@ class _Round:
                 read = True
             if read or not self._place.target.keeps_conditions:
                 cloud = self._read(note_id)
-                if cloud.note is None and not cloud.foreign and seen is not None:
+                if cloud.note is None and not cloud.foreign and seen is not None and not folded:
                     raise _LaterError()  # gone from the vault: not taken for a deletion here
             else:
                 tag, kept = (None, None) if state is None else (state.tag, state.seen)
@@ -242,7 +340,9 @@ class _Round:
                 try:
                     cloud.note.contents.check_writable(local.known(cloud.note.contents))
                 except ReadOnlyItemError as error:
-                    raise _LaterError() from error
+                    if cloud.raw is not None:
+                        self._leaving.leave(item_path(NOTES, note_id), cloud.raw, READ_ONLY)
+                    raise _PassedError() from error
             if mine is None and cloud.note is None:
                 return None
             if mine is not None and cloud.note is not None:
@@ -364,7 +464,7 @@ class _Round:
             if not self._trusted:
                 try:
                     cloud = self._read(note_id)
-                except _LaterError:
+                except _LaterError, _PassedError:
                     continue
                 if cloud.note is not None and not _same(cloud.note, seen):
                     continue  # changed since: the next round merges it

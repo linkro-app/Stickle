@@ -4,6 +4,7 @@ round writes what it takes in with."""
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 import apsw
 
@@ -17,6 +18,7 @@ class Place:
     vault: str
     keys: DataKeys
     device: str
+    aside: Path | None = None  # where files set aside are kept (stickle.sync.left); None: none
 
 
 @contextmanager
