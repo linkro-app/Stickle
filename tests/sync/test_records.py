@@ -226,3 +226,23 @@ def test_a_record_of_a_kind_not_known_is_left_as_it_is(
     assert read.data == data
     assert open_envelope(KEYS, read.data, VAULT, RECORDS)[0].item == record
     assert record_state.get(a.db, VAULT, record) is None
+
+
+def test_a_note_recorded_twice_from_one_source_has_one_text_on_both(
+    devices: tuple[Device, Device], times: Times
+) -> None:
+    a, b = devices
+    note = a.notes.create("장보기")
+    settle(a, b)
+    b.imports.record("xpad", "x-1", "장보기", note.id)
+    times.tick()
+    a.imports.record("xpad", "x-1", "장보기 끝", note.id)  # later, the same note again
+
+    settle(a, b)
+
+    rows = [
+        sorted(device.db.execute("SELECT source, source_id, content_hash FROM import_records"))
+        for device in devices
+    ]
+    assert rows[0] == rows[1]
+    assert len(rows[0]) == 1

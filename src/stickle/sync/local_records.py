@@ -83,7 +83,8 @@ def _imported(connection: apsw.Connection, item: str) -> dict[str, Json] | None:
     source, _, source_id = item.partition("\n")
     rows = connection.execute(
         "SELECT note_id, content_hash, imported_at FROM import_records"
-        " WHERE source = ? AND source_id = ? ORDER BY note_id, content_hash = ? DESC",
+        " WHERE source = ? AND source_id = ?"
+        " ORDER BY note_id, content_hash = ? DESC, imported_at DESC, content_hash DESC",
         (source, source_id, SECRET_MARK),
     ).fetchall()
     if not rows:
@@ -244,6 +245,12 @@ def _write_imported(connection: apsw.Connection, item: str, values: Mapping[str,
             ).fetchall()
             if secret:
                 continue  # its text's hash is not brought back
+            # One text a note came with, as every device has it.
+            connection.execute(
+                "DELETE FROM import_records WHERE source = ? AND source_id = ? AND note_id = ?"
+                " AND content_hash != ?",
+                (source, source_id, note_id, text),
+            )
         connection.execute(
             "INSERT OR IGNORE INTO import_records"
             " (source, source_id, content_hash, note_id, imported_at) VALUES (?, ?, ?, ?, ?)",
