@@ -623,8 +623,12 @@ def test_no_text_of_a_note_made_by_hand_in_the_cloud_is_taken_for_another(
     data = cloud.files()[item_path(NOTES, other.id)]
     cloud.put_by_hand(item_path(NOTES, note.id), data)  # another note's file in its place
     report = b.sync()
-    assert report.left == [note.id]
+    assert report.left == []
     assert b.texts() == {other.id: "다른 메모"}
+    assert cloud.files()[item_path(NOTES, note.id)] == data  # not b's to write over
+    a.sync()  # a has the note: its own goes back in its place
+    b.sync()
+    assert b.texts() == {note.id: "제자리", other.id: "다른 메모"}
 
 
 def test_a_note_made_elsewhere_with_no_fields_is_made_here(

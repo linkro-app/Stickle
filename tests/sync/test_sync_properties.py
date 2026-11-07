@@ -39,6 +39,7 @@ from stickle.core.text_reminders import due
 from stickle.data.colors import OwnColorsFullError
 from stickle.data.labels import CategoryNameError, MarkNameError
 from stickle.data.notes import NoteRepository
+from stickle.sync.format import UnreadableError
 from stickle.sync.merge import YEAR
 from stickle.sync.targets.base import TargetError
 
@@ -51,6 +52,10 @@ HOUR = 60 * 60 * 1000
 # second until the device files tell it what changed.
 KINDS = (DROPBOX, ONEDRIVE, WEBDAV_NO_TAGS, WEBDAV_WEAK, WEBDAV_IGNORING, WEBDAV_HALF)
 POOL = ("같은 글 표식-pool", "Same text marker-pool")  # written on two devices alike, now and then
+
+
+# A round ended by these is tried again later: a cloud failing for now, vault.json half read.
+LATER = (TargetError, UnreadableError)
 
 
 class EndedError(Exception):
@@ -126,7 +131,7 @@ class Bed:
             device.sync()
         except EndedError:
             device.reopen()
-        except TargetError:
+        except LATER:
             pass  # tried again at a later round
 
     def together(self, devices: list[Device], order: list[int]) -> None:
@@ -139,7 +144,7 @@ class Bed:
             error = failed.get(device.name)
             if isinstance(error, EndedError):
                 device.reopen()
-            elif error is not None and not isinstance(error, TargetError):
+            elif error is not None and not isinstance(error, LATER):
                 raise error
 
 

@@ -152,9 +152,12 @@ class FakeCloud:
         """Every cursor given so far too old to follow, as a cloud does after days."""
         self._cursor_age += 1
 
-    def put_by_hand(self, path: str, data: bytes) -> None:
-        """Written by something other than Stickle (or another vault's device)."""
+    def put_by_hand(self, path: str, data: bytes, long_ago: bool = False) -> None:
+        """Written by something other than Stickle (or another vault's device);
+        long_ago: there a while, so no read finds it half written."""
         self._write(path, data, late=False)
+        if long_ago:
+            self._halves.discard(path)
 
     def copy_by_hand(self, path: str, copy: str) -> None:
         """A copy under another name, as a cloud's web page or app makes one."""

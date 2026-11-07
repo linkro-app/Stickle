@@ -480,10 +480,38 @@ ALTER TABLE reminders ADD COLUMN first_day TEXT;
 UPDATE reminders SET first_day = next_day WHERE kind = 'note';
 """
 
+V19 = """
+-- Of each vault: when this device last went through a round with it, by the
+-- cloud's clock (a note's file gone from it is taken for a deletion cleared
+-- a year after only when that was more than a year back), and the mark of the
+-- last write of this device's own file there (one there with another mark was
+-- written by another device under this one's id: a copy of its disk).
+ALTER TABLE sync_vaults ADD COLUMN synced_at INTEGER;
+ALTER TABLE sync_vaults ADD COLUMN own_mark TEXT;
+-- A note whose file the vault lost while this device was away for more than
+-- a year: kept here only, in the trash, and not looked for again.
+ALTER TABLE sync_notes ADD COLUMN gone INTEGER NOT NULL DEFAULT 0;
+-- Files of a vault sync leaves as they are, by their place there, and why: one
+-- that does not open (how many rounds running, since when), one set aside,
+-- one with a field this version may not change, one that is not this vault's
+-- or not where an item's own file is. Its tag (or, with none, a hash of its
+-- bytes) tells it from what is written there next.
+CREATE TABLE sync_left (
+    vault TEXT NOT NULL,
+    path TEXT NOT NULL,
+    tag TEXT,
+    digest TEXT NOT NULL,
+    why TEXT NOT NULL,
+    fails INTEGER NOT NULL DEFAULT 0,
+    first_at INTEGER NOT NULL,
+    PRIMARY KEY (vault, path)
+) WITHOUT ROWID;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18),
+    *(V17, V18, V19),
 ]
 BACKUPS_KEPT = 3
 

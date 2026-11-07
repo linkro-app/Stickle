@@ -23,8 +23,10 @@ With one that does not keep them, a note is read before it is put.
 
 A file that does not open whole is left for a later round; one written by a
 newer version, or with a key this device does not have, stops the round
-(stickle.sync.format). Secret notes are not synced yet. A note the vault had
-and has no file for any more, it says nothing of yet.
+(stickle.sync.format). Another vault's file, or another note's, in a note's
+place is neither read nor written over, unless this device has that note: its
+own is put there. Secret notes are not synced yet. A note the vault had and
+has no file for any more, it says nothing of yet.
 
 By the cloud's time: notes a year in the trash since that reached the cloud
 are emptied, and a deletion a year in the vault is removed from it.
@@ -58,6 +60,7 @@ from stickle.sync.note_file import NoteFile, Step
 from stickle.sync.place import Place, writing
 from stickle.sync.records import RecordReport, RecordRound
 from stickle.sync.targets.base import Absent, AsRead, NotThereError, RefusedError
+from stickle.sync.vault import confirm
 
 TRIES = 5  # merges of one note in a round, refused each time, before it is left
 __all__ = ["Place", "Report", "sync_notes", "sync_vault"]
@@ -69,6 +72,7 @@ class Report:
     put: list[str] = field(default_factory=list[str])  # notes put in the vault
     left: list[str] = field(default_factory=list[str])  # notes left for a later round
     records: RecordReport = field(default_factory=RecordReport)
+    device: str = ""  # the id the device went on as (a new one if its old one was taken)
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,7 @@ class _Read:
     note: NoteFile | None  # None: no file
     tag: str | None
     kept: str | None = None  # the file as kept here, when it is not read but taken as last seen
+    foreign: bool = False  # a file there that is not the note's: another vault's, say
 
 
 class _LaterError(Exception):
@@ -103,14 +108,18 @@ def sync_vault(
     notes: NoteRepository | None = None,
     shown: Shown = own_name,
     about: About | None = None,
+    full: bool = True,
 ) -> Report:
-    """One round of the whole vault: this device's own file (about: what it
-    says of itself; None: not now) and the others'; the records, so that the
-    categories and marks notes name are here when the notes come; then the
-    notes, and again those that name a category or mark that came, a field of
-    theirs perhaps not taken before for want of it."""
+    """One round of the whole vault: vault.json first, the vault still the one
+    it was (stickle.sync.vault.confirm: VaultError, else nothing is done); this
+    device's own file (about: what it says of itself; None: not now) and the
+    others'; the records, so that the categories and marks notes name are here
+    when the notes come; then the notes, and again those that name a category
+    or mark that came, a field of theirs perhaps not taken before for want of
+    it. full: a full look (at start, once a day), with what only that reads."""
+    confirm(place.target, place.vault)
     if about is not None:
-        sync_devices(connection, place, cloud_now, about)
+        place = replace(place, device=sync_devices(connection, place, cloud_now, about, full))
     records = RecordRound(connection, place, cloud_now, shown=shown).run()
     came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
     also = sync_state.mentioning(connection, place.vault, came)
@@ -131,7 +140,7 @@ class _Round:
         self._notes = notes
         self._place = place
         self._now = cloud_now
-        self._report = Report()
+        self._report = Report(device=place.device)
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
         self._redirects = local.Redirects({}, {})
 
@@ -175,9 +184,11 @@ class _Round:
         try:
             head, value = open_envelope(place.keys, read.data, place.vault, NOTES)
             if head.item != note_id:
-                raise _LaterError()  # another note's file in its place
+                return _Read(None, read.tag, foreign=True)  # another note's file in its place
             return _Read(NoteFile.from_json(place.keys, value), read.tag)
-        except (UnreadableError, NotOursError) as error:
+        except NotOursError:
+            return _Read(None, read.tag, foreign=True)
+        except UnreadableError as error:
             raise _LaterError() from error
 
     def _sync(self, note_id: str, read: bool) -> list[str]:
@@ -192,7 +203,7 @@ class _Round:
                 read = True
             if read or not self._place.target.keeps_conditions:
                 cloud = self._read(note_id)
-                if cloud.note is None and seen is not None:
+                if cloud.note is None and not cloud.foreign and seen is not None:
                     raise _LaterError()  # gone from the vault: not taken for a deletion here
             else:
                 tag, kept = (None, None) if state is None else (state.tag, state.seen)
@@ -207,7 +218,7 @@ class _Round:
                 tag = self._place.target.put(
                     item_path(NOTES, note_id),
                     seal(self._place.keys, self._place.vault, NOTES, note_id, put.to_json()),
-                    Absent() if cloud.note is None else AsRead(cloud.tag),
+                    Absent() if cloud.note is None and not cloud.foreign else AsRead(cloud.tag),
                 )
             except RefusedError:
                 read = True

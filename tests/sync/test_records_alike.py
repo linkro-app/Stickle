@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from fake_cloud import DROPBOX, WEBDAV_IGNORING, FakeCloud, Kind
-from test_records import VAULT, Device, Times
+from test_records import VAULT, Device, Times, vault_cloud
 
 from stickle.data import record_state
 from stickle.sync.engine import Report, sync_vault
@@ -35,7 +35,7 @@ def times() -> Times:
 @pytest.fixture(params=[DROPBOX, WEBDAV_IGNORING], ids=lambda k: k.name)
 def cloud(request: pytest.FixtureRequest) -> FakeCloud:
     kind: Kind = request.param
-    return FakeCloud(kind)
+    return vault_cloud(kind)
 
 
 @pytest.fixture

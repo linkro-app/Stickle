@@ -26,9 +26,10 @@ class NoteState:
     outbox: str | None = None  # the file put there, not seen there yet
     merged_seq: int = 0  # the note's change number when last merged
     deleted: bool = False  # its text is at a version that deletes it
+    gone: bool = False  # its file went from the vault: kept here only, not looked for
 
 
-_COLUMNS = "seen, tag, outbox, merged_seq, deleted"
+_COLUMNS = "seen, tag, outbox, merged_seq, deleted, gone"
 
 
 def _text(value: object) -> str | None:
@@ -36,13 +37,14 @@ def _text(value: object) -> str | None:
 
 
 def _state(row: apsw.SQLiteValues) -> NoteState:
-    seen, tag, outbox, seq, deleted = row
+    seen, tag, outbox, seq, deleted, gone = row
     return NoteState(
         _text(seen),
         _text(tag),
         _text(outbox),
         int(seq),  # pyright: ignore[reportArgumentType]
         bool(deleted),
+        bool(gone),
     )
 
 
@@ -55,10 +57,10 @@ def get(connection: apsw.Connection, vault: str, note_id: str) -> NoteState | No
 
 def put(connection: apsw.Connection, vault: str, note_id: str, state: NoteState) -> None:
     connection.execute(
-        "INSERT INTO sync_notes (vault, note_id, seen, tag, outbox, merged_seq, deleted)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (vault, note_id) DO UPDATE SET"
+        "INSERT INTO sync_notes (vault, note_id, seen, tag, outbox, merged_seq, deleted, gone)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (vault, note_id) DO UPDATE SET"
         " seen = excluded.seen, tag = excluded.tag, outbox = excluded.outbox,"
-        " merged_seq = excluded.merged_seq, deleted = excluded.deleted",
+        " merged_seq = excluded.merged_seq, deleted = excluded.deleted, gone = excluded.gone",
         (
             vault,
             note_id,
@@ -67,6 +69,7 @@ def put(connection: apsw.Connection, vault: str, note_id: str, state: NoteState)
             state.outbox,
             state.merged_seq,
             int(state.deleted),
+            int(state.gone),
         ),
     )
 
@@ -169,3 +172,39 @@ def set_cursor(connection: apsw.Connection, vault: str, at: str | None) -> None:
         " ON CONFLICT (vault) DO UPDATE SET cursor = excluded.cursor",
         (vault, at),
     )
+
+
+def _vault_value(connection: apsw.Connection, vault: str, column: str) -> object:
+    rows = connection.execute(f"SELECT {column} FROM sync_vaults WHERE vault = ?", (vault,))
+    found = rows.fetchall()
+    return found[0][0] if found else None
+
+
+def _set_vault_value(
+    connection: apsw.Connection, vault: str, column: str, value: int | str
+) -> None:
+    connection.execute(
+        f"INSERT INTO sync_vaults (vault, {column}) VALUES (?, ?)"
+        f" ON CONFLICT (vault) DO UPDATE SET {column} = excluded.{column}",
+        (vault, value),
+    )
+
+
+def synced_at(connection: apsw.Connection, vault: str) -> int | None:
+    """When this device last went through a round with the vault, by the
+    cloud's clock; None: never."""
+    value = _vault_value(connection, vault, "synced_at")
+    return None if value is None else int(value)  # pyright: ignore[reportArgumentType]
+
+
+def set_synced_at(connection: apsw.Connection, vault: str, at: int) -> None:
+    _set_vault_value(connection, vault, "synced_at", at)
+
+
+def own_mark(connection: apsw.Connection, vault: str) -> str | None:
+    """The mark of the last write of this device's own file in the vault."""
+    return _text(_vault_value(connection, vault, "own_mark"))
+
+
+def set_own_mark(connection: apsw.Connection, vault: str, mark: str) -> None:
+    _set_vault_value(connection, vault, "own_mark", mark)

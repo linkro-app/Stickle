@@ -20,7 +20,15 @@ from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.sync.engine import Place, Report, sync_notes, sync_vault
-from stickle.sync.format import RECORDS, item_path, open_envelope, seal
+from stickle.sync.format import (
+    RECORDS,
+    VAULT_FILE,
+    VaultInfo,
+    item_path,
+    open_envelope,
+    seal,
+    vault_file,
+)
 from stickle.sync.record_file import record_id
 
 KEY = secrets.token_bytes(32)
@@ -71,9 +79,16 @@ def kind(request: pytest.FixtureRequest) -> Kind:
     return request.param
 
 
+def vault_cloud(kind: Kind) -> FakeCloud:
+    """A cloud with the vault there: its vault.json."""
+    cloud = FakeCloud(kind)
+    cloud.put_by_hand(VAULT_FILE, vault_file(VaultInfo(VAULT)), long_ago=True)
+    return cloud
+
+
 @pytest.fixture
 def cloud(kind: Kind) -> FakeCloud:
-    return FakeCloud(kind)
+    return vault_cloud(kind)
 
 
 @pytest.fixture

@@ -44,7 +44,16 @@ from stickle.data.schema import open_store
 from stickle.sync import local
 from stickle.sync.devices import About
 from stickle.sync.engine import Place, Report, sync_notes, sync_vault
-from stickle.sync.format import NOTES, Json, item_at, json_bytes, open_envelope
+from stickle.sync.format import (
+    NOTES,
+    VAULT_FILE,
+    Json,
+    VaultInfo,
+    item_at,
+    json_bytes,
+    open_envelope,
+    vault_file,
+)
 from stickle.sync.merge import COPY_OF
 from stickle.sync.note_file import NoteFile
 
@@ -97,6 +106,8 @@ class Device:
         self.place = Place(cloud.target(name), VAULT, KEYS, self.id)
         self.db = open_store(self.path, KEY)
         self._repositories()
+        if whole and VAULT_FILE not in cloud.files():
+            cloud.put_by_hand(VAULT_FILE, vault_file(VaultInfo(VAULT)), long_ago=True)
 
     def _repositories(self) -> None:
         stamp, millis = self.stamp, self.millis
@@ -118,7 +129,12 @@ class Device:
     def sync(self) -> Report:
         if self.whole:
             about = About(f"{self.name.upper()}-PC 표식", "Linux", "0.7.0")
-            return sync_vault(self.db, self.place, self.clock, self.notes, self.mark_name, about)
+            report = sync_vault(self.db, self.place, self.clock, self.notes, self.mark_name, about)
+            if report.device != self.id:  # another device had its id: a copy of its disk
+                self.id = report.device
+                self.place = Place(self.place.target, VAULT, KEYS, self.id)
+                self._repositories()
+            return report
         return sync_notes(self.db, self.place, self.clock, self.notes)
 
     def round(self) -> None:

@@ -10,8 +10,10 @@ one transaction, only if the item did not change here meanwhile; put, made if
 the vault has none, else written over only if it is as read.
 
 A record of a kind this version does not know, or with a field it may not
-change, is left as it is. One whose file does not open whole, or that is not
-where its own id says, is left for a later round.
+change, is left as it is. One whose file does not open whole is left for a
+later round. Another vault's file, or one that is not where its own id says,
+is neither read nor written over, unless this device has the record whose
+place it is in: its own is put there.
 """
 
 from collections.abc import Callable
@@ -52,8 +54,9 @@ class RecordReport:
 
 @dataclass(frozen=True)
 class _Read:
-    record: RecordFile | None  # None: no file
+    record: RecordFile | None  # None: no file of this record's
     tag: str | None
+    foreign: bool = False  # a file there that is not the record's: another vault's, say
 
 
 class _LaterError(Exception):
@@ -143,13 +146,15 @@ class RecordRound:
             return _Read(None, None)
         try:
             head, value = open_envelope(place.keys, read.data, place.vault, RECORDS)
-            if head.item != record:
-                raise _LaterError()  # another record's file in its place
             found = RecordFile.from_json(value)
-        except (UnreadableError, NotOursError) as error:
+        except NotOursError:
+            return _Read(None, read.tag, foreign=True)
+        except UnreadableError as error:
             raise _LaterError() from error
-        if found.known and record_id(place.keys, found.kind, found.item) != record:
-            raise _LaterError()  # not where its id says
+        if head.item != record or (
+            found.known and record_id(place.keys, found.kind, found.item) != record
+        ):
+            return _Read(None, read.tag, foreign=True)  # not where its id says
         return _Read(found, read.tag)
 
     def sync(self, record: str, read: bool, item: tuple[str, str] | None) -> None:
@@ -159,7 +164,7 @@ class RecordRound:
             seen = kept(None if state is None else state.seen)
             if read or not self._place.target.keeps_conditions:
                 cloud = self._read(record)
-                if cloud.record is None and seen is not None:
+                if cloud.record is None and not cloud.foreign and seen is not None:
                     raise _LaterError()  # gone from the vault: nothing to make of it yet
             else:
                 cloud = _Read(seen, None if state is None else state.tag)
@@ -170,7 +175,7 @@ class RecordRound:
                 tag = self._place.target.put(
                     item_path(RECORDS, record),
                     seal(self._place.keys, self._place.vault, RECORDS, record, put.to_json()),
-                    Absent() if cloud.record is None else AsRead(cloud.tag),
+                    Absent() if cloud.record is None and not cloud.foreign else AsRead(cloud.tag),
                 )
             except RefusedError:
                 read = True
