@@ -3,7 +3,7 @@
     {"fields": {"<name>": {"device": "<id>", "hlc": "<time>", "value": <JSON>}}}
 
 Every field has the same shape: its value, when it was changed (a hybrid
-logical clock's time, stickle.sync.hlc) and by which device. So a field this
+logical clock's time, stickle.core.hlc) and by which device. So a field this
 version does not know merges as any other, the later change winning. Fields,
 names within a field, and parts beside "fields" that this version does not
 know are kept as they are when the item is written again.
@@ -18,8 +18,8 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 from typing import cast
 
+from stickle.core.hlc import Hlc
 from stickle.sync.format import Json, UnreadableError, is_id
-from stickle.sync.hlc import Hlc
 
 FIELDS = "fields"
 _FIELD_NAMES = ("device", "hlc", "readonly", "value")

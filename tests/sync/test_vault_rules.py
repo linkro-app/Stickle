@@ -13,6 +13,7 @@ import pytest
 from fake_cloud import DROPBOX, FakeCloud
 from peek import describe_target
 
+from stickle.core.hlc import Hlc
 from stickle.crypto import master, recovery
 from stickle.crypto.sealed import make_sealed_slot
 from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY, DataKeys, key_file
@@ -32,7 +33,6 @@ from stickle.sync.format import (
     seal,
     vault_file,
 )
-from stickle.sync.hlc import Hlc
 from stickle.sync.targets import base
 from stickle.sync.targets.base import Absent, AsRead, Target
 

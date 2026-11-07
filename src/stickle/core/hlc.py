@@ -1,19 +1,20 @@
 """Hybrid logical clocks: when a field was changed, in an order every device
 agrees on, even when their clocks do not.
 
-A time is the wall clock's milliseconds and a counter, written as text of one
+A time is the clock's milliseconds and a counter, written as text of one
 length ("1762483200000-0000"), so that the order of the text is the order of
-the times. A device's clock never goes back: each time it makes is after the
-last one it made or saw, however far the wall clock is behind. A time seen
-from another device moves the clock past it. Two fields changed at the same
-time are told apart by the device that changed them (stickle.sync.contents).
-The device keeps its last time, so the clock does not go back when the app
-starts again either.
+the times. A field changed is given the time of the change or, if that is not
+later, the time just after the one the field had: a change is always later
+than the value it replaced, however far behind the clock is. That is all the
+order a field needs, so a time from another device stays on its field and
+does not move this device's clock: one device's wrong clock does not spread
+to the others, and a clock set right goes back with it. Two fields changed at
+the same time are told apart by the device that changed them
+(stickle.sync.contents).
 """
 
 import re
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 
 MILLIS_DIGITS = 13  # milliseconds until the year 2286
@@ -52,29 +53,19 @@ class Hlc:
         return Hlc(self.millis + 1)
 
 
+END = Hlc(LARGEST_MILLIS, LARGEST_COUNTER)
+
+
 def wall_millis() -> int:
+    """This computer's clock, as milliseconds since 1970 in UTC."""
     return time.time_ns() // 1_000_000
 
 
-class Clock:
-    def __init__(self, wall: Callable[[], int] = wall_millis, last: Hlc | None = None) -> None:
-        self._wall = wall
-        self._last = last
-
-    @property
-    def last(self) -> Hlc | None:
-        """The latest time made or seen: to keep, and give the clock again."""
-        return self._last
-
-    def now(self) -> Hlc:
-        """A time for a change made now, after every one before it."""
-        physical = min(max(self._wall(), 0), LARGEST_MILLIS)
-        last = self._last
-        made = Hlc(physical) if last is None or physical > last.millis else last.following()
-        self._last = made
+def after(millis: int, before: Hlc | None) -> Hlc:
+    """The time of a change made at millis to a field whose value had the time
+    before (None: never changed): millis if that is later, else just after
+    before. The last time of all, which only a broken file has, stays the last."""
+    made = Hlc(min(max(millis, 0), LARGEST_MILLIS))
+    if before is None or made > before:
         return made
-
-    def saw(self, other: Hlc) -> None:
-        """A time from another device: the next one made here comes after it."""
-        if self._last is None or other > self._last:
-            self._last = other
+    return before if before == END else before.following()

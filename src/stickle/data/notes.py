@@ -3,7 +3,8 @@
 Deleting only marks a note, which then sits in the trash (kept 365 days).
 A note is removed only when emptied from the trash, or at once when it has no
 text, and then a deletion record takes its place. Every change stamps the note with this device's
-next change number, which never goes backwards even if the clock does.
+next change number, which never goes backwards even if the clock does, and
+each field it changes with when (stickle.data.stamps).
 """
 
 import logging
@@ -13,8 +14,9 @@ from collections.abc import Callable, Iterable
 import apsw
 
 from stickle.core.clock import Clock, days_before, utc_now
+from stickle.core.hlc import wall_millis
 from stickle.core.note import DEFAULT_COLOR, Note, content_hash
-from stickle.data import versions
+from stickle.data import stamps, versions
 from stickle.data.imports import hide_text_hashes
 from stickle.data.search import search
 
@@ -108,9 +110,17 @@ def _note(row: apsw.SQLiteValues, marks: frozenset[str] = frozenset()) -> Note:
 
 
 class NoteRepository:
-    def __init__(self, connection: apsw.Connection, clock: Clock = utc_now) -> None:
+    def __init__(
+        self,
+        connection: apsw.Connection,
+        clock: Clock = utc_now,
+        millis: Callable[[], int] = wall_millis,
+    ) -> None:
+        """millis: the time fields are stamped with (stickle.core.cloud_time while
+        syncing, else this computer's clock)."""
         self._db = connection
         self._clock = clock
+        self._millis = millis
 
     def _next_seq(self) -> int:
         row = self._db.execute(
@@ -165,6 +175,7 @@ class NoteRepository:
                 f"UPDATE notes SET {columns}updated_at = ?, change_seq = ? WHERE id = ?",
                 (*assignments.values(), now or self._clock(), self._next_seq(), note_id),  # pyright: ignore[reportArgumentType]
             )
+            stamps.changed(self._db, note_id, stamps.fields_of(assignments), self._millis())
         return self._require(note_id)
 
     def _new_text(
@@ -309,6 +320,7 @@ class NoteRepository:
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
             versions.forget(self._db, note_id)
+            stamps.forget(self._db, note_id)
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
             hide_text_hashes(self._db, note_id)
 
@@ -454,6 +466,7 @@ class NoteRepository:
                 )
             # The note itself counts as changed, so that sync notices.
             self._change(note_id, {})
+            stamps.changed(self._db, note_id, [stamps.mark_field(mark_id)], self._millis())
         return self._require(note_id)
 
     def delete(self, note_id: str) -> Note:
@@ -548,7 +561,10 @@ class NoteRepository:
             self._db.execute("DELETE FROM note_marks WHERE mark_id = ?", (mark_id,))
             for (owner,) in owners:
                 note = self.get(str(owner))
-                if note is not None and not note.deleted:
+                if note is None:
+                    continue
+                stamps.changed(self._db, note.id, [stamps.mark_field(mark_id)], self._millis())
+                if not note.deleted:
                     ids.append(note.id)
                     self._change(note.id, {})  # changed, so that sync notices
         return ids
@@ -604,6 +620,7 @@ class NoteRepository:
             self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
             self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
             versions.forget(self._db, note_id)
+            stamps.forget(self._db, note_id)
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
 
     def discard(self, note_id: str) -> None:

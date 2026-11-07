@@ -333,8 +333,39 @@ ALTER TABLE notes ADD COLUMN text_at TEXT;
 ALTER TABLE notes ADD COLUMN text_from TEXT;
 """
 
+# A note's last change as a field's time (stickle.core.hlc); one not a time, 0.
+_CHANGED_AT = (
+    "printf('%013d-0000', CAST(round(unixepoch(notes.updated_at, 'subsec') * 1000) AS INTEGER))"
+)
+
+V15 = f"""
+-- When each field of a note was last changed (stickle.data.stamps), so that
+-- sync keeps the later of two changes to it: the time (stickle.core.hlc) and
+-- the device (NULL: here). A field never changed has none, the earliest time
+-- of all. The fields are the note's own but its text, which goes by versions,
+-- and one for each mark on it. Notes changed before now take the time they
+-- last changed for all their fields; a note never changed since it was made,
+-- none.
+CREATE TABLE note_stamps (
+    note_id TEXT NOT NULL,
+    field TEXT NOT NULL,
+    hlc TEXT NOT NULL,
+    device TEXT,
+    PRIMARY KEY (note_id, field)
+) WITHOUT ROWID;
+WITH fields(name) AS (VALUES ('color'), ('opacity'), ('category'), ('always_on_top'),
+    ('hidden'), ('collapsed'), ('locked'), ('deleted_at'), ('secret_title'))
+INSERT INTO note_stamps (note_id, field, hlc)
+    SELECT notes.id, fields.name, {_CHANGED_AT} FROM notes, fields
+    WHERE notes.updated_at != notes.created_at;
+INSERT INTO note_stamps (note_id, field, hlc)
+    SELECT notes.id, 'mark:' || note_marks.mark_id, {_CHANGED_AT}
+    FROM note_marks JOIN notes ON notes.id = note_marks.note_id
+    WHERE notes.updated_at != notes.created_at;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14]
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15]
 BACKUPS_KEPT = 3
 
 

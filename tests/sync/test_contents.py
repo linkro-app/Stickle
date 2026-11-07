@@ -7,10 +7,10 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from stickle.core.hlc import Hlc
 from stickle.crypto.vault_keys import DataKeys
 from stickle.sync.contents import Contents, Field, ReadOnlyItemError
 from stickle.sync.format import LARGEST, NOTES, Json, UnreadableError, open_envelope, seal
-from stickle.sync.hlc import Hlc
 
 VAULT = "6f1c2a5e-8d3b-4c7a-9e21-0b4d5f6a7c8e"
 NOTE = "0f8e6f3c-1d9b-4a63-9c38-3b2a4f2f7d10"
