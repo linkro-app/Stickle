@@ -80,6 +80,7 @@ class Report:
 class _Read:
     note: NoteFile | None  # None: no file
     tag: str | None
+    kept: str | None = None  # the file as kept here, when it is not read but taken as last seen
 
 
 class _LaterError(Exception):
@@ -174,12 +175,18 @@ class _Round:
         for _ in range(TRIES):
             state = sync_state.get(self._db, self._place.vault, note_id)
             seen = local.kept(None if state is None else state.seen)
+            # Its text taken out here, the note emptied (or made secret): what is
+            # kept is the version a deletion is made on, not the vault's text.
+            taken_out = seen is not None and seen.body.text is None and not seen.body.deleted
+            if taken_out and self._notes.get(note_id) is not None:
+                read = True
             if read or not self._place.target.keeps_conditions:
                 cloud = self._read(note_id)
                 if cloud.note is None and seen is not None:
                     raise _LaterError()  # gone from the vault: not taken for a deletion here
             else:
-                cloud = _Read(seen, None if state is None else state.tag)
+                tag, kept = (None, None) if state is None else (state.tag, state.seen)
+                cloud = _Read(seen, tag, kept)
             outcome = self._merge(note_id, state, cloud)
             if outcome is None:
                 return []
@@ -234,12 +241,16 @@ class _Round:
                 before = None if at.note is None else at.note.change_seq
                 kept = put or merged.note
                 seq = local.take(self._db, self._notes, place.device, note_id, kept, at)
+                seen = cloud.kept
+                if seen is None and cloud.note is not None:
+                    # Emptied here: no text of it kept, the vault's neither.
+                    seen = local.as_kept(cloud.note, text=not kept.body.deleted)
                 sync_state.put(
                     self._db,
                     place.vault,
                     note_id,
                     NoteState(
-                        local.as_kept(cloud.note) if cloud.note is not None else None,
+                        seen,
                         cloud.tag,
                         None if put is None else local.as_kept(put),
                         seq if seq is not None else (0 if state is None else state.merged_seq),

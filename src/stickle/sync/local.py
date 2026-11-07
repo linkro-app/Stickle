@@ -40,7 +40,7 @@ from stickle.data.sync_state import NoteState
 from stickle.sync.contents import Contents, Field
 from stickle.sync.format import Json, json_bytes, parse_json
 from stickle.sync.merge import COPY_OF
-from stickle.sync.note_file import NoteFile, new_version
+from stickle.sync.note_file import BODY, NoteFile, new_version
 
 # The fields kept here, and their columns. A secret note's title goes with its
 # text, which this version does not sync yet.
@@ -71,8 +71,15 @@ def kept(text: str | None) -> NoteFile | None:
     return None if text is None else NoteFile.kept(parse_json(text.encode("utf-8")))
 
 
-def as_kept(note: NoteFile) -> str:
-    return json_bytes(note.to_json()).decode("utf-8")
+def as_kept(note: NoteFile, text: bool = True) -> str:
+    """note as sync_state keeps it; without its text (text False) for a note
+    emptied here."""
+    written = note.to_json()
+    if not text:
+        body = written[BODY]
+        assert isinstance(body, dict)
+        written[BODY] = {name: each for name, each in body.items() if name != "text"}
+    return json_bytes(written).decode("utf-8")
 
 
 @dataclass(frozen=True)

@@ -391,6 +391,29 @@ def test_an_emptied_note_keeps_no_text_here(devices: tuple[Device, Device]) -> N
     assert a.state(note.id).deleted
 
 
+def test_an_emptied_note_whose_deletion_did_not_go_up_goes_at_the_next_round(
+    devices: tuple[Device, Device], cloud: FakeCloud
+) -> None:
+    """Found by the property test: what was kept of the note, its text taken
+    out, was written back as a text that is none, and read no more."""
+    a, b = devices
+    note = a.notes.create("비우고 못 올린 글")
+    a.sync()
+    b.sync()
+    a.notes.delete(note.id)
+    a.notes.purge(note.id)
+    cloud.trouble = lambda request: Trouble.UNAVAILABLE if request.op == "put" else None
+    with pytest.raises(UnavailableError):
+        a.sync()
+    cloud.trouble = lambda _request: None
+    kept = a.state(note.id)
+    assert kept.seen is not None and "비우고 못 올린 글" not in kept.seen
+    a.sync()
+    b.sync()
+    assert in_cloud(cloud, note.id).body.deleted
+    assert b.notes.get(note.id) is None
+
+
 def test_what_this_version_does_not_know_is_kept(
     devices: tuple[Device, Device], cloud: FakeCloud, times: Times
 ) -> None:
