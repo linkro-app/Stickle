@@ -39,13 +39,25 @@ from stickle.core.text_reminders import due
 from stickle.data.colors import OwnColorsFullError
 from stickle.data.labels import CategoryNameError, MarkNameError
 from stickle.data.notes import NoteRepository
-from stickle.sync.format import UnreadableError
+from stickle.sync.format import (
+    NOTES,
+    VAULT_FILE,
+    UnreadableError,
+    VaultInfo,
+    item_at,
+    vault_file,
+)
+from stickle.sync.format import RECORDS as RECORDS_FOLDER
 from stickle.sync.merge import YEAR
 from stickle.sync.targets.base import TargetError
+from stickle.sync.vault import VaultChangedError, VaultGoneError
 
 EXAMPLES = int(os.environ.get("STICKLE_SYNC_EXAMPLES", "8"))
 STEPS = 40
-HOUR = 60 * 60 * 1000
+MINUTE = 60 * 1000
+HOUR = 60 * MINUTE
+DAY = 24 * HOUR
+DAMAGED = b'{"alg":1,"format":1,"id":"x","box":"not a box at all"}'
 # Clouds whose tags tell every write apart, or that have none (so every file is
 # read): a WebDAV server whose tags are made of the second and the size can
 # give two writes one tag, and a device that listed the first misses the
@@ -92,7 +104,7 @@ class Bed:
         self.clock = Clock()
         self.cloud = FakeCloud(kind)
         self.devices = [
-            Device(name, folder, self.cloud, self.clock, whole=True, names=NAMES[i])
+            Device(name, folder, self.cloud, self.clock, True, NAMES[i], folder / f"{name}-aside")
             for i, name in enumerate("abcd"[:count])
         ]
         self.model = Model()
@@ -166,6 +178,7 @@ def _do(bed: Bed, data: st.DataObject) -> None:
             + ["skew", "tick", "tick", "year"]
             + ["category", "rename", "uncategorise", "categorise", "categorise"]
             + ["mark", "marked", "colour", "uncolour", "remind", "remind", "import"]
+            + ["full", "damage", "copy", "gone", "changed", "clone", "away"]
         )
     )
     bed.cloud.trouble = lambda _request: None
@@ -227,9 +240,12 @@ def _do(bed: Bed, data: st.DataObject) -> None:
         bed.clock.tick(draw(st.sampled_from((1, 300, 1_000, 60_000, HOUR, 24 * HOUR))))
     elif action in RECORDS:
         RECORDS[action](bed, device, data, live)
+    elif action in FAILURES:
+        FAILURES[action](bed, device, data)
     elif action == "year":
-        # A year passes once all have synced (a device away a year is another matter).
-        settle(bed.devices)
+        # A year passes once all have synced (a device away a year: "away").
+        bed.cloud.full = False
+        settle(bed.devices, tick=6 * MINUTE)
         for note in bed.devices[0].notes.deleted():
             bed.model.emptying(bed.devices[0], note.id, note.body)  # a year in the trash
         bed.clock.tick(YEAR + 1_000)
@@ -360,6 +376,90 @@ def _import(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> N
     bed.did(device, f"import {note_id[:8]} {source}")
 
 
+def _files(bed: Bed, *folders: str) -> list[str]:
+    return [
+        path for path in bed.cloud.files() if (at := item_at(path)) is not None and at[0] in folders
+    ]
+
+
+def _full(bed: Bed, device: Device, data: st.DataObject) -> None:
+    bed.cloud.full = not bed.cloud.full
+    bed.did(device, f"the cloud {'full' if bed.cloud.full else 'with room again'}")
+
+
+def _damage(bed: Bed, device: Device, data: st.DataObject) -> None:
+    files = _files(bed, NOTES, RECORDS_FOLDER)
+    if files:
+        path = data.draw(st.sampled_from(files))
+        bed.cloud.put_by_hand(path, DAMAGED + data.draw(st.binary(max_size=2)), long_ago=True)
+        bed.did(device, f"damaged {path}")
+
+
+def _copy(bed: Bed, device: Device, data: st.DataObject) -> None:
+    files = _files(bed, NOTES, RECORDS_FOLDER)
+    if files:
+        path = data.draw(st.sampled_from(files))
+        bed.cloud.copy_by_hand(path, path.removesuffix(".json") + " (1).json")
+        bed.did(device, f"copied {path}")
+
+
+def _gone(bed: Bed, device: Device, data: st.DataObject) -> None:
+    """The Stickle folder deleted, a device seeing it, and the folder restored."""
+    was = bed.cloud.files()
+    bed.cloud.vanish()
+    with pytest.raises(VaultGoneError):
+        device.sync()
+    assert bed.cloud.files() == {}  # nothing written
+    bed.cloud.put_back(was, long_ago=True)
+    bed.did(device, "the vault gone and back")
+
+
+def _changed(bed: Bed, device: Device, data: st.DataObject) -> None:
+    """vault.json naming another vault, a device seeing it, and it put back."""
+    was = bed.cloud.files()
+    bed.cloud.put_by_hand(VAULT_FILE, vault_file(VaultInfo("vault-2")), long_ago=True)
+    before = bed.cloud.files()
+    with pytest.raises(VaultChangedError):
+        device.sync()
+    assert bed.cloud.files() == before  # nothing written
+    bed.cloud.put_by_hand(VAULT_FILE, was[VAULT_FILE], long_ago=True)
+    bed.did(device, "vault.json another vault's and back")
+
+
+def _clone(bed: Bed, device: Device, data: st.DataObject) -> None:
+    """A copy of a device's disk made another device, with its id."""
+    if len(bed.devices) >= 5:
+        return
+    name = "efgh"[len(bed.devices) - 2]
+    bed.devices.append(device.copied(name))
+    bed.did(device, f"copied as {name}")
+
+
+def _away(bed: Bed, device: Device, data: st.DataObject) -> None:
+    """A year and more on for all the others; the device away all that time."""
+    others = [each for each in bed.devices if each is not device]
+    bed.cloud.full = False
+    bed.cloud.trouble = lambda _request: None
+    settle(others, tick=6 * MINUTE)
+    for each in bed.devices:
+        for note in each.notes.deleted():
+            bed.model.emptying(each, note.id, note.body)  # a year in the trash, on any
+    bed.clock.tick(YEAR + DAY)
+    settle(others)
+    bed.did(device, "away a year and more")
+
+
+FAILURES = {
+    "full": _full,
+    "damage": _damage,
+    "copy": _copy,
+    "gone": _gone,
+    "changed": _changed,
+    "clone": _clone,
+    "away": _away,
+}
+
+
 RECORDS = {
     "category": _category,
     "rename": _rename,
@@ -388,8 +488,17 @@ def test_devices_agree_with_the_model_and_lose_nothing(kind: Kind, data: st.Data
             for _ in range(data.draw(st.integers(4, STEPS), label="steps")):
                 _do(bed, data)
             bed.cloud.trouble = lambda _request: None
-            settle(bed.devices)
+            bed.cloud.full = False
+            settle(bed.devices, tick=6 * MINUTE)
             bed.model.check(bed.devices, bed.cloud)
+            copies = [
+                path
+                for path, data in bed.cloud.files().items()
+                if path.endswith(" (1).json") and not data.startswith(DAMAGED)
+            ]
+            assert copies == [], "copies under other names left"  # but damaged ones
+            ids = [each.id for each in bed.devices]
+            assert len(set(ids)) == len(ids), "a copied device kept the id it was copied with"
             records_agree(bed.devices, bed.records)
             texts = {f"text {i}": text for i, (_, text) in enumerate(bed.model.written)}
             said = (

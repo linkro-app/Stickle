@@ -178,11 +178,19 @@ class FakeCloud:
         then = next(
             (files for at, files in reversed(self._states) if at <= number), dict[str, _File]()
         )
-        for path in sorted(set(self._files) - set(then)):
+        self.put_back({path: stored.data for path, stored in then.items()})
+
+    def put_back(self, files: dict[str, bytes], long_ago: bool = False) -> None:
+        """The folder made as it was, these files in it (restored from the cloud's
+        trash, say): written again under new tags, any other removed; long_ago:
+        there a while, so no read finds one half written."""
+        for path in sorted(set(self._files) - set(files)):
             self._remove(path)
-        for path, old in sorted(then.items()):
-            if path not in self._files or self._files[path].data != old.data:
-                self._write(path, old.data, late=False)
+        for path, data in sorted(files.items()):
+            if path not in self._files or self._files[path].data != data:
+                self._write(path, data, late=False)
+                if long_ago:
+                    self._halves.discard(path)
 
     # What it holds
 

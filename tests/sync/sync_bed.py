@@ -23,6 +23,7 @@ one of each name, nothing made gone (records_agree).
 """
 
 import secrets
+import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -41,6 +42,7 @@ from stickle.data.labels import LabelRepository, become
 from stickle.data.notes import NoteRepository
 from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import open_store
+from stickle.data.settings import DEVICE_ID, Settings
 from stickle.sync import local
 from stickle.sync.devices import About
 from stickle.sync.engine import Place, Report, sync_notes, sync_vault
@@ -105,6 +107,7 @@ class Device:
         self.skew = 0
         self.whole = whole
         self.names = names or {}
+        self.cloud = cloud
         self.place = Place(cloud.target(name), VAULT, KEYS, self.id, aside)
         self.db = open_store(self.path, KEY)
         self._repositories()
@@ -129,13 +132,14 @@ class Device:
         return stamp_of(datetime.fromtimestamp(self.millis() / 1000, UTC))
 
     def sync(self) -> Report:
+        renewed = Settings(self.db).get(DEVICE_ID)
+        if renewed is not None and renewed != self.id:  # a round that ended after it took one
+            self._renewed(renewed)
         if self.whole:
             about = About(f"{self.name.upper()}-PC 표식", "Linux", "0.7.0")
             report = sync_vault(self.db, self.place, self.clock, self.notes, self.mark_name, about)
             if report.device != self.id:  # another device had its id: a copy of its disk
-                self.id = report.device
-                self.place = Place(self.place.target, VAULT, KEYS, self.id, self.place.aside)
-                self._repositories()
+                self._renewed(report.device)
             return report
         return sync_notes(self.db, self.place, self.clock, self.notes)
 
@@ -145,6 +149,11 @@ class Device:
         place = Place(self.place.target, VAULT, KEYS, device, self.place.aside)
         about = About(f"{self.name.upper()}-PC 표식", "Linux", "0.7.0")
         return sync_vault(self.db, place, self.clock, self.notes, self.mark_name, about)
+
+    def _renewed(self, device: str) -> None:
+        self.id = device
+        self.place = Place(self.place.target, VAULT, KEYS, self.id, self.place.aside)
+        self._repositories()
 
     def round(self) -> None:
         """A round, on a thread of its own (fake_cloud.Turns)."""
@@ -159,6 +168,19 @@ class Device:
     def close(self) -> None:
         self.db.close()
 
+    def copied(self, name: str) -> Device:
+        """Another device made from a copy of this one's disk: its database, its id."""
+        self.db.close()
+        shutil.copyfile(self.path, self.path.with_name(f"{name}.db"))
+        self.db = open_store(self.path, KEY)
+        self._repositories()
+        aside = None if self.place.aside is None else self.place.aside.with_name(f"{name}-aside")
+        copy = Device(name, self.path.parent, self.cloud, self.clock, True, self.names, aside)
+        copy.id = self.id
+        copy.place = Place(self.cloud.target(name), VAULT, KEYS, self.id, aside)
+        copy.reopen()
+        return copy
+
     def state(self, note_id: str) -> sync_state.NoteState | None:
         return sync_state.get(self.db, VAULT, note_id)
 
@@ -171,7 +193,10 @@ class Device:
         return {note.id: note.body for note in self.notes.all()}
 
     def shown(self) -> dict[str, tuple[object, ...]]:
-        """Every note as it is here, in the trash too: what devices must agree on."""
+        """Every note as it is here, in the trash too: what devices must agree on
+        (but a note kept here only, its file gone from the vault while the device
+        was away for more than a year)."""
+        gone = {each for each, state in sync_state.known(self.db, VAULT).items() if state.gone}
         return {
             note.id: (
                 note.body,
@@ -185,6 +210,7 @@ class Device:
                 tuple(sorted(note.marks)),
             )
             for note in self.notes.all()
+            if note.id not in gone
         }
 
 
@@ -194,10 +220,14 @@ def value_of(device: Device, note_id: str, name: str) -> object:
     return getattr(note, "label" if name == "category" else name)
 
 
-def settle(devices: Iterable[Device], passes: int = 12) -> None:
-    """Each device syncs in turn until a pass where none has anything to do."""
+def settle(devices: Iterable[Device], passes: int = 12, tick: int = 0) -> None:
+    """Each device syncs in turn until a pass where none has anything to do;
+    tick: milliseconds passing between passes (for a file set aside only once
+    it failed for minutes)."""
     devices = list(devices)
     for _ in range(passes):
+        if tick:
+            devices[0].clock.tick(tick)
         busy = False
         for device in devices:
             report = device.sync()
@@ -313,12 +343,18 @@ class Model:
                 assert there == latest, f"{note_id} category: {there!r}, not {latest!r}"
 
 
+# A note kept here only (its file gone from the vault while the device was away
+# for more than a year) keeps its reminders here only too.
+_REMINDERS = (
+    "reminders WHERE deleted_at IS NULL"
+    " AND note_id NOT IN (SELECT note_id FROM sync_notes WHERE gone)"
+)
 _TABLES = {
     "categories": "id, name, color, icon, position, created_at, deleted_at, merged_into",
     "marks": "id, name, icon, position, created_at, deleted_at, merged_into",
     "custom_colors": "id, hex, position, created_at, deleted_at",
     "import_records": "source, source_id, content_hash, note_id, imported_at",
-    "reminders WHERE deleted_at IS NULL": "note_id, kind, calendar, start_day, at_time,"
+    _REMINDERS: "note_id, kind, calendar, start_day, at_time,"
     " time_zone, repeat, weekdays, hide_note, first_day, next_day, snoozed_until, acked_at,"
     " acked_device",
 }
