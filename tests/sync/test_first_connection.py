@@ -200,6 +200,20 @@ def test_a_note_folded_in_is_not_put_on_its_own_whichever_id_comes_first(
     assert [note.id for note in b.notes.all()] == [there]
 
 
+def test_a_field_never_changed_here_stays_as_the_vault_has_it_whichever_device_id_is_higher(
+    two: tuple[FakeCloud, Device, Device],
+) -> None:
+    _, a, b = two  # b's id is the higher: a tie of the earliest times would go its way
+    there = a.notes.create("같은 글", "pink").id  # its colour as made, never changed
+    a.sync()
+    b.notes.create("같은 글")  # in the colour new notes take here
+    joined(b.db, VAULT)
+    settle([a, b])
+    for device in (a, b):
+        notes = device.notes.all()
+        assert [(n.id, n.color) for n in notes] == [(there, "pink")]
+
+
 def test_two_alike_here_and_one_there_make_one_pair(
     two: tuple[FakeCloud, Device, Device],
 ) -> None:

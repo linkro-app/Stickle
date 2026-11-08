@@ -105,7 +105,16 @@ from stickle.sync.format import (
 )
 from stickle.sync.left import Leaving
 from stickle.sync.local_records import Shown, own_name
-from stickle.sync.merge import TRASH, YEAR, Merged, as_sent, deletion_due, merge, trash_due
+from stickle.sync.merge import (
+    TRASH,
+    YEAR,
+    Merged,
+    as_sent,
+    deletion_due,
+    merge,
+    merge_fields,
+    trash_due,
+)
 from stickle.sync.note_file import NoteFile, Step
 from stickle.sync.place import Place, writing
 from stickle.sync.records import RecordReport, RecordRound
@@ -688,16 +697,24 @@ class _Round:
 
     def _fold_mine(self, note_id: str, own: str) -> bool:
         """This device's note with the vault's note's text taken in as that one,
-        as if the vault had it, and handing over to it; True if it was."""
+        as if the vault had it, and handing over to it; True if it was. The
+        vault's text at its version, and the fields this device changed, each
+        if later: one it never changed goes as the vault has it (both never
+        changed, the earliest time on each would leave it to the devices' ids)."""
         place = self._place
         at = local.here(self._db, self._notes, own)
         mine = local.mine(place.keys, place.device, at, None)
-        if mine is None or at.note is None or at.note.deleted_at is not None:
+        cloud, _ = self._opened(note_id)
+        if mine is None or cloud is None or at.note is None or at.note.deleted_at is not None:
             return False
         if local.here(self._db, self._notes, note_id).note is not None:
             return False
+        changed = {
+            name: each for name, each in mine.contents.fields.items() if each.hlc != local.EARLIEST
+        }
+        fields = merge_fields(replace(mine.contents, fields=changed), cloud.contents)
         try:
-            self._merge(note_id, None, _Read(mine, None))
+            self._merge(note_id, None, _Read(NoteFile(fields, cloud.body), None))
         except _PassedError:
             return False
         with writing(self._db):
