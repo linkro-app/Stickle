@@ -53,6 +53,17 @@ are emptied, and a deletion a year in the vault is removed from it.
 A cloud full turns a put down: the round goes on taking in what changed
 there, and puts nothing more; what was not put stays in the outbox.
 
+A device that joined a vault which was there before it (joined) merges as a
+first connection does until a round is through: its untouched welcome note,
+and a what's-new note the vault does not have, untouched, are let go of, not
+put (stickle.core.made_notes: they can be made again, and the vault stands for
+them); a note of its own with the same text as one of the vault's, both out of
+the trash, is folded into that one, as one note changed on two devices (its
+places on screen, size and earlier texts handed over), and no big change is
+stopped for. What that would make is told before (first_look); keeping only
+the vault's notes instead (cloud_only) backs up first and removes this
+device's without a trace.
+
 A big change stops the round once it has looked, before anything is taken in
 or put (BigChangeError): ten notes or more here, out of the trash, that would
 go to it or be deleted for good, and conflict copies that would be made, all
@@ -68,6 +79,8 @@ from dataclasses import dataclass, field, replace
 
 import apsw
 
+from stickle.core import made_notes
+from stickle.core.markdown import note_title
 from stickle.data import sync_held, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
@@ -109,7 +122,17 @@ from stickle.sync.vault import confirm
 
 TRIES = 5  # merges of one note in a round, refused each time, before it is left
 BIG = 10  # changes a round stops for (to the trash, deleted for good, conflict copies)
-__all__ = ["BigChangeError", "Place", "Report", "sync_notes", "sync_vault"]
+__all__ = [
+    "BigChangeError",
+    "FirstLook",
+    "Place",
+    "Report",
+    "cloud_only",
+    "first_look",
+    "joined",
+    "sync_notes",
+    "sync_vault",
+]
 
 
 class BigChangeError(Exception):
@@ -133,6 +156,16 @@ class Report:
     full: bool = False  # a put turned down, the cloud full: nothing more put
     records: RecordReport = field(default_factory=RecordReport)
     device: str = ""  # the id the device went on as (a new one if its old one was taken)
+
+
+@dataclass(frozen=True)
+class FirstLook:
+    """What merging would make of this device's notes and a vault's it joined."""
+
+    here: int  # this device's notes out of the trash, but those let go of
+    cloud: int  # the vault's notes out of the trash
+    alike: int  # of this device's, those that become one with one of the vault's
+    recent: list[str | None]  # the first lines of the vault's three edited last (None: secret)
 
 
 @dataclass(frozen=True)
@@ -165,6 +198,17 @@ def _same(a: NoteFile, b: NoteFile) -> bool:
     return json_bytes(a.to_json()) == json_bytes(b.to_json())
 
 
+def _made(note_id: str, text: str) -> bool:
+    """A note the app made, untouched: the welcome note, or a what's-new note."""
+    return made_notes.welcome(text) or made_notes.news(note_id, text)
+
+
+def _shown(note: NoteFile) -> bool:
+    """Out of the trash, and not deleted."""
+    trash = note.contents.fields.get(TRASH)
+    return not note.body.deleted and (trash is None or trash.value is None)
+
+
 def _writable(note: NoteFile) -> bool:
     """Whether this version may take the note in: no field it may not change."""
     try:
@@ -172,6 +216,45 @@ def _writable(note: NoteFile) -> bool:
     except ReadOnlyItemError:
         return False
     return True
+
+
+def joined(connection: apsw.Connection, vault: str) -> None:
+    """This device has just joined the vault, which was there before it: until
+    a round with it is through, its rounds merge as a first connection does."""
+    with writing(connection):
+        sync_state.set_joining(connection, vault, True)
+
+
+def first_look(
+    connection: apsw.Connection,
+    place: Place,
+    cloud_now: Callable[[], int],
+    notes: NoteRepository | None = None,
+) -> FirstLook:
+    """What merging would make of this device's notes and those of the vault it
+    joined, before its first round with it: the vault's notes read once, and
+    kept for that round, which does not fetch them again."""
+    confirm(place.target, place.vault)
+    notes = notes or NoteRepository(connection)
+    looking = _Round(connection, notes, place, cloud_now, joining=True)
+    looking.look()
+    return looking.preview()
+
+
+def cloud_only(
+    connection: apsw.Connection, notes: NoteRepository, vault: str, back_up: Callable[[], object]
+) -> int:
+    """Only the vault's notes kept, for a vault this device just joined: backed
+    up first (back_up), then this device's notes removed without a trace, in
+    the trash and secret ones too (the vault never had them), and the vault
+    taken as joined. How many were removed."""
+    back_up()
+    gone = notes.all()
+    with writing(connection):
+        for note in gone:
+            notes.drop(note.id)
+        sync_state.set_joining(connection, vault, True)
+    return len(gone)
 
 
 def sync_notes(
@@ -238,9 +321,14 @@ class _Round:
         place: Place,
         cloud_now: Callable[[], int],
         accept: Callable[[], object] | None = None,
+        joining: bool | None = None,
     ) -> None:
+        """joining: None, as the vault was joined or not (stickle.sync.engine.joined)."""
         self._db = connection
         self._accept = accept
+        self._joining = sync_state.joining(connection, place.vault) if joining is None else joining
+        self._drops: list[str] = []  # this device's made notes to let go of, joining
+        self._pairs: dict[str, str] = {}  # the vault's note: this device's to fold into it
         self._notes = notes
         self._place = place
         self._now = cloud_now
@@ -304,7 +392,57 @@ class _Round:
                 continue
             self._stage(path)
         self._to_read = to_read
-        self._weigh()
+        if self._joining:
+            self._alike(set(listed))
+        else:
+            self._weigh()
+
+    def _alike(self, listed: set[str]) -> None:
+        """Joining: this device's made notes to let go of, and its notes with the
+        same text as one of the vault's (out of the trash, each once)."""
+        vault = self._place.vault
+        mine: dict[str, list[str]] = {}
+        for note in self._notes.all():
+            if note.id in listed or sync_state.get(self._db, vault, note.id) is not None:
+                continue  # merged as the note it is
+            if _made(note.id, note.body):
+                self._drops.append(note.id)
+            elif note.deleted_at is None and not note.secret:
+                mine.setdefault(made_notes.digest(note.body), []).append(note.id)
+        theirs: dict[str, list[str]] = {}
+        for note_id in sorted(self._to_read or ()):
+            here = local.here(self._db, self._notes, note_id)
+            if here.note is not None or here.emptied_at is not None:
+                continue
+            file, _ = self._opened(note_id)
+            if file is not None and _shown(file) and file.body.text is not None:
+                theirs.setdefault(made_notes.digest(file.body.text), []).append(note_id)
+        for text, ids in mine.items():
+            for own, there in zip(sorted(ids), theirs.get(text, []), strict=False):
+                self._pairs[there] = own
+
+    def preview(self) -> FirstLook:
+        """What merging would make (joining): see first_look."""
+        place = self._place
+        dropped = set(self._drops)
+        here = sum(1 for n in self._notes.all() if n.deleted_at is None and n.id not in dropped)
+        cloud, alike = 0, len(self._pairs)
+        recent: list[tuple[int, str, str | None]] = []
+        for note_id in sorted(self._to_read or ()):
+            file, _ = self._opened(note_id)
+            if file is None or not _shown(file):
+                continue
+            cloud += 1
+            at = local.here(self._db, self._notes, note_id)
+            if at.note is not None and at.note.deleted_at is None and not at.note.secret:
+                mine = local.mine(place.keys, place.device, at, None)
+                if mine is not None and merge(place.keys, note_id, mine, file).copy is None:
+                    alike += 1
+            secret = file.contents.fields.get("secret_title")
+            plain = secret is None or secret.value is None
+            title = note_title(file.body.text or "") if plain else None
+            recent = sorted([*recent, (file.body.edited, note_id, title)], reverse=True)[:3]
+        return FirstLook(here, cloud, alike, [title for _, _, title in recent])
 
     def _weigh(self) -> None:
         """BigChangeError if what the round would bring is a big change, but for
@@ -424,11 +562,13 @@ class _Round:
         assert self._to_read is not None
         vault = self._place.vault
         self._empty_old_trash()
+        self._let_go()
         here = set(sync_state.changed(self._db, vault)) | set(sync_state.emptied(self._db, vault))
         here |= set(also or [])
         self._redirects = local.Redirects.here(self._db)
         to_read = self._to_read
-        queue = sorted(to_read | here)
+        # This device's notes folded into the vault's go with those, not on their own.
+        queue = sorted((to_read | here) - set(self._pairs.values()))
         done: set[str] = set()
         while queue:
             note_id = queue.pop(0)
@@ -446,6 +586,7 @@ class _Round:
             sync_state.set_synced_at(self._db, vault, self._started)
             sync_staged.clear(self._db, vault)
             sync_held.clear(self._db, vault)
+            sync_state.set_joining(self._db, vault, False)
         self._report.full = self.full
         return self._report
 
@@ -519,6 +660,8 @@ class _Round:
             raise _PassedError()
         made: list[str] = []
         folded: list[_Copy] = []
+        paired = self._pairs.pop(note_id, None)
+        own = paired is not None and self._fold_mine(note_id, paired)
         for path in self._copies.pop(note_id, []):
             copy = self._kept_copy(path)
             if copy is None:
@@ -527,11 +670,40 @@ class _Round:
             if copies is not None:
                 made += copies
                 folded.append(copy)
-        made += self._sync_note(note_id, read or bool(folded), bool(folded))
+        made += self._sync_note(note_id, read or bool(folded) or own, bool(folded) or own)
         for copy in folded:
             with suppress(NotThereError, RefusedError):  # gone, or changed since: next round
                 self._place.target.delete(copy.path, AsRead(copy.read.tag))
         return made
+
+    def _let_go(self) -> None:
+        """Joining: this device's made notes, untouched, dropped (not put)."""
+        for note_id in self._drops:
+            with writing(self._db):
+                note = self._notes.get(note_id)
+                if note is None or not _made(note.id, note.body):
+                    continue  # changed since it was looked at: a note as any other
+                self._notes.drop(note_id)
+            self._report.changed.append(note_id)
+
+    def _fold_mine(self, note_id: str, own: str) -> bool:
+        """This device's note with the vault's note's text taken in as that one,
+        as if the vault had it, and handing over to it; True if it was."""
+        place = self._place
+        at = local.here(self._db, self._notes, own)
+        mine = local.mine(place.keys, place.device, at, None)
+        if mine is None or at.note is None or at.note.deleted_at is not None:
+            return False
+        if local.here(self._db, self._notes, note_id).note is not None:
+            return False
+        try:
+            self._merge(note_id, None, _Read(mine, None))
+        except _PassedError:
+            return False
+        with writing(self._db):
+            self._notes.hand_over(own, note_id)
+        self._report.changed.append(own)
+        return True
 
     def _fold(self, note_id: str, copy: _Copy) -> list[str] | None:
         """A copy merged into the note here, as if the vault had it: the conflict

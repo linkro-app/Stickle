@@ -190,6 +190,16 @@ def _set_vault_value(
     )
 
 
+def joining(connection: apsw.Connection, vault: str) -> bool:
+    """Whether this device joined the vault, which was there before it, and has
+    not been through a round with it since."""
+    return bool(_vault_value(connection, vault, "joining"))
+
+
+def set_joining(connection: apsw.Connection, vault: str, joining: bool) -> None:
+    _set_vault_value(connection, vault, "joining", int(joining))
+
+
 def synced_at(connection: apsw.Connection, vault: str) -> int | None:
     """When this device last went through a round with the vault, by the
     cloud's clock; None: never."""

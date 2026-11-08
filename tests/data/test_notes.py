@@ -227,6 +227,52 @@ def test_a_colour_this_version_does_not_know_is_kept(repo: NoteRepository) -> No
     assert stored.color == "teal2"
 
 
+def test_a_note_dropped_leaves_no_trace(repo: NoteRepository, db: apsw.Connection) -> None:
+    kept = repo.create("남는 메모")
+    gone = repo.create("그대로인 환영 메모")
+    trashed = repo.create("휴지통의 메모")
+    repo.delete(trashed.id)
+
+    repo.drop(gone.id)
+    repo.drop(trashed.id)
+
+    assert [note.id for note in repo.all()] == [kept.id]
+    assert repo.deletion_records() == []
+
+
+def test_a_note_handed_over_gives_its_place_size_and_earlier_texts(
+    repo: NoteRepository, db: apsw.Connection, clock: FakeClock
+) -> None:
+    own = repo.create("같은 글")
+    repo.update_body(own.id, "고치던 글", keep_earlier=True)
+    repo.update_body(own.id, "같은 글", keep_earlier=True)
+    there = repo.create("같은 글")
+    now = clock()
+    for note_id, x in ((own.id, 0.1), (there.id, 0.5)):
+        db.execute(
+            "INSERT INTO note_layouts (note_id, config_key, monitor_key, rel_x, rel_y, updated_at)"
+            " VALUES (?, ?, '[]', ?, 0.2, ?)",
+            (note_id, "main" if note_id == there.id else "spare", x, now),
+        )
+    db.execute(
+        "INSERT INTO note_sizes (note_id, width, height, updated_at) VALUES (?, 300, 200, ?)",
+        (own.id, now),
+    )
+
+    repo.hand_over(own.id, there.id)
+
+    assert repo.get(own.id) is None and repo.deletion_records() == []
+    layouts = db.execute(
+        "SELECT config_key, rel_x FROM note_layouts WHERE note_id = ? ORDER BY config_key",
+        (there.id,),
+    ).fetchall()
+    assert layouts == [("main", 0.5), ("spare", 0.1)]  # its own kept, the other's taken
+    sizes = db.execute("SELECT width FROM note_sizes WHERE note_id = ?", (there.id,)).fetchall()
+    assert sizes == [(300,)]
+    texts = db.execute("SELECT body FROM note_versions WHERE note_id = ?", (there.id,)).fetchall()
+    assert ("고치던 글",) in texts
+
+
 def test_unknown_note_is_reported(repo: NoteRepository) -> None:
     assert repo.get("missing") is None
     with pytest.raises(NoteNotFoundError):

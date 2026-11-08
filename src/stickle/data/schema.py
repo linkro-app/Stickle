@@ -532,6 +532,9 @@ CREATE TABLE sync_held (
     copy_of TEXT,
     PRIMARY KEY (vault, note_id, kind)
 ) WITHOUT ROWID;
+-- A vault this device joined, which was there before it, until a round with
+-- it is through: its rounds merge as a first connection does.
+ALTER TABLE sync_vaults ADD COLUMN joining INTEGER NOT NULL DEFAULT 0;
 """
 
 # MIGRATIONS[n] brings the database from version n to version n + 1.

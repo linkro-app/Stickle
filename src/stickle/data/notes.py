@@ -708,6 +708,32 @@ class NoteRepository:
             sync_state.forget_text(self._db, note_id)
             self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
 
+    def drop(self, note_id: str) -> None:
+        """Remove a note for good that never left this device, without a trace:
+        not even a deletion record (another stands for it, or it can be made
+        again)."""
+        with self._db:
+            note = self._require(note_id)
+            if note.deleted_at is None:
+                self.delete(note_id)
+            self.purge(note_id)
+            self.forget_deletion(note_id)
+
+    def hand_over(self, note_id: str, to: str) -> None:
+        """A note that never left this device folded into another that stands for
+        it (to): its places on screen, its size and its earlier texts go to that
+        one, where it has none of its own; then it is dropped."""
+        with self._db:
+            self._require(note_id)
+            for table in ("note_layouts", "note_sizes"):
+                self._db.execute(
+                    f"UPDATE OR IGNORE {table} SET note_id = ? WHERE note_id = ?", (to, note_id)
+                )
+            self._db.execute(
+                "UPDATE note_versions SET note_id = ? WHERE note_id = ?", (to, note_id)
+            )
+            self.drop(note_id)
+
     def discard(self, note_id: str) -> None:
         """Remove a note with no text (spaces and line breaks at most) for good, past
         the trash: there is nothing in it to bring back. Only a deletion record stays."""
