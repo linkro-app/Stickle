@@ -522,6 +522,16 @@ CREATE TABLE sync_staged (
     data BLOB,
     PRIMARY KEY (vault, path)
 ) WITHOUT ROWID;
+-- What a round stopped for, many notes at once going from sight here (to the
+-- trash, or deleted for good) or conflict copies made (copy_of: the note one
+-- is of): kept until a round takes them in, as the user chooses.
+CREATE TABLE sync_held (
+    vault TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    copy_of TEXT,
+    PRIMARY KEY (vault, note_id, kind)
+) WITHOUT ROWID;
 """
 
 # MIGRATIONS[n] brings the database from version n to version n + 1.

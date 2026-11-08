@@ -24,7 +24,7 @@ one of each name, nothing made gone (records_agree).
 
 import secrets
 import shutil
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,7 +45,7 @@ from stickle.data.schema import open_store
 from stickle.data.settings import DEVICE_ID, Settings
 from stickle.sync import local
 from stickle.sync.devices import About
-from stickle.sync.engine import Place, Report, sync_notes, sync_vault
+from stickle.sync.engine import BigChangeError, Place, Report, sync_notes, sync_vault
 from stickle.sync.format import (
     DEVICES,
     NOTES,
@@ -110,6 +110,11 @@ class Device:
         self.names = names or {}
         self.cloud = cloud
         self.place = Place(cloud.target(name), VAULT, KEYS, self.id, aside)
+        # Its user lets a round stopped for a big change take it in (backing up
+        # first: counted); else the round's BigChangeError is let through.
+        self.accepts = True
+        self.holds = 0
+        self.backups = 0
         self.db = open_store(self.path, KEY)
         self._repositories()
         if whole and VAULT_FILE not in cloud.files():
@@ -132,17 +137,47 @@ class Device:
     def stamp(self) -> str:
         return stamp_of(datetime.fromtimestamp(self.millis() / 1000, UTC))
 
-    def sync(self) -> Report:
+    def sync(self, accept: Callable[[], object] | None = None) -> Report:
+        """A round; stopped for a big change, nothing changed here nor (when
+        no other device is in the middle of a round) in the vault but this
+        device's own file, and let go on if its user accepts."""
+        before = self._before()
+        try:
+            return self._sync(accept)
+        except BigChangeError:
+            self.holds += 1
+            assert self._before() == before, "a round stopped for a big change changed something"
+            if accept is not None or not self.accepts:
+                raise
+            return self._sync(self.back_up)
+
+    def back_up(self) -> None:
+        self.backups += 1
+
+    def _before(self) -> tuple[object, ...]:
+        files = None
+        if self.cloud.turns is None:
+            files = {p: d for p, d in self.cloud.files().items() if not p.startswith(f"{DEVICES}/")}
+        notes = {
+            note.id: (note.body, note.deleted_at, note.color, note.hidden)
+            for note in self.notes.all()
+        }
+        names = sorted(str(row[0]) for row in self.db.execute("SELECT name FROM categories"))
+        return files, notes, self.notes.deletion_records(), names
+
+    def _sync(self, accept: Callable[[], object] | None) -> Report:
         renewed = Settings(self.db).get(DEVICE_ID)
         if renewed is not None and renewed != self.id:  # a round that ended after it took one
             self._renewed(renewed)
         if self.whole:
             about = About(f"{self.name.upper()}-PC 표식", "Linux", "0.7.0")
-            report = sync_vault(self.db, self.place, self.clock, self.notes, self.mark_name, about)
+            report = sync_vault(
+                self.db, self.place, self.clock, self.notes, self.mark_name, about, accept=accept
+            )
             if report.device != self.id:  # another device had its id: a copy of its disk
                 self._renewed(report.device)
             return report
-        return sync_notes(self.db, self.place, self.clock, self.notes)
+        return sync_notes(self.db, self.place, self.clock, self.notes, accept)
 
     def sync_as(self, device: str) -> Report:
         """A round of the whole vault with this place, as a caller holding the

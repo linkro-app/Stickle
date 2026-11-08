@@ -13,6 +13,8 @@ try again, and what stopped it until the user does something.
   stops, and is not tried again by itself.
 - The vault gone, made again, of a newer format, or locked with a key this
   device does not have: sync with that vault stops.
+- A big change it would have brought: sync with that vault stops until the
+  user lets it take that in. Looked at again when the app starts.
 
 A round that went through, full or not, resets the waits.
 """
@@ -20,6 +22,7 @@ A round that went through, full or not, resets the waits.
 from dataclasses import dataclass
 from enum import Enum
 
+from stickle.sync.engine import BigChangeError
 from stickle.sync.format import NewerFormatError, UnknownKeyError, UnreadableError
 from stickle.sync.targets.base import (
     NoAccessError,
@@ -42,6 +45,7 @@ class Stopped(Enum):
     VAULT_GONE = "vault gone"
     VAULT_CHANGED = "vault changed"  # made again, from another device
     NEWER = "newer"  # a newer version's: an update goes on
+    BIG_CHANGE = "big change"  # many notes at once going from sight, or conflict copies
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,8 @@ def after(error: BaseException | None, failures: int = 0, full: bool = False) ->
             return Outcome(Stopped.VAULT_CHANGED)
         case NewerFormatError() | UnknownKeyError():
             return Outcome(Stopped.NEWER)
+        case BigChangeError():
+            return Outcome(Stopped.BIG_CHANGE)
         case TooBusyError(retry_after=asked) if asked is not None:
             return Outcome(wait=max(asked, 0.0), failures=failures + 1)
         case TooBusyError() | UnavailableError() | TokenExpiredError() | UnreadableError():

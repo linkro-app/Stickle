@@ -52,6 +52,14 @@ are emptied, and a deletion a year in the vault is removed from it.
 
 A cloud full turns a put down: the round goes on taking in what changed
 there, and puts nothing more; what was not put stays in the outbox.
+
+A big change stops the round once it has looked, before anything is taken in
+or put (BigChangeError): ten notes or more here, out of the trash, that would
+go to it or be deleted for good, and conflict copies that would be made, all
+told. What it stopped for is kept (stickle.data.sync_held); a round the user
+lets take that in (accept) backs up first, and stops again only if ten or more
+of what it would bring were not among it. Notes not here, texts changed, notes
+taken out of the trash or emptied from it are not counted.
 """
 
 from collections.abc import Callable
@@ -60,10 +68,11 @@ from dataclasses import dataclass, field, replace
 
 import apsw
 
-from stickle.data import sync_staged, sync_state
+from stickle.data import sync_held, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.settings import DEVICE_ID, Settings
+from stickle.data.sync_held import Held
 from stickle.data.sync_left import NOT_OURS, READ_ONLY
 from stickle.data.sync_staged import Staged
 from stickle.data.sync_state import NoteState
@@ -99,7 +108,18 @@ from stickle.sync.targets.base import (
 from stickle.sync.vault import confirm
 
 TRIES = 5  # merges of one note in a round, refused each time, before it is left
-__all__ = ["Place", "Report", "sync_notes", "sync_vault"]
+BIG = 10  # changes a round stops for (to the trash, deleted for good, conflict copies)
+__all__ = ["BigChangeError", "Place", "Report", "sync_notes", "sync_vault"]
+
+
+class BigChangeError(Exception):
+    """The round would bring a big change: it stopped before taking any of it
+    in. held: what it stopped for (stickle.data.sync_held, kept there too)."""
+
+    def __init__(self, held: list[Held]) -> None:
+        kinds = {k: [e.kind for e in held].count(k) for k in sorted({e.kind for e in held})}
+        super().__init__(", ".join(f"{count} {kind}" for kind, count in kinds.items()))
+        self.held = held
 
 
 @dataclass
@@ -145,14 +165,27 @@ def _same(a: NoteFile, b: NoteFile) -> bool:
     return json_bytes(a.to_json()) == json_bytes(b.to_json())
 
 
+def _writable(note: NoteFile) -> bool:
+    """Whether this version may take the note in: no field it may not change."""
+    try:
+        note.contents.check_writable(local.known(note.contents))
+    except ReadOnlyItemError:
+        return False
+    return True
+
+
 def sync_notes(
     connection: apsw.Connection,
     place: Place,
     cloud_now: Callable[[], int],
     notes: NoteRepository | None = None,
+    accept: Callable[[], object] | None = None,
 ) -> Report:
-    """One round; cloud_now: the time by the cloud's clock (stickle.core.cloud_time)."""
-    return _Round(connection, notes or NoteRepository(connection), place, cloud_now).run()
+    """One round; cloud_now: the time by the cloud's clock (stickle.core.cloud_time);
+    accept: what a round stopped for taken in after all, after this is called
+    (to back up)."""
+    notes = notes or NoteRepository(connection)
+    return _Round(connection, notes, place, cloud_now, accept).run()
 
 
 def sync_vault(
@@ -163,6 +196,7 @@ def sync_vault(
     shown: Shown = own_name,
     about: About | None = None,
     full: bool = True,
+    accept: Callable[[], object] | None = None,
 ) -> Report:
     """One round of the whole vault: vault.json first, the vault still the one
     it was (stickle.sync.vault.confirm: VaultError, else nothing is done); this
@@ -172,6 +206,9 @@ def sync_vault(
     in; then the notes, and again those that name a category
     or mark that came, a field of theirs perhaps not taken before for want of
     it. full: a full look (at start, once a day), with what only that reads.
+    The look stops the round for a big change (BigChangeError), records and
+    notes alike; accept: what it stopped for taken in after all, after this is
+    called (to back up).
 
     The device goes as the id its settings hold, if they hold one: a round that
     took a new id may have ended before its caller heard (Report.device)."""
@@ -181,7 +218,7 @@ def sync_vault(
     confirm(place.target, place.vault)
     if about is not None:
         place = replace(place, device=sync_devices(connection, place, cloud_now, about, full))
-    notes_round = _Round(connection, notes or NoteRepository(connection), place, cloud_now)
+    notes_round = _Round(connection, notes or NoteRepository(connection), place, cloud_now, accept)
     notes_round.look()
     records = RecordRound(connection, place, cloud_now, shown=shown).run()
     came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
@@ -200,8 +237,10 @@ class _Round:
         notes: NoteRepository,
         place: Place,
         cloud_now: Callable[[], int],
+        accept: Callable[[], object] | None = None,
     ) -> None:
         self._db = connection
+        self._accept = accept
         self._notes = notes
         self._place = place
         self._now = cloud_now
@@ -265,6 +304,96 @@ class _Round:
                 continue
             self._stage(path)
         self._to_read = to_read
+        self._weigh()
+
+    def _weigh(self) -> None:
+        """BigChangeError if what the round would bring is a big change, but for
+        what the user lets it take in (called first, to back up)."""
+        vault = self._place.vault
+        known = sync_state.known(self._db, vault)
+        changes = [
+            each
+            for note_id in sorted(self._to_read or ())
+            for each in self._would(note_id, known.get(note_id))
+        ]
+        taken: set[Held] = set()
+        if self._accept is not None:
+            taken = set(sync_held.every(self._db, vault))
+        if sum(1 for each in changes if each not in taken) >= BIG:
+            with writing(self._db):
+                sync_held.keep(self._db, vault, changes)
+            raise BigChangeError(changes)
+        if self._accept is not None and any(each in taken for each in changes):
+            self._accept()
+
+    def _would(self, note_id: str, state: NoteState | None) -> list[Held]:
+        """What taking the note in would do here that counts toward a big change:
+        the note, here out of the trash, going to it or deleted for good; conflict
+        copies made. Nothing for a note not here."""
+        place, path = self._place, item_path(NOTES, note_id)
+        at = local.here(self._db, self._notes, note_id)
+        if at.note is None or at.note.secret or self._leaving.passed(path) is not None:
+            return []
+        made: list[str] = []
+        note = local.mine(place.keys, place.device, at, state)
+        folded = False
+        for copy_path in self._copies.get(note_id, []):
+            copy = self._kept_copy(copy_path)
+            if copy is not None and _writable(copy.note):
+                note = self._joined(note_id, note, copy.note, made)
+                folded = True
+        cloud, none = self._opened(note_id)
+        out: list[Held] = []
+        if none and not folded:
+            if state is None or state.seen is None or state.gone or state.deleted:
+                return []
+            away = self._last is not None and self._now() - self._last > YEAR
+            if away and at.note.deleted_at is None:  # emptied elsewhere and cleared since
+                out.append(Held(note_id, sync_held.TRASH))
+            return out
+        if cloud is not None:
+            note = self._joined(note_id, note, cloud, made)
+        if note is not None and at.note.deleted_at is None:
+            trash = note.contents.fields.get(TRASH)
+            if note.body.deleted:
+                out.append(Held(note_id, sync_held.GONE))
+            elif trash is not None and trash.value is not None:
+                out.append(Held(note_id, sync_held.TRASH))
+        for copy_id in made:
+            there = local.here(self._db, self._notes, copy_id)
+            new = there.note is None and there.emptied_at is None
+            if new and sync_state.get(self._db, place.vault, copy_id) is None:
+                out.append(Held(copy_id, sync_held.COPY, note_id))
+        return out
+
+    def _opened(self, note_id: str) -> tuple[NoteFile | None, bool]:
+        """The note's file as the look read it, if it opens as the note's own and
+        may be taken in; and whether it was read and not there."""
+        place, path = self._place, item_path(NOTES, note_id)
+        staged = sync_staged.get(self._db, place.vault, path) if path in self._staged else None
+        if staged is None:
+            return None, False
+        if staged.data is None:
+            return None, True
+        try:
+            head, value = open_envelope(place.keys, staged.data, place.vault, NOTES)
+            note = NoteFile.from_json(place.keys, value)
+        except FormatError:
+            return None, False  # left as it is, or for later: nothing taken in
+        if head.item != note_id or not _writable(note):
+            return None, False
+        return note, False
+
+    def _joined(
+        self, note_id: str, mine: NoteFile | None, cloud: NoteFile, made: list[str]
+    ) -> NoteFile:
+        """The two merged, as the round would merge them; a copy made, in made."""
+        if mine is None:
+            return cloud
+        merged = merge(self._place.keys, note_id, mine, cloud)
+        if merged.copy is not None:
+            made.append(merged.copy[0])
+        return merged.note
 
     def _stage(self, path: str) -> None:
         try:
@@ -316,6 +445,7 @@ class _Round:
         with writing(self._db):
             sync_state.set_synced_at(self._db, vault, self._started)
             sync_staged.clear(self._db, vault)
+            sync_held.clear(self._db, vault)
         self._report.full = self.full
         return self._report
 

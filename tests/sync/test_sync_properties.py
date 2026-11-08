@@ -39,6 +39,7 @@ from stickle.core.text_reminders import due
 from stickle.data.colors import OwnColorsFullError
 from stickle.data.labels import CategoryNameError, MarkNameError
 from stickle.data.notes import NoteRepository
+from stickle.sync.engine import BigChangeError
 from stickle.sync.format import (
     NOTES,
     VAULT_FILE,
@@ -67,7 +68,7 @@ POOL = ("같은 글 표식-pool", "Same text marker-pool")  # written on two dev
 
 
 # A round ended by these is tried again later: a cloud failing for now, vault.json half read.
-LATER = (TargetError, UnreadableError)
+LATER = (TargetError, UnreadableError, BigChangeError)  # held: let go on at its next round
 
 
 class EndedError(Exception):
