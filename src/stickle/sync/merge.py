@@ -16,6 +16,11 @@ have what the other has not are both kept:
   fields (its colour, where it is: in the trash too) and says which note it is
   a copy of.
 
+A what's-new note (stickle.core.made_notes) is made on each device with one
+id: two in different languages are not a conflict. One untouched (its first
+version, as the app wrote it) follows the other, whatever that is, deleted
+too; both untouched, the one in the cloud first stays.
+
 Emptied on one device while another took it out of the trash or changed a
 field, a note stays emptied: there is no new text, so nothing is lost; field
 changes after a deletion are let go.
@@ -28,6 +33,7 @@ clock said where the change was made.
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
+from stickle.core import made_notes
 from stickle.core.clock import stamp_of
 from stickle.core.hlc import after
 from stickle.crypto.vault_keys import DataKeys
@@ -138,12 +144,32 @@ def _a_reminder(name: str) -> bool:
     return name in ("reminder", "reminder_state") or name.startswith("text_reminder:")
 
 
+def _untouched(note_id: str, version: Version) -> bool:
+    """A what's-new note's first version, its text as the app wrote it."""
+    text = version.text
+    return not version.parents and text is not None and made_notes.news(note_id, text)
+
+
+def _followed(mine: NoteFile, cloud: NoteFile, note_id: str) -> Step | None:
+    """Which side a what's-new note takes, one side untouched (None: neither)."""
+    if not made_notes.is_news(note_id):
+        return None
+    a, b = _untouched(note_id, mine.body), _untouched(note_id, cloud.body)
+    if not (a or b):
+        return None
+    if a and b:
+        return Step.RECEIVE if _one_of(mine.body, cloud.body) is cloud.body else Step.SEND
+    return Step.RECEIVE if a else Step.SEND
+
+
 def merge(keys: DataKeys, note_id: str, mine: NoteFile, cloud: NoteFile) -> Merged:
     """mine: the note as this device has it (its text at its head version)."""
     step = decide(mine.body, cloud.body)
     fields = merge_fields(mine.contents, cloud.contents)
     if step is Step.SAME:  # emptied on both, too: the fields merge alike
         return Merged(NoteFile(fields, _one_of(mine.body, cloud.body)), step)
+    if step is Step.CONFLICT:
+        step = _followed(mine, cloud, note_id) or step
     # Emptied on one side only: the fields as they were when it was emptied.
     if step is Step.RECEIVE:
         return Merged(NoteFile(cloud.contents if cloud.body.deleted else fields, cloud.body), step)

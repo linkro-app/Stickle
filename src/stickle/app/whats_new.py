@@ -7,13 +7,13 @@ setting: seen on one device, it does not come up again on another.
 """
 
 import logging
-import uuid
 
 import apsw
 from PySide6.QtCore import QCoreApplication
 
 from stickle import __version__
 from stickle.app.support import site_page
+from stickle.core import made_notes
 from stickle.core.updates import version_key
 from stickle.data.notes import NoteRepository
 from stickle.data.settings import NEWS_SEEN, Settings
@@ -21,12 +21,11 @@ from stickle.data.settings import NEWS_SEEN, Settings
 log = logging.getLogger(__name__)
 
 COLOR = "sky"
-_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "stickle.linkro.co")
 
 
 def news_note_id(version: str) -> str:
     """The same id for a version's note on every device."""
-    return str(uuid.uuid5(_NAMESPACE, f"whats-new/{release_line(version)}"))
+    return made_notes.news_id(release_line(version))
 
 
 def release_line(version: str) -> str:

@@ -5,9 +5,11 @@ and the same result whichever device does it."""
 import secrets
 from dataclasses import replace
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from stickle.core import made_notes
 from stickle.core.hlc import Hlc
 from stickle.crypto.vault_keys import DataKeys
 from stickle.sync.contents import Contents, Field
@@ -321,3 +323,84 @@ def test_both_devices_make_the_same_of_any_two(pair: tuple[NoteFile, NoteFile]) 
             text = side.body.text
             kept = [merged.note.body.text, merged.copy[1].body.text if merged.copy else None]
             assert text is None or text in kept or merged.note.body.holds(side.body.id)
+
+
+# What's new: one id on every device, its text in each one's language
+
+NEWS_ID = made_notes.news_id("0.6")
+KOREAN, ENGLISH = "# Stickle 0.6에서 바뀐 점", "# What's new in Stickle 0.6"
+
+
+@pytest.fixture
+def news_texts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The two texts taken for the app's own (stickle.core.made_notes)."""
+
+    def news(note_id: str, text: str) -> bool:
+        return note_id == NEWS_ID and text in (KOREAN, ENGLISH)
+
+    monkeypatch.setattr(made_notes, "news", news)
+
+
+def made(text: str, device: str, sent: int | None = None) -> Version:
+    return replace(new_version(KEYS, [], text, NOW, device), sent=sent)
+
+
+def both_ways(mine: NoteFile, cloud: NoteFile, note_id: str = NEWS_ID) -> Merged:
+    here, there = merge(KEYS, note_id, mine, cloud), merge(KEYS, note_id, cloud, mine)
+    assert here.note.to_json() == there.note.to_json()
+    assert (here.copy is None) == (there.copy is None)
+    return here
+
+
+@pytest.mark.usefixtures("news_texts")
+def test_whats_new_in_two_languages_untouched_is_the_one_in_the_cloud_first() -> None:
+    there = note(made(ENGLISH, LAPTOP, sent=NOW + 10))
+
+    merged = both_ways(note(made(KOREAN, DESKTOP)), there)
+
+    assert merged.copy is None and merged.note.body.text == ENGLISH
+    earlier = note(made(KOREAN, DESKTOP, sent=NOW + 5))
+    assert both_ways(earlier, there).note.body.text == KOREAN
+
+
+@pytest.mark.usefixtures("news_texts")
+def test_untouched_whats_new_follows_one_edited() -> None:
+    edited = then(made(KOREAN, DESKTOP, sent=NOW), "고친 바뀐 점", DESKTOP, NOW + 50)
+
+    merged = both_ways(note(edited), note(made(ENGLISH, LAPTOP, sent=NOW + 1)))
+
+    assert merged.copy is None and merged.note.body == edited
+
+
+@pytest.mark.usefixtures("news_texts")
+def test_whats_new_edited_before_it_ever_synced_is_not_taken_for_untouched() -> None:
+    early = made("내가 고친 바뀐 점", DESKTOP)  # a first version, but not as the app wrote it
+
+    merged = both_ways(note(early), note(made(ENGLISH, LAPTOP, sent=NOW + 1)))
+
+    assert merged.copy is None and merged.note.body.text == "내가 고친 바뀐 점"
+
+
+@pytest.mark.usefixtures("news_texts")
+def test_whats_new_edited_on_both_makes_a_conflict_copy() -> None:
+    a = then(made(KOREAN, DESKTOP, sent=NOW), "데스크톱에서 고침", DESKTOP, NOW + 50)
+    b = then(made(ENGLISH, LAPTOP, sent=NOW + 1), "Edited on the laptop", LAPTOP, NOW + 60)
+
+    assert both_ways(note(a), note(b)).copy is not None
+
+
+@pytest.mark.usefixtures("news_texts")
+def test_untouched_whats_new_follows_one_emptied() -> None:
+    emptied = then(made(KOREAN, DESKTOP, sent=NOW), None, DESKTOP, NOW + 50)
+    gone = note(emptied, deleted_at=field(TRASHED, NOW + 40))
+
+    merged = both_ways(gone, note(made(ENGLISH, LAPTOP)))
+
+    assert merged.copy is None and merged.note.body.deleted
+
+
+@pytest.mark.usefixtures("news_texts")
+def test_another_note_with_one_id_and_two_first_versions_goes_by_the_usual_rule() -> None:
+    a, b = made(KOREAN, DESKTOP, sent=NOW), made(ENGLISH, LAPTOP, sent=NOW + 1)
+
+    assert both_ways(note(a), note(b), NOTE).copy is not None  # say, brought in on both

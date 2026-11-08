@@ -17,6 +17,7 @@ from fake_cloud import DROPBOX, WEBDAV, WEBDAV_IGNORING, FakeCloud, Request, Tro
 from sync_bed import KEYS, VAULT, Clock, Device, cloud_notes, settle
 from test_vault_rules import WHAT_THE_USER_WROTE, plain_in
 
+from stickle.core import made_notes
 from stickle.core.hlc import END, Hlc
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -147,6 +148,24 @@ def test_a_text_edited_while_the_trash_it_was_in_was_emptied_after_a_year_stays_
         there = device.notes.get(note_id)
         assert there is not None and there.body == "아무도 못 본 새 글"
         assert there.deleted_at is not None
+
+
+def test_whats_new_made_on_two_devices_in_two_languages_is_one_note(
+    two: tuple[Device, Device], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a, b = two
+    news_id, english, korean = made_notes.news_id("0.6"), "# What's new", "# 바뀐 점"
+
+    def news(note_id: str, text: str) -> bool:
+        return note_id == news_id and text in (english, korean)
+
+    monkeypatch.setattr(made_notes, "news", news)
+    a.notes.create(english, "sky", news_id)
+    a.sync()
+    b.notes.create(korean, "sky", news_id)
+    settle([a, b])
+    for device in (a, b):
+        assert device.texts() == {news_id: english}  # the one there first, and no copy
 
 
 def test_emptied_on_both_and_by_the_year_is_one_deletion(
