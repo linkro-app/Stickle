@@ -15,7 +15,7 @@ def since_start() -> int:
         tick_count = ctypes.windll.kernel32.GetTickCount64
         tick_count.restype = ctypes.c_uint64
         return int(tick_count())
-    if sys.platform.startswith("linux"):
+    if sys.platform == "linux":
         # CLOCK_MONOTONIC, which time.monotonic reads, stops while suspended.
         return time.clock_gettime_ns(time.CLOCK_BOOTTIME) // 1_000_000
     if sys.platform == "darwin":
