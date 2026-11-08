@@ -353,6 +353,19 @@ def test_a_device_whose_round_ended_after_it_took_a_new_id_goes_on_as_that_one(
         device.close()
 
 
+def test_devices_settled_have_seen_a_copied_disk_whose_copy_spoke_last(
+    tmp_path: Path, clock: Clock
+) -> None:
+    _, a, b = two_on(DROPBOX, tmp_path, clock)
+    a.notes.create("메모")
+    settle([a, b])
+    g = a.copied("g")
+    settle([a, b, g])  # only g's own file changes: the others still to see it
+    assert len({a.id, b.id, g.id}) == 3
+    for device in (a, b, g):
+        device.close()
+
+
 def test_a_device_renewing_its_id_puts_nothing_of_what_it_changed_before_again(
     tmp_path: Path, clock: Clock
 ) -> None:

@@ -47,6 +47,7 @@ from stickle.sync import local
 from stickle.sync.devices import About
 from stickle.sync.engine import Place, Report, sync_notes, sync_vault
 from stickle.sync.format import (
+    DEVICES,
     NOTES,
     VAULT_FILE,
     Json,
@@ -221,22 +222,28 @@ def value_of(device: Device, note_id: str, name: str) -> object:
 
 
 def settle(devices: Iterable[Device], passes: int = 12, tick: int = 0) -> None:
-    """Each device syncs in turn until a pass where none has anything to do;
+    """Each device syncs in turn until a pass where none has anything to do, nor
+    wrote its own file (the others to read it: a copied disk is seen so);
     tick: milliseconds passing between passes (for a file set aside only once
     it failed for minutes)."""
     devices = list(devices)
     for _ in range(passes):
         if tick:
             devices[0].clock.tick(tick)
+        told = _devices_files(devices[0].cloud)
         busy = False
         for device in devices:
             report = device.sync()
             records = report.records
             busy = busy or bool(report.put or report.changed or report.left)
             busy = busy or bool(records.put or records.changed or records.left)
-        if not busy:
+        if not busy and _devices_files(devices[0].cloud) == told:
             return
     raise AssertionError("the devices never settled")
+
+
+def _devices_files(cloud: FakeCloud) -> dict[str, bytes]:
+    return {path: data for path, data in cloud.files().items() if path.startswith(f"{DEVICES}/")}
 
 
 def cloud_notes(cloud: FakeCloud) -> dict[str, NoteFile]:
