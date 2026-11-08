@@ -1,7 +1,9 @@
 """Two to four devices doing what users do to their notes, syncing now and then
 (alone, or several at once with their requests falling between one another's),
 with requests failing, answers lost, the app ended in the middle of a round,
-clocks set wrong and a year passing: once every device has synced, they all
+clocks set wrong and a year passing, many notes put in the trash at once (a
+round elsewhere stops for it, and its user takes it in), and devices with
+notes of their own joining the vault: once every device has synced, they all
 have the notes the model says, and nothing written is lost (sync_bed.Model).
 They make categories and marks of the same few names apart, colours alike,
 set reminders and deal with them, bring in notes: once synced, they have the
@@ -14,6 +16,7 @@ import os
 import tempfile
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from fake_cloud import (
@@ -31,15 +34,16 @@ from fake_cloud import (
 )
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from sync_bed import Clock, Device, Model, records_agree, settle
+from sync_bed import VAULT, Clock, Device, Model, cloud_notes, records_agree, settle
 from test_vault_rules import plain_in
 
+from stickle.core import made_notes
 from stickle.core.reminders import Rule
 from stickle.core.text_reminders import due
 from stickle.data.colors import OwnColorsFullError
 from stickle.data.labels import CategoryNameError, MarkNameError
 from stickle.data.notes import NoteRepository
-from stickle.sync.engine import BigChangeError
+from stickle.sync.engine import BIG, BigChangeError, joined
 from stickle.sync.format import (
     NOTES,
     VAULT_FILE,
@@ -49,7 +53,7 @@ from stickle.sync.format import (
     vault_file,
 )
 from stickle.sync.format import RECORDS as RECORDS_FOLDER
-from stickle.sync.merge import YEAR
+from stickle.sync.merge import TRASH, YEAR
 from stickle.sync.targets.base import TargetError
 from stickle.sync.vault import VaultChangedError, VaultGoneError
 
@@ -64,6 +68,7 @@ DAMAGED = b'{"alg":1,"format":1,"id":"x","box":"not a box at all"}'
 # give two writes one tag, and a device that listed the first misses the
 # second until the device files tell it what changed.
 KINDS = (DROPBOX, ONEDRIVE, WEBDAV_NO_TAGS, WEBDAV_WEAK, WEBDAV_IGNORING, WEBDAV_HALF)
+WELCOME = "# 환영 메모 표식-welcome"  # taken for the app's welcome note, as it wrote it
 POOL = ("같은 글 표식-pool", "Same text marker-pool")  # written on two devices alike, now and then
 
 
@@ -124,6 +129,10 @@ class Bed:
     def text(self, data: st.DataObject) -> str:
         if data.draw(st.booleans()) and data.draw(st.booleans()):
             return POOL[self.written % 2]
+        return self.fresh()
+
+    def fresh(self) -> str:
+        """A text no note had before."""
         self.written += 1
         return f"메모 {self.written} 표식-{self.written:04d} note"
 
@@ -180,6 +189,7 @@ def _do(bed: Bed, data: st.DataObject) -> None:
             + ["category", "rename", "uncategorise", "categorise", "categorise"]
             + ["mark", "marked", "colour", "uncolour", "remind", "remind", "import"]
             + ["full", "damage", "copy", "gone", "changed", "clone", "away"]
+            + ["many", "spree", "join"]
         )
     )
     bed.cloud.trouble = lambda _request: None
@@ -383,6 +393,62 @@ def _files(bed: Bed, *folders: str) -> list[str]:
     ]
 
 
+def _many(bed: Bed, device: Device, data: st.DataObject) -> None:
+    """Notes enough at once for a big change, later."""
+    for _ in range(BIG + 1):
+        bed.made += 1
+        note = device.notes.create(
+            bed.text(data), note_id=f"{bed.made:08x}-1111-4222-8333-444455556666"
+        )
+        bed.model.made(device, note.id)
+    bed.did(device, f"{BIG + 1} new")
+
+
+def _spree(bed: Bed, device: Device, data: st.DataObject) -> None:
+    """Every note out of the trash put in it at once: elsewhere, a big change."""
+    live = sorted(note.id for note in device.notes.live())
+    for note_id in live:
+        device.notes.delete(note_id)
+        bed.model.changed(device, note_id, "deleted_at")
+    bed.did(device, f"{len(live)} in the trash")
+
+
+def _join(bed: Bed, device: Device, data: st.DataObject) -> None:
+    """A device with notes of its own joins, once the others are through: its
+    welcome note untouched, notes with texts the vault's have, new ones."""
+    if len(bed.devices) >= 5:
+        return
+    bed.cloud.full = False
+    bed.cloud.trouble = lambda _request: None
+    settle(bed.devices, tick=6 * MINUTE)
+    there = sorted(
+        {
+            note.body.text
+            for note in cloud_notes(bed.cloud).values()
+            if note.body.text is not None
+            and not note.body.deleted
+            and (
+                note.contents.fields.get(TRASH) is None or note.contents.fields[TRASH].value is None
+            )
+        }
+    )
+    alike = data.draw(st.lists(st.sampled_from(there), max_size=3, unique=True)) if there else []
+    name = "efgh"[len(bed.devices) - 2]
+    folder = bed.devices[0].path.parent
+    new = Device(name, folder, bed.cloud, bed.clock, True, {}, folder / f"{name}-aside")
+    bed.model.let_go.add(new.notes.create(WELCOME).id)
+    for text in alike:  # made in a colour of its own: the vault's, never changed, stays
+        bed.model.let_go.add(new.notes.create(text, data.draw(st.sampled_from(COLORS))).id)
+    for _ in range(data.draw(st.integers(0, 2))):  # texts of their own: not folded in
+        bed.made += 1
+        note = new.notes.create(bed.fresh(), note_id=f"{bed.made:08x}-1111-4222-8333-444455556666")
+        bed.model.made(new, note.id)
+    joined(new.db, VAULT)
+    new.sync()
+    bed.devices.append(new)
+    bed.did(device, f"{name} joined, {len(alike)} alike")
+
+
 def _full(bed: Bed, device: Device, data: st.DataObject) -> None:
     bed.cloud.full = not bed.cloud.full
     bed.did(device, f"the cloud {'full' if bed.cloud.full else 'with room again'}")
@@ -451,6 +517,9 @@ def _away(bed: Bed, device: Device, data: st.DataObject) -> None:
 
 
 FAILURES = {
+    "many": _many,
+    "spree": _spree,
+    "join": _join,
     "full": _full,
     "damage": _damage,
     "copy": _copy,
@@ -475,6 +544,10 @@ RECORDS = {
 }
 
 
+def _welcome(text: str) -> bool:
+    return text == WELCOME
+
+
 @pytest.mark.parametrize("kind", KINDS, ids=lambda kind: kind.name)
 @settings(
     max_examples=EXAMPLES,
@@ -483,7 +556,10 @@ RECORDS = {
 )
 @given(data=st.data())
 def test_devices_agree_with_the_model_and_lose_nothing(kind: Kind, data: st.DataObject) -> None:
-    with tempfile.TemporaryDirectory() as folder:
+    with (
+        tempfile.TemporaryDirectory() as folder,
+        mock.patch.object(made_notes, "welcome", _welcome),
+    ):
         bed = Bed(Path(folder), kind, data.draw(st.integers(2, 4), label="devices"))
         try:
             for _ in range(data.draw(st.integers(4, STEPS), label="steps")):

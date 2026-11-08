@@ -319,6 +319,9 @@ class Model:
     created: set[str] = field(default_factory=set[str])
     emptied: set[str] = field(default_factory=set[str])
     out_after_emptied: set[str] = field(default_factory=set[str])
+    # Notes a device joining let go of (its welcome note) or folded into the
+    # vault's of the same text: on no device, nor in the vault, in the end.
+    let_go: set[str] = field(default_factory=set[str])
     changes: dict[tuple[str, str], list[Change]] = field(
         default_factory=dict[tuple[str, str], list[Change]]
     )
@@ -369,6 +372,8 @@ class Model:
             if (note_id, text) in self.made_on or (note_id, text) in self.emptied_texts:
                 continue
             assert text in texts, f"lost: {text!r} of {note_id}"
+        for note_id in self.let_go:
+            assert note_id not in shown and note_id not in in_cloud, f"{note_id} not let go of"
         for note_id in self.emptied - self.out_after_emptied:
             assert note_id not in shown or shown[note_id][7] is not None, f"{note_id} came back"
         for note_id in self.created - self.emptied:
