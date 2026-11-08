@@ -509,10 +509,25 @@ CREATE TABLE sync_left (
 ) WITHOUT ROWID;
 """
 
+V20 = """
+-- Files of a vault a round has read before taking anything in (it looks at
+-- all that changed first), by their place there: their bytes, or none for one
+-- read and not there, and their tag. What it takes in is read from here, one
+-- at a time, and they go once the round is through; one still listed with the
+-- same tag by the next round is not fetched again.
+CREATE TABLE sync_staged (
+    vault TEXT NOT NULL,
+    path TEXT NOT NULL,
+    tag TEXT,
+    data BLOB,
+    PRIMARY KEY (vault, path)
+) WITHOUT ROWID;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19),
+    *(V17, V18, V19, V20),
 ]
 BACKUPS_KEPT = 3
 

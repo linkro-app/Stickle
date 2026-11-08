@@ -15,6 +15,12 @@ Note by note:
 - put: made if the vault has none, else written over only if it is as read;
   refused, read again and merged again.
 
+A round looks before it takes anything in: what the vault lists is compared
+with what was seen, and the files to read are read then, one at a time, and
+kept here (stickle.data.sync_staged); they are taken in from there. One kept by
+a round that broke off, listed with the same tag since, is not fetched again
+where tags tell writes apart.
+
 The file put stays the outbox until it is seen in the vault: the next round
 reads it back, finds it there and lets it go, or puts it again. An answer lost
 on the way is so taken care of. With a cloud whose tags tell every write apart
@@ -54,11 +60,12 @@ from dataclasses import dataclass, field, replace
 
 import apsw
 
-from stickle.data import sync_state
+from stickle.data import sync_staged, sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.settings import DEVICE_ID, Settings
 from stickle.data.sync_left import NOT_OURS, READ_ONLY
+from stickle.data.sync_staged import Staged
 from stickle.data.sync_state import NoteState
 from stickle.sync import local, local_reminders
 from stickle.sync.contents import ReadOnlyItemError
@@ -160,8 +167,9 @@ def sync_vault(
     """One round of the whole vault: vault.json first, the vault still the one
     it was (stickle.sync.vault.confirm: VaultError, else nothing is done); this
     device's own file (about: what it says of itself; None: not now) and the
-    others'; the records, so that the categories and marks notes name are here
-    when the notes come; then the notes, and again those that name a category
+    others'; a look at the notes (what changed there, read); the records, so
+    that the categories and marks notes name are here when the notes are taken
+    in; then the notes, and again those that name a category
     or mark that came, a field of theirs perhaps not taken before for want of
     it. full: a full look (at start, once a day), with what only that reads.
 
@@ -173,10 +181,11 @@ def sync_vault(
     confirm(place.target, place.vault)
     if about is not None:
         place = replace(place, device=sync_devices(connection, place, cloud_now, about, full))
+    notes_round = _Round(connection, notes or NoteRepository(connection), place, cloud_now)
+    notes_round.look()
     records = RecordRound(connection, place, cloud_now, shown=shown).run()
     came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
     also = sync_state.mentioning(connection, place.vault, came)
-    notes_round = _Round(connection, notes or NoteRepository(connection), place, cloud_now)
     notes_round.full = records.full
     report = notes_round.run(also)
     report.full = report.full or records.full
@@ -200,18 +209,23 @@ class _Round:
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
         self._redirects = local.Redirects({}, {})
         self._leaving = Leaving(connection, place, cloud_now)
-        self._copies: dict[str, list[_Copy]] = {}
+        self._copies: dict[str, list[str]] = {}  # by note: its copies under other names, kept
         self._last = sync_state.synced_at(connection, place.vault)
+        self._started = 0
+        self._to_read: set[str] | None = None  # None: not looked yet
+        self._staged: set[str] = set()  # files kept by the look, not taken in yet
         self.full = False  # the cloud full: nothing put
 
-    def run(self, also: list[str] | None = None) -> Report:
-        """also: notes merged whether or not they changed."""
+    def look(self) -> None:
+        """What changed in the vault, before anything is taken in: its notes
+        listed, and the files to read read and kept here one at a time
+        (stickle.data.sync_staged). One kept by an earlier round and listed
+        with the same tag since is not fetched again, if tags tell writes apart."""
         vault, target = self._place.vault, self._place.target
-        started = self._now()
-        self._empty_old_trash()
+        self._started = self._now()
         known = sync_state.known(self._db, vault)
         to_read: set[str] = set(sync_state.unconfirmed(self._db, vault))
-        listed: set[str] = set()
+        listed: dict[str, Entry] = {}
         for entry in target.list(NOTES):
             passed = self._leaving.listed(entry)
             found = item_at(entry.path)
@@ -221,7 +235,7 @@ class _Round:
                     to_read.add(copy_of)
                 continue
             note_id = found[1]
-            listed.add(note_id)
+            listed[note_id] = entry
             if passed:
                 left = self._leaving.passed(entry.path)
                 mine = note_id in known or self._notes.get(note_id) is not None
@@ -234,9 +248,57 @@ class _Round:
         for note_id, state in known.items():  # not listed: looked for, a list may be late
             if note_id not in listed and state.seen is not None and not state.gone:
                 to_read.add(note_id)
+        kept = sync_staged.tags(self._db, vault)
+        for note_id in sorted(to_read):
+            path = item_path(NOTES, note_id)
+            if self._leaving.passed(path) is not None:
+                continue  # left as it was: not read
+            entry = listed.get(note_id)
+            if (
+                target.unique_tags
+                and entry is not None
+                and entry.tag is not None
+                and path in kept
+                and kept[path] == entry.tag
+            ):
+                self._staged.add(path)
+                continue
+            self._stage(path)
+        self._to_read = to_read
+
+    def _stage(self, path: str) -> None:
+        try:
+            read = self._place.target.get(path)
+            staged = Staged(read.tag, read.data)
+        except NotThereError:
+            staged = Staged(None, None)
+        with writing(self._db):
+            sync_staged.put(self._db, self._place.vault, path, staged)
+        self._staged.add(path)
+
+    def _get(self, path: str) -> Read:
+        """The file as the look read it, the first time; else as it is now.
+        NotThereError if there is none."""
+        if path in self._staged:
+            self._staged.discard(path)
+            staged = sync_staged.get(self._db, self._place.vault, path)
+            if staged is not None:
+                if staged.data is None:
+                    raise NotThereError(path)
+                return Read(staged.data, staged.tag)
+        return self._place.target.get(path)
+
+    def run(self, also: list[str] | None = None) -> Report:
+        """also: notes merged whether or not they changed."""
+        if self._to_read is None:
+            self.look()
+        assert self._to_read is not None
+        vault = self._place.vault
+        self._empty_old_trash()
         here = set(sync_state.changed(self._db, vault)) | set(sync_state.emptied(self._db, vault))
         here |= set(also or [])
         self._redirects = local.Redirects.here(self._db)
+        to_read = self._to_read
         queue = sorted(to_read | here)
         done: set[str] = set()
         while queue:
@@ -252,7 +314,8 @@ class _Round:
                 pass
         self._remove_old_deletions()
         with writing(self._db):
-            sync_state.set_synced_at(self._db, vault, started)
+            sync_state.set_synced_at(self._db, vault, self._started)
+            sync_staged.clear(self._db, vault)
         self._report.full = self.full
         return self._report
 
@@ -266,14 +329,27 @@ class _Round:
             return None
         try:
             head, value = open_envelope(place.keys, read.data, place.vault, NOTES)
-            note = NoteFile.from_json(place.keys, value)
+            NoteFile.from_json(place.keys, value)
         except FormatError:
             self._leaving.leave(entry.path, read, NOT_OURS)
             return None
-        self._copies.setdefault(head.item, []).append(_Copy(entry.path, read, note))
+        with writing(self._db):
+            sync_staged.put(self._db, place.vault, entry.path, Staged(read.tag, read.data))
+        self._copies.setdefault(head.item, []).append(entry.path)
         return head.item
 
-    def _read(self, note_id: str) -> _Read:
+    def _kept_copy(self, path: str) -> _Copy | None:
+        """A copy under another name, as the look read it."""
+        place = self._place
+        staged = sync_staged.get(self._db, place.vault, path)
+        if staged is None or staged.data is None:
+            return None
+        read = Read(staged.data, staged.tag)
+        _, value = open_envelope(place.keys, read.data, place.vault, NOTES)
+        return _Copy(path, read, NoteFile.from_json(place.keys, value))
+
+    def _read(self, note_id: str, fresh: bool = False) -> _Read:
+        """fresh: as it is now, not as the look read it."""
         place, path = self._place, item_path(NOTES, note_id)
         left = self._leaving.passed(path)
         if left is not None:  # listed as it was left: not read again
@@ -281,7 +357,7 @@ class _Round:
                 raise _PassedError()
             return _Read(None, left.tag, foreign=True)
         try:
-            read = place.target.get(path)
+            read = place.target.get(path) if fresh else self._get(path)
         except NotThereError:
             return _Read(None, None)
         why = self._leaving.why(path, read)
@@ -313,7 +389,10 @@ class _Round:
             raise _PassedError()
         made: list[str] = []
         folded: list[_Copy] = []
-        for copy in self._copies.pop(note_id, []):
+        for path in self._copies.pop(note_id, []):
+            copy = self._kept_copy(path)
+            if copy is None:
+                continue
             copies = self._fold(note_id, copy)
             if copies is not None:
                 made += copies
@@ -560,7 +639,7 @@ class _Round:
             tag = state.tag
             if not self._trusted:
                 try:
-                    cloud = self._read(note_id)
+                    cloud = self._read(note_id, fresh=True)
                 except _LaterError, _PassedError:
                     continue
                 if cloud.note is not None and not _same(cloud.note, seen):
