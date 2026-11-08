@@ -7,6 +7,7 @@ import secrets
 import subprocess
 import sys
 import textwrap
+import threading
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
@@ -58,15 +59,28 @@ class Server:
         return self.answer
 
 
+KEPT: list[UpdateCheck] = []  # every check a test made, until its thread is through
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Iterator[Settings]:
+    """Settings of their own; the checks made with them held, as the app holds
+    its own, until the threads that asked are through: one let go of while its
+    answer is on the way would be freed in the thread that asked, the answer
+    then handed to nothing."""
     connection = open_store(tmp_path / "notes.db", KEY)
     yield Settings(connection)
+    for thread in threading.enumerate():
+        if thread.name == "update-check":
+            thread.join(5)
+    KEPT.clear()
     connection.close()
 
 
 def checker(settings: Settings, server: Server, clock: FakeClock) -> UpdateCheck:
-    return UpdateCheck(settings, current="0.4.0", clock=clock, fetch=server)
+    check = UpdateCheck(settings, current="0.4.0", clock=clock, fetch=server)
+    KEPT.append(check)
+    return check
 
 
 def test_a_newer_version_is_found(qtbot: QtBot, settings: Settings) -> None:
