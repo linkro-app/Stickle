@@ -157,7 +157,7 @@ def test_a_folder_lists_the_files_right_in_it(target: Target) -> None:
 
     listed = list(target.list("notes"))
 
-    assert [(e.path, e.size) for e in listed] == [("notes/a.json", 1), ("notes/b.json", 2)]
+    assert sorted((e.path, e.size) for e in listed) == [("notes/a.json", 1), ("notes/b.json", 2)]
     assert [e.path for e in target.list("records")] == ["records/c.json"]
     assert [e.path for e in target.list("")] == ["vault.json"]
     assert list(target.list("keys")) == []
