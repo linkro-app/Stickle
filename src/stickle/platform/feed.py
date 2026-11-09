@@ -4,19 +4,18 @@ The HTTP and TLS libraries take 4 MB once loaded, for a request made once a
 day, and a Python process never gives that back. So Stickle starts its own
 program again with FEED_FLAG to fetch it (the file comes back on a pipe, the
 memory goes with that process), and fetches it here only if that cannot start.
+Those libraries are loaded where a fetch is made, not with this module: the
+app itself imports it.
 """
 
 import base64
 import binascii
 import logging
 import subprocess
-import urllib.error
-import urllib.request
 from typing import IO
 
 from stickle.core.updates import FEED_URL, MAX_FEED_BYTES
 from stickle.platform.relaunch import FETCH_FEED, no_window, own_command
-from stickle.platform.tls import https_context
 
 FEED_FLAG = FETCH_FEED
 TIMEOUT_SECONDS = 15
@@ -24,16 +23,19 @@ HELPER_TIMEOUT_SECONDS = 60  # starting it, the request, and its time limit
 log = logging.getLogger(__name__)
 
 
-class _NoRedirects(urllib.request.HTTPRedirectHandler):
-    """The file is asked for at one address only, and answered from there."""
-
-    def redirect_request(self, *_: object, **__: object) -> None:
-        return None
-
-
 def _fetch() -> bytes:
+    import urllib.request
+
+    from stickle.platform.tls import https_context
+
+    class NoRedirects(urllib.request.HTTPRedirectHandler):
+        """The file is asked for at one address only, and answered from there."""
+
+        def redirect_request(self, *_: object, **__: object) -> None:
+            return None
+
     opener = urllib.request.build_opener(
-        urllib.request.HTTPSHandler(context=https_context()), _NoRedirects()
+        urllib.request.HTTPSHandler(context=https_context()), NoRedirects()
     )
     request = urllib.request.Request(
         FEED_URL, headers={"User-Agent": "Stickle", "Accept": "application/json"}
@@ -47,7 +49,7 @@ def fetch_feed() -> bytes | None:
     read (logged)."""
     try:
         return _fetch()
-    except (urllib.error.URLError, OSError, ValueError) as error:
+    except (OSError, ValueError) as error:  # a URLError is an OSError
         log.info("could not check for a newer version: %s", type(error).__name__)
         return None
 
@@ -84,7 +86,7 @@ def serve(stdout: IO[str], stderr: IO[str]) -> int:
     """The helper: the file, base64, on stdout; or the error's kind on stderr."""
     try:
         content = _fetch()
-    except (urllib.error.URLError, OSError, ValueError) as error:
+    except (OSError, ValueError) as error:
         stderr.write(type(error).__name__ + "\n")
         return 1
     stdout.write(base64.b64encode(content).decode("ascii"))

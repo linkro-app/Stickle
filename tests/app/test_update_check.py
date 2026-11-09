@@ -157,7 +157,7 @@ def test_the_request_carries_nothing_that_tells_users_apart(
     def build_opener(*_handlers: object) -> Opener:
         return Opener()
 
-    monkeypatch.setattr(feed.urllib.request, "build_opener", build_opener)
+    monkeypatch.setattr(urllib.request, "build_opener", build_opener)
 
     assert fetch_feed() is None
 
