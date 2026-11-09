@@ -15,6 +15,8 @@ try again, and what stopped it until the user does something.
   device does not have: sync with that vault stops.
 - A big change it would have brought: sync with that vault stops until the
   user lets it take that in. Looked at again when the app starts.
+- A server showing a certificate that is not the one trusted: sync with that
+  server stops, and the user looks at the certificate.
 
 A round that went through, full or not, resets the waits.
 """
@@ -25,6 +27,7 @@ from enum import Enum
 from stickle.sync.engine import BigChangeError
 from stickle.sync.format import NewerFormatError, UnknownKeyError, UnreadableError
 from stickle.sync.targets.base import (
+    CertificateError,
     NoAccessError,
     SignInNeededError,
     TokenExpiredError,
@@ -46,6 +49,7 @@ class Stopped(Enum):
     VAULT_CHANGED = "vault changed"  # made again, from another device
     NEWER = "newer"  # a newer version's: an update goes on
     BIG_CHANGE = "big change"  # many notes at once going from sight, or conflict copies
+    CERTIFICATE = "certificate"  # a server's certificate is not the one trusted
 
 
 @dataclass(frozen=True)
@@ -75,6 +79,8 @@ def after(error: BaseException | None, failures: int = 0, full: bool = False) ->
             return Outcome(Stopped.NEWER)
         case BigChangeError():
             return Outcome(Stopped.BIG_CHANGE)
+        case CertificateError():
+            return Outcome(Stopped.CERTIFICATE)
         case TooBusyError(retry_after=asked) if asked is not None:
             return Outcome(wait=max(asked, 0.0), failures=failures + 1)
         case TooBusyError() | UnavailableError() | TokenExpiredError() | UnreadableError():

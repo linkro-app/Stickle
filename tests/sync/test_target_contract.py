@@ -1,7 +1,7 @@
 """What every target answers alike (stickle.sync.targets.base). It runs on each
-fake cloud now, and on the real targets as they come, so that the fakes sync's
-tests run on answer as the real clouds do: if a fake differs from its cloud, no
-amount of testing on it shows how sync fares there.
+fake cloud and on the real targets, so that the fakes sync's tests run on
+answer as the real clouds do: if a fake differs from its cloud, no amount of
+testing on it shows how sync fares there.
 
 What a file holds changes size from one write to the next here: a WebDAV
 server may make its tag from the second a file was written and its size, and
@@ -11,9 +11,11 @@ WebDAV, which does the same."""
 
 import os
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fake_cloud import KINDS, FakeCloud, Kind
+from webdav_server import HOST, webdav
 
 from stickle.sync.targets.base import (
     Absent,
@@ -25,11 +27,17 @@ from stickle.sync.targets.base import (
     RefusedError,
     Target,
 )
+from stickle.sync.targets.webdav import WebDav, parse_address
 
 NOTE = "notes/0f8e6f3c-1d9b-4a63-9c38-3b2a4f2f7d10.json"
 
 
-@pytest.fixture(params=KINDS, ids=lambda kind: kind.name)
+# A real server, through the real target. It keeps conditions, and is told so
+# for the test to see that they reach it as they should.
+WSGIDAV = Kind("wsgidav", "seconds")
+
+
+@pytest.fixture(params=[*KINDS, WSGIDAV], ids=lambda kind: kind.name)
 def kind(request: pytest.FixtureRequest) -> Kind:
     return request.param
 
@@ -40,8 +48,18 @@ def cloud(kind: Kind) -> FakeCloud:
 
 
 @pytest.fixture
-def target(cloud: FakeCloud) -> Target:
-    return cloud.target("laptop")
+def target(kind: Kind, cloud: FakeCloud, tmp_path: Path) -> Iterator[Target]:
+    if kind is not WSGIDAV:
+        yield cloud.target("laptop")
+        return
+    root = tmp_path / "dav"
+    root.mkdir()
+    with webdav(root) as running:
+        real = WebDav(
+            parse_address(f"http://{HOST}:{running.port}"), "stickle", "", keeps_conditions=True
+        )
+        yield real
+        real.close()
 
 
 def settled(target: Target, path: str) -> Read:

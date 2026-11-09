@@ -65,7 +65,8 @@ class Changes:
 class Target(Protocol):
     @property
     def keeps_conditions(self) -> bool:
-        """False: Absent and AsRead are not checked, and every write goes through."""
+        """False: Absent and AsRead may not be checked, and a write may go through
+        though they do not hold."""
         ...
 
     @property
@@ -145,6 +146,16 @@ class FullError(TargetError):
 
 class NoAccessError(TargetError):
     """The app may not use the cloud any more (its access withdrawn): stop."""
+
+
+class CertificateError(TargetError):
+    """A server shows a certificate neither a public authority issued for it nor
+    the one the user chose to trust. Nothing was sent to it. Stop; the user may
+    look at this one and choose to trust it."""
+
+    def __init__(self, certificate: bytes) -> None:
+        super().__init__()
+        self.certificate = certificate  # the one it shows (DER)
 
 
 class CursorExpiredError(TargetError):
