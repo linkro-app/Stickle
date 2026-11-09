@@ -36,6 +36,7 @@ from stickle.sync.devices import this_device
 from stickle.sync.engine import (
     FirstLook,
     Place,
+    Progress,
     Report,
     cloud_only,
     first_look,
@@ -118,6 +119,7 @@ class _Rounds:
     failures: int = 0
     accept: bool = False  # the user lets the next round take in what it stopped for
     place: Place | None = None
+    progress: Progress | None = None
     _stopped: str | None = None
     _offset: int = 0
 
@@ -208,6 +210,7 @@ class _Rounds:
                 full=full,
                 accept=self._back_up if self.accept else None,
                 report=report,
+                progress=self.progress,
             )
         except Exception as failed:  # told apart below, whatever it was
             error = failed
@@ -268,7 +271,10 @@ class Syncing(QObject):
     round_shown = Signal(object)
     # What merging with a vault just joined would make (FirstLook, None: not known).
     first_looked = Signal(object)
+    # A round's way through the notes: what it is doing, how many so far, of how many.
+    moving = Signal(str, int, int)
     _round_ended = Signal(object)
+    _moved = Signal(str, int, int)
 
     def __init__(
         self,
@@ -289,6 +295,7 @@ class Syncing(QObject):
         self._manager = manager
         self._reminders = reminders
         self._rounds = _Rounds(store, key, login, cloud, make_target)
+        self._rounds.progress = self._moved.emit
         every = Settings(connection).get(SYNC_EVERY)
         stopped = login.stopped is not None and login.stopped not in LOOKED_AT_AGAIN
         self.runner = Runner(
@@ -302,6 +309,7 @@ class Syncing(QObject):
         self._written_rows: set[int] = set()
         self._noticing = False
         self._round_ended.connect(self._show)
+        self._moved.connect(self.moving)  # from sync's thread to the app's
         self._collector = QTimer(self)
         self._collector.setInterval(COLLECT_EVERY_MS)
         self._collector.timeout.connect(self._collect)

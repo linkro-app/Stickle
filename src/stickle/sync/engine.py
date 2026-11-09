@@ -139,10 +139,17 @@ from stickle.sync.vault import confirm
 
 TRIES = 5  # merges of one note in a round, refused each time, before it is left
 BIG = 10  # changes a round stops for (to the trash, deleted for good, conflict copies)
+GETTING = "getting"  # notes' files being read from the vault
+PUTTING = "putting"  # notes being looked after to go to it
+# Told as a round goes: what it is doing, how many notes so far, of how many.
+type Progress = Callable[[str, int, int], None]
 __all__ = [
+    "GETTING",
+    "PUTTING",
     "BigChangeError",
     "FirstLook",
     "Place",
+    "Progress",
     "Report",
     "cloud_only",
     "first_look",
@@ -304,6 +311,7 @@ def sync_vault(
     full: bool = True,
     accept: Callable[[], object] | None = None,
     report: Report | None = None,
+    progress: Progress | None = None,
 ) -> Report:
     """One round of the whole vault: vault.json first, the vault still the one
     it was (stickle.sync.vault.confirm: VaultError, else nothing is done); this
@@ -317,7 +325,8 @@ def sync_vault(
     The look stops the round for a big change (BigChangeError), records and
     notes alike; accept: what it stopped for taken in after all, after this is
     called (to back up). report: where what it does is noted as it goes, so
-    that what a round did before it failed is known.
+    that what a round did before it failed is known. progress: told as the
+    notes go by, on the thread of the round.
 
     The device goes as the id its settings hold, if they hold one: a round that
     took a new id may have ended before its caller heard (Report.device)."""
@@ -332,7 +341,13 @@ def sync_vault(
     report = Report() if report is None else report
     report.device = place.device
     notes_round = _Round(
-        connection, notes or NoteRepository(connection), place, cloud_now, accept, report=report
+        connection,
+        notes or NoteRepository(connection),
+        place,
+        cloud_now,
+        accept,
+        report=report,
+        progress=progress,
     )
     told = frozenset[str]() if looked is None else looked.told
     listing = looked is None or full or not looked.enough or notes_round.first
@@ -363,10 +378,12 @@ class _Round:
         accept: Callable[[], object] | None = None,
         joining: bool | None = None,
         report: Report | None = None,
+        progress: Progress | None = None,
     ) -> None:
         """joining: None, as the vault was joined or not (stickle.sync.engine.joined)."""
         self._db = connection
         self._accept = accept
+        self._progress = progress
         self._joining = sync_state.joining(connection, place.vault) if joining is None else joining
         self._drops: list[str] = []  # this device's made notes to let go of, joining
         self._pairs: dict[str, str] = {}  # the vault's note: this device's to fold into it
@@ -399,7 +416,8 @@ class _Round:
         vault, target = self._place.vault, self._place.target
         self._started = self._now()
         known = sync_state.known(self._db, vault)
-        to_read: set[str] = set(sync_state.unconfirmed(self._db, vault)) | (told or set())
+        own = set(sync_state.unconfirmed(self._db, vault))  # put here: read back to be sure
+        to_read: set[str] = own | (told or set())
         listed: dict[str, Entry] = {}
         if listing:
             for entry in target.list(NOTES):
@@ -430,6 +448,7 @@ class _Round:
                 if note_id not in listed and state.seen is not None and not state.gone:
                     to_read.add(note_id)
         kept = sync_staged.tags(self._db, vault)
+        fetching: list[str] = []
         for note_id in sorted(to_read):
             path = item_path(NOTES, note_id)
             if self._leaving.passed(path) is not None:
@@ -444,12 +463,23 @@ class _Round:
             ):
                 self._staged.add(path)
                 continue
-            self._stage(path)
+            fetching.append(note_id)
+        coming = sum(1 for note_id in fetching if note_id not in own)
+        done = 0
+        for note_id in fetching:
+            self._stage(item_path(NOTES, note_id))
+            if note_id not in own:
+                done += 1
+                self._tell(GETTING, done, coming)
         self._to_read = to_read
         if self._joining:
             self._alike(set(listed))
         else:
             self._weigh()
+
+    def _tell(self, doing: str, done: int, of: int) -> None:
+        if self._progress is not None:
+            self._progress(doing, done, of)
 
     def _alike(self, listed: set[str]) -> None:
         """Joining: this device's made notes to let go of, and its notes with the
@@ -617,12 +647,15 @@ class _Round:
         vault = self._place.vault
         self._empty_old_trash()
         self._let_go()
-        here = set(sync_state.changed(self._db, vault)) | set(sync_state.emptied(self._db, vault))
-        here |= set(also or [])
+        changed = set(sync_state.changed(self._db, vault)) | set(
+            sync_state.emptied(self._db, vault)
+        )
         self._redirects = local.Redirects.here(self._db)
         to_read = self._to_read
         # This device's notes folded into the vault's go with those, not on their own.
-        queue = sorted((to_read | here) - set(self._pairs.values()))
+        folded = set(self._pairs.values())
+        queue = sorted((to_read | changed | set(also or [])) - folded)
+        going = changed - folded
         done: set[str] = set()
         while queue:
             note_id = queue.pop(0)
@@ -635,6 +668,8 @@ class _Round:
                 self._report.left.append(note_id)
             except _PassedError:
                 pass
+            if note_id in going:
+                self._tell(PUTTING, len(done & going), len(going))
         self._remove_old_deletions()
         with writing(self._db):
             sync_state.set_synced_at(self._db, vault, self._started)
