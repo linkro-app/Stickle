@@ -341,4 +341,14 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
         </translation>
     </message>
 </context>
+<context>
+    <name>TurnOnSync</name>
+    <message numerus="yes">
+        <source>Stickle will make its folder in %1 and upload the %n note(s) on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</source>
+        <translation>
+            <numerusform>Stickle will make its folder in %1 and upload the %n note on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</numerusform>
+            <numerusform>Stickle will make its folder in %1 and upload the %n notes on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</numerusform>
+        </translation>
+    </message>
+</context>
 </TS>

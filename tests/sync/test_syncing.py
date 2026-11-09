@@ -41,7 +41,7 @@ from stickle.data.settings import Settings
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.data.versions import VersionRepository
 from stickle.sync import schedule as schedule_module
-from stickle.sync.engine import FirstLook
+from stickle.sync.engine import PUTTING, FirstLook
 from stickle.sync.format import NOTES, item_path
 from stickle.sync.outcome import Stopped
 from stickle.sync.targets.base import SignInNeededError
@@ -165,6 +165,19 @@ def note_of_both(pc: Pc, text: str = "first") -> str:
     pc.round()
     assert pc.window_of(note.id) is not None
     return note.id
+
+
+def test_a_round_tells_how_far_it_has_got_on_the_apps_thread(pc: Pc) -> None:
+    pc.notes.create("one")
+    told: list[tuple[str, int, int, bool]] = []
+    here = threading.current_thread()
+
+    def moving(doing: str, done: int, of: int) -> None:
+        told.append((doing, done, of, threading.current_thread() is here))
+
+    pc.syncing.moving.connect(moving)
+    pc.round()
+    assert told == [(PUTTING, 1, 1, True)]
 
 
 def test_a_note_changed_elsewhere_changes_in_its_window(pc: Pc) -> None:

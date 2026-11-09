@@ -197,6 +197,9 @@ class FirstRunDialog(QDialog):
         # Page two: the recovery key, and below it a master password to add, in
         # case the place it is kept is forgotten (not instead of it).
         self.recovery = RecoveryKeyPanel(recovery_key)
+        self.sync_note = QLabel()
+        self.sync_note.setWordWrap(True)
+        self.sync_note.hide()
         self.master_note = QLabel()
         self.master_note.setWordWrap(True)
         self.master_button = QPushButton()
@@ -211,6 +214,7 @@ class FirstRunDialog(QDialog):
         keeping_layout = QVBoxLayout(keeping)
         keeping_layout.setContentsMargins(0, 0, 0, 0)
         keeping_layout.addWidget(self.recovery)
+        keeping_layout.addWidget(self.sync_note)
         keeping_layout.addSpacing(8)
         keeping_layout.addWidget(self.master_note)
         keeping_layout.addLayout(master_row)
@@ -260,13 +264,16 @@ class FirstRunDialog(QDialog):
         self.usage_label.setText(self.tr("Where will you use your notes?"))
         self.this_device.setText(self.tr("On this &computer only"))
         self.several_devices.setText(
-            self.tr("On several &devices (syncing through your own cloud comes later)")
+            self.tr("On se&veral computers — turn on sync later in Settings, Connections")
         )
         self.start_at_login.setText(self.tr("&Start Stickle when I log in"))
         self.app_list.setText(self.tr("Show Stickle in the &app list"))
         self.next_button.setText(self.tr("&Next"))
         self.done_button.setText(self.tr("Done"))
         self.later_button.setText(self.tr("Later"))
+        self.sync_note.setText(
+            self.tr("You'll also need your recovery key to turn on sync on your other computers.")
+        )
         self.master_note.setText(
             self.tr(
                 "Keep the recovery key somewhere other than this computer. In case you"
@@ -298,6 +305,7 @@ class FirstRunDialog(QDialog):
             self.reject()
             return
         self.pages.setCurrentIndex(1)
+        self.sync_note.setVisible(self.several_devices.isChecked())
         self.next_button.hide()
         self.next_button.setDefault(False)
         self.done_button.show()

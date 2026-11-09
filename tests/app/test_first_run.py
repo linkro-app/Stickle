@@ -120,6 +120,38 @@ def test_going_through_sets_everything_up(place: Place) -> None:
     assert unwrap(slot, place.shown[0]) == KEY
 
 
+def test_several_computers_chosen_the_recovery_key_is_said_to_be_needed_there(
+    place: Place,
+) -> None:
+    seen: list[bool] = []
+
+    def answer(dialog: FirstRunDialog) -> object:
+        dialog.show()
+        assert not dialog.sync_note.isVisible()
+        dialog.several_devices.setChecked(True)
+        dialog.next_button.click()
+        seen.append(dialog.sync_note.isVisible())
+        dialog.later_button.click()
+        return None
+
+    place.welcome(answer)
+    assert seen == [True]
+
+
+def test_this_computer_only_nothing_is_said_of_other_computers(place: Place) -> None:
+    seen: list[bool] = []
+
+    def answer(dialog: FirstRunDialog) -> object:
+        dialog.show()
+        dialog.next_button.click()
+        seen.append(dialog.sync_note.isVisible())
+        dialog.later_button.click()
+        return None
+
+    place.welcome(answer)
+    assert seen == [False]
+
+
 def test_later_leaves_the_recovery_key_to_be_offered_again(place: Place) -> None:
     place.welcome(go_through(kept=False, several=True))
 

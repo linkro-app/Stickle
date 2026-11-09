@@ -45,6 +45,7 @@ from stickle.app.shortcuts import GlobalShortcuts, no_portal
 from stickle.app.signals import SignalWatcher
 from stickle.app.startup import open_notes
 from stickle.app.stickle_window import StickleWindow
+from stickle.app.sync_setup import SyncSetup
 from stickle.app.tray import Tray
 from stickle.app.update_check import UpdateCheck
 from stickle.app.whats_new import give_news
@@ -387,6 +388,35 @@ def login_here(connection: apsw.Connection) -> sync_connection.Login | None:
     except (apsw.Error, ValueError, KeyError, TypeError) as error:
         log.error("sync is not started: %s", type(error).__name__)
         return None
+
+
+def connect_sync(
+    connection: apsw.Connection,
+    store: Path,
+    key: bytes,
+    login: sync_connection.Login,
+    joining: bool,
+    clocks: Clocks,
+    manager: NoteManager,
+    reminders: ReminderKeeper | None,
+) -> Syncing:
+    """Sync turned on while the app runs: how to reach the cloud kept, this run
+    stamping things by the cloud's time from now on, and a first round at once.
+    joining: the vault was there before this device."""
+    from stickle.app.syncing import Syncing as SyncRun
+    from stickle.app.syncing import cloud_time
+    from stickle.sync.engine import joined
+
+    with connection:
+        if joining:
+            joined(connection, login.vault)
+        sync_connection.keep(connection, login)
+    started = SyncRun(
+        connection, store, key, login, cloud_time(connection, clocks), manager, reminders
+    )
+    started.start()
+    started.sync_now()
+    return started
 
 
 def sync_lines(syncing: Syncing | None) -> Sequence[str]:
@@ -915,6 +945,30 @@ def run(
                 clocks,
             )
         master = master_passwords(unlock, changes)
+        sync_setup: SyncSetup | None = None
+        if (
+            perf is None
+            and unlock is not None
+            and connection is not None
+            and recovery is not None
+            and unlock.opened_key is not None
+        ):
+            opened_with, database, notes_db = unlock.opened_key, unlock.database, connection
+
+            def connected(login: sync_connection.Login, joining: bool) -> Syncing:
+                nonlocal syncing
+                syncing = connect_sync(
+                    notes_db, database, opened_with, login, joining, clocks, manager, reminders
+                )
+                return syncing
+
+            sync_setup = SyncSetup(
+                lambda: syncing is not None,
+                recovery,
+                lambda: len(manager.listed_notes()),
+                unlock.vault_pairs,
+                connected,
+            )
         # Before any note opens: each offers to become a secret note.
         manager.secrets = secret_passwords(
             unlock, master, changes, recovery, manager.secret_key_fits
@@ -935,6 +989,7 @@ def run(
             changes=changes,
             full_screen=full_screen,
             sync_lines=lambda: sync_lines(syncing),
+            sync_setup=sync_setup,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
         if (

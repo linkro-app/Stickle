@@ -41,6 +41,7 @@ from stickle.sync.format import (
     item_path,
     json_bytes,
     open_envelope,
+    read_vault_file,
     seal,
     vault_file,
 )
@@ -55,8 +56,10 @@ from stickle.sync.vault import (
     VaultChangedError,
     VaultGoneError,
     VaultThereError,
+    is_there,
     join,
     make,
+    unfinished,
 )
 
 DAY = 24 * 60 * 60 * 1000
@@ -134,6 +137,57 @@ def test_a_vault_is_not_made_over_one_there() -> None:
         make(cloud.target("b"), PAIRS)
     assert cloud.files() == before
     assert join(cloud.target("b"), MASTER_PASSWORD, PASSWORD).vault == first.vault
+
+
+def test_a_making_cut_short_before_any_key_file_is_made_over() -> None:
+    cloud = FakeCloud(DROPBOX)
+    cloud.put_by_hand(VAULT_FILE, vault_file(VaultInfo(VAULT)))
+    target = cloud.target("a")
+    assert not is_there(target)
+    over = unfinished(target)
+    assert over is not None
+    made = make(target, PAIRS, over)
+    assert made.vault != VAULT
+    assert join(cloud.target("b"), MASTER_PASSWORD, PASSWORD).vault == made.vault
+
+
+@pytest.mark.parametrize("folder", [KEYS_FOLDER, NOTES, RECORDS])
+def test_anything_beside_vault_json_makes_it_a_vault_in_use(folder: str) -> None:
+    cloud = FakeCloud(DROPBOX)
+    cloud.put_by_hand(VAULT_FILE, vault_file(VaultInfo(VAULT)))
+    cloud.put_by_hand(f"{folder}/{STRANGER}.json", b"{}")
+    target = cloud.target("a")
+    assert is_there(target)
+    assert unfinished(target) is None
+    with pytest.raises(VaultThereError):
+        make(target, PAIRS, unfinished(target))
+    assert read_vault_file(cloud.files()[VAULT_FILE]).vault == VAULT
+
+
+def test_where_there_is_nothing_no_vault_is_there() -> None:
+    target = FakeCloud(DROPBOX).target("a")
+    assert not is_there(target)
+    assert unfinished(target) is None
+
+
+def test_a_making_cut_short_changed_since_is_not_written_over() -> None:
+    cloud = FakeCloud(DROPBOX)
+    cloud.put_by_hand(VAULT_FILE, vault_file(VaultInfo(VAULT)))
+    target = cloud.target("a")
+    over = unfinished(target)
+    assert over is not None
+    other = "0a1b2c3d-1111-4222-8333-444455556667"
+    cloud.put_by_hand(VAULT_FILE, vault_file(VaultInfo(other)))
+    with pytest.raises(VaultThereError):
+        make(target, PAIRS, over)
+    assert read_vault_file(cloud.files()[VAULT_FILE]).vault == other
+
+
+def test_a_vault_of_a_newer_format_is_said_to_be() -> None:
+    cloud = FakeCloud(DROPBOX)
+    cloud.put_by_hand(VAULT_FILE, json_bytes({"format": 2, "kind": "personal", "vault": VAULT}))
+    with pytest.raises(NewerFormatError):
+        is_there(cloud.target("a"))
 
 
 def test_two_devices_making_one_at_once_end_with_one_on_a_server_keeping_no_conditions() -> None:

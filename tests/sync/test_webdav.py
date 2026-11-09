@@ -38,6 +38,7 @@ from stickle.sync.targets.base import (
 from stickle.sync.targets.webdav import (
     Address,
     AddressError,
+    NoWebDavFolderError,
     OutsideHomeError,
     WebDav,
     _OnlyThisCertificate,  # pyright: ignore[reportPrivateUsage]
@@ -383,6 +384,46 @@ def test_a_password_in_any_language_signs_in(share: Path) -> None:
         target.close()
 
 
+# Whether the address is a WebDAV folder
+
+
+def test_a_webdav_folder_at_the_address_passes_and_nothing_is_made(share: Path) -> None:
+    with webdav(share, PASSWORD) as server:
+        target = WebDav(plain(server), "stickle", PASSWORD)
+        target.check()
+        target.close()
+        assert len(server.asked) == 1
+    assert list((share / "share").iterdir()) == []
+
+
+def test_a_wrong_password_fails_the_check_and_is_asked_once(share: Path) -> None:
+    with webdav(share, PASSWORD) as server:
+        target = WebDav(plain(server), "stickle", "wrong")
+        with pytest.raises(SignInNeededError):
+            target.check()
+        target.close()
+        assert len(server.asked) == 1
+
+
+def test_no_folder_at_the_address_fails_the_check(share: Path) -> None:
+    with webdav(share, PASSWORD) as server:
+        address = parse_address(f"http://{HOST}:{server.port}/nowhere")
+        target = WebDav(address, "stickle", PASSWORD)
+        with pytest.raises(NoWebDavFolderError):
+            target.check()
+        target.close()
+    assert not (share / "nowhere").exists()
+
+
+def test_the_password_is_not_sent_to_a_server_not_trusted(share: Path) -> None:
+    with signed_by_itself(share) as server:
+        target = WebDav(over_tls(server), "stickle", PASSWORD, public=untrusting)
+        with pytest.raises(CertificateError):
+            target.check()
+        target.close()
+        assert server.asked == []
+
+
 def failures(call: Callable[[], object]) -> list[TargetError]:
     with pytest.raises(TargetError) as caught:
         call()
@@ -538,6 +579,7 @@ class Scripted:
     close_after: bool = False  # closes each connection after answering, saying nothing of it
     hang_up: int = 0  # requests still to take and close the connection on, answering nothing
     requests: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
+    depths: list[str | None] = field(default_factory=list[str | None])
     conditions: list[tuple[str | None, str | None]] = field(
         default_factory=list[tuple[str | None, str | None]]
     )
@@ -558,6 +600,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if length:
             self.rfile.read(length)
         self.script.requests.append((self.command, self.path))
+        self.script.depths.append(self.headers.get("Depth"))
         self.script.conditions.append(
             (self.headers.get("If-Match"), self.headers.get("If-None-Match"))
         )
@@ -610,6 +653,44 @@ def scripted() -> Iterator[Scripted]:
 def to(script: Scripted, heard: Callable[[int, int], None] | None = None) -> WebDav:
     address = parse_address(f"http://{HOST}:{script.port}/share")
     return WebDav(address, "stickle", PASSWORD, heard=heard)
+
+
+def test_the_check_asks_of_the_address_itself(scripted: Scripted) -> None:
+    scripted.answers = [(207, {}, b"")]
+    target = to(scripted)
+    target.check()
+    target.close()
+    assert scripted.requests == [("PROPFIND", "/share/")]
+    assert scripted.depths == ["0"]
+
+
+@pytest.mark.parametrize("status", [200, 301, 302, 400, 404, 405, 501])
+def test_what_does_not_answer_as_webdav_fails_the_check(scripted: Scripted, status: int) -> None:
+    scripted.answers = [(status, {}, b"")]
+    target = to(scripted)
+    with pytest.raises(NoWebDavFolderError):
+        target.check()
+    target.close()
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (401, SignInNeededError),
+        (403, NoAccessError),
+        (429, TooBusyError),
+        (500, UnavailableError),
+        (503, UnavailableError),
+    ],
+)
+def test_the_check_says_what_any_request_would(
+    scripted: Scripted, status: int, error: type[TargetError]
+) -> None:
+    scripted.answers = [(status, {}, b"")]
+    target = to(scripted)
+    with pytest.raises(error):
+        target.check()
+    target.close()
 
 
 @pytest.mark.parametrize(

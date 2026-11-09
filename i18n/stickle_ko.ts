@@ -587,6 +587,10 @@
         <translation>데이터 폴더를 %1 폴더 밖으로 옮기세요.</translation>
     </message>
     <message>
+        <source>To use your notes on several computers, choose Turn on sync… under Settings, Connections.</source>
+        <translation>여러 PC에서 쓰려면 설정 &apos;연결&apos;의 [동기화 켜기…]를 쓰세요.</translation>
+    </message>
+    <message>
         <source>Open the &amp;folder</source>
         <translation>폴더 열기(&amp;F)</translation>
     </message>
@@ -961,8 +965,8 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>이 PC에서만(&amp;C)</translation>
     </message>
     <message>
-        <source>On several &amp;devices (syncing through your own cloud comes later)</source>
-        <translation>여러 기기에서(&amp;D) (내 클라우드를 통한 동기화는 나중에 설정)</translation>
+        <source>On se&amp;veral computers — turn on sync later in Settings, Connections</source>
+        <translation>여러 PC에서(&amp;V) — 동기화는 나중에 설정 &apos;연결&apos;에서 켭니다</translation>
     </message>
     <message>
         <source>&amp;Start Stickle when I log in</source>
@@ -983,6 +987,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Later</source>
         <translation>나중에</translation>
+    </message>
+    <message>
+        <source>You&apos;ll also need your recovery key to turn on sync on your other computers.</source>
+        <translation>다른 PC에서 동기화를 켤 때도 복구 키가 필요합니다.</translation>
     </message>
     <message>
         <source>Keep the recovery key somewhere other than this computer. In case you forget where you put it, you can also set a spare password to remember.</source>
@@ -3267,6 +3275,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>예비 암호 정하기(&amp;P)…</translation>
     </message>
     <message>
+        <source>&amp;Turn on sync…</source>
+        <translation>동기화 켜기(&amp;T)…</translation>
+    </message>
+    <message>
         <source>No spare password</source>
         <translation>예비 암호 없음</translation>
     </message>
@@ -3780,6 +3792,52 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
 </context>
 <context>
+    <name>SyncGuideLine</name>
+    <message>
+        <source>If you get stuck, see the sync guide on the Stickle website. It walks through each step and answers common questions.</source>
+        <translation>막히면 홈페이지의 동기화 안내를 보세요. 단계마다 설명과 자주 묻는 질문이 있습니다.</translation>
+    </message>
+    <message>
+        <source>Open the sync guide</source>
+        <translation>동기화 안내 열기</translation>
+    </message>
+</context>
+<context>
+    <name>SyncWords</name>
+    <message>
+        <source>Sync stopped — check your server password</source>
+        <translation>동기화 멈춤 — 서버 비밀번호 확인 필요</translation>
+    </message>
+    <message>
+        <source>This account can&apos;t write to that folder. Check its permissions on the server.</source>
+        <translation>이 계정은 그 폴더에 쓸 수 없습니다. 서버에서 권한을 확인하세요.</translation>
+    </message>
+    <message>
+        <source>Sync stopped — check a big change from another computer</source>
+        <translation>동기화 멈춤 — 다른 PC의 큰 변경 확인 필요</translation>
+    </message>
+    <message>
+        <source>Sync stopped — the Stickle folder is gone from %1</source>
+        <translation>동기화 멈춤 — %1에서 Stickle 폴더가 없어짐</translation>
+    </message>
+    <message>
+        <source>Sync stopped — the Stickle folder was made anew</source>
+        <translation>동기화 멈춤 — Stickle 폴더가 새로 만들어짐</translation>
+    </message>
+    <message>
+        <source>Sync stopped — the server&apos;s certificate changed</source>
+        <translation>동기화 멈춤 — 서버 인증서가 바뀜</translation>
+    </message>
+    <message>
+        <source>Sync stopped — update Stickle to carry on</source>
+        <translation>동기화 멈춤 — 업데이트하면 이어집니다</translation>
+    </message>
+    <message>
+        <source>Uploads stopped — your %1 is full</source>
+        <translation>올리기 멈춤 — %1 공간이 가득 참</translation>
+    </message>
+</context>
+<context>
     <name>Times</name>
     <message>
         <source>MMMM d</source>
@@ -4004,6 +4062,243 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Secret notes could not be turned on (%1).</source>
         <translation>비밀 메모를 켜지 못했습니다(%1).</translation>
+    </message>
+</context>
+<context>
+    <name>TurnOnSync</name>
+    <message>
+        <source>Turn on sync</source>
+        <translation>동기화 켜기</translation>
+    </message>
+    <message>
+        <source>Sync your notes through your own cloud</source>
+        <translation>내 클라우드로 메모 동기화</translation>
+    </message>
+    <message>
+        <source>Your notes always stay on this computer. Only encrypted files go to the cloud.</source>
+        <translation>메모는 늘 이 PC에 있고, 클라우드에는 암호화된 파일만 갑니다.</translation>
+    </message>
+    <message>
+        <source>Sync is still a preview, and its file format may change before 1.0. A newer Stickle converts it by itself; your other computers carry on once they update.</source>
+        <translation>아직 시험 기능입니다. 1.0 전에 저장 형식이 바뀔 수 있습니다. 바뀌면 새 버전 Stickle이 알아서 옮기고, 다른 PC는 업데이트하면 이어집니다.</translation>
+    </message>
+    <message>
+        <source>Where should your notes sync?</source>
+        <translation>어디로 동기화할까요?</translation>
+    </message>
+    <message>
+        <source>&amp;WebDAV — your own server, such as Nextcloud or a Synology NAS</source>
+        <translation>WebDAV(&amp;W) — Nextcloud, 시놀로지 NAS 같은 내 서버</translation>
+    </message>
+    <message>
+        <source>Server &amp;address:</source>
+        <translation>서버 주소(&amp;A):</translation>
+    </message>
+    <message>
+        <source>&amp;User name:</source>
+        <translation>사용자 이름(&amp;U):</translation>
+    </message>
+    <message>
+        <source>&amp;Password:</source>
+        <translation>비밀번호(&amp;P):</translation>
+    </message>
+    <message>
+        <source>Server address</source>
+        <translation>서버 주소</translation>
+    </message>
+    <message>
+        <source>User name</source>
+        <translation>사용자 이름</translation>
+    </message>
+    <message>
+        <source>Password</source>
+        <translation>비밀번호</translation>
+    </message>
+    <message>
+        <source>For Nextcloud, make an app password in Settings under Security and use it here.</source>
+        <translation>Nextcloud는 설정의 &apos;보안&apos;에서 &apos;앱 암호&apos;를 만들어 넣으세요.</translation>
+    </message>
+    <message>
+        <source>This server uses a certificate it made itself. Trust it only if the fingerprint below matches the one on the server&apos;s admin page.</source>
+        <translation>이 서버는 스스로 만든 인증서를 씁니다. 아래 지문이 서버 관리 화면의 지문과 같을 때만 믿으세요.</translation>
+    </message>
+    <message>
+        <source>SHA-256 fingerprint (the check code unique to this certificate)</source>
+        <translation>SHA-256 지문(인증서마다 다른 확인용 글자)</translation>
+    </message>
+    <message>
+        <source>SHA-256 fingerprint</source>
+        <translation>SHA-256 지문</translation>
+    </message>
+    <message>
+        <source>&amp;Check my existing recovery key…</source>
+        <translation>기존 복구 키 확인(&amp;C)…</translation>
+    </message>
+    <message>
+        <source>There&apos;s already a Stickle folder in %1. Enter the recovery key or spare password of the computers that already sync. If you&apos;ve made a new recovery key since, use the latest one.</source>
+        <translation>%1에 이미 Stickle 폴더가 있습니다. 이미 동기화하는 PC의 복구 키나 예비 암호를 넣으세요. 복구 키를 새로 만든 적이 있으면 가장 최근 것입니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Recovery key</source>
+        <translation>복구 키(&amp;R)</translation>
+    </message>
+    <message>
+        <source>S&amp;pare password</source>
+        <translation>예비 암호(&amp;P)</translation>
+    </message>
+    <message>
+        <source>If you have neither, make a new recovery key on a computer that already syncs (Settings, Protection) and enter it here.</source>
+        <translation>둘 다 없으면, 이미 동기화하는 PC의 설정 &apos;메모 보호&apos;에서 새 복구 키를 만들어 넣으세요.</translation>
+    </message>
+    <message>
+        <source>&amp;Back</source>
+        <translation>뒤로(&amp;B)</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>닫기</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>취소</translation>
+    </message>
+    <message>
+        <source>&amp;Connect</source>
+        <translation>연결(&amp;C)</translation>
+    </message>
+    <message>
+        <source>&amp;Trust this certificate</source>
+        <translation>이 인증서 믿기(&amp;T)</translation>
+    </message>
+    <message>
+        <source>&amp;Start</source>
+        <translation>시작(&amp;S)</translation>
+    </message>
+    <message>
+        <source>&amp;Open</source>
+        <translation>열기(&amp;O)</translation>
+    </message>
+    <message>
+        <source>&amp;Next</source>
+        <translation>다음(&amp;N)</translation>
+    </message>
+    <message>
+        <source>A server outside your home network needs an https address.</source>
+        <translation>집 밖의 서버는 https 주소만 됩니다.</translation>
+    </message>
+    <message>
+        <source>This connection isn&apos;t encrypted. Your files are, but your server password is sent as it is. If your server can use https, use an https address; a certificate it made itself works too. Use http only on your home network.</source>
+        <translation>암호화되지 않은 연결입니다. 파일은 암호화되어 가지만 서버 비밀번호는 그대로 갑니다. 서버에서 https를 켤 수 있으면 https 주소를 쓰세요. 스스로 만든 인증서도 됩니다. http는 집 안 네트워크에서만 쓰세요.</translation>
+    </message>
+    <message>
+        <source>That server address can&apos;t be read. Enter one that starts with https://.</source>
+        <translation>서버 주소를 읽을 수 없습니다. https://로 시작하는 주소를 넣으세요.</translation>
+    </message>
+    <message>
+        <source>Checking the server…</source>
+        <translation>서버를 확인하는 중입니다…</translation>
+    </message>
+    <message>
+        <source>The server didn&apos;t accept the user name or password. Check them and try again.</source>
+        <translation>서버가 사용자 이름이나 비밀번호를 받아들이지 않았습니다. 확인하고 다시 해 보세요.</translation>
+    </message>
+    <message>
+        <source>This account can&apos;t write to that folder. Check its permissions on the server.</source>
+        <translation>이 계정은 그 폴더에 쓸 수 없습니다. 서버에서 권한을 확인하세요.</translation>
+    </message>
+    <message>
+        <source>There&apos;s no WebDAV folder at that address. Check the address.</source>
+        <translation>이 주소에서 WebDAV 폴더를 찾지 못했습니다. 주소를 확인하세요.</translation>
+    </message>
+    <message>
+        <source>A newer version of Stickle uses this folder. Update Stickle, then turn on sync again.</source>
+        <translation>더 새로운 버전의 Stickle이 쓰는 폴더입니다. Stickle을 업데이트한 뒤 다시 켜세요.</translation>
+    </message>
+    <message>
+        <source>This is not a recovery key as written: a character may be missing, extra or mistyped. Please check it again.</source>
+        <translation>복구 키 형식이 맞지 않습니다. 빠지거나 더 들어가거나 잘못 적은 글자가 있을 수 있습니다. 다시 확인해 주세요.</translation>
+    </message>
+    <message>
+        <source>Couldn&apos;t reach the server. Check the address and your network, then try again.</source>
+        <translation>서버에 연결하지 못했습니다. 주소와 네트워크를 확인하고 다시 해 보세요.</translation>
+    </message>
+    <message>
+        <source>This recovery key doesn&apos;t open this Stickle folder. If you&apos;ve made a new one since, use the latest one.</source>
+        <translation>이 복구 키로는 이 Stickle 폴더를 열 수 없습니다. 복구 키를 새로 만든 적이 있으면 가장 최근 것을 넣으세요.</translation>
+    </message>
+    <message>
+        <source>This spare password doesn&apos;t open this Stickle folder.</source>
+        <translation>이 예비 암호로는 이 Stickle 폴더를 열 수 없습니다.</translation>
+    </message>
+    <message numerus="yes">
+        <source>Stickle will make its folder in %1 and upload the %n note(s) on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</source>
+        <translation>
+            <numerusform>%1에 Stickle 폴더를 만들고 이 PC의 메모 %n개를 올립니다. 다른 PC에서는 이 PC의 복구 키나 예비 암호로 동기화를 켭니다.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Make a recovery key first and keep it off this computer. You&apos;ll need it to turn on sync on your other computers.</source>
+        <translation>먼저 복구 키를 만들어 이 PC 밖에 보관하세요. 다른 PC에서 동기화를 켤 때 필요합니다.</translation>
+    </message>
+    <message>
+        <source>Stickle doesn&apos;t know yet whether you kept your recovery key. Check the one you have, or make a new one if you can&apos;t find it. You&apos;ll need it to turn on sync on your other computers.</source>
+        <translation>복구 키를 보관했는지 아직 확인되지 않았습니다. 가진 복구 키를 확인하거나, 없으면 새로 만드세요. 다른 PC에서 동기화를 켤 때 필요합니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Make a recovery key…</source>
+        <translation>복구 키 만들기(&amp;M)…</translation>
+    </message>
+    <message>
+        <source>&amp;Make a new recovery key…</source>
+        <translation>새 복구 키 만들기(&amp;M)…</translation>
+    </message>
+    <message>
+        <source>The recovery key could not be kept (%1).</source>
+        <translation>복구 키를 저장하지 못했습니다(%1).</translation>
+    </message>
+    <message>
+        <source>The recovery key could not be saved.</source>
+        <translation>복구 키를 저장하지 못했습니다.</translation>
+    </message>
+    <message>
+        <source>Making the Stickle folder…</source>
+        <translation>Stickle 폴더를 만드는 중입니다…</translation>
+    </message>
+    <message>
+        <source>Recovery key</source>
+        <translation>복구 키</translation>
+    </message>
+    <message>
+        <source>Spare password</source>
+        <translation>예비 암호</translation>
+    </message>
+    <message>
+        <source>Opening the Stickle folder…</source>
+        <translation>Stickle 폴더를 여는 중입니다…</translation>
+    </message>
+    <message>
+        <source>Downloading your notes. You can close this window; it carries on.</source>
+        <translation>메모를 받는 중입니다. 이 창을 닫아도 계속됩니다.</translation>
+    </message>
+    <message>
+        <source>Uploading your notes. You can close this window; it carries on.</source>
+        <translation>메모를 올리는 중입니다. 이 창을 닫아도 계속됩니다.</translation>
+    </message>
+    <message>
+        <source>Downloading your notes · %1 of %2. You can close this window; it carries on.</source>
+        <translation>메모를 받는 중입니다 · %2개 중 %1개. 이 창을 닫아도 계속됩니다.</translation>
+    </message>
+    <message>
+        <source>Uploading your notes · %1 of %2. You can close this window; it carries on.</source>
+        <translation>메모를 올리는 중입니다 · %2개 중 %1개. 이 창을 닫아도 계속됩니다.</translation>
+    </message>
+    <message>
+        <source>Done. This computer&apos;s notes now sync too.</source>
+        <translation>끝났습니다. 이제 이 PC의 메모도 함께 동기화됩니다.</translation>
+    </message>
+    <message>
+        <source>Done. On your other computers, choose Turn on sync… under Settings, Connections, and enter this computer&apos;s recovery key or spare password.</source>
+        <translation>끝났습니다. 다른 PC에서는 설정 &apos;연결&apos;의 [동기화 켜기…]를 누르고 이 PC의 복구 키나 예비 암호를 넣으세요.</translation>
     </message>
 </context>
 <context>

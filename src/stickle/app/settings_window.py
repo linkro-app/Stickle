@@ -49,6 +49,7 @@ from stickle.app.recovery_key_dialog import RecoveryKeyDialog, RecoveryKeys
 from stickle.app.secret_dialogs import NewSecretPasswordDialog, OpenSecretDialog
 from stickle.app.shortcut_rows import ShortcutRows
 from stickle.app.shortcuts import GlobalShortcuts
+from stickle.app.sync_setup import SyncGuideLine, SyncSetup
 from stickle.app.times import local_time
 from stickle.app.tray import switch_autostart
 from stickle.app.update_check import UpdateCheck
@@ -118,10 +119,12 @@ class SettingsWindow(QDialog):
         updates: UpdateCheck | None = None,
         master: MasterPasswords | None = None,
         full_screen: FullScreenWatch | None = None,
+        sync_setup: SyncSetup | None = None,
     ) -> None:
         super().__init__(parent)
         self._notes = notes
         self._full_screen = full_screen
+        self._sync_setup = sync_setup
         self._translations = translations
         self._autostart = autostart
         self._app_list = app_list
@@ -307,10 +310,19 @@ class SettingsWindow(QDialog):
 
         # Every address the app itself connects to, said where it can be read.
         self.connections_page, connections = _page(self.tabs)
+        self.turn_on_sync_button = QPushButton(self.connections_page)
+        self.turn_on_sync_button.clicked.connect(self._turn_on_sync)
+        turning_on = QHBoxLayout()
+        turning_on.addWidget(self.turn_on_sync_button)
+        turning_on.addStretch(1)
         self.connections = QLabel(self.connections_page)
         self.connections.setWordWrap(True)
+        self.sync_guide = SyncGuideLine(self.connections_page)
+        self.sync_guide.setVisible(sync_setup is not None)
+        connections.addLayout(turning_on)
         connections.addWidget(self.connections)
         connections.addStretch(1)
+        connections.addWidget(self.sync_guide)
 
         for page in (
             self.general,
@@ -368,9 +380,20 @@ class SettingsWindow(QDialog):
             self.relock_box,
             self.leave_box,
             *(self.shortcut_rows.tab_order() if self.shortcut_rows is not None else []),
+            self.turn_on_sync_button,
+            self.sync_guide.link,
         ]
         for before, after in itertools.pairwise(order):
             QWidget.setTabOrder(before, after)
+
+    def _turn_on_sync(self) -> None:
+        """Its window brings what it takes to reach a cloud: only when asked for."""
+        from stickle.app.turn_on_sync import TurnOnSync
+
+        if self._sync_setup is not None:
+            window = TurnOnSync(self._sync_setup, self)
+            window.finished.connect(self.refresh)
+            window.open()
 
     def retranslate(self) -> None:
         self.setWindowTitle(self.tr("Stickle Settings"))
@@ -505,6 +528,9 @@ class SettingsWindow(QDialog):
         self.relock_box.blockSignals(False)
         self.leave_box.setChecked(self._notes.lock_on_leave)
         self.protection_dates.setText(self.dates())
+        self.turn_on_sync_button.setText(self.tr("&Turn on sync…"))
+        setup = self._sync_setup
+        self.turn_on_sync_button.setVisible(setup is not None and not setup.is_on())
         if self._updates is None:
             self.connections.setText(self.tr("Stickle connects to nothing on the internet."))
         elif self._updates.enabled:

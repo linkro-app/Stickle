@@ -7,7 +7,9 @@ file is there, then read back. A cloud that does not keep conditions may let
 two devices making one at once each write theirs, one over the other; the
 device that reads back another's id has not made the vault, and writes nothing
 more: it joins the one there. Only then are the data key's files written in
-keys/, sealed for the recovery key and the master password.
+keys/, sealed for the recovery key and the master password. A making cut short
+before any of those leaves a vault.json that nothing can open: with no key
+file, note or record beside it, it is made over (unfinished).
 
 Each round reads vault.json first. Gone (the user deleted the Stickle folder),
 naming another vault (made again from another device), or of a newer format:
@@ -35,7 +37,16 @@ from stickle.crypto.vault_keys import (
     open_receiver,
     read_key_file,
 )
-from stickle.sync.format import KEYS, VAULT_FILE, VaultInfo, item_at, read_vault_file, vault_file
+from stickle.sync.format import (
+    KEYS,
+    NOTES,
+    RECORDS,
+    VAULT_FILE,
+    VaultInfo,
+    item_at,
+    read_vault_file,
+    vault_file,
+)
 from stickle.sync.targets.base import Absent, AsRead, NotThereError, RefusedError, Target
 
 
@@ -80,13 +91,39 @@ def confirm(target: Target, vault: str) -> VaultInfo:
     return info
 
 
-def make(target: Target, pairs: Mapping[str, SealedSlot]) -> Vault:
+def unfinished(target: Target) -> AsRead | None:
+    """What to write a vault.json left by a making cut short over: one with no
+    key file, note or record beside it, which nothing can open. None if there
+    is none, or a vault in use."""
+    try:
+        read = target.get(VAULT_FILE)
+    except NotThereError:
+        return None
+    for folder in (KEYS, NOTES, RECORDS):
+        if list(target.list(folder)):
+            return None
+    return AsRead(read.tag)
+
+
+def is_there(target: Target) -> bool:
+    """Whether a vault is there to join: not one left unfinished, which is made
+    over. NewerFormatError (stickle.sync.format) for one of a newer format;
+    UnreadableError for one that does not read (half written: later)."""
+    try:
+        read_vault_file(target.get(VAULT_FILE).data)
+    except NotThereError:
+        return False
+    return unfinished(target) is None
+
+
+def make(target: Target, pairs: Mapping[str, SealedSlot], over: AsRead | None = None) -> Vault:
     """A new vault, with a data key of its own sealed for each pair (by kind:
-    the recovery key's, the master password's). VaultThereError if there is
-    one, or another device's came first."""
+    the recovery key's, the master password's). over: the vault.json left
+    unfinished it takes the place of. VaultThereError if there is one, or
+    another device's came first."""
     made = Vault(str(uuid.uuid4()), DataKeys({FIRST: new_data_key()}))
     try:
-        target.put(VAULT_FILE, vault_file(VaultInfo(made.vault)), Absent())
+        target.put(VAULT_FILE, vault_file(VaultInfo(made.vault)), over or Absent())
     except RefusedError as error:
         raise VaultThereError() from error
     try:

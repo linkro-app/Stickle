@@ -274,7 +274,6 @@ class Syncing(QObject):
     # A round's way through the notes: what it is doing, how many so far, of how many.
     moving = Signal(str, int, int)
     _round_ended = Signal(object)
-    _moved = Signal(str, int, int)
 
     def __init__(
         self,
@@ -295,7 +294,7 @@ class Syncing(QObject):
         self._manager = manager
         self._reminders = reminders
         self._rounds = _Rounds(store, key, login, cloud, make_target)
-        self._rounds.progress = self._moved.emit
+        self._rounds.progress = self.moving.emit  # sent from sync's thread: heard on this one
         every = Settings(connection).get(SYNC_EVERY)
         stopped = login.stopped is not None and login.stopped not in LOOKED_AT_AGAIN
         self.runner = Runner(
@@ -309,7 +308,6 @@ class Syncing(QObject):
         self._written_rows: set[int] = set()
         self._noticing = False
         self._round_ended.connect(self._show)
-        self._moved.connect(self.moving)  # from sync's thread to the app's
         self._collector = QTimer(self)
         self._collector.setInterval(COLLECT_EVERY_MS)
         self._collector.timeout.connect(self._collect)

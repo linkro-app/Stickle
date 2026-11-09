@@ -53,6 +53,7 @@ from stickle.crypto.recovery import (
 from stickle.crypto.recovery import generate as generate_recovery_key
 from stickle.crypto.recovery import unwrap as unwrap_recovery
 from stickle.crypto.sealed import SealedSlot
+from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY
 from stickle.data.key_copies import KeyCopies
 from stickle.platform.credentials import (
     DATABASE_KEY,
@@ -451,6 +452,12 @@ class Unlock:
             return None if raw is None else parse_document(raw)
         except KeyFileError, OSError:
             return None
+
+    def vault_pairs(self) -> dict[str, SealedSlot]:
+        """What a new vault's data key is sealed for: the recovery key's pair and
+        the master password's, as the key file B keeps them."""
+        pairs = {RECOVERY_KEY: self._recovery_pair(), MASTER_PASSWORD: self._master()}
+        return {kind: pair for kind, pair in pairs.items() if pair is not None}
 
     def recovery_pair(self) -> dict[str, object] | None:
         """The recovery key's pair as kept, to go out with the secret notes

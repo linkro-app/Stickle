@@ -7,6 +7,7 @@ import pytest
 
 from stickle.crypto.key_files import A, B
 from stickle.crypto.keyfile import KeyFile, WrongPasswordError, wrap_with_password, write_key_file
+from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.platform.credentials import (
@@ -190,6 +191,17 @@ def test_short_passwords_are_refused_and_nothing_is_written(tmp_path: Path) -> N
         unlock.create_password("1234567")
     assert not (tmp_path / A).exists()
     assert len(unlock.create_password("12345678")) == 32
+
+
+def test_a_vault_is_sealed_for_what_opens_these_notes(tmp_path: Path) -> None:
+    unlock = Unlock(tmp_path, Store("absent"), FAST)
+    unlock.outcome()
+    key = unlock.create_password(PASSWORD)
+    assert unlock.vault_pairs() == {}
+    unlock.make_recovery_key(key)
+    assert set(unlock.vault_pairs()) == {RECOVERY_KEY}
+    unlock.set_master_password(key, "a spare password to remember")
+    assert set(unlock.vault_pairs()) == {RECOVERY_KEY, MASTER_PASSWORD}
 
 
 def test_creating_a_password_keeps_other_slots(tmp_path: Path) -> None:

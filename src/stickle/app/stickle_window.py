@@ -64,6 +64,7 @@ from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
+from stickle.app.sync_setup import SyncSetup
 from stickle.app.times import local_time
 from stickle.app.titles import shown_title
 from stickle.app.update_check import UpdateCheck
@@ -131,6 +132,7 @@ class StickleWindow(QWidget):
         changes: ProtectionChanges | None = None,
         full_screen: FullScreenWatch | None = None,
         sync_lines: Callable[[], Sequence[str]] = lambda: (),
+        sync_setup: SyncSetup | None = None,
     ) -> None:
         super().__init__()
         self._notes = notes
@@ -159,6 +161,7 @@ class StickleWindow(QWidget):
             updates=updates,
             master=master,
             full_screen=full_screen,
+            sync_setup=sync_setup,
         )
         self.settings_button = QPushButton(self)
         self.settings_button.clicked.connect(lambda: self.open_settings())

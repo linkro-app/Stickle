@@ -26,6 +26,7 @@ from stickle.sync.targets.base import (
 
 log = logging.getLogger(__name__)
 
+THREAD_NAME = "sync"
 LONGEST_WAIT = 5 * 60.0  # after a round that broke in a way nobody foresaw
 TIDY_UP = 0.2  # seconds a thread told to end has to do so, past what it was given
 
@@ -116,7 +117,7 @@ class Runner[T: Turn]:
         self._ending = False
         self._last_round = False  # one more, for what is waiting to be put, as it ends
         self._over_at: float | None = None
-        self._thread = threading.Thread(target=self._run, name="sync", daemon=True)
+        self._thread = threading.Thread(target=self._run, name=THREAD_NAME, daemon=True)
 
     def start(self) -> None:
         self._thread.start()

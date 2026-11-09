@@ -74,7 +74,9 @@ _LISTED = (
     b"</prop></propfind>"
 )
 _LIST_HEADERS = {"Depth": "1", "Content-Type": 'application/xml; charset="utf-8"'}
+_ITSELF_HEADERS = {**_LIST_HEADERS, "Depth": "0"}
 _MULTI_STATUS = 207
+_NOT_IMPLEMENTED = 501  # as a web server that is no WebDAV server answers PROPFIND
 _WRITTEN = (200, 201, 204)
 _DELETED = (200, 202, 204)
 _NO_FOLDER = (404, 409)  # as a server answers a write into a folder that is not there
@@ -96,6 +98,10 @@ _CLOSED_MEANWHILE = (
     ssl.SSLEOFError,
     ssl.SSLZeroReturnError,
 )
+
+
+class NoWebDavFolderError(TargetError):
+    """Nothing at that address answers as a WebDAV folder."""
 
 
 class AddressError(ValueError):
@@ -333,6 +339,18 @@ class WebDav:
         if self._kept is not None:
             self._kept.close()
             self._kept = None
+
+    def check(self) -> None:
+        """Whether the address is a WebDAV folder this user may look at, before
+        anything is made there. NoWebDavFolderError if it answers otherwise; a
+        wrong password, a certificate not trusted and no answer come up as
+        they do for any request."""
+        answer = self._ask("PROPFIND", f"{self._address.path}/", _LISTED, _ITSELF_HEADERS)
+        if answer.status == _MULTI_STATUS:
+            return
+        if answer.status in (401, 403, 429) or (500 <= answer.status != _NOT_IMPLEMENTED):
+            raise _error(answer)
+        raise NoWebDavFolderError()
 
     # The four things a target does
 

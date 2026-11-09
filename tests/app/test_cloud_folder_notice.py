@@ -73,6 +73,7 @@ def test_the_line_names_the_program_and_says_what_to_move(
     found = in_cloud_folder(onedrive.path / "notes", False, onedrive)
     assert found is not None and line.tell(found)
     assert "Move the data folder out of your OneDrive folder." in line.label.text()
+    assert "choose Turn on sync… under Settings, Connections." in line.label.text()
     assert line.open_button.text() == "Open the &folder" and line.ok_button.text() == "OK"
 
 

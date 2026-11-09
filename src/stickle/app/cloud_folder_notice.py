@@ -95,7 +95,11 @@ class CloudFolderLine(QWidget):
             )
         else:
             move = self.tr("Move the data folder out of your %1 folder.")
-        return " ".join((said, move)).replace("%1", found.cloud)
+        several = self.tr(
+            "To use your notes on several computers, choose Turn on sync… under Settings,"
+            " Connections."
+        )
+        return " ".join((said, move, several)).replace("%1", found.cloud)
 
     def retranslate(self) -> None:
         text = self.text()
