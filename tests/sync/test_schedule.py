@@ -164,6 +164,16 @@ def test_asking_does_not_wait_out_a_failure() -> None:
     assert due(schedule) == 52.0
 
 
+def test_asking_during_a_round_that_fails_is_not_held_back_by_its_failing() -> None:
+    schedule = after_first()
+    schedule.woke(50.0)
+    schedule.begin(50.0)
+    schedule.asked(50.5)
+    schedule.ended(51.0, wait=120.0)
+    assert due(schedule) == 50.5
+    assert schedule.held
+
+
 def test_what_changed_during_a_round_is_not_forgotten() -> None:
     schedule = after_first()
     schedule.woke(50.0)

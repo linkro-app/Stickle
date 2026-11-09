@@ -125,7 +125,9 @@ class Schedule:
         self._stopped = stopped
         self._failing = wait is not None
         if wait is not None:
-            self._look_at = self._not_before = now + wait
+            self._look_at = now + wait
+            if not self._asked:  # asked for while it ran: that still goes first
+                self._not_before = self._look_at
             return
         self._not_before = -math.inf
         self._look_at = now + self._every
