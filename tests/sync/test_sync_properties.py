@@ -23,6 +23,7 @@ from fake_cloud import (
     DROPBOX,
     ONEDRIVE,
     SYNOLOGY,
+    WEBDAV,
     WEBDAV_HALF,
     WEBDAV_IGNORING,
     WEBDAV_NO_TAGS,
@@ -64,11 +65,16 @@ MINUTE = 60 * 1000
 HOUR = 60 * MINUTE
 DAY = 24 * HOUR
 DAMAGED = b'{"alg":1,"format":1,"id":"x","box":"not a box at all"}'
-# Clouds whose tags tell every write apart, or that have none (so every file is
-# read): a WebDAV server whose tags are made of the second and the size can
-# give two writes one tag, and a device that listed the first misses the
-# second until the device files tell it what changed.
-KINDS = (DROPBOX, ONEDRIVE, WEBDAV_NO_TAGS, WEBDAV_WEAK, WEBDAV_IGNORING, WEBDAV_HALF, SYNOLOGY)
+KINDS = (
+    DROPBOX,
+    ONEDRIVE,
+    WEBDAV,
+    WEBDAV_NO_TAGS,
+    WEBDAV_WEAK,
+    WEBDAV_IGNORING,
+    WEBDAV_HALF,
+    SYNOLOGY,
+)
 WELCOME = "# 환영 메모 표식-welcome"  # taken for the app's welcome note, as it wrote it
 POOL = ("같은 글 표식-pool", "Same text marker-pool")  # written on two devices alike, now and then
 
@@ -122,7 +128,12 @@ class Bed:
         }
         self.written = 0
         self.made = 0
+        self.full_looks = True  # False: never (no round makes up for one not told)
         self.done: list[str] = []  # what was done, for a test that failed
+
+    def looks_at_all(self, data: st.DataObject) -> bool:
+        """Whether a round is a full look: now and then (else, what it is told)."""
+        return self.full_looks and data.draw(st.sampled_from((True, False, False, False)))
 
     def did(self, device: Device, what: str) -> None:
         self.done.append(f"{self.cloud.requests:4d} {device.name} {what}")
@@ -175,24 +186,28 @@ def _pick(data: st.DataObject, notes: list[str]) -> str | None:
     return data.draw(st.sampled_from(notes)) if notes else None
 
 
-def _do(bed: Bed, data: st.DataObject) -> None:
+# What users do, and what comes of it on its own.
+ACTIONS = (
+    ["new", "edit", "edit", "edit", "field", "field", "trash", "restore", "empty"]
+    + ["sync"] * 5
+    + ["together"] * 3
+    + ["skew", "tick", "tick"]
+    + ["category", "rename", "uncategorise", "categorise", "categorise"]
+    + ["mark", "marked", "colour", "uncolour", "remind", "remind", "import"]
+    + ["full", "many", "spree", "join"]
+)
+# What no device tells the others of: done to the folder from outside, a copy of
+# a disk; and what has every device look at everything anyway.
+UNTOLD = ["damage", "copy", "gone", "changed", "clone", "away", "year"]
+
+
+def _do(bed: Bed, data: st.DataObject, actions: list[str]) -> None:
     draw = data.draw
     device = draw(st.sampled_from(bed.devices))
     notes: NoteRepository = device.notes
     live = sorted(note.id for note in notes.live())
     trashed = sorted(note.id for note in notes.deleted())
-    action = draw(
-        st.sampled_from(
-            ["new", "edit", "edit", "edit", "field", "field", "trash", "restore", "empty"]
-            + ["sync"] * 5
-            + ["together"] * 3
-            + ["skew", "tick", "tick", "year"]
-            + ["category", "rename", "uncategorise", "categorise", "categorise"]
-            + ["mark", "marked", "colour", "uncolour", "remind", "remind", "import"]
-            + ["full", "damage", "copy", "gone", "changed", "clone", "away"]
-            + ["many", "spree", "join"]
-        )
-    )
+    action = draw(st.sampled_from(actions))
     bed.cloud.trouble = lambda _request: None
     if action == "new" or (action == "edit" and not live):
         bed.made += 1  # ids of their own, the same in every run of an example
@@ -236,12 +251,17 @@ def _do(bed: Bed, data: st.DataObject) -> None:
         bed.did(device, f"empty {note_id[:8]}")
     elif action == "sync":
         troubles = draw(st.lists(st.sampled_from(TROUBLES), max_size=8))
-        bed.did(device, f"sync {[str(each) for each in troubles if each]}")
+        device.full = bed.looks_at_all(data)
+        bed.did(
+            device, f"sync {'all' if device.full else 'told'} {[str(e) for e in troubles if e]}"
+        )
         bed.troubled(troubles)
         bed.sync(device)
     elif action == "together" and len(bed.devices) > 1:
         devices = draw(st.lists(st.sampled_from(bed.devices), min_size=2, unique=True))
         troubles = draw(st.lists(st.sampled_from(TROUBLES), max_size=8))
+        for each in devices:
+            each.full = bed.looks_at_all(data)
         bed.did(device, f"together {[d.name for d in devices]} {[str(t) for t in troubles if t]}")
         bed.troubled(troubles)
         bed.together(devices, draw(st.lists(st.integers(0, 3), max_size=40)))
@@ -556,6 +576,41 @@ def _welcome(text: str) -> bool:
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large],
 )
 @given(data=st.data())
+def test_what_devices_tell_one_another_is_enough(kind: Kind, data: st.DataObject) -> None:
+    """No round but a device's first looks at everything, and with requests
+    failing, answers lost and the app ended: they still all come to agree."""
+    with (
+        tempfile.TemporaryDirectory() as folder,
+        mock.patch.object(made_notes, "welcome", _welcome),
+    ):
+        bed = Bed(Path(folder), kind, data.draw(st.integers(2, 4), label="devices"))
+        bed.full_looks = False
+        for device in bed.devices:
+            device.full = False
+        try:
+            for _ in range(data.draw(st.integers(4, STEPS), label="steps")):
+                _do(bed, data, ACTIONS)
+            bed.cloud.trouble = lambda _request: None
+            bed.cloud.full = False
+            settle(bed.devices, tick=6 * MINUTE, full=False)
+            bed.model.check(bed.devices, bed.cloud)
+            records_agree(bed.devices, bed.records)
+        except BaseException:
+            print("\n".join(bed.done))
+            print(bed.cloud.describe())
+            raise
+        finally:
+            for device in bed.devices:
+                device.close()
+
+
+@pytest.mark.parametrize("kind", KINDS, ids=lambda kind: kind.name)
+@settings(
+    max_examples=EXAMPLES,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large],
+)
+@given(data=st.data())
 def test_devices_agree_with_the_model_and_lose_nothing(kind: Kind, data: st.DataObject) -> None:
     with (
         tempfile.TemporaryDirectory() as folder,
@@ -564,7 +619,7 @@ def test_devices_agree_with_the_model_and_lose_nothing(kind: Kind, data: st.Data
         bed = Bed(Path(folder), kind, data.draw(st.integers(2, 4), label="devices"))
         try:
             for _ in range(data.draw(st.integers(4, STEPS), label="steps")):
-                _do(bed, data)
+                _do(bed, data, [*ACTIONS, *UNTOLD])
             bed.cloud.trouble = lambda _request: None
             bed.cloud.full = False
             settle(bed.devices, tick=6 * MINUTE)

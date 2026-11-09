@@ -551,10 +551,22 @@ CREATE TABLE sync_connection (
 ) WITHOUT ROWID;
 """
 
+V22 = """
+-- Files of a vault this device has put, or was about to, and not yet said so
+-- in its own file there: what the other devices are told to read.
+CREATE TABLE sync_untold (
+    vault TEXT NOT NULL,
+    path TEXT NOT NULL,
+    PRIMARY KEY (vault, path)
+) WITHOUT ROWID;
+-- How far this device has taken in what each device said it put (its rounds).
+ALTER TABLE sync_devices ADD COLUMN taken INTEGER NOT NULL DEFAULT 0;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20, V21),
+    *(V17, V18, V19, V20, V21, V22),
 ]
 BACKUPS_KEPT = 3
 

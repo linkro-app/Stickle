@@ -113,6 +113,7 @@ class Device:
         # Its user lets a round stopped for a big change take it in (backing up
         # first: counted); else the round's BigChangeError is let through.
         self.accepts = True
+        self.full = True  # its rounds look at everything (else: what the others said they put)
         self.holds = 0
         self.backups = 0
         self.db = open_store(self.path, KEY)
@@ -172,7 +173,14 @@ class Device:
         if self.whole:
             about = About(f"{self.name.upper()}-PC 표식", "Linux", "0.7.0")
             report = sync_vault(
-                self.db, self.place, self.clock, self.notes, self.mark_name, about, accept=accept
+                self.db,
+                self.place,
+                self.clock,
+                self.notes,
+                self.mark_name,
+                about,
+                self.full,
+                accept,
             )
             if report.device != self.id:  # another device had its id: a copy of its disk
                 self._renewed(report.device)
@@ -256,23 +264,27 @@ def value_of(device: Device, note_id: str, name: str) -> object:
     return getattr(note, "label" if name == "category" else name)
 
 
-def settle(devices: Iterable[Device], passes: int = 12, tick: int = 0) -> None:
+def settle(devices: Iterable[Device], passes: int = 12, tick: int = 0, full: bool = True) -> None:
     """Each device syncs in turn until a pass where none has anything to do, nor
     wrote its own file (the others to read it: a copied disk is seen so);
     tick: milliseconds passing between passes (for a file set aside only once
-    it failed for minutes)."""
+    it failed for minutes); full: rounds that look at everything (else, three
+    such passes running: rounds of few requests, a file shown late has to show)."""
     devices = list(devices)
+    quiet = 0
     for _ in range(passes):
         if tick:
             devices[0].clock.tick(tick)
         told = _devices_files(devices[0].cloud)
         busy = False
         for device in devices:
+            device.full = full
             report = device.sync()
             records = report.records
             busy = busy or bool(report.put or report.changed or report.left)
             busy = busy or bool(records.put or records.changed or records.left)
-        if not busy and _devices_files(devices[0].cloud) == told:
+        quiet = 0 if busy or _devices_files(devices[0].cloud) != told else quiet + 1
+        if quiet >= (1 if full else 3):
             return
     raise AssertionError("the devices never settled")
 

@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 import apsw
 
 from stickle.core.clock import Clock, utc_now
-from stickle.data import record_state
+from stickle.data import record_state, sync_state
 from stickle.data.record_state import RecordState
 from stickle.data.sync_left import NOT_OURS, READ_ONLY
 from stickle.sync import local_records
@@ -134,32 +134,45 @@ class RecordRound:
         self._leaving = Leaving(connection, place, cloud_now)
         self._copies: dict[str, list[_Copy]] = {}
 
-    def run(self, also: list[tuple[str, str]] | None = None) -> RecordReport:
-        """also: items changed here in this round already, merged again."""
+    def run(
+        self,
+        also: list[tuple[str, str]] | None = None,
+        told: set[str] | None = None,
+        listing: bool = True,
+    ) -> RecordReport:
+        """also: items changed here in this round already, merged again; told:
+        records other devices said they put, read; listing: the folder listed
+        too, and what it says changed read."""
         vault, keys = self._place.vault, self._place.keys
         known = record_state.known(self._db, vault)
-        to_read: set[str] = set(record_state.unconfirmed(self._db, vault))
+        to_read: set[str] = set(record_state.unconfirmed(self._db, vault)) | (told or set())
         listed: set[str] = set()
-        for entry in self._place.target.list(RECORDS):
-            passed = self._leaving.listed(entry)
-            found = item_at(entry.path)
-            if found is None or found[0] != RECORDS:
-                copy_of = None if passed else self._copy_of(entry)
-                if copy_of is not None:
-                    to_read.add(copy_of)
-                continue
-            listed.add(found[1])
-            if passed:
-                left = self._leaving.passed(entry.path)
-                if left is not None and left.why != READ_ONLY and found[1] in known:
-                    to_read.add(found[1])  # this device's own to be put in its place
-                continue
-            state = known.get(found[1])
-            if entry.tag is None or state is None or state.seen is None or state.tag != entry.tag:
-                to_read.add(found[1])
-        for record, state in known.items():  # not listed: looked for, a list may be late
-            if record not in listed and state.seen is not None:
-                to_read.add(record)
+        if listing:
+            for entry in self._place.target.list(RECORDS):
+                passed = self._leaving.listed(entry)
+                found = item_at(entry.path)
+                if found is None or found[0] != RECORDS:
+                    copy_of = None if passed else self._copy_of(entry)
+                    if copy_of is not None:
+                        to_read.add(copy_of)
+                    continue
+                listed.add(found[1])
+                if passed:
+                    left = self._leaving.passed(entry.path)
+                    if left is not None and left.why != READ_ONLY and found[1] in known:
+                        to_read.add(found[1])  # this device's own to be put in its place
+                    continue
+                state = known.get(found[1])
+                if (
+                    entry.tag is None
+                    or state is None
+                    or state.seen is None
+                    or state.tag != entry.tag
+                ):
+                    to_read.add(found[1])
+            for record, state in known.items():  # not listed: looked for, a list may be late
+                if record not in listed and state.seen is not None:
+                    to_read.add(record)
         here = {
             record_id(keys, kind, item): (kind, item)
             for kind, item in [*record_state.changed(self._db, vault), *(also or [])]
@@ -268,6 +281,8 @@ class RecordRound:
                 return
             if self._report.full:
                 raise _LaterError()  # kept in the outbox, put once there is room
+            with writing(self._db):
+                sync_state.add_untold(self._db, self._place.vault, item_path(RECORDS, record))
             try:
                 tag = self._place.target.put(
                     item_path(RECORDS, record),

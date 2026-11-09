@@ -66,17 +66,19 @@ def test_its_own_file_is_written_when_it_has_something_to_say(
     devices: tuple[Named, Named], cloud: FakeCloud, times: Times
 ) -> None:
     a, b = devices
-    for _ in range(3):
-        a.sync()
+    a.sync()  # its first: said at the start, and what it put at the end
+    first = writes(cloud, a)
+    for _ in range(2):
         times.tick(60_000)
-    assert writes(cloud, a) == 1
+        a.sync()
+    assert writes(cloud, a) == first
 
     a.about = About("새 노트북", "Linux", "0.7.0")
     a.sync()
-    assert writes(cloud, a) == 2
+    assert writes(cloud, a) == first + 1
     times.tick(DAY)
     a.sync()
-    assert writes(cloud, a) == 3
+    assert writes(cloud, a) == first + 2
 
     b.sync()
     assert device_name(b.db, a.id) == "새 노트북"
@@ -87,6 +89,7 @@ def test_a_file_lost_here_is_found_there_and_written_over(
 ) -> None:
     a, _ = devices
     a.sync()
+    first = writes(cloud, a)
     a.db.execute("DELETE FROM sync_devices")  # as if this device had not kept it
     a.about = About("새 이름", "Linux", "0.7.0")
 
@@ -94,7 +97,7 @@ def test_a_file_lost_here_is_found_there_and_written_over(
 
     a.db.execute("DELETE FROM sync_devices")
     sync_devices(a.db, a.place, a.times, About("다른 이름", "Linux", "0.7.0"))
-    assert writes(cloud, a) == 3
+    assert writes(cloud, a) == first + 2
 
 
 def test_this_device_is_called_as_its_system_calls_it() -> None:

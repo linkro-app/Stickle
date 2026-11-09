@@ -276,12 +276,12 @@ def test_of_two_devices_with_one_id_the_one_that_sees_the_other_takes_a_new_one(
     a2.sync()
     clock.tick()
     a.sync()
-    assert a2.id == old and a.id != old  # a saw the copy's write: a takes a new id
+    assert old in (a.id, a2.id) and a.id != a2.id  # the one that saw the other's write moved on
     settle([a, a2, b])
     assert a.texts() == a2.texts() == b.texts()
     assert set(a.texts()) == {note.id, other.id}
     devices = sorted(path for path in cloud.files() if path.startswith(f"{DEVICES}/"))
-    assert devices == sorted(item_path(DEVICES, each) for each in {a.id, old, b.id})
+    assert devices == sorted(item_path(DEVICES, each) for each in {a.id, a2.id, old, b.id})
     assert a.stamp_of(note.id, "color")[1] == old  # changed before: the old id kept
     for device in (a, a2, b):
         device.close()

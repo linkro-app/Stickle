@@ -134,6 +134,7 @@ class FakeCloud:
     trouble: Callable[[Request], Trouble | None] = lambda _request: None
     turns: Turns | None = None
     requests: int = 0
+    bytes_read: int = 0  # what reads brought down
     log: list[str] = field(default_factory=list[str])
     _files: dict[str, _File] = field(default_factory=dict[str, _File])
     _events: list[_Event] = field(default_factory=list[_Event])
@@ -340,6 +341,7 @@ class FakeCloud:
         if trouble is Trouble.HALF or path in self._halves:
             self._halves.discard(path)
             data = data[: len(data) // 2]
+        self.bytes_read += len(data)
         return Read(data, self._tag_of(stored))
 
     def writing(

@@ -214,6 +214,25 @@ def set_synced_at(connection: apsw.Connection, vault: str, at: int) -> None:
 MARKS_KEPT = 400  # more than a year's: a device writes its own file once a day, or on a change
 
 
+def untold(connection: apsw.Connection, vault: str) -> list[str]:
+    """Files put, or about to be, that this device has not said so yet."""
+    return _ids(
+        connection.execute("SELECT path FROM sync_untold WHERE vault = ? ORDER BY path", (vault,))
+    )
+
+
+def add_untold(connection: apsw.Connection, vault: str, path: str) -> None:
+    connection.execute(
+        "INSERT OR IGNORE INTO sync_untold (vault, path) VALUES (?, ?)", (vault, path)
+    )
+
+
+def told(connection: apsw.Connection, vault: str, paths: Iterable[str]) -> None:
+    """These have been said."""
+    for path in paths:
+        connection.execute("DELETE FROM sync_untold WHERE vault = ? AND path = ?", (vault, path))
+
+
 def own_marks(connection: apsw.Connection, vault: str) -> list[str]:
     """The marks of this device's last writes of its own file in the vault,
     the latest first."""

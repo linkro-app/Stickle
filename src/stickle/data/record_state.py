@@ -9,6 +9,7 @@ is), and the item's change number when it was last merged. A device, by its
 own file there as last seen, and that file's tag.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import apsw
@@ -122,6 +123,20 @@ def put_device(
         " ON CONFLICT (vault, device) DO UPDATE SET seen = excluded.seen, tag = excluded.tag",
         (vault, device_id, seen, tag),
     )
+
+
+def taken(connection: apsw.Connection, vault: str) -> dict[str, int]:
+    """Each device's last round of what it put that was taken in here."""
+    rows = connection.execute("SELECT device, taken FROM sync_devices WHERE vault = ?", (vault,))
+    return {str(device): int(round_) for device, round_ in rows}  # pyright: ignore[reportArgumentType]
+
+
+def set_taken(connection: apsw.Connection, vault: str, rounds: Mapping[str, int]) -> None:
+    for device, round_ in rounds.items():
+        connection.execute(
+            "UPDATE sync_devices SET taken = ? WHERE vault = ? AND device = ?",
+            (round_, vault, device),
+        )
 
 
 def devices(connection: apsw.Connection, vault: str) -> dict[str, tuple[str | None, str | None]]:

@@ -21,6 +21,13 @@ kept here (stickle.data.sync_staged); they are taken in from there. One kept by
 a round that broke off, listed with the same tag since, is not fetched again
 where tags tell writes apart.
 
+Listing a folder takes more the more notes there are, so a round of the whole
+vault lists them only when it has to: on a full look (at start, once a day),
+never having listed them, or with a device so far ahead that its file no longer
+names all it put. Otherwise it reads the files the other devices say they put
+(stickle.sync.devices), and those are read on a full look too: a write that
+left its file the tag it had shows only so.
+
 The file put stays the outbox until it is seen in the vault: the next round
 reads it back, finds it there and lets it go, or puts it again. An answer lost
 on the way is so taken care of. With a cloud whose tags tell every write apart
@@ -81,7 +88,7 @@ import apsw
 
 from stickle.core import made_notes
 from stickle.core.markdown import note_title
-from stickle.data import sync_held, sync_staged, sync_state
+from stickle.data import record_state, sync_held, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.settings import DEVICE_ID, Settings
@@ -91,9 +98,10 @@ from stickle.data.sync_staged import Staged
 from stickle.data.sync_state import NoteState
 from stickle.sync import local, local_reminders
 from stickle.sync.contents import ReadOnlyItemError
-from stickle.sync.devices import About, sync_devices
+from stickle.sync.devices import About, Looked, sync_devices, tell
 from stickle.sync.format import (
     NOTES,
+    RECORDS,
     FormatError,
     NotOursError,
     UnreadableError,
@@ -203,6 +211,12 @@ class _PassedError(Exception):
     """The note is not this version's to change: passed over."""
 
 
+def _items(told: frozenset[str], folder: str) -> set[str]:
+    """The items of folder among these files."""
+    found = (item_at(path) for path in told)
+    return {at[1] for at in found if at is not None and at[0] == folder}
+
+
 def _same(a: NoteFile, b: NoteFile) -> bool:
     return json_bytes(a.to_json()) == json_bytes(b.to_json())
 
@@ -297,7 +311,8 @@ def sync_vault(
     that the categories and marks notes name are here when the notes are taken
     in; then the notes, and again those that name a category
     or mark that came, a field of theirs perhaps not taken before for want of
-    it. full: a full look (at start, once a day), with what only that reads.
+    it. full: a full look (at start, once a day): every folder listed, and
+    what else only that reads. Otherwise only what the devices said they put.
     The look stops the round for a big change (BigChangeError), records and
     notes alike; accept: what it stopped for taken in after all, after this is
     called (to back up).
@@ -308,17 +323,28 @@ def sync_vault(
     if held is not None and held != place.device:
         place = replace(place, device=held)
     confirm(place.target, place.vault)
+    looked: Looked | None = None
     if about is not None:
-        place = replace(place, device=sync_devices(connection, place, cloud_now, about, full))
+        looked = sync_devices(connection, place, cloud_now, about, full)
+        place = replace(place, device=looked.device)
     notes_round = _Round(connection, notes or NoteRepository(connection), place, cloud_now, accept)
-    notes_round.look()
-    records = RecordRound(connection, place, cloud_now, shown=shown).run()
+    told = frozenset[str]() if looked is None else looked.told
+    listing = looked is None or full or not looked.enough or notes_round.first
+    notes_round.look(_items(told, NOTES), listing)
+    records = RecordRound(connection, place, cloud_now, shown=shown).run(
+        told=_items(told, RECORDS), listing=listing
+    )
     came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
     also = sync_state.mentioning(connection, place.vault, came)
     notes_round.full = records.full
     report = notes_round.run(also)
     report.full = report.full or records.full
     report.records = records
+    if about is not None and looked is not None:
+        if not report.left and not records.left:  # else read again next round
+            with writing(connection):
+                record_state.set_taken(connection, place.vault, looked.rounds)
+        tell(connection, place, cloud_now, about)
     return report
 
 
@@ -352,38 +378,51 @@ class _Round:
         self._staged: set[str] = set()  # files kept by the look, not taken in yet
         self.full = False  # the cloud full: nothing put
 
-    def look(self) -> None:
-        """What changed in the vault, before anything is taken in: its notes
-        listed, and the files to read read and kept here one at a time
-        (stickle.data.sync_staged). One kept by an earlier round and listed
-        with the same tag since is not fetched again, if tags tell writes apart."""
+    @property
+    def first(self) -> bool:
+        """Whether what the vault holds has to be listed all the same: never
+        listed by this device, or a first connection's merge."""
+        return self._last is None or self._joining
+
+    def look(self, told: set[str] | None = None, listing: bool = True) -> None:
+        """What changed in the vault, before anything is taken in: the notes other
+        devices said they put (told) and, listing, the notes listed; the files
+        to read read and kept here one at a time (stickle.data.sync_staged). One
+        kept by an earlier round and listed with the same tag since is not
+        fetched again, if tags tell writes apart."""
         vault, target = self._place.vault, self._place.target
         self._started = self._now()
         known = sync_state.known(self._db, vault)
-        to_read: set[str] = set(sync_state.unconfirmed(self._db, vault))
+        to_read: set[str] = set(sync_state.unconfirmed(self._db, vault)) | (told or set())
         listed: dict[str, Entry] = {}
-        for entry in target.list(NOTES):
-            passed = self._leaving.listed(entry)
-            found = item_at(entry.path)
-            if found is None or found[0] != NOTES:
-                copy_of = None if passed else self._copy_of(entry)
-                if copy_of is not None:
-                    to_read.add(copy_of)
-                continue
-            note_id = found[1]
-            listed[note_id] = entry
-            if passed:
-                left = self._leaving.passed(entry.path)
-                mine = note_id in known or self._notes.get(note_id) is not None
-                if left is not None and left.why != READ_ONLY and mine:
-                    to_read.add(note_id)  # this device's own to be put in its place
-                continue
-            state = known.get(note_id)
-            if entry.tag is None or state is None or state.seen is None or state.tag != entry.tag:
-                to_read.add(note_id)
-        for note_id, state in known.items():  # not listed: looked for, a list may be late
-            if note_id not in listed and state.seen is not None and not state.gone:
-                to_read.add(note_id)
+        if listing:
+            for entry in target.list(NOTES):
+                passed = self._leaving.listed(entry)
+                found = item_at(entry.path)
+                if found is None or found[0] != NOTES:
+                    copy_of = None if passed else self._copy_of(entry)
+                    if copy_of is not None:
+                        to_read.add(copy_of)
+                    continue
+                note_id = found[1]
+                listed[note_id] = entry
+                if passed:
+                    left = self._leaving.passed(entry.path)
+                    mine = note_id in known or self._notes.get(note_id) is not None
+                    if left is not None and left.why != READ_ONLY and mine:
+                        to_read.add(note_id)  # this device's own to be put in its place
+                    continue
+                state = known.get(note_id)
+                if (
+                    entry.tag is None
+                    or state is None
+                    or state.seen is None
+                    or state.tag != entry.tag
+                ):
+                    to_read.add(note_id)
+            for note_id, state in known.items():  # not listed: looked for, a list may be late
+                if note_id not in listed and state.seen is not None and not state.gone:
+                    to_read.add(note_id)
         kept = sync_staged.tags(self._db, vault)
         for note_id in sorted(to_read):
             path = item_path(NOTES, note_id)
@@ -759,6 +798,8 @@ class _Round:
                 return copies
             if self.full:
                 raise _LaterError()  # kept in the outbox, put once there is room
+            with writing(self._db):
+                sync_state.add_untold(self._db, self._place.vault, item_path(NOTES, note_id))
             try:
                 tag = self._place.target.put(
                     item_path(NOTES, note_id),

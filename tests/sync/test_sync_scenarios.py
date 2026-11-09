@@ -14,7 +14,7 @@ from types import ModuleType
 
 import pytest
 from fake_cloud import DROPBOX, WEBDAV, WEBDAV_IGNORING, FakeCloud, Request, Trouble, Turns
-from sync_bed import KEYS, VAULT, Clock, Device, cloud_notes, settle
+from sync_bed import KEYS, VAULT, Clock, Device, cloud_notes, device_id, settle
 from test_vault_rules import WHAT_THE_USER_WROTE, plain_in
 
 from stickle.core import made_notes
@@ -23,8 +23,8 @@ from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.versions import VersionRepository
 from stickle.platform.credentials import CredentialStore
-from stickle.sync.contents import Contents
-from stickle.sync.format import NOTES, item_path, seal
+from stickle.sync.contents import Contents, Field
+from stickle.sync.format import DEVICES, NOTES, Json, item_path, seal
 from stickle.sync.merge import YEAR, copy_id
 from stickle.sync.note_file import NoteFile
 from stickle.sync.targets.base import UnavailableError
@@ -435,19 +435,35 @@ def test_a_text_taken_in_says_where_it_came_from_once_it_is_an_earlier_one(
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a reader misses a write that leaves the file the tag it had, until the"
-    " devices' own files tell it which notes changed",
-)
+@pytest.mark.parametrize("full", [False, True], ids=["told", "full look"])
 def test_two_writes_a_webdav_server_tags_alike_are_both_taken_in(
-    tmp_path: Path, clock: Clock
+    tmp_path: Path, clock: Clock, full: bool
 ) -> None:
     """A WebDAV server whose tags are made of the second and the size (wsgidav)
-    gives one tag to two writes of one size within a second."""
+    gives one tag to two writes of one size within a second. The device that
+    wrote them says so in its own file, and that is read even on a full look."""
     cloud = FakeCloud(WEBDAV)
-    a, b = Device("a", tmp_path, cloud, clock), Device("b", tmp_path, cloud, clock)
+    a = Device("a", tmp_path, cloud, clock, whole=True)
+    b = Device("b", tmp_path, cloud, clock, whole=True)
     note_id = shared(a, b)
+    b.sync()
+    b.full = full
+    writer = device_id("cccccccc")
+
+    def said(number: int, pad: str) -> None:
+        """The file of the device that wrote them, as it says it put the note."""
+        value: dict[str, Json] = {
+            "round": number,
+            "recent": [[number, item_path(NOTES, note_id)]],
+            "forgot": 0,
+            "pad": pad,
+        }
+        fields = {name: Field(each, Hlc(clock.now), writer) for name, each in value.items()}
+        cloud.put_by_hand(
+            item_path(DEVICES, writer),
+            seal(KEYS, VAULT, DEVICES, writer, Contents(fields).to_json()),
+        )
+
     there = cloud_notes(cloud)[note_id]
 
     def written(color: str, at: int) -> bytes:
@@ -458,10 +474,18 @@ def test_two_writes_a_webdav_server_tags_alike_are_both_taken_in(
 
     path = item_path(NOTES, note_id)
     cloud.requests += -cloud.requests % 4  # what comes next falls in one second
+    second = cloud.requests
     cloud.put_by_hand(path, written("blue", clock.now + 1))  # as another device writes them
-    b.sync()  # lists it and reads it, in the same second
+    tag = cloud.target("look").get(path).tag
+    said(1, "")
+    b.sync()  # reads it, in that same second
+    note = b.notes.get(note_id)
+    assert note is not None and note.color == "blue"
+    cloud.requests = second
     cloud.put_by_hand(path, written("pink", clock.now + 2))  # the same size, the same second
-    settle([a, b])
+    assert cloud.target("look").get(path).tag == tag
+    said(2, "xxx")
+    b.sync()
     note = b.notes.get(note_id)
     assert note is not None and note.color == "pink"
     a.close()
