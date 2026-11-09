@@ -77,6 +77,8 @@ def run_checks() -> list[tuple[str, str]]:
     results.append(icon_check())
     results.append(time_zone_check())
     results.append(calendar_check())
+    results.append(sync_check())
+    results.append(clock_line())
     results += input_method_checks()
     results.append(start_at_login_check())
     results += store_package_check()
@@ -314,6 +316,32 @@ def calendar_check() -> tuple[str, str]:
             failed.append(calendar.id)
     name = f"other calendars for reminders ({len(CALENDARS) - len(failed)} of {len(CALENDARS)})"
     return ("FAIL" if failed else "PASS", name + (f": {', '.join(failed)}" if failed else ""))
+
+
+def sync_check() -> tuple[str, str]:
+    """What sync needs and a start without it does not load, so that only this
+    shows one of them missing from a package: TLS, the XML parser, the engine."""
+    name = "sync: TLS, XML and its own parts"
+    try:
+        from xml.etree.ElementTree import fromstring
+
+        from stickle.platform.tls import https_context
+        from stickle.sync.engine import sync_vault
+        from stickle.sync.targets.webdav import parse_address
+
+        https_context()
+        ok = fromstring("<a/>").tag == "a" and callable(sync_vault)
+        ok = ok and parse_address("https://example.com/a").secure
+    except Exception:
+        ok = False
+    return ("PASS" if ok else "FAIL", name)
+
+
+def clock_line() -> tuple[str, str]:
+    """To compare with the time that passed around a sleep (the clock sync goes by)."""
+    from stickle.platform.clocks import since_start
+
+    return ("INFO", f"clock since start: {since_start()} ms")
 
 
 def main() -> int:

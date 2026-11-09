@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ from stickle.platform.credentials import (
     CredentialStore,
     CredentialStoreUnavailableError,
 )
-from stickle.selftest import icon_check, run_checks
+from stickle.selftest import clock_line, icon_check, run_checks, sync_check
 
 
 def test_no_check_fails() -> None:
@@ -28,6 +29,21 @@ def test_a_build_without_its_icons_fails(tmp_path: Path, monkeypatch: pytest.Mon
         assert icon_check()[0] == "FAIL"
     finally:
         label_icons._svg.cache_clear()  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_build_without_what_sync_needs_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert sync_check()[0] == "PASS"
+
+    def missing() -> None:
+        raise ImportError("not in this package")
+
+    monkeypatch.setattr("stickle.platform.tls.https_context", missing)
+    assert sync_check()[0] == "FAIL"
+
+
+def test_it_tells_the_clock_sync_goes_by() -> None:
+    status, line = clock_line()
+    assert status == "INFO" and re.fullmatch(r"clock since start: \d+ ms", line)
 
 
 def test_self_test_option_exits_cleanly_without_starting_the_ui() -> None:
