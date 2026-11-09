@@ -72,6 +72,6 @@ dev = [
     "pytest>=9.1.1",
     "pytest-qt>=4.5.0",
     "ruff>=0.16.8",
-    "trustme>=1.2.1",
+    "trustme>=1.2.1 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
     "wsgidav>=4.4.0",
 ]

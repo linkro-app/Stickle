@@ -927,7 +927,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-qt" },
     { name = "ruff" },
-    { name = "trustme" },
+    { name = "trustme", marker = "platform_machine != 'ARM64' or sys_platform != 'win32'" },
     { name = "wsgidav" },
 ]
 
@@ -966,7 +966,7 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-qt", specifier = ">=4.5.0" },
     { name = "ruff", specifier = ">=0.16.8" },
-    { name = "trustme", specifier = ">=1.2.1" },
+    { name = "trustme", marker = "platform_machine != 'ARM64' or sys_platform != 'win32'", specifier = ">=1.2.1" },
     { name = "wsgidav", specifier = ">=4.4.0" },
 ]
 
