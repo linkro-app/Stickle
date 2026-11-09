@@ -7,6 +7,8 @@ so the password key derivation is reduced to a single round: stretching a
 random 256-bit key adds no security but would slow down every start.
 """
 
+import os
+import threading
 from pathlib import Path
 from types import TracebackType
 from typing import Any, override
@@ -16,26 +18,46 @@ import apsw
 KEY_BYTES = 32
 WAIT_MS = 3_000  # for another connection's write to end, before a write gives up
 
+_turns: dict[str, threading.Lock] = {}
+_turns_guard = threading.Lock()
+
 
 class WrongKeyError(Exception):
     """The file is not a database encrypted with this key (or is damaged)."""
 
 
+def _turn_of(path: str) -> threading.Lock:
+    """What the connections of this process to one file take turns with."""
+    with _turns_guard:
+        return _turns.setdefault(os.path.normcase(Path(path).resolve()), threading.Lock())
+
+
 class _Connection(apsw.Connection):
     """A connection whose transactions (with connection: ...) begin as ones that
-    write. Sync writes on a connection of its own: a transaction begun by reading
-    and writing later is turned down at once if that one wrote in between, however
-    long it is willing to wait. Begun as one that writes, it waits its turn."""
+    write, one at a time among this process's connections to the file. Sync
+    writes on a connection of its own: a transaction begun by reading and writing
+    later is turned down at once if that one wrote in between, however long it is
+    willing to wait; and SQLite's waiting, which sleeps and tries again, can miss
+    every gap between the writes of a connection that goes on writing."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, path: str, wait_ms: int, **kwargs: Any) -> None:
+        super().__init__(path, **kwargs)
+        self.set_busy_timeout(wait_ms)
+        self._wait = wait_ms / 1000
+        self._turn = _turn_of(path)
         self._begun: list[bool] = []
 
     @override
     def __enter__(self) -> apsw.Connection:
         begins = not self.in_transaction
         if begins:
-            self.execute("BEGIN IMMEDIATE")
+            if not self._turn.acquire(timeout=self._wait):
+                raise apsw.BusyError("another connection goes on writing")
+            try:
+                self.execute("BEGIN IMMEDIATE")
+            except BaseException:
+                self._turn.release()
+                raise
         self._begun.append(begins)
         return super().__enter__()
 
@@ -49,13 +71,16 @@ class _Connection(apsw.Connection):
         begun = self._begun.pop()
         try:
             answer = super().__exit__(etype, evalue, etraceback)
-        except BaseException:
             if begun:
+                self.execute("COMMIT" if etype is None else "ROLLBACK")
+            return answer
+        except BaseException:
+            if begun and self.in_transaction:
                 self.execute("ROLLBACK")
             raise
-        if begun:
-            self.execute("COMMIT" if etype is None else "ROLLBACK")
-        return answer
+        finally:
+            if begun:
+                self._turn.release()
 
 
 def open_database(
@@ -71,8 +96,11 @@ def open_database(
         if read_only
         else apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE
     )
-    connection = (apsw.Connection if read_only else _Connection)(str(path), flags=flags)
-    connection.set_busy_timeout(wait_ms)
+    if read_only:
+        connection = apsw.Connection(str(path), flags=flags)
+        connection.set_busy_timeout(wait_ms)
+    else:
+        connection = _Connection(str(path), wait_ms, flags=flags)
     try:
         connection.pragma("cipher", "chacha20")
         connection.pragma("kdf_iter", 1)

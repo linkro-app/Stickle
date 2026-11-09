@@ -122,3 +122,32 @@ def test_a_look_at_a_backup_stays_a_look(path: Path) -> None:
     with pytest.raises(apsw.ReadOnlyError):
         looked.execute("INSERT INTO local_counters VALUES ('a', 1)")
     looked.close()
+
+
+def test_a_write_gives_up_if_its_turn_does_not_come(path: Path) -> None:
+    holding, waiting = open_database(path, KEY), open_database(path, KEY, wait_ms=50)
+    with holding, pytest.raises(apsw.BusyError), waiting:
+        pytest.fail("got to write")
+    assert not waiting.in_transaction
+    holding.close()
+    waiting.close()
+
+
+def test_connections_to_other_files_do_not_wait(path: Path, tmp_path: Path) -> None:
+    other_file = tmp_path / "other.db"
+    open_store(other_file, KEY).close()
+    one, other = open_database(path, KEY), open_database(other_file, KEY, wait_ms=50)
+    with one, other:
+        assert other.in_transaction
+    one.close()
+    other.close()
+
+
+def test_a_turn_is_given_back_though_the_write_fails(path: Path) -> None:
+    one, other = open_database(path, KEY), open_database(path, KEY, wait_ms=50)
+    with pytest.raises(ValueError, match="no"), one:
+        raise ValueError("no")
+    with other:
+        other.execute("INSERT INTO local_counters VALUES ('a', 1)")
+    one.close()
+    other.close()

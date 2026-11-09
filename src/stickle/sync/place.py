@@ -24,10 +24,5 @@ class Place:
 @contextmanager
 def writing(connection: apsw.Connection) -> Generator[None]:
     """One transaction that writes, begun as one: no other may write in between."""
-    connection.execute("BEGIN IMMEDIATE")
-    try:
+    with connection:
         yield
-    except BaseException:
-        connection.execute("ROLLBACK")
-        raise
-    connection.execute("COMMIT")
