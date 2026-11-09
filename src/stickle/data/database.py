@@ -8,19 +8,62 @@ random 256-bit key adds no security but would slow down every start.
 """
 
 from pathlib import Path
+from types import TracebackType
+from typing import Any, override
 
 import apsw
 
 KEY_BYTES = 32
+WAIT_MS = 3_000  # for another connection's write to end, before a write gives up
 
 
 class WrongKeyError(Exception):
     """The file is not a database encrypted with this key (or is damaged)."""
 
 
-def open_database(path: Path, key: bytes, read_only: bool = False) -> apsw.Connection:
+class _Connection(apsw.Connection):
+    """A connection whose transactions (with connection: ...) begin as ones that
+    write. Sync writes on a connection of its own: a transaction begun by reading
+    and writing later is turned down at once if that one wrote in between, however
+    long it is willing to wait. Begun as one that writes, it waits its turn."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._begun: list[bool] = []
+
+    @override
+    def __enter__(self) -> apsw.Connection:
+        begins = not self.in_transaction
+        if begins:
+            self.execute("BEGIN IMMEDIATE")
+        self._begun.append(begins)
+        return super().__enter__()
+
+    @override
+    def __exit__(
+        self,
+        etype: type[BaseException] | None,
+        evalue: BaseException | None,
+        etraceback: TracebackType | None,
+    ) -> bool:
+        begun = self._begun.pop()
+        try:
+            answer = super().__exit__(etype, evalue, etraceback)
+        except BaseException:
+            if begun:
+                self.execute("ROLLBACK")
+            raise
+        if begun:
+            self.execute("COMMIT" if etype is None else "ROLLBACK")
+        return answer
+
+
+def open_database(
+    path: Path, key: bytes, read_only: bool = False, wait_ms: int = WAIT_MS
+) -> apsw.Connection:
     """Open (or create) the database. read_only: look without changing the file
-    at all, not even its journal mode (for backups)."""
+    at all, not even its journal mode (for backups). wait_ms: how long a write
+    waits for another connection's to end."""
     if len(key) != KEY_BYTES:
         raise ValueError(f"key must be {KEY_BYTES} bytes")
     flags = (
@@ -28,7 +71,8 @@ def open_database(path: Path, key: bytes, read_only: bool = False) -> apsw.Conne
         if read_only
         else apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE
     )
-    connection = apsw.Connection(str(path), flags=flags)
+    connection = (apsw.Connection if read_only else _Connection)(str(path), flags=flags)
+    connection.set_busy_timeout(wait_ms)
     try:
         connection.pragma("cipher", "chacha20")
         connection.pragma("kdf_iter", 1)
