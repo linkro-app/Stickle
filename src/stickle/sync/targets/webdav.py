@@ -1,7 +1,9 @@
 """A WebDAV server to sync with (stickle.sync.targets.base).
 
 The Stickle folder is right under the address the user gave. Its folders are
-made when a write finds them missing.
+made before the first write into them, never after: a write into a folder that
+is not there leaves some servers (a Synology NAS, for one) failing about half
+of the other writes for minutes.
 
 A server may keep a condition or not, and telling which would take leaving a
 file of ours on it to try. So conditions are always sent and never counted on:
@@ -317,6 +319,7 @@ class WebDav:
         self._no_longer_trusted = no_longer_trusted
         self._keeps_conditions = keeps_conditions
         self._kept: http.client.HTTPConnection | None = None
+        self._folders: set[str] = set()  # known to be there
 
     @property
     def keeps_conditions(self) -> bool:
@@ -363,8 +366,10 @@ class WebDav:
     def put(self, path: str, data: bytes, condition: Condition) -> str | None:
         url = self._url(path)
         headers = self._condition(condition)
+        self._make_folders(path)
         answer = self._ask("PUT", url, data, headers)
-        if answer.status in _NO_FOLDER:
+        if answer.status in _NO_FOLDER:  # removed since they were made
+            self._folders.clear()
             self._make_folders(path)
             answer = self._ask("PUT", url, data, headers)
         if answer.status not in _WRITTEN:
@@ -400,15 +405,18 @@ class WebDav:
                 return {} if sent is None else {"If-Match": sent}
 
     def _make_folders(self, path: str) -> None:
-        """The Stickle folder, and path's folder in it. The address itself is the
-        user's: if that is not there, nothing is made of it."""
+        """The Stickle folder, and path's folder in it, once each. The address
+        itself is the user's: if that is not there, nothing is made of it."""
         folder = path.rpartition("/")[0]
         for each in ("", folder) if folder else ("",):
+            if each in self._folders:
+                continue
             answer = self._ask("MKCOL", f"{self._url(each)}/")
             if answer.status == _PARENT_MISSING:
                 raise UnavailableError()
             if answer.status not in _FOLDER_THERE:
                 raise _error(answer)
+            self._folders.add(each)
 
     def _ask(
         self,

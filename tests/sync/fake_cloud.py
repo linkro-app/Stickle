@@ -64,6 +64,7 @@ class Kind:
     half_while_written: bool = False  # read right after a write: half of it, once
     # Written as read, a file deleted since is made again (wsgidav), not refused.
     makes_gone_as_read: bool = False
+    tells_tag_of_write: bool = True  # a write's answer gives the file's new tag
 
 
 DROPBOX = Kind("dropbox", "rev", same_content_new_tag=False, follows=True, waits=True)
@@ -74,7 +75,18 @@ WEBDAV_NO_TAGS = Kind("webdav-no-tags", "none", keeps_conditions=False)
 WEBDAV_WEAK = Kind("webdav-weak", "weak")  # Apache, a file written within the second
 WEBDAV_IGNORING = Kind("webdav-ignoring", "strong", keeps_conditions=False)
 WEBDAV_HALF = Kind("webdav-half", "strong", half_while_written=True)
-KINDS = (DROPBOX, ONEDRIVE, WEBDAV, WEBDAV_NO_TAGS, WEBDAV_WEAK, WEBDAV_IGNORING, WEBDAV_HALF)
+# As a Synology NAS answers (test_real_server checks it does).
+SYNOLOGY = Kind("synology", "weak", tells_tag_of_write=False)
+KINDS = (
+    DROPBOX,
+    ONEDRIVE,
+    WEBDAV,
+    WEBDAV_NO_TAGS,
+    WEBDAV_WEAK,
+    WEBDAV_IGNORING,
+    WEBDAV_HALF,
+    SYNOLOGY,
+)
 
 
 class Trouble(Enum):
@@ -336,7 +348,8 @@ class FakeCloud:
         if self.full:
             raise FullError()
         self._check(path, condition)
-        return self._tag_of(self._write(path, data, late=trouble is Trouble.LATE))
+        written = self._write(path, data, late=trouble is Trouble.LATE)
+        return self._tag_of(written) if self.kind.tells_tag_of_write else None
 
     def deleting(self, path: str, condition: AsRead) -> None:
         if path not in self._files:

@@ -10,11 +10,13 @@ Sync cannot count on a condition there either; its tests meet that on the fake
 WebDAV, which does the same."""
 
 import os
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from fake_cloud import KINDS, FakeCloud, Kind
+from real_server import account_given, folder_of_its_own
 from webdav_server import HOST, webdav
 
 from stickle.sync.targets.base import (
@@ -37,7 +39,14 @@ NOTE = "notes/0f8e6f3c-1d9b-4a63-9c38-3b2a4f2f7d10.json"
 WSGIDAV = Kind("wsgidav", "seconds")
 
 
-@pytest.fixture(params=[*KINDS, WSGIDAV], ids=lambda kind: kind.name)
+# The real server of whoever runs this, told it keeps conditions likewise.
+REAL_SERVER = Kind("real-server", "weak")
+
+
+@pytest.fixture(
+    params=[*KINDS, WSGIDAV, *([REAL_SERVER] if account_given() else [])],
+    ids=lambda kind: kind.name,
+)
 def kind(request: pytest.FixtureRequest) -> Kind:
     return request.param
 
@@ -49,6 +58,10 @@ def cloud(kind: Kind) -> FakeCloud:
 
 @pytest.fixture
 def target(kind: Kind, cloud: FakeCloud, tmp_path: Path) -> Iterator[Target]:
+    if kind is REAL_SERVER:
+        with folder_of_its_own(keeps_conditions=True) as real:
+            yield real
+        return
     if kind is not WSGIDAV:
         yield cloud.target("laptop")
         return
@@ -69,6 +82,7 @@ def settled(target: Target, path: str) -> Read:
         read = target.get(path)
         if read.tag is None or not read.tag.startswith("W/"):
             return read
+        time.sleep(0.1)  # for a real server: its second has to pass
     raise AssertionError(f"{path} kept a weak tag")
 
 

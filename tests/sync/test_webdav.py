@@ -372,7 +372,7 @@ def test_a_wrong_password_is_asked_once_and_never_again(share: Path) -> None:
         assert len(server.asked) == 1
         with pytest.raises(SignInNeededError):
             target.put(NOTE, b"text", Absent())
-        assert len(server.asked) == 2  # the put, and no folders made after it
+        assert len(server.asked) == 2  # the first folder asked for, and nothing after it
         target.close()
 
 
@@ -429,14 +429,23 @@ def test_the_stickle_folder_is_made_under_the_address_when_first_written(share: 
     assert (share / "share" / "Stickle" / "vault.json").read_bytes() == b"{}"
 
 
-def test_folders_are_made_only_when_a_write_finds_them_missing(share: Path) -> None:
+def test_folders_are_made_once_each_before_the_first_write_into_them(share: Path) -> None:
     with webdav(share, PASSWORD) as server:
         target = WebDav(plain(server), "stickle", PASSWORD)
         target.put("notes/a.json", b"1", Absent())
-        made = [each.method for each in server.asked].count("MKCOL")
         target.put("notes/b.json", b"2", Absent())
-        assert [each.method for each in server.asked].count("MKCOL") == made == 2
+        target.put("records/c.json", b"3", Absent())
+        target.put("vault.json", b"4", Absent())
         target.close()
+        assert [each.method for each in server.asked] == [
+            "MKCOL",  # the Stickle folder
+            "MKCOL",  # notes
+            "PUT",
+            "PUT",
+            "MKCOL",  # records
+            "PUT",
+            "PUT",
+        ]
 
 
 def test_the_users_own_folder_is_not_made_for_them(share: Path) -> None:
@@ -662,17 +671,11 @@ def test_too_many_requests_waits_as_asked(
     target.close()
 
 
-def test_a_write_into_a_missing_folder_makes_it_once(scripted: Scripted) -> None:
-    scripted.answers += [
-        (409, {}, b""),
-        (201, {}, b""),
-        (405, {}, b""),
-        (201, {"ETag": '"new"'}, b""),
-    ]
+def test_no_write_goes_into_a_folder_before_it_is_made(scripted: Scripted) -> None:
+    scripted.answers += [(201, {}, b""), (405, {}, b""), (201, {"ETag": '"new"'}, b"")]
     target = to(scripted)
     assert target.put(NOTE, b"text", Absent()) == '"new"'
     assert scripted.requests == [
-        ("PUT", f"/share/Stickle/{NOTE}"),
         ("MKCOL", "/share/Stickle/"),
         ("MKCOL", "/share/Stickle/notes/"),
         ("PUT", f"/share/Stickle/{NOTE}"),
@@ -680,17 +683,34 @@ def test_a_write_into_a_missing_folder_makes_it_once(scripted: Scripted) -> None
     target.close()
 
 
+def test_folders_removed_since_are_made_again(scripted: Scripted) -> None:
+    made: tuple[int, dict[str, str], bytes] = (201, {}, b"")
+    scripted.answers += [made, made, (409, {}, b""), made, made, (201, {"ETag": '"new"'}, b"")]
+    target = to(scripted)
+    assert target.put(NOTE, b"text", Absent()) == '"new"'
+    assert [method for method, _path in scripted.requests] == [
+        "MKCOL",
+        "MKCOL",
+        "PUT",
+        "MKCOL",
+        "MKCOL",
+        "PUT",
+    ]
+    target.close()
+
+
 def test_a_write_still_refused_after_the_folders_are_made_is_refused(scripted: Scripted) -> None:
-    scripted.answers += [(409, {}, b""), (405, {}, b""), (405, {}, b""), (409, {}, b"")]
+    there: tuple[int, dict[str, str], bytes] = (405, {}, b"")
+    scripted.answers += [there, there, (409, {}, b""), there, there, (409, {}, b"")]
     target = to(scripted)
     with pytest.raises(RefusedError):
         target.put(NOTE, b"text", Absent())
-    assert len(scripted.requests) == 4
+    assert len(scripted.requests) == 6
     target.close()
 
 
 def test_a_write_with_no_tag_answered_says_none(scripted: Scripted) -> None:
-    scripted.answers.append((204, {}, b""))
+    scripted.answers += [(201, {}, b""), (201, {}, b""), (204, {}, b"")]
     target = to(scripted)
     assert target.put(NOTE, b"text", AsRead('"read"')) is None
     target.close()
@@ -880,7 +900,8 @@ def test_the_condition_is_sent_as_the_tag_was_read(scripted: Scripted) -> None:
     target.put(NOTE, b"x", AsRead("bare"))
     target.delete(NOTE, AsRead('"read"'))
     target.delete(NOTE, AsRead(None))
-    assert scripted.conditions == [
+    asked = zip(scripted.requests, scripted.conditions, strict=True)
+    assert [condition for (method, _path), condition in asked if method != "MKCOL"] == [
         ('W/"read"', None),
         (None, "*"),
         (None, None),

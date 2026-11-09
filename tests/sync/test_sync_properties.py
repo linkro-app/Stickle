@@ -22,6 +22,7 @@ import pytest
 from fake_cloud import (
     DROPBOX,
     ONEDRIVE,
+    SYNOLOGY,
     WEBDAV_HALF,
     WEBDAV_IGNORING,
     WEBDAV_NO_TAGS,
@@ -67,7 +68,7 @@ DAMAGED = b'{"alg":1,"format":1,"id":"x","box":"not a box at all"}'
 # read): a WebDAV server whose tags are made of the second and the size can
 # give two writes one tag, and a device that listed the first misses the
 # second until the device files tell it what changed.
-KINDS = (DROPBOX, ONEDRIVE, WEBDAV_NO_TAGS, WEBDAV_WEAK, WEBDAV_IGNORING, WEBDAV_HALF)
+KINDS = (DROPBOX, ONEDRIVE, WEBDAV_NO_TAGS, WEBDAV_WEAK, WEBDAV_IGNORING, WEBDAV_HALF, SYNOLOGY)
 WELCOME = "# 환영 메모 표식-welcome"  # taken for the app's welcome note, as it wrote it
 POOL = ("같은 글 표식-pool", "Same text marker-pool")  # written on two devices alike, now and then
 
