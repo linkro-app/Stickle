@@ -537,10 +537,24 @@ CREATE TABLE sync_held (
 ALTER TABLE sync_vaults ADD COLUMN joining INTEGER NOT NULL DEFAULT 0;
 """
 
+V21 = """
+-- How this device reaches the cloud it syncs with, and that vault's data keys.
+-- This device's alone: not synced, and never in an export.
+CREATE TABLE sync_connection (
+    vault TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    address TEXT NOT NULL,
+    user TEXT NOT NULL,
+    secret TEXT NOT NULL,
+    certificate BLOB,
+    keys TEXT NOT NULL
+) WITHOUT ROWID;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20),
+    *(V17, V18, V19, V20, V21),
 ]
 BACKUPS_KEPT = 3
 

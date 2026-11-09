@@ -103,11 +103,12 @@ def webdav(
     own: tuple[bytes, bytes] | None = None,
     name: str = HOST,
     not_after: datetime.datetime | None = None,
+    user: str = "stickle",
 ) -> Generator[Server]:
-    """Serving root while in the with block. password: for the user "stickle"
-    (None: no sign-in at all). ca: over TLS, with a certificate it issued, for
-    name, until not_after. own: over TLS, with this certificate and key (PEM)."""
-    users: object = True if password is None else {"stickle": {"password": password}}
+    """Serving root while in the with block. password: for user (None: no
+    sign-in at all). ca: over TLS, with a certificate it issued, for name, until
+    not_after. own: over TLS, with this certificate and key (PEM)."""
+    users: object = True if password is None else {user: {"password": password}}
     app = WsgiDAVApp(
         {
             "provider_mapping": {"/": str(root)},

@@ -80,7 +80,8 @@ def test_the_json_holds_every_table_of_the_users_data(
     document = exported(export_all(connection, tmp_path, "0.5.0", clock=lambda: NOW).folder)
 
     data = tables_of(document)
-    assert set(data) == {t for t in tables if not t.startswith(("notes_fts", "sqlite_"))}
+    left_out = {"sync_connection"}  # how this device signs in: never exported
+    assert set(data) == {t for t in tables if not t.startswith(("notes_fts", "sqlite_"))} - left_out
     assert {"notes", "note_layouts", "categories", "marks", "note_marks"} <= set(data)
     assert document["schema_version"] == latest_version()
     assert document["app_version"] == "0.5.0"

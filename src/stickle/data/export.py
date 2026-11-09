@@ -165,9 +165,10 @@ JSON_NAME = "stickle-export.json"
 TRASH_FOLDER = "trash"
 
 
-def _derived(table: str) -> bool:
-    """Tables rebuilt from others (the search index and its parts) or SQLite's own."""
-    return table.startswith(("notes_fts", "sqlite_"))
+def _left_out(table: str) -> bool:
+    """Tables rebuilt from others (the search index and its parts), SQLite's own,
+    and how this device signs in to its cloud (never leaves it)."""
+    return table.startswith(("notes_fts", "sqlite_")) or table == "sync_connection"
 
 
 def _value(value: object) -> object:
@@ -185,7 +186,7 @@ def _tables(connection: apsw.Connection) -> dict[str, list[dict[str, object]]]:
     ]
     tables: dict[str, list[dict[str, object]]] = {}
     for name in names:
-        if _derived(name):
+        if _left_out(name):
             continue
         # The names come from the schema itself, not from outside.
         columns = [str(row[1]) for row in connection.execute(f'PRAGMA table_info("{name}")')]
