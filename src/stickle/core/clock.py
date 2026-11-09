@@ -3,6 +3,8 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+from stickle.core.hlc import wall_millis
+
 type Clock = Callable[[], str]
 
 
@@ -28,3 +30,22 @@ def moment_of(stamp: str) -> datetime:
 def stamp_of(moment: datetime) -> str:
     """A moment (in any time zone) as a timestamp."""
     return _format(moment.astimezone(UTC))
+
+
+def stamp_at(millis: int) -> str:
+    """A time in milliseconds since 1970 as a timestamp."""
+    return _format(datetime.fromtimestamp(millis / 1000, UTC))
+
+
+class Clocks:
+    """The time a run stamps what it stores with: this computer's, or, while it
+    syncs, the cloud's (stickle.core.cloud_time)."""
+
+    def __init__(self) -> None:
+        self.cloud: Callable[[], int] | None = None
+
+    def stamp(self) -> str:
+        return utc_now() if self.cloud is None else stamp_at(self.cloud())
+
+    def millis(self) -> int:
+        return wall_millis() if self.cloud is None else self.cloud()

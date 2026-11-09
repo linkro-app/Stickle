@@ -149,6 +149,11 @@ class Runner[T: Turn]:
             self._told.notify_all()
 
     @property
+    def running(self) -> bool:
+        """Whether the thread is still at it."""
+        return self._thread.is_alive()
+
+    @property
     def over(self) -> bool:
         """Whether the time it was given to end is up: no more requests."""
         return self._over_at is not None and self._clock() >= self._over_at

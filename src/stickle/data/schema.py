@@ -563,10 +563,15 @@ CREATE TABLE sync_untold (
 ALTER TABLE sync_devices ADD COLUMN taken INTEGER NOT NULL DEFAULT 0;
 """
 
+V23 = """
+-- Why sync with that cloud stopped until the user does something, if it did.
+ALTER TABLE sync_connection ADD COLUMN stopped TEXT;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20, V21, V22),
+    *(V17, V18, V19, V20, V21, V22, V23),
 ]
 BACKUPS_KEPT = 3
 

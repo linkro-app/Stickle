@@ -6,8 +6,9 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import apsw
 from PySide6.QtCore import (
@@ -47,11 +48,12 @@ from stickle.app.stickle_window import StickleWindow
 from stickle.app.tray import Tray
 from stickle.app.update_check import UpdateCheck
 from stickle.app.whats_new import give_news
-from stickle.core.clock import Clock, utc_now
+from stickle.core.clock import Clock, Clocks, utc_now
 from stickle.core.layout import Place, Rect, place_of
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import WrongRecoveryKeyError
 from stickle.crypto.secret_notes import NotKeptForRecoveryKeyError, seal_text
+from stickle.data import sync_connection
 from stickle.data.backups import (
     backups,
     cancel_restore,
@@ -104,6 +106,9 @@ from stickle.platform.power import watch_sleep
 from stickle.platform.session import watch_session
 from stickle.platform.updates import updated_by_its_store
 from stickle.unlock import Unlock
+
+if TYPE_CHECKING:
+    from stickle.app.syncing import Syncing
 
 APP_ID = "co.linkro.stickle"
 
@@ -177,8 +182,10 @@ def data_access(
     quit_app: Callable[[], object],
     secret_key_copies: Callable[[], dict[str, object] | None] = lambda: None,
     recovery_pair: Callable[[], dict[str, object] | None] = lambda: None,
+    clocks: Clocks | None = None,
 ) -> DataAccess:
     """What the Data menu does with the notes database."""
+    clocks = clocks or Clocks()
 
     def export(folder: Path, secret: SecretExport) -> ExportResult:
         manager.save_all()  # what is being typed goes out too
@@ -210,7 +217,15 @@ def data_access(
 
     def bring(source: Source, result: ImportResult, line: str | None) -> BroughtIn:
         manager.save_all()
-        brought = bring_in(source.name, result, connection, place_for, source_line=line)
+        brought = bring_in(
+            source.name,
+            result,
+            connection,
+            place_for,
+            clocks.stamp,
+            source_line=line,
+            millis=clocks.millis,
+        )
         manager.open_brought_in(brought.note_ids)
         return brought
 
@@ -223,7 +238,9 @@ def data_access(
         export: StickleExport, old_key: bytes | None, new_key: bytes | None
     ) -> BroughtExport:
         manager.save_all()
-        brought = bring_in_export(export, connection, old_key, new_key)
+        brought = bring_in_export(
+            export, connection, old_key, new_key, clocks.stamp, millis=clocks.millis
+        )
         manager.open_brought_in(brought.note_ids)
         manager.own_colors_changed.emit()  # its own colours may have come too
         if manager.reminders is not None:
@@ -360,6 +377,21 @@ def answer_request(asked: bytes, manager: NoteManager, window: StickleWindow) ->
 
 def fits_any(_key: bytes) -> bool:
     return True
+
+
+def login_here(connection: apsw.Connection) -> sync_connection.Login | None:
+    """How this device syncs, if it does. Whatever is wrong with what is kept of
+    it, the notes still open."""
+    try:
+        return sync_connection.current(connection)
+    except (apsw.Error, ValueError, KeyError, TypeError) as error:
+        log.error("sync is not started: %s", type(error).__name__)
+        return None
+
+
+def sync_lines(syncing: Syncing | None) -> Sequence[str]:
+    """What a report of a problem says of sync: nothing if this device does not sync."""
+    return () if syncing is None else syncing.feedback_lines()
 
 
 def kept_recovery_key(unlock: Unlock, settings: Settings) -> KeptRecoveryKey:
@@ -716,6 +748,9 @@ def run(
 
     watcher = SignalWatcher(on_signal)
     connection = None
+    syncing: Syncing | None = None
+    session_ending = False  # saved, and may not go on for long
+    clocks = Clocks()  # the cloud's time once it is known, if this device syncs
     try:
         ensure_korean_font()  # the alarm clock's font only once one is drawn (fonts)
         mark("fonts")
@@ -731,13 +766,19 @@ def run(
             if connection is None:
                 return 0
             mark("notes-database")
+        login = login_here(connection) if connection is not None and perf is None else None
+        cloud = None
+        if login is not None and connection is not None:
+            from stickle.app.syncing import cloud_time  # only with sync on
+
+            cloud = cloud_time(connection, clocks)
 
         manager = NoteManager(
-            NoteRepository(connection) if connection else None,
+            NoteRepository(connection, clocks.stamp, clocks.millis) if connection else None,
             settings=Settings(connection) if connection else None,
             layouts=LayoutRepository(connection) if connection else None,
-            labels=LabelRepository(connection) if connection else None,
-            colors=ColorRepository(connection) if connection else None,
+            labels=LabelRepository(connection, clocks.stamp, clocks.millis) if connection else None,
+            colors=ColorRepository(connection, clocks.stamp, clocks.millis) if connection else None,
             versions=VersionRepository(connection) if connection else None,
             device_names=(lambda device: device_name(connection, device))
             if connection
@@ -746,14 +787,29 @@ def run(
         manager.watch_quit(app)
         app.aboutToQuit.connect(manager.save_all)
         app.aboutToQuit.connect(take_back_secret)  # a recovery key copied, not left behind
-        manager.empty_old_trash()
+
+        def finish_syncing() -> None:
+            """Last, with everything saved; what is waiting to be put gets a few
+            seconds when the user quits, not when the system is ending the app."""
+            if syncing is not None:
+                from stickle.app.syncing import QUIT_WAIT
+
+                fast = session_ending or _ended_by_signal or _restore_staged
+                syncing.finish(0.0 if fast else QUIT_WAIT)
+
+        app.aboutToQuit.connect(finish_syncing)
+        manager.empty_old_trash(syncing=login is not None)
 
         # Logging out or shutting down: save first. No quitting yet, since another
         # program may still cancel the logout.
         def before_session_end(*_: object) -> None:
+            nonlocal session_ending
+            session_ending = True
             log.info("saving before the session ends")
             manager.save_all()
             manager.lock_secret_notes()
+            if syncing is not None:
+                syncing.hurry()  # in what time the system gives
 
         def before_sleep() -> None:
             log.info("saving before sleep")
@@ -771,13 +827,20 @@ def run(
                 log.warning("could not ask to be started again after an update")
 
             def close_for_update() -> None:
+                nonlocal session_ending
+                session_ending = True
                 log.info("closing for an update")
                 manager.save_all()
                 app.quit()
 
             close_filter = CloseForUpdate(close_for_update)
             app.installNativeEventFilter(close_filter)
-        sleep_watch = watch_sleep(before_sleep)
+
+        def after_wake() -> None:
+            if syncing is not None:
+                syncing.woke()
+
+        sleep_watch = watch_sleep(before_sleep, after_wake)
         log.info("sleep %s", "watched" if sleep_watch is not None else "not watched")
         unlock_watch: object | None = None
         tray_available = QSystemTrayIcon.isSystemTrayAvailable()
@@ -805,7 +868,9 @@ def run(
         # Before any note opens: each shows its reminder (not when measuring).
         reminders = (
             ReminderKeeper(
-                ReminderRepository(connection, device=Settings(connection).device_id()),
+                ReminderRepository(
+                    connection, device=Settings(connection).device_id(), millis=clocks.millis
+                ),
                 manager,
                 Settings(connection),
                 notify=notifier(tray, tray_available),
@@ -847,6 +912,7 @@ def run(
                 app.quit,
                 unlock.secret_key_copies,
                 unlock.recovery_pair,
+                clocks,
             )
         master = master_passwords(unlock, changes)
         # Before any note opens: each offers to become a secret note.
@@ -868,8 +934,21 @@ def run(
             master=master,
             changes=changes,
             full_screen=full_screen,
+            sync_lines=lambda: sync_lines(syncing),
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
+        if (
+            login is not None
+            and cloud is not None
+            and connection is not None
+            and unlock is not None
+        ):
+            from stickle.app.syncing import Syncing as SyncRun
+
+            assert unlock.opened_key is not None
+            syncing = SyncRun(
+                connection, unlock.database, unlock.opened_key, login, cloud, manager, reminders
+            )
         # Kept here, as the Stickle window is: a window of its own, with no parent.
         missed_window = (
             connect_missed(reminders, stickle_window, tray) if reminders is not None else None
@@ -891,7 +970,7 @@ def run(
                 key = opened.opened_key
                 assert key is not None
                 welcome(
-                    NoteRepository(connection),
+                    NoteRepository(connection, clocks.stamp, clocks.millis),
                     Settings(connection),
                     kept_recovery_key(opened, Settings(connection)),
                     lambda: opened.make_recovery_key(key),
@@ -903,7 +982,11 @@ def run(
                     later_allowed=not opened.uses_password,
                 )
             if connection is not None:
-                give_news(NoteRepository(connection), Settings(connection), first_start)
+                give_news(
+                    NoteRepository(connection, clocks.stamp, clocks.millis),
+                    Settings(connection),
+                    first_start,
+                )
             open_at_start(manager, stickle_window, tray_available, at_login)
             if reminders is not None:
                 reminders.start()
@@ -955,7 +1038,7 @@ def run(
                 # Once the notes are up: the first run of this AppImage.
                 QTimer.singleShot(0, lambda: offer_app_list(entry, settings))
             if recovery is not None and connection is not None:
-                repository = NoteRepository(connection)
+                repository = NoteRepository(connection, clocks.stamp, clocks.millis)
                 # The user's own setting up, as at the first start: not noted.
                 assert unlock is not None and unlock.opened_key is not None
                 opened_key, offering = unlock.opened_key, unlock
@@ -987,6 +1070,8 @@ def run(
             daily_backups.start()
         if updates is not None:
             updates.start()
+        if syncing is not None:
+            syncing.start()
         try:
             return app.exec()
         finally:

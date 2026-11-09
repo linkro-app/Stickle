@@ -231,6 +231,43 @@ class ReminderKeeper(QObject):
             reason = self._reasons.get(window.note_id, "")
             window.ring(list(ringing.values())[-1][0], self.snooze_minutes, reason)
 
+    # Those sync brought
+
+    def use_device(self, device: str) -> None:
+        """This device goes by another id from now on (stickle.sync.devices)."""
+        self._repository.use_device(device)
+
+    def take_in(self, note_ids: Iterable[str]) -> None:
+        """Notes sync changed here: what was dealt with on another device (or
+        taken away with its note) no longer rings here, and each shows its next
+        time."""
+        now = self.now()
+        try:
+            for note_id in note_ids:
+                note = self._notes.note(note_id)
+                if note is None or note.deleted:
+                    self._quiet(note_id)
+                else:
+                    done = [
+                        reminder_id
+                        for reminder_id in self._ringing.get(note_id, {})
+                        if not self._still_due(reminder_id, now)
+                    ]
+                    if done:
+                        self._quiet(note_id, done)
+                window = self._notes.window_for(note_id)
+                if window is not None:
+                    self._show_next(window)
+        except apsw.Error as error:
+            log.error("could not follow reminders sync brought: %s", type(error).__name__)
+        self.changed.emit()
+        self.check()
+
+    def _still_due(self, reminder_id: str, now: datetime) -> bool:
+        reminder = self._repository.get(reminder_id)
+        at = reminder.rings_at(self.here) if reminder is not None else None
+        return at is not None and at <= now
+
     # Those written in the text
 
     def text_saved(self, note_id: str, text: str) -> None:

@@ -158,6 +158,16 @@ def _color_or_none(value: object) -> TypeGuard[str | None]:
 RANDOM_COLOR = Setting[bool]("random_color", "shared", False, _flag)
 LAST_USED_COLOR = Setting[str | None]("last_used_color", "shared", None, _color_or_none)
 
+# How often to look for what other devices changed (seconds).
+SYNC_EVERY_CHOICES = (30, 60, 5 * 60, 15 * 60, 30 * 60, 60 * 60)
+
+
+def _sync_every(value: object) -> TypeGuard[int]:
+    return type(value) is int and value in SYNC_EVERY_CHOICES
+
+
+SYNC_EVERY = Setting[int]("sync_every", "device", 5 * 60, _sync_every)
+
 # An open secret note locks again once left alone this long (minutes).
 RELOCK_MINUTES = Setting[int]("relock_minutes", "shared", 5, _minutes)
 # It also locks as soon as another window is used, if chosen.

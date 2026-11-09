@@ -17,9 +17,12 @@ INTERFACE = "org.freedesktop.login1.Manager"
 
 
 class SleepWatcher(QObject):
-    def __init__(self, before_sleep: Callable[[], object]) -> None:
+    def __init__(
+        self, before_sleep: Callable[[], object], after_wake: Callable[[], object] = lambda: None
+    ) -> None:
         super().__init__()
         self._before_sleep = before_sleep
+        self._after_wake = after_wake
         bus = QDBusConnection.systemBus()
         self.connected = bus.isConnected() and bus.connect(
             SERVICE,
@@ -36,3 +39,5 @@ class SleepWatcher(QObject):
     def prepare_for_sleep(self, starting: bool) -> None:
         if starting:
             self._before_sleep()
+        else:
+            self._after_wake()

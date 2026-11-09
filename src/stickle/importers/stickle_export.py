@@ -31,6 +31,7 @@ import apsw
 
 from stickle.core.clock import Clock, utc_now
 from stickle.core.colors import DEFAULT_COLOR, PALETTE, is_hex
+from stickle.core.hlc import wall_millis
 from stickle.core.labels import BUILT_IN_MARKS, DEFAULT_ICON, LABEL_ICONS
 from stickle.crypto.recovery import open_exported_pair
 from stickle.crypto.secret_notes import (
@@ -425,6 +426,7 @@ def bring_in_export(
     new_key: bytes | None = None,
     clock: Clock = utc_now,
     on_note: Callable[[str], None] = lambda _: None,
+    millis: Callable[[], int] = wall_millis,
 ) -> BroughtExport:
     """Every note of the export not here yet, all at once or not at all.
 
@@ -432,15 +434,15 @@ def bring_in_export(
     Without both, secret notes exported encrypted are left out (to come in
     another time). on_note: told of each note brought in, by its id.
     """
-    notes = NoteRepository(connection, clock)
-    labels = LabelRepository(connection, clock)
-    records = ImportRecords(connection, clock)
+    notes = NoteRepository(connection, clock, millis)
+    labels = LabelRepository(connection, clock, millis)
+    records = ImportRecords(connection, clock, millis)
     brought = BroughtExport()
     reminders = {str(row.get("note_id")): row for row in export.reminders}
     with connection:
         categories = _categories(export, labels)
         marks = _marks(export, labels)
-        brought.colors_left = _own_colors(export, ColorRepository(connection, clock))
+        brought.colors_left = _own_colors(export, ColorRepository(connection, clock, millis))
         for note in export.notes:
             if here_already(connection, note):
                 brought.already_here += 1

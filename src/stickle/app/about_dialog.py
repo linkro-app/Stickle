@@ -6,6 +6,7 @@ else in the app asks for it. A build also links to the licenses of what it
 includes, written next to the program when it was built.
 """
 
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import override
 
@@ -43,9 +44,15 @@ def _link_label(parent: QWidget) -> LinkLabel:
 
 
 class AboutDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None, portable: bool = False) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        portable: bool = False,
+        sync_lines: Callable[[], Sequence[str]] = lambda: (),
+    ) -> None:
         super().__init__(parent)
         self._portable = portable
+        self._sync_lines = sync_lines
         # Called up from the tray, it is kept above pinned notes on its own;
         # from the Stickle window, that window keeps it there.
         self._on_top = OnTopWhileInUse(self)
@@ -154,7 +161,7 @@ class AboutDialog(QDialog):
         self.close_button.setText(self.tr("Close"))
 
     def report(self) -> None:
-        open_feedback(self._portable)
+        open_feedback(self._portable, self._sync_lines())
 
     def open_notices(self) -> None:
         """In the system's app for text files."""

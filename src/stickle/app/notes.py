@@ -45,6 +45,7 @@ from PySide6.QtCore import (
     QPropertyAnimation,
     QRect,
     QSize,
+    Qt,
     QTimer,
     Signal,
 )
@@ -253,6 +254,8 @@ class NoteManager(QObject):
     guide_requested = Signal()
     # A note's window opened, about to show (for what dresses it: reminders).
     window_opened = Signal(object)
+    # A note was left: its edit, if it was being edited, is over.
+    left_note = Signal()
 
     def __init__(
         self,
@@ -572,10 +575,10 @@ class NoteManager(QObject):
                     self._store_new(window)
                     self._edit_kept.add(window)  # its first text is this edit's
             else:
-                changed = text != self._saved_text(window)
-                first = changed and window not in self._edit_kept
-                self._repository.update_body(window.note_id, text, keep_earlier=first)
-                if changed:
+                # Not changed here: what sync took in meanwhile stays.
+                if text != self._saved_text(window):
+                    first = window not in self._edit_kept
+                    self._repository.update_body(window.note_id, text, keep_earlier=first)
                     self._edit_kept.add(window)
             self._saved[window] = text
         except (apsw.Error, OSError, NoteIsSecretError) as error:
@@ -607,6 +610,7 @@ class NoteManager(QObject):
         if autosave is not None and autosave.waiting:
             autosave.save_now()
         self._edit_kept.discard(window)
+        self.left_note.emit()
 
     def _store_new(self, window: NoteWindow) -> str:
         """Store a note for the first time, as it is now; its id."""
@@ -2084,10 +2088,69 @@ class NoteManager(QObject):
         log.info("trash emptied: %d notes", emptied)
         self.changed.emit()
 
-    def empty_old_trash(self) -> None:
+    # What sync brought
+
+    def take_in(self, note_ids: Iterable[str], records: bool = False) -> None:
+        """Notes sync changed here (records: and categories, marks or colours),
+        on screen as they are now. A note being edited is left as it is."""
+        if self._repository is None:
+            return
+        for note_id in dict.fromkeys(note_ids):
+            try:
+                self._take_in(note_id)
+            except apsw.Error as error:
+                log.error("could not show a note sync brought: %s", type(error).__name__)
+        if records:
+            self.refresh_labels()  # says changed
+            self.own_colors_changed.emit()
+        else:
+            self.changed.emit()
+        self.note_saved.emit()  # lists showing titles
+
+    def _being_edited(self, window: NoteWindow) -> bool:
+        return window.editing or window.unsaved or self._autosaves[window].waiting
+
+    def _take_in(self, note_id: str) -> None:
+        assert self._repository is not None
+        note = self._repository.get(note_id)
+        window = self.window_for(note_id)
+        if window is None:
+            if note is not None and not note.hidden and not note.deleted:
+                self._open_taken_in(note)
+            return
+        if window.secret or self._being_edited(window):
+            return  # secret notes are not synced yet
+        if note is None or note.hidden or note.deleted:
+            self._autosaves[window].stop()
+            window.release()
+            return
+        if note.body != window.text:
+            window.replace_text(note.body)
+        self._saved[window] = note.body
+        self._edit_kept.discard(window)
+        if note.color != window.color:
+            window.set_color(note.color)
+        if note.opacity != window.opacity:
+            window.set_opacity(note.opacity)
+        window.set_always_on_top(note.always_on_top)
+        if note.locked != window.locked:
+            window.set_locked(note.locked)
+        window.set_collapsed(note.collapsed)
+        self._show_labels(window, note.label, note.marks)
+
+    def _open_taken_in(self, note: Note) -> None:
+        """A note that came from elsewhere, opened without taking the keyboard
+        from whatever is being used."""
+        window = self._open(note, take_keyboard=False, in_sight=False)
+        window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self._back_in_sight(window)
+        window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
+
+    def empty_old_trash(self, syncing: bool = False) -> None:
         """At start: empty notes a year in the trash, forget old deletion records,
         put away earlier texts past their 30 days, and clear away old text a
-        note made secret may have left behind."""
+        note made secret may have left behind. syncing: those a vault knows of
+        are left to sync, which goes by the cloud's time."""
         if self._repository is None:
             return
         try:
@@ -2103,7 +2166,7 @@ class NoteManager(QObject):
                 if gone:
                     log.info("put away %d earlier texts past their days", gone)
         try:
-            emptied = self._repository.purge_expired()
+            emptied = self._repository.purge_expired(unsynced_only=syncing)
         except apsw.Error as error:
             log.error("could not empty old notes from the trash: %s", type(error).__name__)
             return

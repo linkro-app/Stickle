@@ -8,11 +8,13 @@ import apsw
 import pytest
 
 from stickle.core.layout import Place, Size
+from stickle.data import sync_state
 from stickle.data.database import KEY_BYTES
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import KEEP_DAYS, NoteNotBlankError, NoteNotDeletedError, NoteRepository
 from stickle.data.schema import open_store, search_index_is_consistent
 from stickle.data.search import search
+from stickle.data.sync_state import NoteState
 
 KEY = secrets.token_bytes(KEY_BYTES)
 
@@ -175,3 +177,37 @@ def test_notes_younger_than_a_year_stay(repo: NoteRepository, clock: Clock) -> N
 
     assert repo.purge_expired() == 0
     assert [n.id for n in repo.deleted()] == [note.id]
+
+
+def known_to_a_vault(repo_db: apsw.Connection, note_id: str) -> None:
+    sync_state.put(repo_db, "vault-1", note_id, NoteState(seen="{}"))
+
+
+def test_syncing_a_year_in_the_trash_is_left_to_sync(
+    repo: NoteRepository, clock: Clock, db: apsw.Connection
+) -> None:
+    """Sync empties what a vault knows of, by the cloud's time: not this computer's."""
+    synced = repo.create("in the vault")
+    repo.delete(synced.id)
+    known_to_a_vault(db, synced.id)
+    not_synced = repo.create("not there yet")
+    repo.delete(not_synced.id)
+
+    clock.now = "2027-01-01T09:00:01.000Z"
+    assert repo.purge_expired(unsynced_only=True) == 1
+    assert [n.id for n in repo.deleted()] == [synced.id]
+
+
+def test_syncing_its_deletion_records_are_left_to_sync_too(
+    repo: NoteRepository, clock: Clock, db: apsw.Connection
+) -> None:
+    synced = repo.create("in the vault")
+    repo.delete(synced.id)
+    known_to_a_vault(db, synced.id)
+    other = repo.create("not there")
+    repo.delete(other.id)
+    repo.empty_trash()
+
+    clock.now = "2028-01-02T09:00:01.000Z"
+    repo.purge_expired(unsynced_only=True)
+    assert [record[0] for record in repo.deletion_records()] == [synced.id]

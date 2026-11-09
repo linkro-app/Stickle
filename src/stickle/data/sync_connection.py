@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 import apsw
 
 WEBDAV = "webdav"
+_OFFSET = "cloud_offset"
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class Login:
     secret: str = field(repr=False)  # the password
     keys: Mapping[int, bytes] = field(repr=False)  # the vault's data keys, by number
     certificate: bytes | None = field(default=None, repr=False)  # the one trusted (DER)
+    stopped: str | None = None  # why sync stopped until the user does something
 
 
 def _keys_text(keys: Mapping[int, bytes]) -> str:
@@ -40,11 +42,12 @@ def _keys_of(text: str) -> dict[int, bytes]:
 def current(connection: apsw.Connection) -> Login | None:
     """This device's connection; None if it does not sync."""
     rows = connection.execute(
-        "SELECT vault, kind, address, user, secret, keys, certificate FROM sync_connection LIMIT 1"
+        "SELECT vault, kind, address, user, secret, keys, certificate, stopped"
+        " FROM sync_connection LIMIT 1"
     ).fetchall()
     if not rows:
         return None
-    vault, kind, address, user, secret, keys, certificate = rows[0]
+    vault, kind, address, user, secret, keys, certificate, stopped = rows[0]
     return Login(
         str(vault),
         str(kind),
@@ -53,6 +56,7 @@ def current(connection: apsw.Connection) -> Login | None:
         str(secret),
         _keys_of(str(keys)),
         None if certificate is None else bytes(certificate),  # pyright: ignore[reportArgumentType]
+        None if stopped is None else str(stopped),
     )
 
 
@@ -61,8 +65,9 @@ def keep(connection: apsw.Connection, login: Login) -> None:
     with connection:
         connection.execute("DELETE FROM sync_connection")
         connection.execute(
-            "INSERT INTO sync_connection (vault, kind, address, user, secret, keys, certificate)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sync_connection"
+            " (vault, kind, address, user, secret, keys, certificate, stopped)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 login.vault,
                 login.kind,
@@ -71,6 +76,7 @@ def keep(connection: apsw.Connection, login: Login) -> None:
                 login.secret,
                 _keys_text(login.keys),
                 login.certificate,
+                login.stopped,
             ),
         )
 
@@ -80,5 +86,27 @@ def no_longer_trusted(connection: apsw.Connection) -> None:
     connection.execute("UPDATE sync_connection SET certificate = NULL")
 
 
+def set_stopped(connection: apsw.Connection, why: str | None) -> None:
+    """Why sync stopped until the user does something; None: it did not."""
+    connection.execute("UPDATE sync_connection SET stopped = ?", (why,))
+
+
+def cloud_offset(connection: apsw.Connection) -> int:
+    """The cloud's clock less this computer's, in milliseconds, as last known."""
+    rows = connection.execute("SELECT value FROM local_counters WHERE key = ?", (_OFFSET,))
+    found = rows.fetchall()
+    return int(found[0][0]) if found else 0  # pyright: ignore[reportArgumentType]
+
+
+def keep_cloud_offset(connection: apsw.Connection, offset: int) -> None:
+    connection.execute(
+        "INSERT INTO local_counters (key, value) VALUES (?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (_OFFSET, offset),
+    )
+
+
 def forget(connection: apsw.Connection) -> None:
-    connection.execute("DELETE FROM sync_connection")
+    with connection:
+        connection.execute("DELETE FROM sync_connection")
+        connection.execute("DELETE FROM local_counters WHERE key = ?", (_OFFSET,))

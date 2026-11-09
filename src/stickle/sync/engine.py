@@ -303,6 +303,7 @@ def sync_vault(
     about: About | None = None,
     full: bool = True,
     accept: Callable[[], object] | None = None,
+    report: Report | None = None,
 ) -> Report:
     """One round of the whole vault: vault.json first, the vault still the one
     it was (stickle.sync.vault.confirm: VaultError, else nothing is done); this
@@ -315,7 +316,8 @@ def sync_vault(
     what else only that reads. Otherwise only what the devices said they put.
     The look stops the round for a big change (BigChangeError), records and
     notes alike; accept: what it stopped for taken in after all, after this is
-    called (to back up).
+    called (to back up). report: where what it does is noted as it goes, so
+    that what a round did before it failed is known.
 
     The device goes as the id its settings hold, if they hold one: a round that
     took a new id may have ended before its caller heard (Report.device)."""
@@ -327,19 +329,22 @@ def sync_vault(
     if about is not None:
         looked = sync_devices(connection, place, cloud_now, about, full)
         place = replace(place, device=looked.device)
-    notes_round = _Round(connection, notes or NoteRepository(connection), place, cloud_now, accept)
+    report = Report() if report is None else report
+    report.device = place.device
+    notes_round = _Round(
+        connection, notes or NoteRepository(connection), place, cloud_now, accept, report=report
+    )
     told = frozenset[str]() if looked is None else looked.told
     listing = looked is None or full or not looked.enough or notes_round.first
     notes_round.look(_items(told, NOTES), listing)
-    records = RecordRound(connection, place, cloud_now, shown=shown).run(
+    records = RecordRound(connection, place, cloud_now, shown=shown, report=report.records).run(
         told=_items(told, RECORDS), listing=listing
     )
     came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
     also = sync_state.mentioning(connection, place.vault, came)
     notes_round.full = records.full
-    report = notes_round.run(also)
+    notes_round.run(also)
     report.full = report.full or records.full
-    report.records = records
     if about is not None and looked is not None:
         if not report.left and not records.left:  # else read again next round
             with writing(connection):
@@ -357,6 +362,7 @@ class _Round:
         cloud_now: Callable[[], int],
         accept: Callable[[], object] | None = None,
         joining: bool | None = None,
+        report: Report | None = None,
     ) -> None:
         """joining: None, as the vault was joined or not (stickle.sync.engine.joined)."""
         self._db = connection
@@ -367,7 +373,7 @@ class _Round:
         self._notes = notes
         self._place = place
         self._now = cloud_now
-        self._report = Report(device=place.device)
+        self._report = Report(device=place.device) if report is None else report
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
         self._redirects = local.Redirects({}, {})
         self._leaving = Leaving(connection, place, cloud_now)

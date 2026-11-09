@@ -261,3 +261,12 @@ def test_a_target_is_closed_if_it_can_be() -> None:
     inner.close = lambda: closed.append(True)  # pyright: ignore[reportAttributeAccessIssue]
     Until(inner, lambda: False).close()
     assert closed == [True]
+
+
+def test_it_says_whether_the_thread_is_still_at_it() -> None:
+    runner = runner_of(Work())
+    assert not runner.running
+    runner.start()
+    assert runner.running
+    runner.finish()
+    assert not runner.running

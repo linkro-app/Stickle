@@ -158,6 +158,10 @@ class ReminderRepository:
         self._device = device  # this device's id, recorded when one is dealt with
         self._millis = millis
 
+    def use_device(self, device: str) -> None:
+        """This device goes by another id from now on (stickle.sync.devices)."""
+        self._device = device
+
     def _stamp(self, note_id: str, *fields: str) -> None:
         stamps.changed(self._db, note_id, fields, self._millis())
         stamps.touch(self._db, note_id)

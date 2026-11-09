@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import apsw
 
 from stickle.core.clock import Clock, utc_now
+from stickle.core.hlc import wall_millis
 from stickle.core.layout import Place, Rect, size_of
 from stickle.data.imports import ImportRecords
 from stickle.data.labels import LabelRepository
@@ -39,6 +40,7 @@ def bring_in(
     place_for: Callable[[Rect], tuple[int, Place] | None] = lambda _: None,
     clock: Clock = utc_now,
     source_line: str | None = None,
+    millis: Callable[[], int] = wall_millis,
 ) -> BroughtIn:
     """Make a note of each that has not come in before, keeping its colour,
     category (made if missing, by name), place, and hidden and locked state.
@@ -47,10 +49,10 @@ def bring_in(
     keeps the text as it came, so bringing in again still knows the note, and
     where it came from stays known even if the line is edited away.
     """
-    notes = NoteRepository(connection, clock)
-    labels = LabelRepository(connection, clock)
+    notes = NoteRepository(connection, clock, millis)
+    labels = LabelRepository(connection, clock, millis)
     layouts = LayoutRepository(connection)
-    records = ImportRecords(connection, clock)
+    records = ImportRecords(connection, clock, millis)
     brought = BroughtIn()
     with connection:  # all or nothing
         categories = {category.name.casefold(): category.id for category in labels.categories()}

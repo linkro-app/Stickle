@@ -8,7 +8,7 @@ are in a window of their own, opened from here and the tray.
 
 import itertools
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import override
 
@@ -130,6 +130,7 @@ class StickleWindow(QWidget):
         master: MasterPasswords | None = None,
         changes: ProtectionChanges | None = None,
         full_screen: FullScreenWatch | None = None,
+        sync_lines: Callable[[], Sequence[str]] = lambda: (),
     ) -> None:
         super().__init__()
         self._notes = notes
@@ -270,7 +271,7 @@ class StickleWindow(QWidget):
         self.guide.settings_requested.connect(self.open_shortcut_settings)
         # One of its own windows, above it and the pinned notes while in use: on its
         # own, the Stickle window letting go of the top was put back above it.
-        self.about = AboutDialog(self, portable=portable_folder is not None)
+        self.about = AboutDialog(self, portable=portable_folder is not None, sync_lines=sync_lines)
         self.about_button = QPushButton(self)
         self.about_button.clicked.connect(self.about.present)
         # Backups (and later exporting and importing), from a menu on one button.

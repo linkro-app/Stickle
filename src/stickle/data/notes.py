@@ -753,15 +753,23 @@ class NoteRepository:
                 self.purge(note.id)
         return len(notes)
 
-    def purge_expired(self, days: int = KEEP_DAYS) -> int:
+    def purge_expired(self, days: int = KEEP_DAYS, unsynced_only: bool = False) -> int:
         """Purge notes in the trash longer than days, and forget deletion records
-        emptied longer ago than that; how many notes were purged."""
+        emptied longer ago than that; how many notes were purged. unsynced_only:
+        not those a vault knows of, which sync empties by the cloud's time."""
         cutoff = days_before(self._clock(), days)
-        expired = self._list("deleted_at IS NOT NULL AND deleted_at < ?", "seq", (cutoff,))
+        known = "SELECT note_id FROM sync_notes"
+        where = "deleted_at IS NOT NULL AND deleted_at < ?"
+        expired = self._list(
+            f"{where} AND id NOT IN ({known})" if unsynced_only else where, "seq", (cutoff,)
+        )
+        records = "DELETE FROM deletion_records WHERE purged_at < ?"
         with self._db:
             for note in expired:
                 self.purge(note.id)
-            self._db.execute("DELETE FROM deletion_records WHERE purged_at < ?", (cutoff,))
+            self._db.execute(
+                f"{records} AND note_id NOT IN ({known})" if unsynced_only else records, (cutoff,)
+            )
         return len(expired)
 
     def forget_deletion(self, note_id: str) -> None:

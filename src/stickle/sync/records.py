@@ -122,14 +122,16 @@ class RecordRound:
         cloud_now: Callable[[], int],
         clock: Clock = utc_now,
         shown: local_records.Shown = local_records.own_name,
+        report: RecordReport | None = None,
     ) -> None:
-        """shown: the name a mark shows here (a built-in one's, in this language)."""
+        """shown: the name a mark shows here (a built-in one's, in this language);
+        report: where what it does is noted as it goes."""
         self._db = connection
         self._place = place
         self._now = cloud_now
         self._clock = clock
         self._shown = shown
-        self._report = RecordReport()
+        self._report = RecordReport() if report is None else report
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
         self._leaving = Leaving(connection, place, cloud_now)
         self._copies: dict[str, list[_Copy]] = {}
