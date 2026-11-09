@@ -12,7 +12,7 @@ from typing import cast
 
 import apsw
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QLocale, QObject, Signal
 from PySide6.QtWidgets import QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
 from real_server import account, account_given, folder_of_its_own
@@ -773,7 +773,7 @@ def test_the_last_step_says_how_far_the_notes_have_got(at_last: Bench) -> None:
     assert not window.next_button.isVisible() and not window.back_button.isVisible()
     assert window.cancel_button.text() == "Close"
     at_last.syncing.moving.emit(PUTTING, 340, 1000)
-    assert "340 of 1,000" in window.last_line.text()
+    assert f"340 of {QLocale().toString(1000)}." in window.last_line.text()
     at_last.syncing.moving.emit(GETTING, 1, 2)
     assert "Downloading your notes · 1 of 2" in window.last_line.text()
 
