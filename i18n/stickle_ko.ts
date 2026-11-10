@@ -2365,6 +2365,14 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         </translation>
     </message>
     <message>
+        <source>Changes from another computer show up when you finish editing.</source>
+        <translation>다른 PC에서 고친 내용은 편집을 마치면 보입니다.</translation>
+    </message>
+    <message>
+        <source>If you changed it here too, both are kept.</source>
+        <translation>여기서도 고쳤으면 두 글을 모두 남깁니다.</translation>
+    </message>
+    <message>
         <source>Reminder…</source>
         <translation>알림…</translation>
     </message>

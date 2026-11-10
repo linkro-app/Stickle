@@ -317,16 +317,57 @@ def test_a_window_being_edited_is_left_as_it_is(pc: Pc) -> None:
 
 
 def test_leaving_a_window_untouched_keeps_what_came(pc: Pc) -> None:
-    """Being open for editing while a change came is no edit to save over it."""
+    """Being open for editing while a change came is no edit to save over it:
+    what came waits for the edit to end, then shows."""
     note_id = note_of_both(pc)
     window = pc.window_of(note_id)
     assert window is not None
     window.edit()
     pc.other.notes.update_body(note_id, "changed there")
     pc.other_syncs()
-    pc.round()
+    assert pc.round().report.held == [note_id]
     pc.manager.save(window)
+    assert pc.notes.get(note_id).body == "first"  # pyright: ignore[reportOptionalMemberAccess]
+    assert window.held
+
+    with pc.qtbot.waitSignal(pc.syncing.round_shown, timeout=ROUND_MS):
+        window.show_formatted()  # the edit is over: a round at once
+    assert window.text == "changed there" and not window.held
     assert pc.notes.get(note_id).body == "changed there"  # pyright: ignore[reportOptionalMemberAccess]
+
+
+def test_typed_while_a_change_waited_both_texts_are_kept(pc: Pc) -> None:
+    note_id = note_of_both(pc)
+    window = pc.window_of(note_id)
+    assert window is not None
+    pc.other.notes.update_body(note_id, "changed there")
+    pc.other_syncs()
+    window.edit()
+    window.editor.setPlainText("typed here")
+    pc.manager.save(window)
+    assert pc.round().report.held == [note_id]
+    assert window.text == "typed here"
+
+    with pc.qtbot.waitSignal(pc.syncing.round_shown, timeout=ROUND_MS):
+        window.show_formatted()
+
+    texts = {note.body for note in pc.notes.all()}
+    assert texts == {"typed here", "changed there"}  # the later in the note, a copy beside it
+    assert pc.notes.get(note_id).body == "typed here"  # pyright: ignore[reportOptionalMemberAccess]
+    copies = [each for each in pc.manager.windows if each.copy is not None]
+    assert len(copies) == 1 and copies[0].text == "changed there"
+
+
+def test_what_is_typed_goes_up_while_nothing_came(pc: Pc) -> None:
+    note_id = note_of_both(pc)
+    window = pc.window_of(note_id)
+    assert window is not None
+    window.edit()
+    window.editor.setPlainText("typed here")
+    pc.manager.save(window)
+    ended = pc.round()
+    assert ended.report.held == [] and ended.report.put == [note_id]
+    assert window.editing
 
 
 def test_a_window_with_something_to_save_is_left_as_it_is(pc: Pc) -> None:

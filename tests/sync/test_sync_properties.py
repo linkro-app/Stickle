@@ -7,7 +7,9 @@ notes of their own joining the vault: once every device has synced, they all
 have the notes the model says, and nothing written is lost (sync_bed.Model).
 They make categories and marks of the same few names apart, colours alike,
 set reminders and deal with them, bring in notes: once synced, they have the
-same records, one of each name (sync_bed.records_agree).
+same records, one of each name (sync_bed.records_agree). Their users edit notes
+on screen for a while: no round changes the text being typed, and once the
+edits are over, nothing written is lost either.
 
 STICKLE_SYNC_EXAMPLES runs more of them (the default is what a commit can wait for).
 """
@@ -130,6 +132,32 @@ class Bed:
         self.made = 0
         self.full_looks = True  # False: never (no round makes up for one not told)
         self.done: list[str] = []  # what was done, for a test that failed
+        self.typing: dict[str, set[str]] = {}  # by device: the notes its user is editing
+
+    def typed_on(self, device: Device) -> dict[str, str | None]:
+        """The texts of the notes the device's user is editing, as they are."""
+        found: dict[str, str | None] = {}
+        for note_id in sorted(self.typing.get(device.name, set())):
+            note = device.notes.get(note_id)
+            found[note_id] = None if note is None else note.body
+        return found
+
+    def begin_typing(self, device: Device, note_id: str) -> None:
+        self.typing.setdefault(device.name, set()).add(note_id)
+        device.editing.begin(note_id)
+
+    def end_typing(self, device: Device, note_id: str | None = None) -> None:
+        """The edit of the note ends (None: of every note)."""
+        typing = self.typing.setdefault(device.name, set())
+        for each in sorted(typing) if note_id is None else [note_id]:
+            if each in typing:
+                typing.discard(each)
+                device.editing.end(each)
+
+    def ended(self, device: Device) -> None:
+        """The app ended in the middle of a request: its edits are over."""
+        self.typing.pop(device.name, None)
+        device.reopen()
 
     def looks_at_all(self, data: st.DataObject) -> bool:
         """Whether a round is a full look: now and then (else, what it is told)."""
@@ -161,14 +189,18 @@ class Bed:
         self.cloud.trouble = chosen
 
     def sync(self, device: Device) -> None:
+        typed = self.typed_on(device)
         try:
             device.sync()
         except EndedError:
-            device.reopen()
+            self.ended(device)
         except LATER:
             pass  # tried again at a later round
+        else:
+            assert self.typed_on(device) == typed, "a round changed the text being typed"
 
     def together(self, devices: list[Device], order: list[int]) -> None:
+        typed = {device.name: self.typed_on(device) for device in devices}
         self.cloud.turns = Turns(order)
         try:
             failed = self.cloud.turns.run({device.name: device.round for device in devices})
@@ -177,9 +209,11 @@ class Bed:
         for device in devices:
             error = failed.get(device.name)
             if isinstance(error, EndedError):
-                device.reopen()
+                self.ended(device)
             elif error is not None and not isinstance(error, LATER):
                 raise error
+            else:
+                assert self.typed_on(device) == typed[device.name], "a round changed what is typed"
 
 
 def _pick(data: st.DataObject, notes: list[str]) -> str | None:
@@ -195,6 +229,7 @@ ACTIONS = (
     + ["category", "rename", "uncategorise", "categorise", "categorise"]
     + ["mark", "marked", "colour", "uncolour", "remind", "remind", "import"]
     + ["full", "many", "spree", "join", "resolve", "resolve"]
+    + ["type", "type", "typed"]
 )
 # What no device tells the others of: done to the folder from outside, a copy of
 # a disk; and what has every device look at everything anyway.
@@ -234,7 +269,14 @@ def _do(bed: Bed, data: st.DataObject, actions: list[str]) -> None:
             setter(note_id, draw(st.booleans()))
         bed.model.changed(device, note_id, name)
         bed.did(device, f"field {note_id[:8]} {name}")
+    elif action == "type" and (note_id := _pick(data, live)) is not None:
+        bed.begin_typing(device, note_id)  # edits made meanwhile are "edit"s as any other
+        bed.did(device, f"typing in {note_id[:8]}")
+    elif action == "typed":
+        bed.end_typing(device)
+        bed.did(device, "done typing")
     elif action == "trash" and (note_id := _pick(data, live)) is not None:
+        bed.end_typing(device, note_id)  # its window closes
         notes.delete(note_id)
         bed.model.changed(device, note_id, "deleted_at")
         bed.did(device, f"trash {note_id[:8]}")
@@ -244,6 +286,7 @@ def _do(bed: Bed, data: st.DataObject, actions: list[str]) -> None:
         bed.model.changed(device, note_id, "category")  # back in its own, or one of its name
         bed.did(device, f"restore {note_id[:8]}")
     elif action == "empty" and (note_id := _pick(data, trashed)) is not None:
+        bed.end_typing(device, note_id)
         note = notes.get(note_id)
         assert note is not None
         bed.model.emptying(device, note_id, note.body)
@@ -416,6 +459,8 @@ def _resolve(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> 
         return
     copy = data.draw(st.sampled_from(copies))
     if data.draw(st.booleans()) and copy.original and copy.plain:
+        bed.end_typing(device, copy.id)  # its window closes, the original's text is saved
+        bed.end_typing(device, copy.conflict.note)
         device.notes.use_copy(copy.id)
         bed.model.changed(device, copy.id, "deleted_at")
         bed.did(device, f"use copy {copy.id[:8]} in {copy.conflict.note[:8]}")
@@ -445,6 +490,7 @@ def _spree(bed: Bed, device: Device, data: st.DataObject) -> None:
     """Every note out of the trash put in it at once: elsewhere, a big change."""
     live = sorted(note.id for note in device.notes.live())
     for note_id in live:
+        bed.end_typing(device, note_id)  # its window closes
         device.notes.delete(note_id)
         bed.model.changed(device, note_id, "deleted_at")
     bed.did(device, f"{len(live)} in the trash")
@@ -609,6 +655,8 @@ def test_what_devices_tell_one_another_is_enough(kind: Kind, data: st.DataObject
                 _do(bed, data, ACTIONS)
             bed.cloud.trouble = lambda _request: None
             bed.cloud.full = False
+            for device in bed.devices:
+                bed.end_typing(device)
             settle(bed.devices, tick=6 * MINUTE, full=False)
             bed.model.check(bed.devices, bed.cloud)
             records_agree(bed.devices, bed.records)
@@ -639,6 +687,8 @@ def test_devices_agree_with_the_model_and_lose_nothing(kind: Kind, data: st.Data
                 _do(bed, data, [*ACTIONS, *UNTOLD])
             bed.cloud.trouble = lambda _request: None
             bed.cloud.full = False
+            for device in bed.devices:
+                bed.end_typing(device)
             settle(bed.devices, tick=6 * MINUTE)
             bed.model.check(bed.devices, bed.cloud)
             copies = [

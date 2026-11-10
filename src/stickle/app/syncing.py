@@ -22,6 +22,7 @@ from stickle.app.labels import mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.reminders import ReminderKeeper
 from stickle.app.sync_status import WEBDAV_NAME, SyncStatus
+from stickle.core.being_edited import Editing
 from stickle.core.clock import Clocks, millis_at
 from stickle.core.cloud_time import CloudTime
 from stickle.core.labels import Mark
@@ -137,6 +138,8 @@ class _Rounds:
     accept: bool = False  # the user lets the next round take in what it stopped for
     place: Place | None = None
     progress: Progress | None = None
+    editing: Editing | None = None  # the notes being edited on screen
+    held: frozenset[str] = frozenset()  # those the last round held: read again
     _stopped: str | None = None
     _offset: int = 0
 
@@ -257,9 +260,13 @@ class _Rounds:
                 accept=self._back_up if self.accept else None,
                 report=report,
                 progress=self.progress,
+                editing=self.editing,
+                again=self.held,
             )
         except Exception as failed:  # told apart below, whatever it was
             error = failed
+        # Read again next round; a round that failed may not have got to them.
+        self.held = frozenset(report.held) | (self.held if error is not None else frozenset())
         outcome = self._outcome(error, report)
         self.failures = outcome.failures
         if error is None:
@@ -348,6 +355,7 @@ class Syncing(QObject):
         self._reminders = reminders
         self._rounds = _Rounds(store, key, login, cloud, make_target)
         self._rounds.progress = self.moving.emit  # sent from sync's thread: heard on this one
+        self._rounds.editing = manager.editing
         every = Settings(connection).get(SYNC_EVERY)
         stopped = login.stopped is not None and login.stopped not in LOOKED_AT_AGAIN
         self.runner = Runner(
@@ -395,6 +403,7 @@ class Syncing(QObject):
         self._collector.start()
         self._connection.set_update_hook(self._written)
         self._manager.left_note.connect(self._left_note)
+        self._manager.held_released.connect(self._held_released)
         application = QGuiApplication.instance()
         if isinstance(application, QGuiApplication):
             application.applicationStateChanged.connect(self._state_changed)
@@ -410,6 +419,9 @@ class Syncing(QObject):
 
     def _left_note(self) -> None:
         self.runner.left()
+
+    def _held_released(self) -> None:
+        self.runner.let_go()
 
     def _state_changed(self, state: Qt.ApplicationState) -> None:
         if state == Qt.ApplicationState.ApplicationActive:
@@ -530,6 +542,8 @@ class Syncing(QObject):
             self._manager.take_in(changed, bool(report.records.changed))
             if self._reminders is not None:
                 self._reminders.take_in(changed)
+        if report.held:
+            self._manager.show_held(report.held)
         self._looks_for_unsent = True
         self._look_for_unsent()
         self.round_shown.emit(ended)
@@ -586,6 +600,7 @@ class Syncing(QObject):
         self._connection.set_update_hook(None)
         self._notice()
         self._manager.left_note.disconnect(self._left_note)
+        self._manager.held_released.disconnect(self._held_released)
         application = QGuiApplication.instance()
         if isinstance(application, QGuiApplication):
             application.applicationStateChanged.disconnect(self._state_changed)

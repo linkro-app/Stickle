@@ -137,6 +137,9 @@ class Runner[T: Turn]:
     def woke(self) -> None:
         self._tell(self._schedule.woke)
 
+    def let_go(self) -> None:
+        self._tell(self._schedule.let_go)
+
     def asked(self) -> None:
         self._tell(self._schedule.asked)
 

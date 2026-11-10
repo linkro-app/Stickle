@@ -71,6 +71,15 @@ stopped for. What that would make is told before (first_look); keeping only
 the vault's notes instead (cloud_only) backs up first and removes this
 device's without a trace.
 
+A note being edited on screen (stickle.core.being_edited) keeps what is typed: what
+would change its text, lock it, put it in the trash or empty it, or make a
+conflict copy of it, waits (held), the rest of what came is taken in, and
+nothing of it is put; its file is read again the next round (again; and
+what the devices told of is not taken as read), and merged then as any other
+once its edit is over. A note it would put in the trash for its file gone,
+or let go of, or fold into another, joining, waits too. A note edited that
+nothing came for is put as usual.
+
 A big change stops the round once it has looked, before anything is taken in
 or put (BigChangeError): ten notes or more here, out of the trash, that would
 go to it or be deleted for good, and conflict copies that would be made, all
@@ -80,17 +89,19 @@ of what it would bring were not among it. Notes not here, texts changed, notes
 taken out of the trash or emptied from it are not counted.
 """
 
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import Callable, Collection
+from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass, field, replace
 
 import apsw
 
 from stickle.core import made_notes
+from stickle.core.being_edited import Editing, nobody_editing
 from stickle.core.markdown import note_title
 from stickle.data import record_state, sync_held, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
+from stickle.data.reminders import TEXT_FIELD
 from stickle.data.settings import DEVICE_ID, Settings
 from stickle.data.sync_held import Held
 from stickle.data.sync_left import NOT_OURS, READ_ONLY
@@ -178,6 +189,8 @@ class Report:
     # device was away for more than a year (said once: emptied elsewhere).
     trashed: list[str] = field(default_factory=list[str])
     full: bool = False  # a put turned down, the cloud full: nothing more put
+    # Notes being edited: what came for them waits for the edit to end (merged again next round).
+    held: list[str] = field(default_factory=list[str])
     records: RecordReport = field(default_factory=RecordReport)
     device: str = ""  # the id the device went on as (a new one if its old one was taken)
 
@@ -216,6 +229,35 @@ class _LaterError(Exception):
 
 class _PassedError(Exception):
     """The note is not this version's to change: passed over."""
+
+
+class _HeldError(Exception):
+    """The note is being edited, and what came for it waits (Report.held)."""
+
+
+_HELD = ("locked", TRASH)  # a note's fields that wait while it is edited, with its text
+
+
+def _held_field(name: str) -> bool:
+    """A field that waits while its note is edited: its lock, the trash, the
+    reminders written in its text."""
+    return name in _HELD or name.startswith(TEXT_FIELD)
+
+
+def _disturbs(at: local.Here, mine: NoteFile, merged: Merged) -> bool:
+    """Whether taking the merge in would change what is being typed in the note,
+    or end its edit: its text, its lock, the trash, emptying it, a conflict copy."""
+    note = at.note
+    if note is None:
+        return False
+    body = merged.note.body
+    if body.deleted or merged.copy is not None or body.text != note.body:
+        return True
+    for name in _HELD:
+        a, b = mine.contents.fields.get(name), merged.note.contents.fields.get(name)
+        if (None if a is None else a.value) != (None if b is None else b.value):
+            return True
+    return False
 
 
 def _items(told: frozenset[str], folder: str) -> set[str]:
@@ -293,12 +335,13 @@ def sync_notes(
     cloud_now: Callable[[], int],
     notes: NoteRepository | None = None,
     accept: Callable[[], object] | None = None,
+    editing: Editing | None = None,
 ) -> Report:
     """One round; cloud_now: the time by the cloud's clock (stickle.core.cloud_time);
     accept: what a round stopped for taken in after all, after this is called
-    (to back up)."""
+    (to back up); editing: the notes being edited on screen."""
     notes = notes or NoteRepository(connection)
-    return _Round(connection, notes, place, cloud_now, accept).run()
+    return _Round(connection, notes, place, cloud_now, accept, editing=editing).run()
 
 
 def sync_vault(
@@ -312,6 +355,8 @@ def sync_vault(
     accept: Callable[[], object] | None = None,
     report: Report | None = None,
     progress: Progress | None = None,
+    editing: Editing | None = None,
+    again: Collection[str] = (),
 ) -> Report:
     """One round of the whole vault: vault.json first, the vault still the one
     it was (stickle.sync.vault.confirm: VaultError, else nothing is done); this
@@ -326,7 +371,8 @@ def sync_vault(
     notes alike; accept: what it stopped for taken in after all, after this is
     called (to back up). report: where what it does is noted as it goes, so
     that what a round did before it failed is known. progress: told as the
-    notes go by, on the thread of the round.
+    notes go by, on the thread of the round. editing: the notes being edited on
+    screen; again: notes to read whatever was said (held by the round before).
 
     The device goes as the id its settings hold, if they hold one: a round that
     took a new id may have ended before its caller heard (Report.device)."""
@@ -348,10 +394,11 @@ def sync_vault(
         accept,
         report=report,
         progress=progress,
+        editing=editing,
     )
     told = frozenset[str]() if looked is None else looked.told
     listing = looked is None or full or not looked.enough or notes_round.first
-    notes_round.look(_items(told, NOTES), listing)
+    notes_round.look(_items(told, NOTES) | set(again), listing)
     records = RecordRound(connection, place, cloud_now, shown=shown, report=report.records).run(
         told=_items(told, RECORDS), listing=listing
     )
@@ -361,7 +408,7 @@ def sync_vault(
     notes_round.run(also)
     report.full = report.full or records.full
     if about is not None and looked is not None:
-        if not report.left and not records.left:  # else read again next round
+        if not report.left and not records.left and not report.held:  # else read again next round
             with writing(connection):
                 record_state.set_taken(connection, place.vault, looked.rounds)
         tell(connection, place, cloud_now, about)
@@ -379,9 +426,11 @@ class _Round:
         joining: bool | None = None,
         report: Report | None = None,
         progress: Progress | None = None,
+        editing: Editing | None = None,
     ) -> None:
         """joining: None, as the vault was joined or not (stickle.sync.engine.joined)."""
         self._db = connection
+        self._editing = editing
         self._accept = accept
         self._progress = progress
         self._joining = sync_state.joining(connection, place.vault) if joining is None else joining
@@ -476,6 +525,11 @@ class _Round:
             self._alike(set(listed))
         else:
             self._weigh()
+
+    def _taking(self) -> AbstractContextManager[Callable[[str], bool]]:
+        """Held while a note is taken in: whether a note is being edited, no edit
+        beginning meanwhile (stickle.core.being_edited)."""
+        return nobody_editing() if self._editing is None else self._editing.taking()
 
     def _tell(self, doing: str, done: int, of: int) -> None:
         if self._progress is not None:
@@ -666,7 +720,7 @@ class _Round:
                 queue += self._sync(note_id, note_id in to_read)
             except _LaterError:
                 self._report.left.append(note_id)
-            except _PassedError:
+            except _PassedError, _HeldError:
                 pass
             if note_id in going:
                 self._tell(PUTTING, len(done & going), len(going))
@@ -768,9 +822,9 @@ class _Round:
     def _let_go(self) -> None:
         """Joining: this device's made notes, untouched, dropped (not put)."""
         for note_id in self._drops:
-            with writing(self._db):
+            with self._taking() as edited, writing(self._db):
                 note = self._notes.get(note_id)
-                if note is None or not _made(note.id, note.body):
+                if note is None or not _made(note.id, note.body) or edited(note_id):
                     continue  # changed since it was looked at: a note as any other
                 self._notes.drop(note_id)
             self._report.changed.append(note_id)
@@ -793,11 +847,16 @@ class _Round:
             name: each for name, each in mine.contents.fields.items() if each.hlc != local.EARLIEST
         }
         fields = merge_fields(replace(mine.contents, fields=changed), cloud.contents)
+        with self._taking() as edited:
+            if edited(own):
+                return False  # merged as the note it is, its edit kept
         try:
             self._merge(note_id, None, _Read(NoteFile(fields, cloud.body), None))
         except _PassedError:
             return False
-        with writing(self._db):
+        with self._taking() as edited, writing(self._db):
+            if edited(own):
+                return False  # begun meanwhile: two notes of one text, both kept
             self._notes.hand_over(own, note_id)
         self._report.changed.append(own)
         return True
@@ -894,33 +953,68 @@ class _Round:
             put = None
             if cloud.note is None or not _same(merged.note, cloud.note):
                 put = as_sent(merged.note, now)
-            with writing(self._db):
+            with self._taking() as edited, writing(self._db):
                 if local.here(self._db, self._notes, note_id) != at:
                     continue  # changed here meanwhile: merged again
-                before = None if at.note is None else at.note.change_seq
-                kept = put or merged.note
-                seq = local.take(self._db, self._notes, place.device, note_id, kept, at)
-                seen = cloud.kept
-                if seen is None and cloud.note is not None:
-                    # Emptied here: no text of it kept, the vault's neither.
-                    seen = local.as_kept(cloud.note, text=not kept.body.deleted)
-                sync_state.put(
-                    self._db,
-                    place.vault,
-                    note_id,
-                    NoteState(
-                        seen,
-                        cloud.tag,
-                        None if put is None else local.as_kept(put),
-                        seq if seq is not None else (0 if state is None else state.merged_seq),
-                        kept.body.deleted,
-                    ),
-                )
-                copies = self._copy(merged, now)
-            if seq != before:
+                if mine is not None and edited(note_id) and _disturbs(at, mine, merged):
+                    self._hold(note_id, at, mine, merged.note)
+                    taken = None
+                else:
+                    taken = self._take(note_id, state, cloud, at, merged, put, now)
+            if taken is None:
+                raise _HeldError()
+            seq, copies = taken
+            if seq != (None if at.note is None else at.note.change_seq):
                 self._report.changed.append(note_id)
             return put, copies
         raise _LaterError()
+
+    def _take(
+        self,
+        note_id: str,
+        state: NoteState | None,
+        cloud: _Read,
+        at: local.Here,
+        merged: Merged,
+        put: NoteFile | None,
+        now: int,
+    ) -> tuple[int | None, list[str]]:
+        """The merge taken in, with what is put kept as sent but not seen yet: the
+        note's change number after, and the conflict copies made."""
+        place = self._place
+        kept = put or merged.note
+        seq = local.take(self._db, self._notes, place.device, note_id, kept, at)
+        seen = cloud.kept
+        if seen is None and cloud.note is not None:
+            # Emptied here: no text of it kept, the vault's neither.
+            seen = local.as_kept(cloud.note, text=not kept.body.deleted)
+        sync_state.put(
+            self._db,
+            place.vault,
+            note_id,
+            NoteState(
+                seen,
+                cloud.tag,
+                None if put is None else local.as_kept(put),
+                seq if seq is not None else (0 if state is None else state.merged_seq),
+                kept.body.deleted,
+            ),
+        )
+        return seq, self._copy(merged, now)
+
+    def _hold(self, note_id: str, at: local.Here, mine: NoteFile, merged: NoteFile) -> None:
+        """What came for a note being edited taken in but what waits for its edit
+        to end (its text, lock, trash, reminders written in it): nothing put, and
+        nothing seen, for it to be merged again."""
+        fields = {
+            name: each for name, each in merged.contents.fields.items() if not _held_field(name)
+        }
+        fields |= {name: each for name, each in mine.contents.fields.items() if _held_field(name)}
+        kept = NoteFile(replace(merged.contents, fields=fields), mine.body)
+        seq = local.take(self._db, self._notes, self._place.device, note_id, kept, at)
+        if at.note is not None and seq != at.note.change_seq:
+            self._report.changed.append(note_id)
+        self._report.held.append(note_id)
 
     def _lost(self, note_id: str, state: NoteState, seen: NoteFile) -> bool:
         """Its file read, and none there: True to put this device's back; False,
@@ -946,7 +1040,11 @@ class _Round:
             return True  # it cannot have been cleared: the vault went back, or it was deleted
         mine = local.mine(self._place.keys, self._place.device, at, state)
         if at.note is not None and at.note.deleted_at is None:
-            self._notes.delete(note_id)
+            with self._taking() as edited:
+                if edited(note_id):
+                    self._report.held.append(note_id)
+                    return False  # in the trash once its edit is over
+                self._notes.delete(note_id)
             self._report.trashed.append(note_id)
             self._report.changed.append(note_id)
         if mine is not None and mine.body.id != seen.body.id:

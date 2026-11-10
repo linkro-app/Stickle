@@ -459,6 +459,21 @@ def _original(copies: int) -> Callable[[Stage], QWidget]:
     return build
 
 
+def _held(text: str, width: int = 260) -> Callable[[Stage], QWidget]:
+    """A note being edited, what came for it from elsewhere waiting: its line."""
+
+    def build(stage: Stage) -> QWidget:
+        manager = stage.keep(NoteManager())
+        note = stage.keep(manager.new_note())
+        note.resize(width, 200)
+        note.editor.setPlainText(text)
+        note.edit()
+        note.set_held(True)
+        return note
+
+    return build
+
+
 def _icons(stage: Stage) -> QWidget:
     """The tray's icon as each taskbar would show it, enlarged: light, then dark."""
     zoom, pad = 3, 8
@@ -564,4 +579,6 @@ SCENES: list[Scene] = [
     Scene("note-conflict-copy-no-original", _copy(_written(original=False)), keyboard=False),
     Scene("note-conflict-original", _original(1), keyboard=False),
     Scene("note-conflict-original-two", _original(2), keyboard=False),
+    Scene("note-held", _held("회의 10시 · Meeting at 10"), keyboard=False),
+    Scene("note-held-narrow", _held("회의 10시", width=160), keyboard=False),
 ]

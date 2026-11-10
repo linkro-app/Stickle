@@ -24,7 +24,7 @@ one of each name, nothing made gone (records_agree).
 
 import secrets
 import shutil
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +32,7 @@ from typing import cast
 
 from fake_cloud import FakeCloud
 
+from stickle.core.being_edited import Editing
 from stickle.core.clock import stamp_of
 from stickle.core.hlc import Hlc
 from stickle.crypto.vault_keys import DataKeys
@@ -116,6 +117,7 @@ class Device:
         self.full = True  # its rounds look at everything (else: what the others said they put)
         self.holds = 0
         self.backups = 0
+        self.editing = Editing()  # the notes its user is editing on screen
         self.db = open_store(self.path, KEY)
         self._repositories()
         if whole and VAULT_FILE not in cloud.files():
@@ -138,19 +140,22 @@ class Device:
     def stamp(self) -> str:
         return stamp_of(datetime.fromtimestamp(self.millis() / 1000, UTC))
 
-    def sync(self, accept: Callable[[], object] | None = None) -> Report:
+    def sync(
+        self, accept: Callable[[], object] | None = None, again: Collection[str] = ()
+    ) -> Report:
         """A round; stopped for a big change, nothing changed here nor (when
         no other device is in the middle of a round) in the vault but this
-        device's own file, and let go on if its user accepts."""
+        device's own file, and let go on if its user accepts. again: notes
+        read whatever was said (held by a round before)."""
         before = self._before()
         try:
-            return self._sync(accept)
+            return self._sync(accept, again)
         except BigChangeError:
             self.holds += 1
             assert self._before() == before, "a round stopped for a big change changed something"
             if accept is not None or not self.accepts:
                 raise
-            return self._sync(self.back_up)
+            return self._sync(self.back_up, again)
 
     def back_up(self) -> None:
         self.backups += 1
@@ -166,7 +171,7 @@ class Device:
         names = sorted(str(row[0]) for row in self.db.execute("SELECT name FROM categories"))
         return files, notes, self.notes.deletion_records(), names
 
-    def _sync(self, accept: Callable[[], object] | None) -> Report:
+    def _sync(self, accept: Callable[[], object] | None, again: Collection[str]) -> Report:
         renewed = Settings(self.db).get(DEVICE_ID)
         if renewed is not None and renewed != self.id:  # a round that ended after it took one
             self._renewed(renewed)
@@ -181,11 +186,13 @@ class Device:
                 about,
                 self.full,
                 accept,
+                editing=self.editing,
+                again=again,
             )
             if report.device != self.id:  # another device had its id: a copy of its disk
                 self._renewed(report.device)
             return report
-        return sync_notes(self.db, self.place, self.clock, self.notes, accept)
+        return sync_notes(self.db, self.place, self.clock, self.notes, accept, self.editing)
 
     def sync_as(self, device: str) -> Report:
         """A round of the whole vault with this place, as a caller holding the
@@ -204,7 +211,9 @@ class Device:
         self.sync()
 
     def reopen(self) -> None:
-        """As after the app was ended in the middle of something, and started again."""
+        """As after the app was ended in the middle of something, and started again:
+        nothing being edited any more."""
+        self.editing = Editing()
         self.db.close()
         self.db = open_store(self.path, KEY)
         self._repositories()

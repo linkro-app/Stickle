@@ -98,6 +98,12 @@ def test_waking_looks_at_once() -> None:
     assert due(schedule) == 50.0
 
 
+def test_an_edit_over_that_held_what_came_looks_at_once() -> None:
+    schedule = after_first()
+    schedule.let_go(50.0)
+    assert due(schedule) == 50.0
+
+
 def test_asking_is_a_full_look_at_once() -> None:
     schedule = after_first()
     schedule.asked(50.0)
@@ -137,7 +143,7 @@ def test_after_a_failure_it_tries_again_as_told() -> None:
     assert due(schedule) == 66.0
 
 
-@pytest.mark.parametrize("event", ["edit", "focus", "wake", "left"])
+@pytest.mark.parametrize("event", ["edit", "focus", "wake", "left", "let go"])
 def test_while_it_fails_nothing_starts_a_round_sooner(event: str) -> None:
     schedule = after_first()
     schedule.woke(50.0)
@@ -149,6 +155,8 @@ def test_while_it_fails_nothing_starts_a_round_sooner(event: str) -> None:
         schedule.focused(52.0)
     elif event == "wake":
         schedule.woke(52.0)
+    elif event == "let go":
+        schedule.let_go(52.0)
     else:
         schedule.edited(52.0, big=True)
         schedule.left(52.0)

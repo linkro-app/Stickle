@@ -67,6 +67,7 @@ from stickle.app.secret_dialogs import (
 from stickle.app.secret_notes import Relock
 from stickle.app.titles import shown_title
 from stickle.app.versions_window import EarlierVersionsDialog
+from stickle.core.being_edited import Editing
 from stickle.core.colors import PALETTE
 from stickle.core.labels import DEFAULT_ICON, Category, Mark
 from stickle.core.layout import Place, Rect, Size, fit, monitor_at, place_of, restore, size_of
@@ -265,6 +266,9 @@ class NoteManager(QObject):
     window_opened = Signal(object)
     # A note was left: its edit, if it was being edited, is over.
     left_note = Signal()
+    # A note whose edit kept what came from elsewhere waiting is done with:
+    # time for sync to take that in.
+    held_released = Signal()
 
     def __init__(
         self,
@@ -329,6 +333,11 @@ class NoteManager(QObject):
         self._copied: dict[str, list[str]] = {}
         self._copy_turns: dict[str, int] = {}
         self.changed.connect(self._show_conflicts)
+        # The notes being edited, as sync is told (stickle.core.being_edited): their
+        # windows; and those with what came to show once the edit is over.
+        self.editing = Editing()
+        self._in_edit: set[NoteWindow] = set()
+        self._take_after: set[NoteWindow] = set()
 
     @property
     def windows(self) -> tuple[NoteWindow, ...]:
@@ -352,6 +361,7 @@ class NoteManager(QObject):
         self._quitting = True
         for window in self._windows:
             self.flush(window, closing=True)
+            self._end_edit(window)
         for window in self._windows:
             window.allow_close()
 
@@ -536,6 +546,8 @@ class NoteManager(QObject):
         autosave = AutoSave(lambda: self.save(window), self._idle_ms, self._max_ms, window)
         self._autosaves[window] = autosave
         window.text_changed.connect(autosave.changed)
+        window.text_changed.connect(lambda: self._follow_edit(window))
+        window.edit_state_changed.connect(lambda: self._follow_edit(window))
         window.editing_finished.connect(autosave.save_now)
         window.left.connect(lambda: self._edit_ended(window))
         window.retry_requested.connect(autosave.save_now)
@@ -574,6 +586,8 @@ class NoteManager(QObject):
         return window
 
     def _forget(self, window: NoteWindow) -> None:
+        self._end_edit(window)
+        self._take_after.discard(window)
         self._forget_key(window)
         self._saved.pop(window, None)
         self._before_fit.pop(window, None)
@@ -615,6 +629,7 @@ class NoteManager(QObject):
             if self.reminders is not None:
                 self.reminders.text_saved(window.note_id, text)
             self.note_saved.emit()
+        QTimer.singleShot(0, self, lambda: self._follow_edit(window))  # once it is not waiting
         return True
 
     def _saved_text(self, window: NoteWindow) -> str | None:
@@ -761,6 +776,8 @@ class NoteManager(QObject):
         """Moved or resized, then left alone: remembered. Just dropped after a drag,
         it is lined up first with the notes and the edge of the screen near it,
         unless Alt was held (or the window system places windows itself)."""
+        if window in self._take_after and not self._being_edited(window):
+            QTimer.singleShot(0, self, lambda: self._after_edit(window))  # dropped: as it is now
         if window.resizing:
             window.resizing = False
             self._line_up_size(window)
@@ -2244,7 +2261,77 @@ class NoteManager(QObject):
         self.note_saved.emit()  # lists showing titles
 
     def _being_edited(self, window: NoteWindow) -> bool:
-        return window.editing or window.unsaved or self._autosaves[window].waiting
+        """Its text being typed in (an empty note left without the keyboard is not
+        being edited: it would stay so), or something of it waiting to be saved."""
+        autosave = self._autosaves.get(window)
+        typing = window.editing and (window.editor.hasFocus() or bool(window.text.strip()))
+        return typing or window.unsaved or (autosave is not None and autosave.waiting)
+
+    def _follow_edit(self, window: NoteWindow) -> None:
+        """Sync told as the note's edit begins or ends. As it begins, what came
+        just before shows first; as it ends, what waited for it."""
+        if window.note_id is None or window.secret or window not in self._autosaves:
+            return
+        if window not in self._in_edit and self._being_edited(window):
+            self.editing.begin(window.note_id)
+            self._in_edit.add(window)
+            self._catch_up(window)  # which may end it: a checkbox ticked on a text gone
+        if window in self._in_edit and not self._being_edited(window):
+            held = window.held
+            self._end_edit(window)
+            if window in self._take_after:
+                self._after_edit(window)
+            if held:
+                self.held_released.emit()
+
+    def _end_edit(self, window: NoteWindow) -> None:
+        if window in self._in_edit:
+            self._in_edit.discard(window)
+            if window.note_id is not None:
+                self.editing.end(window.note_id)
+        window.set_held(False)
+
+    def _catch_up(self, window: NoteWindow) -> None:
+        """The note's text as stored, in the window as its edit begins: sync may
+        have taken one in just before, and nothing is typed on what it replaced.
+        A checkbox ticked on that is let go of: what came shows."""
+        if self._repository is None or window.note_id is None:
+            return
+        try:
+            note = self._repository.get(window.note_id)
+        except apsw.Error as error:
+            log.warning("could not read a note again: %s", type(error).__name__)
+            return
+        saved = self._saved_text(window)
+        if note is None or note.secret or note.body == saved:
+            return
+        if window.text == saved:
+            if window.editing:
+                window.take_text(note.body)
+            else:
+                window.replace_text(note.body)
+        elif not window.editing:  # ticked on a text that is gone: what came shows
+            self._autosaves[window].stop()
+            window.replace_text(note.body)
+        else:
+            return  # typed on it already: saved as it is (as before sync was told)
+        self._saved[window] = note.body
+        self._edit_kept.discard(window)
+
+    def _after_edit(self, window: NoteWindow) -> None:
+        """What came while it was edited (or dragged), shown now."""
+        self._take_after.discard(window)
+        if window.note_id is not None and window in self._autosaves:
+            try:
+                self._take_in(window.note_id)
+            except apsw.Error as error:
+                log.error("could not show a note sync brought: %s", type(error).__name__)
+
+    def show_held(self, note_ids: Collection[str]) -> None:
+        """These notes being edited, what came for them waits: their windows say so."""
+        for window in self._windows:
+            if window.note_id in note_ids and window in self._in_edit:
+                window.set_held(True)
 
     def _take_in(self, note_id: str) -> None:
         assert self._repository is not None
@@ -2254,25 +2341,35 @@ class NoteManager(QObject):
             if note is not None and not note.hidden and not note.deleted:
                 self._open_taken_in(note)
             return
-        if window.secret or self._being_edited(window):
+        if window.secret:
             return  # secret notes are not synced yet
-        if note is None or note.hidden or note.deleted:
+        editing = self._being_edited(window)
+        if note is None or ((note.hidden or note.deleted) and not editing):
             self._autosaves[window].stop()
             window.release()
             return
-        if note.body != window.text:
-            window.replace_text(note.body)
-        self._saved[window] = note.body
-        self._edit_kept.discard(window)
+        # What does not touch what is typed shows at once, the rest once its
+        # edit is over (closed then, if it went out of sight; folding once it is
+        # dropped, if it is being moved).
         if note.color != window.color:
             window.set_color(note.color)
         if note.opacity != window.opacity:
             window.set_opacity(note.opacity)
         window.set_always_on_top(note.always_on_top)
+        self._show_labels(window, note.label, note.marks)
+        if editing:
+            self._take_after.add(window)
+            return
+        if note.body != window.text:
+            window.replace_text(note.body)
+        self._saved[window] = note.body
+        self._edit_kept.discard(window)
         if note.locked != window.locked:
             window.set_locked(note.locked)
-        window.set_collapsed(note.collapsed)
-        self._show_labels(window, note.label, note.marks)
+        if window.dragging or window.resizing:
+            self._take_after.add(window)
+        else:
+            window.set_collapsed(note.collapsed)
 
     def _open_taken_in(self, note: Note) -> None:
         """A note that came from elsewhere, opened without taking the keyboard

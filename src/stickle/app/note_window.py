@@ -97,6 +97,7 @@ STROKE = 1.1  # line width of drawn icons, in logical pixels
 ICON_SCALES = (1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
 MAX_HEIGHT = 16_777_215  # Qt's QWIDGETSIZE_MAX: no limit
 DEFAULT_SIZE = (260, 240)
+HELD_LINE_SCALE = 0.85  # the held line's letters, as much of the text's
 # How long an input method has to commit a character after the focus left.
 DROP_CHECK_MS = 150
 # Where an input method may drop the character being composed when the focus
@@ -674,6 +675,9 @@ class NoteWindow(QWidget):
     use_copy_requested = Signal()
     keep_both_requested = Signal()
     copy_requested = Signal()  # an original's: (the next of) its conflict copies, shown
+    # Its text shown to edit or formatted, or the keyboard came or went: an edit
+    # of it may have begun or ended (its owner looks).
+    edit_state_changed = Signal()
 
     # Its menu, the items made the first time it opens or any of them is asked for.
     menu = _MenuItem[QMenu]()
@@ -873,6 +877,7 @@ class NoteWindow(QWidget):
         self.stack.addWidget(self.editor)
         self.stack.addWidget(self.locked_face)
         self.stack.setCurrentWidget(self.editor)
+        self.stack.currentChanged.connect(self._shown_changed)
 
         grip_row = QHBoxLayout()
         grip_row.setContentsMargins(0, 0, 0, 0)
@@ -890,6 +895,9 @@ class NoteWindow(QWidget):
         self.copies = 0
         self.title_bar.tag_clicked.connect(self._tag_clicked)
         self.view.installEventFilter(self)  # Tab past its last stop: to the copy's band
+        # Under the text while what came from elsewhere waits for its edit to end
+        # (see set_held): made the first time.
+        self._held_line: QLabel | None = None
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -955,6 +963,7 @@ class NoteWindow(QWidget):
         self.title_bar.pin_button.setToolTip(on_top)
         self.menu_action.setText(note_menu)
         self._show_conflict()
+        self._say_held()
         self.title_bar.category_tag.retranslate()
         self.title_bar.marks_badge.retranslate()
         self.reminder_action.setText(self.tr("Reminder…"))
@@ -1525,6 +1534,8 @@ class NoteWindow(QWidget):
             self._reminder_bar.set_colors(text, title)
         if self._conflict_bar is not None:
             self._conflict_bar.set_colors(text, title)
+        if self._held_line is not None:
+            set_foreground(self._held_line, qcolor(self.colors.title_icon))
         self.title_bar.set_icon_color(title, qcolor(self.colors.title_icon))
         self.title_bar.category_tag.set_background(qcolor(self.colors.title_bar))
         self.view.set_colors(self.colors)
@@ -1691,6 +1702,59 @@ class NoteWindow(QWidget):
         shown = self.stack.currentWidget()
         if shown is not None and not self.collapsed:
             shown.setFocus(Qt.FocusReason.TabFocusReason)
+
+    # What came from elsewhere while it was being edited
+
+    @property
+    def held(self) -> bool:
+        """Whether it says that what came from elsewhere waits for its edit to end."""
+        return self._held_line is not None and not self._held_line.isHidden()
+
+    def set_held(self, held: bool) -> None:
+        """The line under its text that says what came waits for the edit to end;
+        said once by a screen reader as it comes."""
+        if held == self.held:
+            return
+        if not held:
+            assert self._held_line is not None
+            self._held_line.hide()
+            return
+        if self._held_line is None:
+            line = QLabel(self)
+            line.setWordWrap(True)
+            line.setContentsMargins(8, 0, 8, 2)
+            small = line.font()
+            small.setPointSizeF(small.pointSizeF() * HELD_LINE_SCALE)
+            line.setFont(small)
+            set_foreground(line, qcolor(self.colors.title_icon))
+            self._layout.insertWidget(self._layout.indexOf(self.stack) + 1, line)
+            self._held_line = line
+            self._say_held()
+        self._held_line.show()
+        self.announce(self._held_line.accessibleName())
+
+    def _say_held(self) -> None:
+        line = self._held_line
+        if line is None:
+            return
+        shown = self.tr("Changes from another computer show up when you finish editing.")
+        more = self.tr("If you changed it here too, both are kept.")
+        line.setText(shown)
+        line.setToolTip(f"{shown} {more}")
+        line.setAccessibleName(f"{shown} {more}")
+
+    def take_text(self, text: str) -> None:
+        """Its text as stored now, put in as its edit begins (it came from elsewhere
+        just before): not a change to save, the cursor where it was as far as it goes."""
+        at = self.editor.textCursor().position()
+        self._last_text = text
+        self.editor.setPlainText(text)
+        cursor = self.editor.textCursor()
+        cursor.setPosition(min(at, self.editor.document().characterCount() - 1))
+        self.editor.setTextCursor(cursor)
+
+    def _shown_changed(self, _index: int) -> None:
+        self.edit_state_changed.emit()
 
     def set_next_reminder(self, when: str | None) -> None:
         """When its reminder rings next (as the user reads it), None for none."""
@@ -1986,6 +2050,11 @@ class NoteWindow(QWidget):
             self.finish_composition(closing=True)
             self.show_formatted()
             return True
+        if watched is self.editor and event.type() in (
+            QEvent.Type.FocusIn,
+            QEvent.Type.FocusOut,
+        ):
+            QTimer.singleShot(0, self, self.edit_state_changed.emit)  # once it has moved
         if watched is self.editor and event.type() == QEvent.Type.FocusIn:
             self._keep_editing = False  # back from the shortcuts, if it was there
         if (
