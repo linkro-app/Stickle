@@ -1074,7 +1074,7 @@ def test_it_is_looked_at_when_the_next_will_be_that_old(
     live._look_for_unsent()  # pyright: ignore[reportPrivateUsage]
     timer = live._next_unsent  # pyright: ignore[reportPrivateUsage]
     assert timer.isActive()
-    assert 25_000 < timer.remainingTime() <= 30_000
+    assert 25_000 < timer.interval() <= 30_000  # its time left is rounded, up as well as down
     assert told == []  # not that old yet
 
 
