@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from stickle.app.background import Job
+from stickle.app.error_text import error_style
 from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, RecoveryKeyDialog
 from stickle.app.secret_dialogs import (
     ask_recovery_key,
@@ -69,7 +70,6 @@ from stickle.sync.vault import (
 
 log = logging.getLogger(__name__)
 
-ERROR_COLOUR = "#b3261e"
 WIDTH = 540
 GROUP = 2  # characters of a fingerprint shown together
 GROUPS_IN_A_LINE = 16
@@ -463,7 +463,7 @@ class TurnOnSync(QDialog):
         self._fit()
 
     def _fail(self, text: str, field: QWidget | None = None) -> None:
-        self.message.setStyleSheet(f"color: {ERROR_COLOUR};")
+        self.message.setStyleSheet(error_style(self.message))
         self.message.setText(text)
         self.message.show()
         self.next_button.setAccessibleDescription(text)

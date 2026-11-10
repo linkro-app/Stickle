@@ -30,7 +30,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stickle.app.master_password import ERROR_STYLE, MasterPasswords, weakness_reason
+from stickle.app.error_text import error_style
+from stickle.app.master_password import MasterPasswords, weakness_reason
 from stickle.app.recovery_key_dialog import (
     EnterRecoveryKeyDialog,
     KeptBox,
@@ -75,7 +76,7 @@ def _password_field() -> QLineEdit:
 def _error_label() -> QLabel:
     label = QLabel()
     label.setWordWrap(True)
-    label.setStyleSheet(ERROR_STYLE)
+    label.setStyleSheet(error_style(label))
     label.hide()
     return label
 
@@ -122,7 +123,7 @@ class _PasswordWindow(QDialog):
                 QWidget.setTabOrder(before, after)
 
     def show_error(self, message: str, field: QLineEdit) -> None:
-        self.message.setStyleSheet(ERROR_STYLE)
+        self.message.setStyleSheet(error_style(self.message))
         self.message.setText(message)
         self.message.show()
         field.setAccessibleDescription(message)

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.error_text import error_style
 from stickle.app.typed import forget_typed
 from stickle.unlock import MIN_PASSWORD_LENGTH, password_length
 
@@ -60,7 +61,7 @@ class PasswordDialog(QDialog):
         self.confirm_label.setBuddy(self.confirm)
         self.error = QLabel()
         self.error.setWordWrap(True)
-        self.error.setStyleSheet("color: #b3261e;")
+        self.error.setStyleSheet(error_style(self.error))
         self.error.hide()
         # Our own buttons: Qt renames standard ones to its "OK"/"Cancel" on a language change.
         self.buttons = QDialogButtonBox()

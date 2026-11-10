@@ -27,13 +27,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.error_text import error_style
 from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog
 from stickle.app.typed import forget_typed
 from stickle.core.passwords import Weakness, weakness
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import RecoveryKeyTypoError
 
-ERROR_STYLE = "color: #b3261e;"
 log = logging.getLogger(__name__)
 
 
@@ -80,7 +80,7 @@ def _password_field() -> QLineEdit:
 def _error_label() -> QLabel:
     label = QLabel()
     label.setWordWrap(True)
-    label.setStyleSheet(ERROR_STYLE)
+    label.setStyleSheet(error_style(label))
     label.hide()
     return label
 
@@ -214,7 +214,7 @@ class MasterPasswordDialog(QDialog):
         return None
 
     def show_error(self, message: str, field: QLineEdit) -> None:
-        self.message.setStyleSheet(ERROR_STYLE)
+        self.message.setStyleSheet(error_style(self.message))
         self.message.setText(message)
         self.message.show()
         field.setAccessibleDescription(message)  # read with the field again
@@ -348,7 +348,7 @@ class CheckMasterPasswordDialog(QDialog):
                     "%1", type(error).__name__
                 )
             )
-            self.answer.setStyleSheet(ERROR_STYLE)
+            self.answer.setStyleSheet(error_style(self.answer))
             return
         finally:
             QGuiApplication.restoreOverrideCursor()
@@ -357,7 +357,7 @@ class CheckMasterPasswordDialog(QDialog):
             if right
             else self.tr("That is not the spare password.")
         )
-        self.answer.setStyleSheet("" if right else ERROR_STYLE)
+        self.answer.setStyleSheet("" if right else error_style(self.answer))
         self.password.setAccessibleDescription(self.answer.text())
         self.password.setFocus()
         self.password.selectAll()

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stickle.app.error_text import error_style
 from stickle.app.file_dialogs import save_file_name
 from stickle.app.sizing import grow_to_fit
 from stickle.app.typed import forget_typed
@@ -80,7 +81,7 @@ class EnterRecoveryKeyDialog(QDialog):
         self.label.setBuddy(self.key)
         self.error = QLabel()
         self.error.setWordWrap(True)
-        self.error.setStyleSheet("color: #b3261e;")
+        self.error.setStyleSheet(error_style(self.error))
         self.error.hide()
         self.buttons = QDialogButtonBox()
         self.ok_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.AcceptRole)
