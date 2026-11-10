@@ -336,6 +336,56 @@ def test_the_certificate_is_compared_however_a_connection_comes_to_be_made(share
         assert server.asked == []
 
 
+def test_a_request_takes_the_time_it_was_given_over_http(share: Path) -> None:
+    with webdav(share, PASSWORD) as server:
+        target = WebDav(plain(server), "stickle", PASSWORD, timeout=1.5)
+        assert target._open().timeout == 1.5  # pyright: ignore[reportPrivateUsage]
+        target.close()
+
+
+def test_a_request_takes_the_time_it_was_given_with_a_trusted_certificate(share: Path) -> None:
+    shown, key = self_signed()
+    trusted = ssl.PEM_cert_to_DER_cert(shown.decode("ascii"))
+    with webdav(share, PASSWORD, own=(shown, key)) as server:
+        target = WebDav(over_tls(server), "stickle", PASSWORD, trusted, timeout=1.5)
+        connection = target._open()  # pyright: ignore[reportPrivateUsage]
+        assert connection.timeout == 1.5
+        connection.close()
+
+
+def test_a_request_takes_the_time_it_was_given_with_a_public_certificate(share: Path) -> None:
+    authority = trustme.CA()
+    with webdav(share, PASSWORD, authority) as server:
+        context = server.context
+        assert context is not None
+        target = WebDav(over_tls(server), "stickle", PASSWORD, public=lambda: context, timeout=1.5)
+        connection = target._open()  # pyright: ignore[reportPrivateUsage]
+        assert connection.timeout == 1.5
+        connection.close()
+
+
+def test_a_server_failing_has_answered_and_one_not_reached_has_not(scripted: Scripted) -> None:
+    scripted.answers.append((500, {}, b""))
+    target = to(scripted)
+    with pytest.raises(UnavailableError) as failing:
+        target.get(NOTE)
+    target.close()
+    assert failing.value.answered
+    nobody = WebDav(Address(False, HOST, 1, "/share"), "stickle", PASSWORD, timeout=1.0)
+    with pytest.raises(UnavailableError) as not_reached:
+        nobody.get(NOTE)
+    assert not not_reached.value.answered
+
+
+def test_a_folder_the_server_will_not_make_has_answered(scripted: Scripted) -> None:
+    scripted.answers.append((409, {}, b""))
+    target = to(scripted)
+    with pytest.raises(UnavailableError) as failing:
+        target.put(NOTE, b"x", Absent())
+    target.close()
+    assert failing.value.answered
+
+
 def test_certificate_checks_are_never_turned_off() -> None:
     sources = list(SOURCES.rglob("*.py"))
     assert len(sources) > 50

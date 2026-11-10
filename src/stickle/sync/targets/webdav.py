@@ -191,12 +191,12 @@ class _OnlyThisCertificate(http.client.HTTPSConnection):
     """A connection that goes no further than the handshake unless the server
     shows this certificate, however it connects or connects again."""
 
-    def __init__(self, address: Address, certificate: bytes) -> None:
+    def __init__(self, address: Address, certificate: bytes, timeout: float = TIMEOUT) -> None:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False  # whatever name it has: it is this very certificate
         context.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN | _ANY_TIME
         context.load_verify_locations(cadata=certificate)
-        super().__init__(address.host, address.port, timeout=TIMEOUT, context=context)
+        super().__init__(address.host, address.port, timeout=timeout, context=context)
         self._certificate = certificate
 
     def connect(self) -> None:
@@ -260,7 +260,7 @@ def _error(answer: _Answer) -> TargetError:
         case 507:
             return FullError()
         case _:
-            return UnavailableError()
+            return UnavailableError(answered=True)
 
 
 def _entry(folder: str, response: Element) -> Entry | None:
@@ -308,12 +308,14 @@ class WebDav:
         heard: Callable[[int, int], None] | None = None,
         no_longer_trusted: Callable[[], None] | None = None,
         keeps_conditions: bool = False,
+        timeout: float = TIMEOUT,
     ) -> None:
         """certificate: the one the user chose to trust (DER). public: what checks
         a public authority's. heard: told a response's Date, as milliseconds,
         and how many milliseconds it took. no_longer_trusted: told when a public
         authority's certificate has taken the place of the one trusted.
-        keeps_conditions: only where this server is known to."""
+        keeps_conditions: only where this server is known to. timeout: seconds,
+        for each step of a request."""
         self._address = address
         self._root = f"{address.path}/{FOLDER}"
         sign_in = base64.b64encode(f"{user}:{password}".encode()).decode("ascii")
@@ -324,6 +326,7 @@ class WebDav:
         self._heard = heard
         self._no_longer_trusted = no_longer_trusted
         self._keeps_conditions = keeps_conditions
+        self._timeout = timeout
         self._kept: http.client.HTTPConnection | None = None
         self._folders: set[str] = set()  # known to be there
 
@@ -431,7 +434,7 @@ class WebDav:
                 continue
             answer = self._ask("MKCOL", f"{self._url(each)}/")
             if answer.status == _PARENT_MISSING:
-                raise UnavailableError()
+                raise UnavailableError(answered=True)
             if answer.status not in _FOLDER_THERE:
                 raise _error(answer)
             self._folders.add(each)
@@ -509,9 +512,9 @@ class WebDav:
         been sent over it yet."""
         address = self._address
         if not address.secure:
-            return http.client.HTTPConnection(address.host, address.port, timeout=TIMEOUT)
+            return http.client.HTTPConnection(address.host, address.port, timeout=self._timeout)
         if self._certificate is not None:
-            trusted = _OnlyThisCertificate(address, self._certificate)
+            trusted = _OnlyThisCertificate(address, self._certificate, self._timeout)
             try:
                 trusted.connect()
             except ssl.SSLCertVerificationError:
@@ -521,7 +524,7 @@ class WebDav:
         if self._context is None:
             self._context = self._public()
         public = http.client.HTTPSConnection(
-            address.host, address.port, timeout=TIMEOUT, context=self._context
+            address.host, address.port, timeout=self._timeout, context=self._context
         )
         try:
             public.connect()

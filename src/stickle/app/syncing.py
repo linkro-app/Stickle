@@ -14,25 +14,27 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import apsw
-from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QDateTime, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 
+from stickle.app.background import work_goes_on
 from stickle.app.labels import mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.reminders import ReminderKeeper
+from stickle.app.sync_status import WEBDAV_NAME, SyncStatus
 from stickle.core.clock import Clocks
 from stickle.core.cloud_time import CloudTime
 from stickle.core.labels import Mark
 from stickle.crypto.vault_keys import DataKeys
-from stickle.data import sync_connection
+from stickle.data import sync_connection, sync_state
 from stickle.data.backups import take
 from stickle.data.database import open_database
 from stickle.data.notes import NoteRepository
-from stickle.data.settings import SYNC_EVERY, Settings
+from stickle.data.settings import DEVICE_NAME, SYNC_EVERY, Settings
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.platform.clocks import since_start
 from stickle.sync import diagnostics
-from stickle.sync.devices import this_device
+from stickle.sync.devices import Other, others, this_device
 from stickle.sync.engine import (
     FirstLook,
     Place,
@@ -43,14 +45,17 @@ from stickle.sync.engine import (
     joined,
     sync_vault,
 )
+from stickle.sync.format import DEVICES, item_path
 from stickle.sync.outcome import LONGEST_WAIT, Outcome, Stopped, after
 from stickle.sync.runner import Runner, Until
 from stickle.sync.schedule import Schedule
-from stickle.sync.targets.base import CertificateError, Target
+from stickle.sync.targets.base import AsRead, CertificateError, NotThereError, Target
 
 log = logging.getLogger(__name__)
 
 QUIT_WAIT = 5.0  # seconds what is waiting to be put may take when the user quits
+LEAVING_TIMEOUT = 4.0  # seconds, for each step of a request made on the way out
+LOOK_AGAIN_MS = 1_000  # for the last request of a thread told to end
 COLLECT_EVERY_MS = 5 * 60 * 1000
 WAIT_MS = 30_000  # for the app's write to end: this thread can wait
 CACHE_KIB = 512
@@ -81,6 +86,17 @@ def cloud_time(connection: apsw.Connection, clocks: Clocks) -> CloudTime:
     cloud = CloudTime(since_start, sync_connection.cloud_offset(connection))
     clocks.cloud = cloud.now
     return cloud
+
+
+def stopped_as_kept(why: str | None) -> Stopped | None:
+    try:
+        return None if why is None else Stopped(why)
+    except ValueError:  # by a later version, and it is not told of here
+        return None
+
+
+def _heard_nothing(_date: int, _took: int) -> None:
+    pass
 
 
 def _shown_name(mark_id: str, name: str | None) -> str:
@@ -135,21 +151,50 @@ class _Rounds:
         sync_connection.no_longer_trusted(self.database())
 
     def _new_target(self) -> Target:
+        return self._reach(self.cloud.heard, self._no_longer_trusted)
+
+    def _reach(
+        self,
+        heard: Callable[[int, int], None],
+        no_longer_trusted: Callable[[], None],
+        timeout: float | None = None,
+    ) -> Target:
         login = self.login
         if self.make_target is not None:
-            return self.make_target(self.cloud.heard, self._no_longer_trusted)
+            return self.make_target(heard, no_longer_trusted)
         if login.kind != WEBDAV:
             raise ValueError(login.kind)
-        from stickle.sync.targets.webdav import WebDav, parse_address
+        from stickle.sync.targets.webdav import TIMEOUT, WebDav, parse_address
 
         return WebDav(
             parse_address(login.address),
             login.user,
             login.secret,
             login.certificate,
-            heard=self.cloud.heard,
-            no_longer_trusted=self._no_longer_trusted,
+            heard=heard,
+            no_longer_trusted=no_longer_trusted,
+            timeout=TIMEOUT if timeout is None else timeout,
         )
+
+    def take_device_off(self, device: str) -> None:
+        """This device's file gone from the vault, for the others to stop telling
+        of it. Off the thread of the rounds; if it cannot be done, it stays. Only
+        this device writes that file, so no condition: a server's weak tags
+        would never meet one."""
+        path = item_path(DEVICES, device)
+        target: Until | None = None
+        try:
+            target = Until(
+                self._reach(_heard_nothing, lambda: None, LEAVING_TIMEOUT), lambda: False
+            )
+            target.delete(path, AsRead(None))
+        except NotThereError:
+            pass
+        except Exception as error:  # the app goes on without it
+            log.info("sync: this device stays listed: %s", type(error).__name__)
+        finally:
+            if target is not None:
+                target.close()
 
     def place_of(self, db: apsw.Connection) -> Place:
         if self._target is None:
@@ -206,7 +251,7 @@ class _Rounds:
                 self.cloud.now,
                 self.repository(db),
                 shown=_shown_name,
-                about=this_device(),
+                about=this_device(Settings(db).get(DEVICE_NAME) or None),
                 full=full,
                 accept=self._back_up if self.accept else None,
                 report=report,
@@ -237,7 +282,10 @@ class _Rounds:
         return outcome
 
     def _keep(self, db: apsw.Connection, outcome: Outcome, report: Report) -> None:
-        """What is to last beyond this run, and the memory a round took given back."""
+        """What is to last beyond this run, and the memory a round took given back
+        (not once the time to end is up: what it says may have been forgotten)."""
+        if self.over():
+            return
         try:
             if outcome.wait is None:
                 stopped = None if outcome.stopped is None else outcome.stopped.value
@@ -305,12 +353,27 @@ class Syncing(QObject):
             self._rounds.close,
         )
         self._rounds.over = lambda: self.runner.over
+        self.cloud_name = WEBDAV_NAME
+        self.status = SyncStatus(
+            self.cloud_name,
+            stopped_as_kept(login.stopped),
+            self.to_put,
+            self.last_synced,
+            self,
+        )
+        self.round_shown.connect(self.status.round_ended)
+        self.moving.connect(self.status.moved)
+        self._leaving_as = ""
+        self._finished = False
         self._written_rows: set[int] = set()
         self._noticing = False
         self._round_ended.connect(self._show)
         self._collector = QTimer(self)
         self._collector.setInterval(COLLECT_EVERY_MS)
         self._collector.timeout.connect(self._collect)
+        self._looking_again = QTimer(self)
+        self._looking_again.setSingleShot(True)
+        self._looking_again.timeout.connect(self.left)
 
     @staticmethod
     def _now() -> float:
@@ -321,7 +384,7 @@ class Syncing(QObject):
         gc.disable()  # see _collect
         self._collector.start()
         self._connection.set_update_hook(self._written)
-        self._manager.left_note.connect(self.runner.left)
+        self._manager.left_note.connect(self._left_note)
         application = QGuiApplication.instance()
         if isinstance(application, QGuiApplication):
             application.applicationStateChanged.connect(self._state_changed)
@@ -334,6 +397,9 @@ class Syncing(QObject):
         anywhere but on the app's thread. While sync's thread is about, only
         the app's thread collects."""
         gc.collect()
+
+    def _left_note(self) -> None:
+        self.runner.left()
 
     def _state_changed(self, state: Qt.ApplicationState) -> None:
         if state == Qt.ApplicationState.ApplicationActive:
@@ -349,6 +415,46 @@ class Syncing(QObject):
 
     def sync_now(self) -> None:
         self.runner.asked()
+
+    # What the Connections page shows, and sets
+
+    @property
+    def login(self) -> Login:
+        return self._rounds.login
+
+    def to_put(self) -> int:
+        """Notes changed here and not in the cloud yet."""
+        return len(sync_state.changed(self._connection, self.login.vault))
+
+    def last_synced(self) -> QDateTime | None:
+        """When a round last went through, by this computer's clock; None: none has."""
+        at = sync_state.synced_at(self._connection, self.login.vault)
+        return None if at is None else QDateTime.fromMSecsSinceEpoch(at - self._rounds.cloud.offset)
+
+    def others(self) -> list[Other]:
+        return others(self._connection, self.login.vault, Settings(self._connection).device_id())
+
+    def chosen_name(self) -> str:
+        return Settings(self._connection).get(DEVICE_NAME)
+
+    @staticmethod
+    def system_name() -> str:
+        return this_device().name
+
+    def this_name(self) -> str:
+        return self.chosen_name() or self.system_name()
+
+    def rename(self, name: str) -> None:
+        """What the other devices call this one; empty: as its system calls it."""
+        Settings(self._connection).set(DEVICE_NAME, name)
+        self.runner.edited()
+
+    def looks_every(self) -> int:
+        return Settings(self._connection).get(SYNC_EVERY)
+
+    def set_looks_every(self, seconds: int) -> None:
+        Settings(self._connection).set(SYNC_EVERY, seconds)
+        self.runner.set_every(seconds)
 
     # What the user decides (the windows that ask are elsewhere)
 
@@ -402,6 +508,8 @@ class Syncing(QObject):
 
     def _show(self, ended: Ended) -> None:
         """On the app's thread: what the round brought, on screen."""
+        if self._finished:  # sent before it ended, and the app is ending too
+            return
         report = ended.report
         changed = list(dict.fromkeys(report.changed))
         if report.device and self._reminders is not None:
@@ -423,8 +531,39 @@ class Syncing(QObject):
             log.warning("sync: nothing to say of it: %s", type(error).__name__)
             return ()
 
+    # Leaving, with the app going on
+
+    def leaving(self) -> None:
+        """On the app's thread, first: what is typed is saved, and nothing
+        changed from now on is told of."""
+        self._manager.save_all()
+        self._connection.set_update_hook(None)
+        self._notice()
+        self._manager.left_note.disconnect(self._left_note)
+        application = QGuiApplication.instance()
+        if isinstance(application, QGuiApplication):
+            application.applicationStateChanged.disconnect(self._state_changed)
+        self._leaving_as = Settings(self._connection).device_id()
+
+    def leave(self) -> None:
+        """Off the app's thread: rounds end, what is waiting to be put getting
+        as long as when the user quits, and this device comes off the list."""
+        self.runner.finish(QUIT_WAIT)
+        self._rounds.take_device_off(self._leaving_as)
+
+    def left(self) -> None:
+        """On the app's thread, last. A request still out (it takes no more
+        than its own time) keeps garbage collected here until it is back."""
+        if self.runner.running:
+            self._looking_again.start(LOOK_AGAIN_MS)
+            return
+        self._collector.stop()
+        if not work_goes_on():
+            gc.enable()
+
     def finish(self, seconds: float) -> None:
         """Ends it; seconds: how long what is waiting to be put may take."""
+        self._finished = True
         self._connection.set_update_hook(None)
         self._notice()
         self._collector.stop()

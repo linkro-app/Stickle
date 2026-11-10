@@ -37,7 +37,7 @@ from stickle.app.secret_dialogs import (
     show_recovery_key,
 )
 from stickle.app.sync_setup import SyncGuideLine, SyncSetup
-from stickle.app.sync_status import SyncWords
+from stickle.app.sync_status import WEBDAV_NAME, SyncWords
 from stickle.app.syncing import Ended
 from stickle.app.typed import forget_typed
 from stickle.crypto.keyfile import KeyFileError
@@ -69,7 +69,6 @@ from stickle.sync.vault import (
 
 log = logging.getLogger(__name__)
 
-WEBDAV_NAME = "WebDAV"  # the same in every language
 ERROR_COLOUR = "#b3261e"
 WIDTH = 540
 GROUP = 2  # characters of a fingerprint shown together

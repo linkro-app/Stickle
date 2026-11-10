@@ -530,6 +530,29 @@
     </message>
 </context>
 <context>
+    <name>ChangeName</name>
+    <message>
+        <source>Change display name</source>
+        <translation>보이는 이름 바꾸기</translation>
+    </message>
+    <message>
+        <source>The name your other computers show for this one. It doesn&apos;t rename the computer itself.</source>
+        <translation>다른 PC의 Stickle에 보일 이 PC의 이름입니다. 시스템의 PC 이름은 바뀌지 않습니다.</translation>
+    </message>
+    <message>
+        <source>Display name</source>
+        <translation>보이는 이름</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>확인</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>취소</translation>
+    </message>
+</context>
+<context>
     <name>CheckMasterPasswordDialog</name>
     <message>
         <source>Check the spare password</source>
@@ -732,6 +755,33 @@ These files are not encrypted: keep them somewhere safe.</source>
     <message>
         <source>Also in %1 hidden note(s) and %2 in the trash: Ctrl+Enter shows them in Stickle Manager.</source>
         <translation>숨긴 메모에 %1개, 휴지통에 %2개 더 있습니다. Ctrl+Enter로 Stickle 관리자에서 봅니다.</translation>
+    </message>
+</context>
+<context>
+    <name>DisconnectSync</name>
+    <message>
+        <source>Disconnect</source>
+        <translation>연결 끊기</translation>
+    </message>
+    <message>
+        <source>This turns off sync on this computer. Your notes stay on this computer.</source>
+        <translation>이 PC의 동기화를 끕니다. 메모는 이 PC에 그대로 있습니다.</translation>
+    </message>
+    <message>
+        <source>The Stickle folder in %1 isn&apos;t deleted, so your other computers keep syncing.</source>
+        <translation>%1의 Stickle 폴더는 지우지 않으므로 다른 PC는 계속 동기화합니다.</translation>
+    </message>
+    <message>
+        <source>The server password saved on this computer is deleted too.</source>
+        <translation>이 PC에 저장한 서버 비밀번호도 지웁니다.</translation>
+    </message>
+    <message>
+        <source>Disconnecting…</source>
+        <translation>연결을 끊는 중입니다…</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>취소</translation>
     </message>
 </context>
 <context>
@@ -3803,6 +3853,85 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
 </context>
 <context>
+    <name>SyncPanel</name>
+    <message>
+        <source>Stickle connects to:</source>
+        <translation>Stickle이 접속하는 곳:</translation>
+    </message>
+    <message>
+        <source>· %1 — to sync with WebDAV</source>
+        <translation>· %1 — WebDAV와 동기화하려고</translation>
+    </message>
+    <message>
+        <source>· %1 — a daily check for a new version (you can turn it off in General)</source>
+        <translation>· %1 — 하루에 한 번 새 버전 확인(일반 칸에서 끌 수 있음)</translation>
+    </message>
+    <message>
+        <source>&amp;Sync now</source>
+        <translation>지금 동기화(&amp;S)</translation>
+    </message>
+    <message>
+        <source>&amp;Get changes from other computers:</source>
+        <translation>다른 PC에서 고친 것 받기(&amp;G):</translation>
+    </message>
+    <message>
+        <source>Every 30 seconds</source>
+        <translation>30초마다</translation>
+    </message>
+    <message>
+        <source>Every minute</source>
+        <translation>1분마다</translation>
+    </message>
+    <message>
+        <source>Every 5 minutes</source>
+        <translation>5분마다</translation>
+    </message>
+    <message>
+        <source>Every 15 minutes</source>
+        <translation>15분마다</translation>
+    </message>
+    <message>
+        <source>Every 30 minutes</source>
+        <translation>30분마다</translation>
+    </message>
+    <message>
+        <source>Every hour</source>
+        <translation>1시간마다</translation>
+    </message>
+    <message>
+        <source>Shorter is faster but uses a little more battery on a laptop.</source>
+        <translation>짧게 하면 빨리 보이지만 노트북이라면 배터리를 조금 더 씁니다.</translation>
+    </message>
+    <message>
+        <source>Computers that sync</source>
+        <translation>동기화하는 PC</translation>
+    </message>
+    <message>
+        <source>C&amp;hange display name…</source>
+        <translation>보이는 이름 바꾸기(&amp;H)…</translation>
+    </message>
+    <message>
+        <source>&amp;Disconnect…</source>
+        <translation>연결 끊기(&amp;D)…</translation>
+    </message>
+    <message>
+        <source>%1 — %2 · Stickle %3</source>
+        <translation>%1 — %2 · Stickle %3</translation>
+    </message>
+    <message>
+        <source>today</source>
+        <translation>오늘</translation>
+    </message>
+    <message>
+        <source>%1 — %2 · Stickle %3 · last synced %4</source>
+        <translation>%1 — %2 · Stickle %3 · 마지막 동기화 %4</translation>
+    </message>
+    <message>
+        <source>This computer — %1</source>
+        <translation>이 PC — %1</translation>
+    </message>
+</context>
+<context>
     <name>SyncWords</name>
     <message>
         <source>Sync stopped — check your server password</source>
@@ -3835,6 +3964,34 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Uploads stopped — your %1 is full</source>
         <translation>올리기 멈춤 — %1 공간이 가득 참</translation>
+    </message>
+    <message>
+        <source>Synced with %1 · %2</source>
+        <translation>%1와 동기화됨 · %2</translation>
+    </message>
+    <message>
+        <source>Downloading from %1 · %2 of %3 notes</source>
+        <translation>%1에서 받는 중 · 메모 %3개 중 %2개</translation>
+    </message>
+    <message>
+        <source>Uploading to %1 · %2 of %3 notes</source>
+        <translation>%1에 올리는 중 · 메모 %3개 중 %2개</translation>
+    </message>
+    <message numerus="yes">
+        <source>Offline · %n note(s) to upload</source>
+        <translation>
+            <numerusform>네트워크 없음 · 올릴 메모 %n개</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Offline</source>
+        <translation>네트워크 없음</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) to upload · trying again shortly</source>
+        <translation>
+            <numerusform>올릴 메모 %n개 · 곧 다시 올립니다</numerusform>
+        </translation>
     </message>
 </context>
 <context>

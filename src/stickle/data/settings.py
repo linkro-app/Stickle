@@ -168,6 +168,16 @@ def _sync_every(value: object) -> TypeGuard[int]:
 
 SYNC_EVERY = Setting[int]("sync_every", "device", 5 * 60, _sync_every)
 
+# What the other devices call this one; empty: as its system calls it.
+DEVICE_NAME_LONGEST = 64
+
+
+def _device_name(value: object) -> TypeGuard[str]:
+    return type(value) is str and len(value) <= DEVICE_NAME_LONGEST
+
+
+DEVICE_NAME = Setting[str]("device_name", "device", "", _device_name)
+
 # An open secret note locks again once left alone this long (minutes).
 RELOCK_MINUTES = Setting[int]("relock_minutes", "shared", 5, _minutes)
 # It also locks as soon as another window is used, if chosen.

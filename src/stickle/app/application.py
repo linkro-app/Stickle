@@ -419,6 +419,14 @@ def connect_sync(
     return started
 
 
+def disconnect_sync(connection: apsw.Connection, syncing: Syncing, clocks: Clocks) -> None:
+    """Sync turned off while the app runs: nothing kept of how to reach the
+    cloud, and this run going by this computer's clock again."""
+    sync_connection.forget(connection)
+    clocks.cloud = None
+    syncing.left()
+
+
 def sync_lines(syncing: Syncing | None) -> Sequence[str]:
     """What a report of a problem says of sync: nothing if this device does not sync."""
     return () if syncing is None else syncing.feedback_lines()
@@ -962,12 +970,19 @@ def run(
                 )
                 return syncing
 
+            def disconnected() -> None:
+                nonlocal syncing
+                if syncing is not None:
+                    disconnect_sync(notes_db, syncing, clocks)
+                    syncing = None
+
             sync_setup = SyncSetup(
-                lambda: syncing is not None,
+                lambda: syncing,
                 recovery,
                 lambda: len(manager.listed_notes()),
                 unlock.vault_pairs,
                 connected,
+                disconnected,
             )
         # Before any note opens: each offers to become a secret note.
         manager.secrets = secret_passwords(

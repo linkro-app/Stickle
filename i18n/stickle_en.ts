@@ -325,6 +325,23 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>SyncWords</name>
+    <message numerus="yes">
+        <source>Offline · %n note(s) to upload</source>
+        <translation>
+            <numerusform>Offline · %n note to upload</numerusform>
+            <numerusform>Offline · %n notes to upload</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n note(s) to upload · trying again shortly</source>
+        <translation>
+            <numerusform>%n note to upload · trying again shortly</numerusform>
+            <numerusform>%n notes to upload · trying again shortly</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>Tray</name>
     <message numerus="yes">
         <source>%n &amp;missed reminder(s)…</source>

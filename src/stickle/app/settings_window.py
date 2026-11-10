@@ -10,7 +10,7 @@ import itertools
 import logging
 from collections.abc import Callable
 from datetime import time
-from typing import override
+from typing import TYPE_CHECKING, override
 
 from PySide6.QtCore import QEvent, QLocale, QObject, QSize, Qt, QTime
 from PySide6.QtGui import QFont, QGuiApplication, QKeyEvent
@@ -60,6 +60,9 @@ from stickle.data.settings import SNOOZE_CHOICES
 from stickle.platform.autostart import Autostart
 from stickle.platform.linux.appimage import AppMenuEntry
 from stickle.platform.linux.x11 import activate
+
+if TYPE_CHECKING:
+    from stickle.app.sync_panel import SyncPanel
 
 log = logging.getLogger(__name__)
 
@@ -125,6 +128,7 @@ class SettingsWindow(QDialog):
         self._notes = notes
         self._full_screen = full_screen
         self._sync_setup = sync_setup
+        self.sync_panel: SyncPanel | None = None  # with sync on
         self._translations = translations
         self._autostart = autostart
         self._app_list = app_list
@@ -309,7 +313,8 @@ class SettingsWindow(QDialog):
         shortcuts_layout.addStretch(1)
 
         # Every address the app itself connects to, said where it can be read.
-        self.connections_page, connections = _page(self.tabs)
+        self.connections_page, self._connections_layout = _page(self.tabs)
+        connections = self._connections_layout
         self.turn_on_sync_button = QPushButton(self.connections_page)
         self.turn_on_sync_button.clicked.connect(self._turn_on_sync)
         turning_on = QHBoxLayout()
@@ -317,6 +322,7 @@ class SettingsWindow(QDialog):
         turning_on.addStretch(1)
         self.connections = QLabel(self.connections_page)
         self.connections.setWordWrap(True)
+        self.connections.setTextFormat(Qt.TextFormat.PlainText)
         self.sync_guide = SyncGuideLine(self.connections_page)
         self.sync_guide.setVisible(sync_setup is not None)
         connections.addLayout(turning_on)
@@ -381,6 +387,7 @@ class SettingsWindow(QDialog):
             self.leave_box,
             *(self.shortcut_rows.tab_order() if self.shortcut_rows is not None else []),
             self.turn_on_sync_button,
+            *(self.sync_panel.tab_order() if self.sync_panel is not None else []),
             self.sync_guide.link,
         ]
         for before, after in itertools.pairwise(order):
@@ -394,6 +401,24 @@ class SettingsWindow(QDialog):
             window = TurnOnSync(self._sync_setup, self)
             window.finished.connect(self.refresh)
             window.open()
+
+    def _show_sync(self) -> None:
+        """The page as sync stands: what it takes to show it on, only when it is."""
+        setup = self._sync_setup
+        syncing = None if setup is None else setup.current()
+        panel = self.sync_panel
+        if panel is not None and panel.syncing is not syncing:
+            self._connections_layout.removeWidget(panel)
+            panel.hide()
+            panel.deleteLater()
+            self.sync_panel = None
+        if setup is not None and syncing is not None and self.sync_panel is None:
+            from stickle.app.sync_panel import SyncPanel
+
+            self.sync_panel = SyncPanel(syncing, setup.disconnect, self.connections_page)
+            self.sync_panel.disconnected.connect(self.refresh)
+            self._connections_layout.insertWidget(1, self.sync_panel)
+            self._set_tab_order()
 
     def retranslate(self) -> None:
         self.setWindowTitle(self.tr("Stickle Settings"))
@@ -529,9 +554,14 @@ class SettingsWindow(QDialog):
         self.leave_box.setChecked(self._notes.lock_on_leave)
         self.protection_dates.setText(self.dates())
         self.turn_on_sync_button.setText(self.tr("&Turn on sync…"))
+        self._show_sync()
         setup = self._sync_setup
-        self.turn_on_sync_button.setVisible(setup is not None and not setup.is_on())
-        if self._updates is None:
+        self.turn_on_sync_button.setVisible(setup is not None and self.sync_panel is None)
+        if self.sync_panel is not None:
+            self.connections.setText(
+                self.sync_panel.connects_to(self._updates is not None and self._updates.enabled)
+            )
+        elif self._updates is None:
             self.connections.setText(self.tr("Stickle connects to nothing on the internet."))
         elif self._updates.enabled:
             self.connections.setText(

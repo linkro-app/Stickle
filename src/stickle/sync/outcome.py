@@ -58,6 +58,7 @@ class Outcome:
     wait: float | None = None  # seconds to the next try, when it failed for now; None: as usual
     failures: int = 0  # rounds running that failed for now
     full: bool = False  # nothing put: the cloud is full
+    offline: bool = False  # it failed for now, with no answer at all
 
 
 def after(error: BaseException | None, failures: int = 0, full: bool = False) -> Outcome:
@@ -83,6 +84,8 @@ def after(error: BaseException | None, failures: int = 0, full: bool = False) ->
             return Outcome(Stopped.CERTIFICATE)
         case TooBusyError(retry_after=asked) if asked is not None:
             return Outcome(wait=max(asked, 0.0), failures=failures + 1)
+        case UnavailableError(answered=False):
+            return Outcome(wait=_wait(failures + 1), failures=failures + 1, offline=True)
         case TooBusyError() | UnavailableError() | TokenExpiredError() | UnreadableError():
             return Outcome(wait=_wait(failures + 1), failures=failures + 1)
         case _:

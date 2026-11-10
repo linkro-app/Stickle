@@ -122,6 +122,10 @@ class UnavailableError(TargetError):
     """No answer, or the cloud failing for now (the network, 5xx): try again later.
     The request may have gone through all the same, its answer lost."""
 
+    def __init__(self, *args: object, answered: bool = False) -> None:
+        super().__init__(*args)
+        self.answered = answered  # the cloud did answer, with a failure of its own
+
 
 class TooBusyError(TargetError):
     """Too many requests (429, Dropbox's too_many_write_operations): wait."""

@@ -90,6 +90,16 @@ class About:
 
 
 @dataclass(frozen=True)
+class Other:
+    """Another device syncing with the vault, as it says of itself."""
+
+    name: str
+    os: str
+    version: str
+    synced: int | None  # when it last said it synced, by the cloud's clock
+
+
+@dataclass(frozen=True)
 class Looked:
     """What a look at the devices' files found."""
 
@@ -189,10 +199,12 @@ def sync_devices(
     under its id."""
     vault, target, keys = place.vault, place.target, place.keys
     own: Entry | None = None
+    there: set[str] = set()
     for entry in target.list(DEVICES):
         found = item_at(entry.path)
         if found is None or found[0] != DEVICES:
             continue
+        there.add(found[1])
         if found[1] == place.device:
             own = entry
             continue
@@ -209,6 +221,7 @@ def sync_devices(
             continue
         with writing(connection):
             record_state.put_device(connection, vault, found[1], _as_kept(contents), read.tag)
+    _note_those_there(connection, vault, there)
     device = place.device
     if own is None:  # gone from there: written anew, not as changing what was there
         with writing(connection):
@@ -218,6 +231,41 @@ def sync_devices(
         place = Place(target, vault, keys, device)
     _put_own(connection, place, cloud_now, about)
     return _looked(connection, vault, device)
+
+
+def _note_those_there(connection: apsw.Connection, vault: str, there: set[str]) -> None:
+    changes = {
+        device: device in there
+        for device, was in record_state.listed(connection, vault).items()
+        if was != (device in there)
+    }
+    if changes:
+        with writing(connection):
+            record_state.set_listed(connection, vault, changes)
+
+
+def others(connection: apsw.Connection, vault: str, device: str) -> list[Other]:
+    """The other devices syncing with the vault, by name: those whose file was
+    there when last looked at, and that say what they are called."""
+    found: list[Other] = []
+    there = record_state.listed(connection, vault)
+    for other, (seen, _tag) in record_state.devices(connection, vault).items():
+        contents = _contents(seen)
+        if other == device or not there[other] or contents is None:
+            continue
+        said = {name: each.value for name, each in contents.fields.items()}
+        name, system, version, synced = (said.get(k) for k in ("name", "os", "version", "synced"))
+        if not isinstance(name, str) or not name.strip() or said.get("kind") != APP:
+            continue
+        found.append(
+            Other(
+                name,
+                system if isinstance(system, str) else "",
+                version if isinstance(version, str) else "",
+                synced if type(synced) is int else None,
+            )
+        )
+    return sorted(found, key=lambda each: each.name.casefold())
 
 
 def _looked(connection: apsw.Connection, vault: str, device: str) -> Looked:

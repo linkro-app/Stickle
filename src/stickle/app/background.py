@@ -11,11 +11,9 @@ from stickle.sync.runner import THREAD_NAME as SYNC_THREAD
 THREAD_NAME = "stickle-work"
 
 
-def _work_goes_on_elsewhere(mine: threading.Thread) -> bool:
-    return any(
-        thread is not mine and thread.name in (THREAD_NAME, SYNC_THREAD)
-        for thread in threading.enumerate()
-    )
+def work_goes_on() -> bool:
+    """Whether any thread of sync, or of work like this, is still at it."""
+    return any(thread.name in (THREAD_NAME, SYNC_THREAD) for thread in threading.enumerate())
 
 
 class Job(QObject):
@@ -54,7 +52,8 @@ class Job(QObject):
         self._then = then
 
     def _end(self, outcome: object) -> None:
-        if not _work_goes_on_elsewhere(self._thread):
+        self._thread.join()  # told of this as the last thing it does
+        if not work_goes_on():
             gc.enable()
         self.deleteLater()
         self._then(outcome)

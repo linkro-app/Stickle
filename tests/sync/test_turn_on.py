@@ -189,7 +189,9 @@ def make_bench(
             connect(login, joining)
         return cast(Syncing, syncing)
 
-    setup = SyncSetup(lambda: False, keys.keys(), lambda: 3, lambda: sealed_for, connected)
+    setup = SyncSetup(
+        lambda: None, keys.keys(), lambda: 3, lambda: sealed_for, connected, lambda: None
+    )
     window = TurnOnSync(setup)
     qtbot.addWidget(window)
     window.show()
@@ -215,18 +217,35 @@ def settings_with(qtbot: QtBot, setup: SyncSetup | None) -> SettingsWindow:
     return window
 
 
-def test_turning_on_is_offered_until_it_is_on(qtbot: QtBot, keys: Keys) -> None:
-    on = [False]
+def test_turning_on_is_offered_until_it_is_on(
+    qtbot: QtBot, keys: Keys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    on: list[Syncing | None] = [None]
+
+    class NoPanel(QWidget):
+        disconnected = Signal()
+
+        def __init__(self, syncing: Syncing, _gone: object, parent: QWidget) -> None:
+            super().__init__(parent)
+            self.syncing = syncing
+
+        def tab_order(self) -> list[QWidget]:
+            return []
+
+        def connects_to(self, _update_check: bool) -> str:
+            return ""
 
     def connect(_login: Login, _joining: bool) -> Syncing:
         raise AssertionError("not connected in this test")
 
+    monkeypatch.setattr("stickle.app.sync_panel.SyncPanel", NoPanel)
     window = settings_with(
-        qtbot, SyncSetup(lambda: on[0], keys.keys(), lambda: 3, lambda: PAIRS, connect)
+        qtbot,
+        SyncSetup(lambda: on[0], keys.keys(), lambda: 3, lambda: PAIRS, connect, lambda: None),
     )
     assert window.turn_on_sync_button.isVisible()
     assert window.sync_guide.isVisible()
-    on[0] = True
+    on[0] = cast(Syncing, FakeSyncing())
     window.refresh()
     assert not window.turn_on_sync_button.isVisible()
     assert window.sync_guide.isVisible()
@@ -243,7 +262,8 @@ def test_the_button_opens_its_window_once(qtbot: QtBot, keys: Keys) -> None:
         raise AssertionError("not connected in this test")
 
     window = settings_with(
-        qtbot, SyncSetup(lambda: False, keys.keys(), lambda: 3, lambda: PAIRS, connect)
+        qtbot,
+        SyncSetup(lambda: None, keys.keys(), lambda: 3, lambda: PAIRS, connect, lambda: None),
     )
     window.turn_on_sync_button.click()
     opened = window.findChild(TurnOnSync)
@@ -932,11 +952,12 @@ class Pc:
 
     def setup(self, keys: Keys) -> SyncSetup:
         return SyncSetup(
-            lambda: bool(self.started),
+            lambda: self.started[-1] if self.started else None,
             keys.keys(),
             lambda: len(self.manager.listed_notes()),
             lambda: PAIRS,
             self.connect,
+            lambda: None,
         )
 
     def end(self) -> None:

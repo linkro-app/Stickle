@@ -153,6 +153,21 @@ def devices(connection: apsw.Connection, vault: str) -> dict[str, tuple[str | No
     return {str(device_id): (_text(seen), _text(tag)) for device_id, seen, tag in rows}
 
 
+def listed(connection: apsw.Connection, vault: str) -> dict[str, bool]:
+    """Every device of the vault whose file was seen: whether it was still
+    there when the vault's devices were last listed."""
+    rows = connection.execute("SELECT device, listed FROM sync_devices WHERE vault = ?", (vault,))
+    return {str(device_id): bool(there) for device_id, there in rows}
+
+
+def set_listed(connection: apsw.Connection, vault: str, there: Mapping[str, bool]) -> None:
+    for device_id, is_there in there.items():
+        connection.execute(
+            "UPDATE sync_devices SET listed = ? WHERE vault = ? AND device = ?",
+            (int(is_there), vault, device_id),
+        )
+
+
 def device_name(connection: apsw.Connection, device_id: str) -> str | None:
     """What a device is called, as its file in a vault last said; None: not known."""
     rows = connection.execute(

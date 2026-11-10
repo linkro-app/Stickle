@@ -325,6 +325,7 @@ def sync_check() -> tuple[str, str]:
     try:
         from xml.etree.ElementTree import fromstring
 
+        from stickle.app.sync_panel import SyncPanel
         from stickle.app.syncing import Syncing
         from stickle.app.turn_on_sync import TurnOnSync
         from stickle.platform.tls import https_context
@@ -333,7 +334,7 @@ def sync_check() -> tuple[str, str]:
 
         https_context()
         ok = fromstring("<a/>").tag == "a" and callable(sync_vault) and callable(Syncing)
-        ok = ok and callable(TurnOnSync)
+        ok = ok and callable(TurnOnSync) and callable(SyncPanel)
         ok = ok and parse_address("https://example.com/a").secure
     except Exception:
         ok = False

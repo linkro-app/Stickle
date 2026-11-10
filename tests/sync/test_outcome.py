@@ -45,6 +45,17 @@ def test_failing_for_now_waits_twice_as_long_each_time_up_to_five_minutes(
     assert waits == [15, 30, 60, 120, 240, LONGEST_WAIT, LONGEST_WAIT, LONGEST_WAIT]
 
 
+def test_no_answer_at_all_is_told_from_a_cloud_failing() -> None:
+    assert after(UnavailableError()).offline
+    assert not after(UnavailableError(answered=True)).offline
+    assert not after(TooBusyError()).offline
+    assert not after(TooBusyError(9.0)).offline
+    assert not after(TokenExpiredError()).offline
+    assert not after(UnreadableError("half")).offline
+    assert not after(None).offline
+    assert after(UnavailableError(answered=True)).wait == 15
+
+
 @pytest.mark.parametrize("asked", [1.0, 90.0, 900.0])
 def test_too_many_requests_waits_as_long_as_the_cloud_asked(asked: float) -> None:
     assert after(TooBusyError(asked), failures=3).wait == asked

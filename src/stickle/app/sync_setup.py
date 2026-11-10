@@ -28,12 +28,13 @@ if TYPE_CHECKING:
 class SyncSetup:
     """What turning sync on needs, without the windows knowing the notes' keys."""
 
-    is_on: Callable[[], bool]
+    current: Callable[[], Syncing | None]  # sync as it runs, if it does
     recovery: RecoveryKeys
     note_count: Callable[[], int]  # the user's notes, out of the trash
     pairs: Callable[[], Mapping[str, SealedSlot]]  # what a new vault's key is sealed for
     # Connected (the login; whether the vault was there before): kept, and rounds start.
     connect: Callable[[Login, bool], Syncing]
+    disconnect: Callable[[], None]  # sync left: the connection forgotten, the app going on
 
 
 class SyncGuideLine(QWidget):
