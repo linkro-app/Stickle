@@ -100,6 +100,61 @@ def test_a_file_lost_here_is_found_there_and_written_over(
     assert writes(cloud, a) == first + 2
 
 
+def test_its_own_file_gone_from_the_vault_is_written_again_at_once(
+    devices: tuple[Named, Named], cloud: FakeCloud, times: Times
+) -> None:
+    """Nothing to say, and said within the day: it is still not there to read."""
+    a, b = devices
+    a.sync()
+    b.sync()
+    cloud.remove_by_hand(item_path(DEVICES, a.id))
+
+    times.tick(60_000)
+    a.sync()
+
+    assert item_path(DEVICES, a.id) in cloud.files()
+    b.db.execute("DELETE FROM sync_devices")
+    b.sync()
+    assert device_name(b.db, a.id) == "노트북"
+
+
+def test_its_own_file_gone_for_more_than_a_day_is_written_again(
+    devices: tuple[Named, Named], cloud: FakeCloud, times: Times
+) -> None:
+    """A condition on a file that is no longer there is not met, round after round."""
+    a, _ = devices
+    a.sync()
+    cloud.remove_by_hand(item_path(DEVICES, a.id))
+
+    times.tick(DAY)
+    a.sync()
+
+    assert item_path(DEVICES, a.id) in cloud.files()
+
+
+def test_a_device_whose_file_came_back_is_read_again_from_its_first_round(
+    devices: tuple[Named, Named], cloud: FakeCloud, times: Times
+) -> None:
+    """Its rounds begin again: the others look at the folders, and miss nothing."""
+    a, b = devices
+    note = a.notes.create("처음").id
+    a.sync()
+    b.sync()
+    cloud.remove_by_hand(item_path(DEVICES, a.id))
+    times.tick(60_000)
+    a.sync()
+    times.tick(60_000)
+    a.notes.update_body(note, "고침", keep_earlier=True)
+    a.sync()
+
+    times.tick(60_000)
+    b.sync()
+
+    found = b.notes.get(note)
+    assert found is not None
+    assert found.body == "고침"
+
+
 def test_this_device_is_called_as_its_system_calls_it() -> None:
     about = this_device()
     assert about.name

@@ -125,6 +125,12 @@ def put_device(
     )
 
 
+def drop_device(connection: apsw.Connection, vault: str, device_id: str) -> None:
+    connection.execute(
+        "DELETE FROM sync_devices WHERE vault = ? AND device = ?", (vault, device_id)
+    )
+
+
 def taken(connection: apsw.Connection, vault: str) -> dict[str, int]:
     """Each device's last round of what it put that was taken in here."""
     rows = connection.execute("SELECT device, taken FROM sync_devices WHERE vault = ?", (vault,))

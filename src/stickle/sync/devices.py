@@ -210,7 +210,10 @@ def sync_devices(
         with writing(connection):
             record_state.put_device(connection, vault, found[1], _as_kept(contents), read.tag)
     device = place.device
-    if own is not None and _copied(connection, place, own, full):
+    if own is None:  # gone from there: written anew, not as changing what was there
+        with writing(connection):
+            record_state.drop_device(connection, vault, device)
+    elif _copied(connection, place, own, full):
         device = renew(connection, device)
         place = Place(target, vault, keys, device)
     _put_own(connection, place, cloud_now, about)
