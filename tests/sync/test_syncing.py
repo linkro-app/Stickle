@@ -47,6 +47,7 @@ from stickle.sync.outcome import Stopped
 from stickle.sync.targets.base import SignInNeededError
 
 ROUND_MS = 15_000
+HOUR = 3600.0
 
 
 @pytest.fixture(autouse=True)
@@ -133,6 +134,10 @@ def make_pc(
         manager,
         reminders,
         make_target=lambda _heard, _gone: cloud.target(name),
+        # Its rounds are the ones a test asks for: making the other computer's
+        # database below can take longer, on a slow machine, than the app waits
+        # before a first round of its own.
+        start_wait=HOUR,
     )
     clock = Clock(wall_millis())
     other = Device("b", tmp_path, cloud, clock, whole=True)

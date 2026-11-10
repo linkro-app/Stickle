@@ -48,7 +48,7 @@ from stickle.sync.engine import (
 from stickle.sync.format import DEVICES, item_path
 from stickle.sync.outcome import LONGEST_WAIT, Outcome, Stopped, after
 from stickle.sync.runner import Runner, Until
-from stickle.sync.schedule import Schedule
+from stickle.sync.schedule import START_WAIT, Schedule
 from stickle.sync.targets.base import AsRead, CertificateError, NotThereError, Target
 
 log = logging.getLogger(__name__)
@@ -337,9 +337,11 @@ class Syncing(QObject):
         reminders: ReminderKeeper | None = None,
         make_target: Callable[[Callable[[int, int], None], Callable[[], None]], Target]
         | None = None,
+        start_wait: float = START_WAIT,
     ) -> None:
         """store, key: the notes database. make_target: how to reach the cloud,
-        if not as login says (given the two things to tell of what it hears)."""
+        if not as login says (given the two things to tell of what it hears).
+        start_wait: seconds from now to the first round of its own."""
         super().__init__()
         self._connection = connection
         self._manager = manager
@@ -349,7 +351,7 @@ class Syncing(QObject):
         every = Settings(connection).get(SYNC_EVERY)
         stopped = login.stopped is not None and login.stopped not in LOOKED_AT_AGAIN
         self.runner = Runner(
-            Schedule(self._now(), every, stopped),
+            Schedule(self._now(), every, stopped, start_wait),
             self._rounds,
             self._round_ended.emit,
             self._now,
