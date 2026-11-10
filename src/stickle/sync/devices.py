@@ -19,9 +19,10 @@ in), and those of the rounds not taken in here are read. A file is noted as
 untold before it is put: an answer lost, or the app ended, it is said the next
 round. "recent" holds so many; "forgot" is the last round something fell off
 it. A device further behind than that, or one finding a device's rounds gone
-back, looks at the folders instead. Writes in turn differ in size ("pad"): a
-server may make its tags from the second and the size, and a reader would miss
-a second write within the second.
+back, looks at the folders instead. Each write is of another size than the one
+before it ("pad", whatever else changed with it): a server may make its tags
+from the second and the size, and a reader would miss a second write within the
+second.
 
 Each write of its own file is marked anew ("mark"), the mark kept here before
 the file is put (a year's of them). Its file there with a tag other than the
@@ -37,7 +38,7 @@ import platform
 import secrets
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import apsw
 
@@ -74,6 +75,7 @@ ROUND = "round"
 RECENT = "recent"
 FORGOT = "forgot"
 PAD = "pad"
+PADDING = "xxx"  # three bytes: in base64, four letters more wherever the file ends
 KEPT = 100  # files a device's own file names
 TRIES = 5
 _SAID = ("name", "os", "version", "kind")
@@ -182,8 +184,22 @@ def _telling(before: Contents | None, untold: list[str]) -> dict[str, Json]:
         ROUND: number,
         FORGOT: forgot,
         RECENT: named,
-        PAD: "" if pad is not None and pad.value else "xxx",
+        PAD: "" if pad is not None and pad.value else PADDING,
     }
+
+
+def _sealed(place: Place, contents: Contents) -> bytes:
+    return seal(place.keys, place.vault, DEVICES, place.device, contents.to_json())
+
+
+def _of_another_size(place: Place, before: Contents | None, contents: Contents) -> Contents:
+    """contents, with more pad if what else changed took back what the pad did
+    (a new name three bytes longer, say)."""
+    if before is None or len(_sealed(place, contents)) != len(_sealed(place, before)):
+        return contents
+    pad = contents.fields[PAD]
+    fields = {**contents.fields, PAD: replace(pad, value=f"{pad.value}{PADDING}")}
+    return Contents(fields, contents.others)
 
 
 def sync_devices(
@@ -347,14 +363,14 @@ def _put_own(
         spoken: dict[str, Json] = {**said, "synced": now, MARK: mark}
         for name, value in {**spoken, **_telling(before, untold)}.items():
             fields[name] = Field(value, Hlc(now), device)
-        contents = Contents(fields, {} if before is None else before.others)
+        contents = _of_another_size(
+            place, before, Contents(fields, {} if before is None else before.others)
+        )
         condition = Absent() if before is None else AsRead(tag)
         with writing(connection):
             sync_state.add_own_mark(connection, vault, mark)
         try:
-            written = target.put(
-                path, seal(keys, vault, DEVICES, device, contents.to_json()), condition
-            )
+            written = target.put(path, _sealed(place, contents), condition)
         except FullError:
             return  # written again once there is room
         except RefusedError:

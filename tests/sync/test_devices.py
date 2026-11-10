@@ -2,11 +2,12 @@
 changed or a day went by; it reads the others', for what each is called."""
 
 from collections.abc import Iterator, Mapping
+from itertools import pairwise
 from pathlib import Path
 
 import apsw
 import pytest
-from fake_cloud import DROPBOX, WEBDAV_IGNORING, FakeCloud, Kind
+from fake_cloud import DROPBOX, WEBDAV, WEBDAV_IGNORING, FakeCloud, Kind
 from test_records import VAULT, Device, Times, vault_cloud
 
 from stickle.core.hlc import Hlc
@@ -86,6 +87,45 @@ def test_its_own_file_is_written_when_it_has_something_to_say(
 
     b.sync()
     assert device_name(b.db, a.id) == "새 노트북"
+
+
+@pytest.mark.parametrize("change", [*range(-6, 0), *range(1, 7)])
+def test_a_write_is_of_another_size_whatever_else_changed_with_it(
+    tmp_path: Path, times: Times, change: int
+) -> None:
+    """Base64 goes in steps of three bytes: a name longer or shorter by some
+    bytes can take back what the pad changed."""
+    cloud = vault_cloud(WEBDAV)
+    a = Named("a", tmp_path, cloud, times, name="이름")
+    sizes: list[int] = []
+    for step in range(12):
+        a.about = About("n" * (80 + change * step), "Linux", "0.7.0")
+        sync_devices(a.db, a.place, a.times, a.about)
+        sizes.append(len(cloud.files()[item_path(DEVICES, a.id)]))
+    assert all(one != other for one, other in pairwise(sizes))
+    a.db.close()
+
+
+def test_a_new_name_within_the_second_still_reaches_the_other(
+    tmp_path: Path, times: Times, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tags as wsgidav makes them, of the second and the size: the name three
+    bytes longer, where the pad is three bytes shorter."""
+    monkeypatch.setattr("fake_cloud.TICKS_PER_SECOND", 1_000)  # all of it within one second
+    cloud = vault_cloud(WEBDAV)
+    a = Named("a", tmp_path, cloud, times, name="n" * 13)
+    b = Named("b", tmp_path, cloud, times, name="회사 PC")
+    sync_devices(a.db, a.place, a.times, a.about)
+    sync_devices(b.db, b.place, b.times, b.about)
+    assert device_name(b.db, a.id) == "n" * 13
+    a.about = About("n" * 16, "Linux", "0.7.0")
+
+    sync_devices(a.db, a.place, a.times, a.about)
+    sync_devices(b.db, b.place, b.times, b.about)
+
+    assert device_name(b.db, a.id) == "n" * 16
+    a.db.close()
+    b.db.close()
 
 
 def test_a_file_lost_here_is_found_there_and_written_over(
