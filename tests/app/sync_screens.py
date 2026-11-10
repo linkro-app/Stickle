@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QLabel, QMenu, QSystemTrayIcon, QWidget
 
 from stickle.app.app_icon import SyncSign, icon_pixmap
 from stickle.app.background import Job
+from stickle.app.conflict_bar import CopyOf
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
@@ -426,6 +427,38 @@ def _note(stage: Stage) -> QWidget:
     return note
 
 
+def _copy(copy: CopyOf, width: int = 260) -> Callable[[Stage], QWidget]:
+    """A conflict copy, with its band."""
+
+    def build(stage: Stage) -> QWidget:
+        manager = stage.keep(NoteManager())
+        note = stage.keep(manager.new_note())
+        note.resize(width, 200)
+        note.editor.setPlainText("회의 10시 · Meeting at 10")
+        note.show_formatted()
+        note.set_copy(copy)
+        return note
+
+    return build
+
+
+def _written(here: bool = False, name: str | None = "노트북", original: bool = True) -> CopyOf:
+    return CopyOf(here, name, _at_14_05().toMSecsSinceEpoch(), original, original)
+
+
+def _original(copies: int) -> Callable[[Stage], QWidget]:
+    """A note one of whose texts is in conflict copies: its dark cloud."""
+
+    def build(stage: Stage) -> QWidget:
+        note = _note(stage)
+        assert isinstance(note, NoteWindow)
+        note.set_unsent(False)
+        note.set_copies(copies)
+        return note
+
+    return build
+
+
 def _icons(stage: Stage) -> QWidget:
     """The tray's icon as each taskbar would show it, enlarged: light, then dark."""
     zoom, pad = 3, 8
@@ -523,4 +556,12 @@ SCENES: list[Scene] = [
     Scene("tray-tooltip-stopped", _tooltip(_stopped(Stopped.NO_ACCESS)), keyboard=False),
     Scene("tray-icons", _icons, keyboard=False),
     Scene("note-not-sent", _note, keyboard=False),
+    Scene("note-conflict-copy", _copy(_written()), keyboard=False),
+    Scene("note-conflict-copy-here", _copy(_written(here=True, name=None)), keyboard=False),
+    Scene("note-conflict-copy-unknown", _copy(_written(name=None)), keyboard=False),
+    Scene("note-conflict-copy-long-name", _copy(_written(name=LONG_NAME)), keyboard=False),
+    Scene("note-conflict-copy-narrow", _copy(_written(), width=180), keyboard=False),
+    Scene("note-conflict-copy-no-original", _copy(_written(original=False)), keyboard=False),
+    Scene("note-conflict-original", _original(1), keyboard=False),
+    Scene("note-conflict-original-two", _original(2), keyboard=False),
 ]

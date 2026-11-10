@@ -690,6 +690,53 @@
     </message>
 </context>
 <context>
+    <name>ConflictBar</name>
+    <message>
+        <source>Changed separately on this computer · %1</source>
+        <translation>이 PC에서 따로 고친 글 · %1</translation>
+    </message>
+    <message>
+        <source>Changed separately on another computer · %1</source>
+        <translation>다른 PC에서 따로 고친 글 · %1</translation>
+    </message>
+    <message>
+        <source>Changed separately on %1 · %2</source>
+        <translation>%1에서 따로 고친 글 · %2</translation>
+    </message>
+    <message>
+        <source>Conflict copy: the same note was changed on two computers, so the text from this computer was kept in this copy.</source>
+        <translation>충돌 사본: 같은 메모를 두 PC에서 따로 고쳐, 이 PC에서 고친 글을 이 사본에 남겼습니다.</translation>
+    </message>
+    <message>
+        <source>Conflict copy: the same note was changed on two computers, so the text from another computer was kept in this copy.</source>
+        <translation>충돌 사본: 같은 메모를 두 PC에서 따로 고쳐, 다른 PC에서 고친 글을 이 사본에 남겼습니다.</translation>
+    </message>
+    <message>
+        <source>Conflict copy: the same note was changed on two computers, so the text from %1 was kept in this copy.</source>
+        <translation>충돌 사본: 같은 메모를 두 PC에서 따로 고쳐, %1에서 고친 글을 이 사본에 남겼습니다.</translation>
+    </message>
+    <message>
+        <source>Show the original</source>
+        <translation>원본 보기</translation>
+    </message>
+    <message>
+        <source>Use this text</source>
+        <translation>이 글로 바꾸기</translation>
+    </message>
+    <message>
+        <source>Keep both</source>
+        <translation>둘 다 두기</translation>
+    </message>
+    <message>
+        <source>Puts this text in the original note. Its current text goes to the trash.</source>
+        <translation>원본을 이 글로 바꿉니다. 원본의 지금 글은 휴지통에 남습니다.</translation>
+    </message>
+    <message>
+        <source>Resolve</source>
+        <translation>정리</translation>
+    </message>
+</context>
+<context>
     <name>DataMenu</name>
     <message>
         <source>&amp;Open the folder</source>
@@ -2097,6 +2144,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>(빈 메모)</translation>
     </message>
     <message>
+        <source>conflict copy</source>
+        <translation>충돌 사본</translation>
+    </message>
+    <message>
         <source>deleted %1</source>
         <translation>%1에 지움</translation>
     </message>
@@ -2221,6 +2272,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <source>The earlier version could not be restored.</source>
         <translation>이전 버전으로 되돌리지 못했습니다.</translation>
     </message>
+    <message>
+        <source>The original note could not be changed.</source>
+        <translation>원본을 이 글로 바꾸지 못했습니다.</translation>
+    </message>
 </context>
 <context>
     <name>NoteView</name>
@@ -2300,6 +2355,16 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>방향키로 크기 바꾸기</translation>
     </message>
     <message>
+        <source>Text changed separately is in a copy. Click to show it.</source>
+        <translation>따로 고친 글이 사본에 있습니다. 누르면 사본을 보여 줍니다.</translation>
+    </message>
+    <message numerus="yes">
+        <source>Text changed separately is in %n copies. Click to show them.</source>
+        <translation>
+            <numerusform>따로 고친 글이 사본 %n개에 있습니다. 누르면 사본을 보여 줍니다.</numerusform>
+        </translation>
+    </message>
+    <message>
         <source>Reminder…</source>
         <translation>알림…</translation>
     </message>
@@ -2375,6 +2440,10 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>This note could not be saved. Trying again; click to try now.</source>
         <translation>이 메모를 저장하지 못했습니다. 다시 시도하는 중이며, 누르면 바로 시도합니다.</translation>
+    </message>
+    <message>
+        <source>Show the conflict copy</source>
+        <translation>충돌 사본 보기</translation>
     </message>
     <message>
         <source>None</source>

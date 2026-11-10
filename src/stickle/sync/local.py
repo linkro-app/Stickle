@@ -6,7 +6,12 @@ JSON: the colour's key, the opacity, the category's id or null, true or false,
 and when it went into the trash (a timestamp, stickle.core.clock) or null. A
 field never changed here has no stamp: it goes as changed at the earliest time
 of all, by this device. Fields this version does not keep here (a newer
-version's, a conflict copy's mark) go as they were last seen in the vault.
+version's) go as they were last seen in the vault.
+
+What a conflict copy is a copy of (stickle.sync.merge.COPY_OF) is kept here
+too, but goes only once it was taken in or changed here (it has a stamp): a
+note that never was a copy goes without it, as it always went, and a copy
+made before it was kept here goes as last seen until it is taken in.
 
 A value taken in is checked first. One this version cannot take (a category
 or a mark this device does not know yet, a value of another shape) is left in
@@ -41,14 +46,20 @@ from stickle.data.record_stamps import MARK as MARKS
 from stickle.data.stamps import Stamp
 from stickle.data.sync_state import NoteState
 from stickle.sync import local_records, local_reminders
-from stickle.sync.contents import Contents, Field
-from stickle.sync.format import Json, json_bytes, parse_json
+from stickle.sync.contents import Contents, Field, is_millis
+from stickle.sync.format import Json, is_id, json_bytes, parse_json
 from stickle.sync.merge import COPY_OF
 from stickle.sync.note_file import BODY, NoteFile, new_version
 
-# The fields kept here, and their columns. A secret note's title goes with its
-# text, which this version does not sync yet.
-COLUMNS = {field: column for column, field in stamps.FIELDS.items() if field != "secret_title"}
+# The fields every note has, and their columns. A secret note's title goes with
+# its text, which this version does not sync yet; a conflict copy's mark only
+# with a copy.
+COLUMNS = {
+    field: column
+    for column, field in stamps.FIELDS.items()
+    if field not in ("secret_title", COPY_OF)
+}
+_COPY_PARTS = ("device", "edited", "note")
 MARK = stamps.mark_field("")
 EARLIEST = Hlc(0)
 _SWITCHES = {"always_on_top", "hidden", "collapsed", "locked"}
@@ -132,7 +143,17 @@ def here(connection: apsw.Connection, notes: NoteRepository, note_id: str) -> He
     )
 
 
-def _value(note: Note, name: str) -> Json:
+def _value(note: Note, name: str, device: str) -> Json:
+    """device: this device's id."""
+    if name == COPY_OF:
+        conflict = note.conflict
+        if conflict is None:
+            return None
+        return {
+            "device": conflict.device or device,
+            "edited": conflict.edited,
+            "note": conflict.note,
+        }
     if name.startswith(MARK):
         return name.removeprefix(MARK) in note.marks
     if name == "opacity":
@@ -149,7 +170,7 @@ def _value(note: Note, name: str) -> Json:
 
 def _field(at: Here, note: Note, name: str, device: str, before: Field | None) -> Field:
     when, by = at.stamps.get(name, (EARLIEST, None))
-    value, sent = _value(note, name), at.sent.get(name)
+    value, sent = _value(note, name, device), at.sent.get(name)
     if before is None:
         return Field(value, when, by or device, sent=sent)
     return replace(before, value=value, hlc=when, device=by or device, sent=sent)
@@ -181,6 +202,8 @@ def mine(keys: DataKeys, device: str, at: Here, state: NoteState | None) -> Note
     names |= {stamps.mark_field(mark) for mark in note.marks}
     names |= set(COLUMNS)
     fields = {name: each for name, each in before.fields.items() if not _ours(name)}
+    if COPY_OF in at.stamps:
+        names.add(COPY_OF)
     for name in sorted(names):
         fields[name] = _field(at, note, name, device, before.fields.get(name))
     earliest = Field(None, EARLIEST, device)
@@ -220,6 +243,25 @@ def _column_value(connection: apsw.Connection, name: str, value: Json) -> object
     return _NOT_TAKEN
 
 
+def _copy_columns(value: Json, device: str) -> dict[str, object] | None:
+    """What a conflict copy's mark sets in its columns (device: this one's id),
+    or None for one of another shape."""
+    if value is None:
+        return {"conflict_of": None, "conflict_device": None, "conflict_edited": None}
+    if not isinstance(value, dict) or tuple(sorted(value)) != _COPY_PARTS:
+        return None
+    note, by, edited = value["note"], value["device"], value["edited"]
+    if not (isinstance(note, str) and is_id(note) and isinstance(by, str) and is_id(by)):
+        return None
+    if not is_millis(edited):
+        return None
+    return {
+        "conflict_of": note,
+        "conflict_device": None if by == device else by,
+        "conflict_edited": edited,
+    }
+
+
 def take(
     connection: apsw.Connection,
     notes: NoteRepository,
@@ -239,17 +281,22 @@ def take(
     marks: dict[str, bool] = {}
     stamped: dict[str, tuple[Stamp, int | None]] = {}
     for name, each in sorted(note.contents.fields.items()):
-        if not _ours(name):
+        if not _ours(name) and name != COPY_OF:
             continue
         stamp: Stamp = (each.hlc, None if each.device == device else each.device)
         now = at.note is not None and (
-            _value(at.note, name) == each.value
+            _value(at.note, name, device) == each.value
             and at.stamps.get(name, (EARLIEST, None)) == stamp
             and at.sent.get(name) == each.sent
         )
         if now:
             continue
-        if name.startswith(MARK):
+        if name == COPY_OF:
+            copied = _copy_columns(each.value, device)
+            if copied is None:
+                continue
+            columns.update(copied)
+        elif name.startswith(MARK):
             mark = name.removeprefix(MARK)
             if not isinstance(each.value, bool) or (
                 each.value and not _exists(connection, "marks", mark)

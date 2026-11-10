@@ -225,9 +225,10 @@ def paint_alarm(painter: QPainter, color: QColor, area: QRectF) -> None:
     painter.restore()
 
 
-def paint_cloud(painter: QPainter, color: QColor, area: QRectF) -> None:
-    """A small faint cloud at the icon's top right corner, cut out of what is
-    under it: the note is not in the cloud yet."""
+def paint_cloud(painter: QPainter, color: QColor, area: QRectF, opacity: float = 1.0) -> None:
+    """A small cloud at the icon's top right corner, cut out of what is under
+    it: faint (CLOUD_OPACITY), the note is not in the cloud yet; dark (1.0), a
+    text of it was changed apart on two computers."""
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     size = min(area.width(), area.height())
@@ -248,10 +249,10 @@ def paint_cloud(painter: QPainter, color: QColor, area: QRectF) -> None:
     painter.setBrush(Qt.GlobalColor.black)
     painter.drawPath(outline)
     painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-    faint = QColor(color)
-    faint.setAlphaF(CLOUD_OPACITY)
+    shade = QColor(color)
+    shade.setAlphaF(shade.alphaF() * opacity)
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(faint)
+    painter.setBrush(shade)
     painter.drawPath(outline)
     painter.restore()
 
@@ -265,12 +266,13 @@ def state_pixmap(
     secret: Literal["locked", "open"] | None = None,
     alarm: bool = False,
     unsent: bool = False,
+    conflict: bool = False,
 ) -> QPixmap:
     """The title bar's left icon at size logical pixels: the category's (or the
     app's, for None) in color, with tape in the tape colour when on top, a
     small alarm clock with a reminder coming, and a faint cloud when it is not
-    in the cloud yet. A secret note shows a keyhole instead, whatever its
-    category."""
+    in the cloud yet, a dark one (in its place) for a conflict copy and its
+    original. A secret note shows a keyhole instead, whatever its category."""
     pixels = round(size * scale)
     pixmap = QPixmap(pixels, pixels)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -288,8 +290,9 @@ def state_pixmap(
         paint_tape(painter, tape, QRectF(0, 0, pixels, pixels))
     if alarm:
         paint_alarm(painter, color, QRectF(0, 0, pixels, pixels))
-    if unsent:
-        paint_cloud(painter, color, QRectF(0, 0, pixels, pixels))
+    if conflict or unsent:
+        opacity = 1.0 if conflict else CLOUD_OPACITY
+        paint_cloud(painter, color, QRectF(0, 0, pixels, pixels), opacity)
     painter.end()
     pixmap.setDevicePixelRatio(scale)
     return pixmap

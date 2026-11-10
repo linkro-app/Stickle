@@ -70,6 +70,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import Shiboken
 
+from stickle.app.conflict_bar import ConflictBar, CopyOf, explained
 from stickle.app.labels import CategoryTag, MarksBadge, mark_name
 from stickle.app.note_highlight import MarkdownHighlighter
 from stickle.app.note_view import NoteView, from_utf16, utf16_length
@@ -416,6 +417,7 @@ class TitleBar(QWidget):
     double_clicked = Signal()
     drag_started = Signal(bool)  # True: with Shift, the notes beside it along
     dragged_by = Signal(QPoint)  # moved by Stickle itself, this far from where it started
+    tag_clicked = Signal()  # its state icon, clicked (not pressed to move the note)
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -580,8 +582,17 @@ class TitleBar(QWidget):
 
     @override
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        pressed = self._press is not None  # and not moved: a click
         self._press = None
         self._drag_offset = None
+        tag = self.category_tag
+        if (
+            pressed
+            and event.button() == Qt.MouseButton.LeftButton
+            and tag.isVisible()
+            and tag.geometry().contains(event.position().toPoint())
+        ):
+            self.tag_clicked.emit()
         super().mouseReleaseEvent(event)
 
     @override
@@ -658,6 +669,11 @@ class NoteWindow(QWidget):
     dragged_by = Signal(QPoint)  # moved by Stickle itself (with Shift), this far from the start
     switch_requested = Signal(int)  # 1: to the next note on screen, -1: the one before
     geometry_settled = Signal()  # moved or resized, and then left alone for a moment
+    # A conflict copy's: its original to be shown, its text put there, or both kept.
+    original_requested = Signal()
+    use_copy_requested = Signal()
+    keep_both_requested = Signal()
+    copy_requested = Signal()  # an original's: (the next of) its conflict copies, shown
 
     # Its menu, the items made the first time it opens or any of them is asked for.
     menu = _MenuItem[QMenu]()
@@ -680,6 +696,10 @@ class NoteWindow(QWidget):
     secret_title_action = _MenuItem[QAction]()
     ordinary_action = _MenuItem[QAction]()
     delete_action = _MenuItem[QAction]()
+    show_copy_action = _MenuItem[QAction]()
+    show_original_action = _MenuItem[QAction]()
+    use_copy_action = _MenuItem[QAction]()
+    keep_both_action = _MenuItem[QAction]()
 
     def __init__(
         self,
@@ -864,6 +884,12 @@ class NoteWindow(QWidget):
         # While its reminder rings, under the title bar: made the first time it does
         # (see reminder_bar), as most notes never ring.
         self._reminder_bar: ReminderBar | None = None
+        # A conflict copy's band, made for one (see set_copy); an original's copies.
+        self._conflict_bar: ConflictBar | None = None
+        self.copy: CopyOf | None = None
+        self.copies = 0
+        self.title_bar.tag_clicked.connect(self._tag_clicked)
+        self.view.installEventFilter(self)  # Tab past its last stop: to the copy's band
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -928,6 +954,7 @@ class NoteWindow(QWidget):
         self.title_bar.pin_button.setAccessibleName(on_top)
         self.title_bar.pin_button.setToolTip(on_top)
         self.menu_action.setText(note_menu)
+        self._show_conflict()
         self.title_bar.category_tag.retranslate()
         self.title_bar.marks_badge.retranslate()
         self.reminder_action.setText(self.tr("Reminder…"))
@@ -962,6 +989,18 @@ class NoteWindow(QWidget):
             return
         self._menu_made = True
         menu = self._menu
+        # A conflict copy's three, and an original's way to its copies: first,
+        # where they apply (see _show_menu_state).
+        self._show_copy_action = menu.addAction("")
+        self._show_copy_action.triggered.connect(self.copy_requested)
+        self._show_original_action = menu.addAction("")
+        self._show_original_action.triggered.connect(self.original_requested)
+        self._use_copy_action = menu.addAction("")
+        self._use_copy_action.triggered.connect(self.use_copy_requested)
+        self._keep_both_action = menu.addAction("")
+        self._keep_both_action.triggered.connect(self.keep_both_requested)
+        self._conflict_end = menu.addSeparator()
+        menu.setToolTipsVisible(True)
         self._color_menu = menu.addMenu("")
         self._color_actions: dict[str, QAction] = {}
         self._color_group = QActionGroup(self)
@@ -1058,6 +1097,19 @@ class NoteWindow(QWidget):
             action.setText(color_name(key))
         self._add_color_action.setText(self.tr("Add a colour…"))
         self._delete_action.setText(self.tr("Delete note"))
+        self._show_copy_action.setText(self.tr("Show the conflict copy"))
+        # As the copy's band says them.
+        self._show_original_action.setText(
+            QCoreApplication.translate("ConflictBar", "Show the original")
+        )
+        self._use_copy_action.setText(QCoreApplication.translate("ConflictBar", "Use this text"))
+        self._use_copy_action.setToolTip(
+            QCoreApplication.translate(
+                "ConflictBar",
+                "Puts this text in the original note. Its current text goes to the trash.",
+            )
+        )
+        self._keep_both_action.setText(QCoreApplication.translate("ConflictBar", "Keep both"))
 
     def _show_menu_state(self) -> None:
         """The menu's items as the note is now, once they are made."""
@@ -1078,6 +1130,13 @@ class NoteWindow(QWidget):
         self._open_secret_action.setVisible(self.secret_locked)
         for action in (self._lock_secret_action, self._secret_title_action, self._ordinary_action):
             action.setVisible(opened)
+        copy = self.copy
+        original = copy is not None and copy.original
+        self._show_copy_action.setVisible(self.copies > 0)
+        self._show_original_action.setVisible(original)
+        self._use_copy_action.setVisible(original and copy is not None and copy.swappable)
+        self._keep_both_action.setVisible(copy is not None)
+        self._conflict_end.setVisible(copy is not None or self.copies > 0)
 
     @override
     def changeEvent(self, event: QEvent) -> None:
@@ -1238,6 +1297,8 @@ class NoteWindow(QWidget):
             self.collapsed = True
             self.stack.hide()
             self.size_grip.hide()
+            if self._conflict_bar is not None:
+                self._conflict_bar.hide()
             self.setFixedHeight(TITLE_BAR_HEIGHT)
             # The keyboard stays with the note (on its title bar): Enter unfolds it.
             self.title_bar.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -1249,6 +1310,8 @@ class NoteWindow(QWidget):
             self.setMaximumHeight(MAX_HEIGHT)
             self.stack.show()
             self.size_grip.setVisible(not self.locked)
+            if self._conflict_bar is not None:
+                self._conflict_bar.setVisible(self.copy is not None)
             self.resize(self.width(), self._expanded_height)
             self.title_bar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             focus = (
@@ -1460,6 +1523,8 @@ class NoteWindow(QWidget):
             set_foreground(part, text)
         if self._reminder_bar is not None:
             self._reminder_bar.set_colors(text, title)
+        if self._conflict_bar is not None:
+            self._conflict_bar.set_colors(text, title)
         self.title_bar.set_icon_color(title, qcolor(self.colors.title_icon))
         self.title_bar.category_tag.set_background(qcolor(self.colors.title_bar))
         self.view.set_colors(self.colors)
@@ -1549,6 +1614,83 @@ class NoteWindow(QWidget):
     def set_unsent(self, unsent: bool) -> None:
         """A minute on, whether it has not reached the cloud."""
         self.title_bar.category_tag.set_unsent(unsent)
+
+    # Conflict copies: two texts written apart on two computers, one in each note
+
+    @property
+    def conflict_bar(self) -> ConflictBar:
+        """A conflict copy's band, under the title bar: made the first time it is
+        needed (most notes are never one)."""
+        if self._conflict_bar is None:
+            bar = ConflictBar(self)
+            bar.original_requested.connect(self.original_requested)
+            bar.use_requested.connect(self.use_copy_requested)
+            bar.keep_requested.connect(self.keep_both_requested)
+            bar.left.connect(self._back_from_band)
+            bar.set_colors(qcolor(self.colors.text), qcolor(self.colors.title_text))
+            self._layout.insertWidget(1, bar)
+            self._conflict_bar = bar
+        return self._conflict_bar
+
+    def set_copy(self, copy: CopyOf | None) -> None:
+        """A conflict copy, as its band shows it; None: not one."""
+        if copy == self.copy:
+            return
+        self.copy = copy
+        if copy is not None or self._conflict_bar is not None:
+            bar = self.conflict_bar
+            focus = QApplication.focusWidget()
+            had_keyboard = focus is not None and bar.isAncestorOf(focus)
+            bar.show_copy(copy)
+            if self.collapsed:
+                bar.hide()
+            if had_keyboard and copy is None:
+                self._back_from_band()
+        self._show_conflict()
+        self._show_menu_state()
+
+    def set_copies(self, count: int) -> None:
+        """An original's: how many conflict copies of it are out of the trash."""
+        if count == self.copies:
+            return
+        self.copies = count
+        self._show_conflict()
+        self._show_menu_state()
+
+    def _show_conflict(self) -> None:
+        """The dark cloud, and what it says."""
+        tag = self.title_bar.category_tag
+        if self.copy is not None:
+            tag.set_conflict(explained(self.copy))
+        elif self.copies == 1:
+            tag.set_conflict(self.tr("Text changed separately is in a copy. Click to show it."))
+        elif self.copies:
+            tag.set_conflict(
+                self.tr(
+                    "Text changed separately is in %n copies. Click to show them.",
+                    "",
+                    self.copies,
+                )
+            )
+        else:
+            tag.set_conflict(None)
+
+    def _tag_clicked(self) -> None:
+        if self.copies:
+            self.copy_requested.emit()
+
+    def _tab_to_band(self, back: bool) -> bool:
+        """Tab, past the formatted note's last stop: to the copy's band, if it shows."""
+        bar = self._conflict_bar
+        if bar is None or not bar.isVisible():
+            return False
+        bar.focus_first(back)
+        return True
+
+    def _back_from_band(self) -> None:
+        shown = self.stack.currentWidget()
+        if shown is not None and not self.collapsed:
+            shown.setFocus(Qt.FocusReason.TabFocusReason)
 
     def set_next_reminder(self, when: str | None) -> None:
         """When its reminder rings next (as the user reads it), None for none."""
@@ -1795,6 +1937,17 @@ class NoteWindow(QWidget):
             and event.button() == Qt.MouseButton.LeftButton
         ):
             self._resize_started()
+        if (
+            watched is self.view
+            and isinstance(event, QKeyEvent)
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
+            and not event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            back = event.key() == Qt.Key.Key_Backtab
+            if self.view.at_edge(back) and self._tab_to_band(back):
+                self.view.leave_stops()
+                return True
         # Once released the note has been stored (or deleted): closing moves the focus
         # away, and that must not store it again.
         if (

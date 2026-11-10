@@ -217,6 +217,16 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>NoteWindow</name>
+    <message numerus="yes">
+        <source>Text changed separately is in %n copies. Click to show them.</source>
+        <translation>
+            <numerusform>Text changed separately is in %n copy. Click to show it.</numerusform>
+            <numerusform>Text changed separately is in %n copies. Click to show them.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>OpenSecretDialog</name>
     <message numerus="yes">
         <source>This backup holds the earlier text of %n note(s) made secret since. Type the secret notes&apos; password to bring that text back, still secret. Without it, those notes stay as they are now.</source>

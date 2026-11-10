@@ -54,6 +54,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QWidget
 
 from stickle.app.category_dialog import CreateCategory, NewCategoryDialog, next_dot_color
 from stickle.app.color_dialog import ColorDialog
+from stickle.app.conflict_bar import CopyOf
 from stickle.app.labels import mark_name
 from stickle.app.note_window import NoteWindow
 from stickle.app.placement import MonitorWatch, can_place_windows, monitors, qrect, rect
@@ -77,7 +78,15 @@ from stickle.crypto.secret_notes import SecretNoteError, open_text, seal_text
 from stickle.data.colors import MAX_OWN_COLORS, ColorRepository, OwnColor, OwnColorsFullError
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
-from stickle.data.notes import NoteIsSecretError, NoteNotSecretError, NoteRepository
+from stickle.data.notes import (
+    Copy,
+    NotACopyError,
+    NoteDeletedError,
+    NoteIsSecretError,
+    NoteNotFoundError,
+    NoteNotSecretError,
+    NoteRepository,
+)
 from stickle.data.settings import (
     DEFAULT_NOTE_COLOR,
     LAST_USED_COLOR,
@@ -314,6 +323,12 @@ class NoteManager(QObject):
         self._relock.all_due.connect(self.lock_secret_notes)
         # Notes' reminders: none without (measurement mode, tests).
         self.reminders: ReminderKeeper | None = None
+        # Conflict copies out of the trash, by id; each original's, the first
+        # edited first; and which of them its cloud last showed (see show_copy).
+        self._copies: dict[str, Copy] = {}
+        self._copied: dict[str, list[str]] = {}
+        self._copy_turns: dict[str, int] = {}
+        self.changed.connect(self._show_conflicts)
 
     @property
     def windows(self) -> tuple[NoteWindow, ...]:
@@ -354,6 +369,7 @@ class NoteManager(QObject):
         if self._repository is None:
             self.new_note()
             return
+        self._read_copies()
         visible = self._repository.visible()
         for note in visible:
             self._open(note, take_keyboard=False)
@@ -513,6 +529,10 @@ class NoteManager(QObject):
         window.switch_requested.connect(switch_requested)
         window.hide_requested.connect(lambda: self.hide(window))
         window.delete_requested.connect(lambda: self.delete(window))
+        window.original_requested.connect(lambda: self.show_original(window))
+        window.use_copy_requested.connect(lambda: self.use_copy(window))
+        window.keep_both_requested.connect(lambda: self.keep_both(window))
+        window.copy_requested.connect(lambda: self.show_copy(window))
         autosave = AutoSave(lambda: self.save(window), self._idle_ms, self._max_ms, window)
         self._autosaves[window] = autosave
         window.text_changed.connect(autosave.changed)
@@ -542,6 +562,7 @@ class NoteManager(QObject):
         if note is not None and note.collapsed:
             window.set_collapsed(True)
             window.mark_placed()
+        self._dress_conflict(window)
 
         self.window_opened.emit(window)
         if not in_sight:
@@ -2094,6 +2115,113 @@ class NoteManager(QObject):
             log.error("could not empty the trash: %s", type(error).__name__)
             return
         log.info("trash emptied: %d notes", emptied)
+        self.changed.emit()
+
+    # Conflict copies: two texts written apart on two computers, one in each note
+
+    def _read_copies(self) -> None:
+        """The conflict copies as they are stored now."""
+        if self._repository is None:
+            return
+        try:
+            copies = self._repository.copies()
+        except apsw.Error as error:
+            log.warning("could not read the conflict copies: %s", type(error).__name__)
+            return
+        self._copies = {copy.id: copy for copy in copies}
+        self._copied = {}
+        for copy in copies:
+            self._copied.setdefault(copy.conflict.note, []).append(copy.id)
+
+    def _show_conflicts(self) -> None:
+        """Every note's window as its conflict copies are now."""
+        self._read_copies()
+        for window in self._windows:
+            self._dress_conflict(window)
+
+    def _dress_conflict(self, window: NoteWindow) -> None:
+        """A copy's band and dark cloud, an original's dark cloud."""
+        note_id = window.note_id
+        copy = None if note_id is None else self._copies.get(note_id)
+        window.set_copy(None if copy is None else self._copy_of(copy))
+        window.set_copies(0 if note_id is None else len(self._copied.get(note_id, [])))
+
+    def _copy_of(self, copy: Copy) -> CopyOf:
+        device = copy.conflict.device
+        name = None if device is None else self._device_names(device)
+        return CopyOf(device is None, name, copy.conflict.edited, copy.original, copy.plain)
+
+    def show_original(self, window: NoteWindow) -> None:
+        """A conflict copy's original, in front with the keyboard."""
+        copy = self._copies.get(window.note_id or "")
+        if copy is not None and copy.original:
+            self.open_note(copy.conflict.note)
+
+    def show_copy(self, window: NoteWindow) -> None:
+        """An original's conflict copy, in front with the keyboard: with more than
+        one, the next of them each time."""
+        note_id = window.note_id
+        copies = [] if note_id is None else self._copied.get(note_id, [])
+        if note_id is None or not copies:
+            return
+        turn = (self._copy_turns.get(note_id, -1) + 1) % len(copies)
+        self._copy_turns[note_id] = turn
+        self.open_note(copies[turn])
+
+    def use_copy(self, window: NoteWindow) -> None:
+        """A conflict copy's text in its original, and the original's in the copy,
+        which goes to the trash (brought back, it can change them back). What
+        either was being typed is saved first, the character being composed too."""
+        copy = self._copies.get(window.note_id or "")
+        if copy is None or self._repository is None:
+            return
+        if not self.flush(window, closing=True):
+            return
+        original = self.window_for(copy.conflict.note)
+        if original is not None and not self.flush(original, closing=True):
+            return
+        try:
+            note = self._repository.use_copy(copy.id)
+            moved = self._repository.get(copy.id)
+        except (
+            apsw.Error,
+            NotACopyError,
+            NoteDeletedError,
+            NoteIsSecretError,
+            NoteNotFoundError,
+        ) as error:
+            log.error("could not put a conflict copy's text in its note: %s", type(error).__name__)
+            if isinstance(error, apsw.Error):
+                QMessageBox.warning(
+                    window, "Stickle", self.tr("The original note could not be changed.")
+                )
+            self._show_conflicts()  # as they are: what cannot be done is not offered
+            return
+        log.info("a conflict copy's text went in its note")
+        if original is not None:
+            self._saved[original] = note.body
+            original.replace_text(note.body)
+            self._edit_kept.discard(original)
+        self._autosaves[window].stop()
+        window.release()
+        if self.reminders is not None:
+            self.reminders.text_saved(note.id, note.body)
+            if moved is not None:
+                self.reminders.text_saved(moved.id, moved.body)
+        if original is not None:
+            original.bring_to_front()
+        self.note_saved.emit()
+        self.changed.emit()
+
+    def keep_both(self, window: NoteWindow) -> None:
+        """A conflict copy an ordinary note: it and its original both stay."""
+        if window.note_id is None or self._repository is None:
+            return
+        try:
+            self._repository.keep_both(window.note_id)
+        except (apsw.Error, NoteDeletedError, NoteNotFoundError) as error:
+            log.error("could not keep a conflict copy as a note: %s", type(error).__name__)
+            return
         self.changed.emit()
 
     # What sync brought

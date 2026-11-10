@@ -683,6 +683,16 @@ class NoteView(QTextEdit):
             return True
         return super().event(e)
 
+    def at_edge(self, back: bool) -> bool:
+        """Whether Tab (back: Shift+Tab) would go round past its last stop (back:
+        its first), or there are none to go to."""
+        return not self.stops or self.stop == (0 if back else len(self.stops) - 1)
+
+    def leave_stops(self) -> None:
+        """The keyboard on none of its stops (it went elsewhere in the note)."""
+        if self.stop is not None:
+            self._go_to(None)
+
     @override
     def keyPressEvent(self, e: QKeyEvent) -> None:
         key = e.key()

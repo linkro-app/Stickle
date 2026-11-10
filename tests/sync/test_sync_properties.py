@@ -194,7 +194,7 @@ ACTIONS = (
     + ["skew", "tick", "tick"]
     + ["category", "rename", "uncategorise", "categorise", "categorise"]
     + ["mark", "marked", "colour", "uncolour", "remind", "remind", "import"]
-    + ["full", "many", "spree", "join"]
+    + ["full", "many", "spree", "join", "resolve", "resolve"]
 )
 # What no device tells the others of: done to the folder from outside, a copy of
 # a disk; and what has every device look at everything anyway.
@@ -408,6 +408,22 @@ def _import(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> N
     bed.did(device, f"import {note_id[:8]} {source}")
 
 
+def _resolve(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    """A conflict copy dealt with: its text put in its original (the two texts
+    change places, the copy in the trash), or both kept."""
+    copies = device.notes.copies()
+    if not copies:
+        return
+    copy = data.draw(st.sampled_from(copies))
+    if data.draw(st.booleans()) and copy.original and copy.plain:
+        device.notes.use_copy(copy.id)
+        bed.model.changed(device, copy.id, "deleted_at")
+        bed.did(device, f"use copy {copy.id[:8]} in {copy.conflict.note[:8]}")
+    else:
+        device.notes.keep_both(copy.id)
+        bed.did(device, f"keep both {copy.id[:8]}")
+
+
 def _files(bed: Bed, *folders: str) -> list[str]:
     return [
         path for path in bed.cloud.files() if (at := item_at(path)) is not None and at[0] in folders
@@ -562,6 +578,7 @@ RECORDS = {
     "uncolour": _uncolour,
     "remind": _remind,
     "import": _import,
+    "resolve": _resolve,
 }
 
 

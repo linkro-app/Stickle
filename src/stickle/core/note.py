@@ -5,12 +5,22 @@ from dataclasses import dataclass
 
 from stickle.core.colors import DEFAULT_COLOR
 
-__all__ = ["DEFAULT_COLOR", "Note", "content_hash"]
+__all__ = ["DEFAULT_COLOR", "Conflict", "Note", "content_hash"]
 
 
 def content_hash(body: str) -> str:
     """Local content fingerprint. (Encrypted vaults will use a keyed hash instead.)"""
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class Conflict:
+    """What a conflict copy is: one of two texts written apart on two devices,
+    kept beside the note (its original) that kept the other."""
+
+    note: str  # the original's id
+    device: str | None  # the id of the device whose text it keeps; None: this one
+    edited: int  # when that text was edited there, in milliseconds
 
 
 @dataclass(frozen=True)
@@ -40,6 +50,7 @@ class Note:
     # body left empty, and a title of its own that shows while it is locked.
     secret_title: str | None = None
     sealed: bytes | None = None
+    conflict: Conflict | None = None  # a conflict copy's: what it is a copy of
 
     @property
     def deleted(self) -> bool:

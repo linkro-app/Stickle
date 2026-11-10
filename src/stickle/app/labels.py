@@ -105,7 +105,8 @@ class CategoryTag(_TitleBarPart):
     secret note shows a keyhole instead, and not its category: filled while
     locked, in outline while open. A small alarm clock at its corner: a
     reminder is coming, at the time its tooltip says. A faint cloud at another:
-    a minute on, it has not reached the cloud."""
+    a minute on, it has not reached the cloud; a dark one there: it is a
+    conflict copy, or one of its texts is in one (the tooltip says which)."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -114,6 +115,7 @@ class CategoryTag(_TitleBarPart):
         self.secret: Literal["locked", "open"] | None = None
         self.reminder: str | None = None  # when it rings next, as the user reads it
         self.unsent = False
+        self.conflict: str | None = None  # what its dark cloud says, if it has one
         self.background = QColor(Qt.GlobalColor.white)
         # Not a button: a press here starts moving the note, as on the bar.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -150,6 +152,13 @@ class CategoryTag(_TitleBarPart):
             self.retranslate()
             self.update()
 
+    def set_conflict(self, said: str | None) -> None:
+        """A dark cloud saying said, or none (None)."""
+        if said != self.conflict:
+            self.conflict = said
+            self.retranslate()
+            self.update()
+
     def retranslate(self) -> None:
         if self.secret == "locked":
             text = QCoreApplication.translate("CategoryTag", "Secret note, covered")
@@ -176,6 +185,8 @@ class CategoryTag(_TitleBarPart):
                 "CategoryTag", "Not in the cloud yet. It's saved on this computer."
             )
             text = f"{text}\n{said}"
+        if self.conflict is not None:
+            text = f"{text}\n{self.conflict}"
         self.setAccessibleName(text)
         self.setToolTip(text)
 
@@ -211,6 +222,7 @@ class CategoryTag(_TitleBarPart):
             self.secret,
             alarm=self.reminder is not None,
             unsent=self.unsent,
+            conflict=self.conflict is not None,
         )
         painter = QPainter(self)
         painter.drawPixmap(QPointF(PADDING, (self.height() - size) / 2), icon)

@@ -339,6 +339,11 @@ def renew(connection: apsw.Connection, old: str) -> str:
     with writing(connection):
         connection.execute("UPDATE note_stamps SET device = ? WHERE device IS NULL", (old,))
         connection.execute("UPDATE record_stamps SET device = ? WHERE device IS NULL", (old,))
+        connection.execute(  # a conflict copy of a text written here
+            "UPDATE notes SET conflict_device = ?"
+            " WHERE conflict_of IS NOT NULL AND conflict_device IS NULL",
+            (old,),
+        )
         Settings(connection).set(DEVICE_ID, new)
     return new
 

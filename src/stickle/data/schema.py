@@ -574,10 +574,27 @@ V24 = """
 ALTER TABLE sync_devices ADD COLUMN listed INTEGER NOT NULL DEFAULT 1;
 """
 
+V25 = """
+-- A conflict copy (a note's text changed apart on two devices, one text kept in
+-- the note, the other in this): the note it copies, the device whose text it
+-- keeps (NULL: this one) and when that was edited, in milliseconds. NULL for
+-- every other note. Changed as one field (stickle.data.stamps).
+ALTER TABLE notes ADD COLUMN conflict_of TEXT;
+ALTER TABLE notes ADD COLUMN conflict_device TEXT;
+ALTER TABLE notes ADD COLUMN conflict_edited INTEGER;
+CREATE INDEX notes_copies ON notes (conflict_of) WHERE conflict_of IS NOT NULL;
+-- Copies made before had it in their files only: merged again at the next
+-- round, which keeps it here.
+UPDATE sync_notes SET merged_seq = -1 WHERE CASE
+    WHEN json_valid(coalesce(outbox, seen))
+    THEN json_type(coalesce(outbox, seen), '$.fields.conflict_of.value') = 'object'
+END;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20, V21, V22, V23, V24),
+    *(V17, V18, V19, V20, V21, V22, V23, V24, V25),
 ]
 BACKUPS_KEPT = 3
 

@@ -10,12 +10,13 @@ each field it changes with when (stickle.data.stamps).
 import logging
 import uuid
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 
 import apsw
 
-from stickle.core.clock import Clock, days_before, utc_now
+from stickle.core.clock import Clock, days_before, millis_at, utc_now
 from stickle.core.hlc import wall_millis
-from stickle.core.note import DEFAULT_COLOR, Note, content_hash
+from stickle.core.note import DEFAULT_COLOR, Conflict, Note, content_hash
 from stickle.data import record_stamps, stamps, sync_state, versions
 from stickle.data.imports import hide_text_hashes
 from stickle.data.labels import become
@@ -27,12 +28,32 @@ log = logging.getLogger(__name__)
 COLUMNS = (
     "id, body, color, hidden, always_on_top, created_at, updated_at, content_hash, deleted_at,"
     " change_seq, opacity, status, label, locked, collapsed, auto_height, zoom, sleep_until,"
-    " style_id, secret_title, secret_body"
+    " style_id, secret_title, secret_body, conflict_of, conflict_device, conflict_edited"
 )
+# A note that is not a conflict copy (any more).
+_NOT_A_COPY: dict[str, object] = {
+    "conflict_of": None,
+    "conflict_device": None,
+    "conflict_edited": None,
+}
 
 
 class NoteNotFoundError(KeyError):
     pass
+
+
+class NotACopyError(ValueError):
+    """Only a conflict copy has an original to give its text to."""
+
+
+@dataclass(frozen=True)
+class Copy:
+    """A conflict copy out of the trash, and how it stands with its original."""
+
+    id: str
+    conflict: Conflict
+    original: bool  # its original is here, out of the trash
+    plain: bool  # neither is a secret note: their texts can change places
 
 
 class NoteDeletedError(ValueError):
@@ -84,7 +105,14 @@ def _note(row: apsw.SQLiteValues, marks: frozenset[str] = frozenset()) -> Note:
         style_id,
         secret_title,
         secret_body,
+        conflict_of,
+        conflict_device,
+        conflict_edited,
     ) = row
+    conflict = None
+    if conflict_of is not None:
+        device = None if conflict_device is None else str(conflict_device)
+        conflict = Conflict(str(conflict_of), device, int(conflict_edited or 0))  # pyright: ignore[reportArgumentType]
     return Note(
         id=str(note_id),
         body=str(body),
@@ -108,6 +136,7 @@ def _note(row: apsw.SQLiteValues, marks: frozenset[str] = frozenset()) -> Note:
         style_id=None if style_id is None else str(style_id),
         secret_title=None if secret_title is None else str(secret_title),
         sealed=secret_body if isinstance(secret_body, bytes) else None,
+        conflict=conflict,
     )
 
 
@@ -324,6 +353,79 @@ class NoteRepository:
         if assignments["content_hash"] == note.content_hash:
             return note
         return self._new_text(note_id, assignments, True, restored=True)
+
+    # Conflict copies: one of two texts written apart on two devices (stickle.sync.merge)
+
+    def copies(self) -> list[Copy]:
+        """The conflict copies out of the trash, the one edited first first."""
+        rows = self._db.execute(
+            "SELECT c.id, c.conflict_of, c.conflict_device, c.conflict_edited,"
+            " o.id IS NOT NULL AND o.deleted_at IS NULL,"
+            " c.secret_body IS NULL AND o.id IS NOT NULL AND o.secret_body IS NULL"
+            " FROM notes AS c LEFT JOIN notes AS o ON o.id = c.conflict_of"
+            " WHERE c.conflict_of IS NOT NULL AND c.deleted_at IS NULL"
+            " ORDER BY c.conflict_edited, c.id"
+        )
+        return [
+            Copy(
+                str(copy_id),
+                Conflict(str(of), None if by is None else str(by), int(edited or 0)),  # pyright: ignore[reportArgumentType]
+                bool(live),
+                bool(plain),
+            )
+            for copy_id, of, by, edited, live, plain in rows
+        ]
+
+    def keep_both(self, copy_id: str) -> Note:
+        """A conflict copy an ordinary note: it and its original both kept as they are."""
+        note = self._require_live(copy_id)
+        if note.conflict is None:
+            return note
+        return self._change(copy_id, _NOT_A_COPY)
+
+    def use_copy(self, copy_id: str) -> Note:
+        """The conflict copy's text in its original, the original's kept first as
+        an earlier one; the copy then holds the original's text, said to be from
+        where and when that was written, and goes into the trash: taken out, it
+        can change them back. In one step; each text marked as made where it
+        was. The original, after."""
+        with self._db:  # read again in it: sync may have changed either meanwhile
+            copy = self._require_live(copy_id)
+            if copy.conflict is None:
+                raise NotACopyError(copy_id)
+            original = self._require_live(copy.conflict.note)
+            if copy.secret or original.secret:
+                raise NoteIsSecretError(copy_id if copy.secret else original.id)
+            made = {
+                str(note_id): (str(at), None if came is None else str(came))
+                for note_id, at, came in self._db.execute(
+                    "SELECT id, coalesce(text_at, updated_at), text_from FROM notes"
+                    " WHERE id IN (?, ?)",
+                    (copy_id, original.id),
+                )
+            }
+            at, came_from = made[original.id]
+            try:
+                edited = millis_at(at)
+            except ValueError:
+                edited = self._millis()
+            self.replace_text(original.id, copy.body, made[copy_id][1])
+            self._new_text(
+                copy_id,
+                {
+                    "body": original.body,
+                    "content_hash": content_hash(original.body),
+                    "conflict_of": original.id,
+                    "conflict_device": came_from,
+                    "conflict_edited": edited,
+                    "deleted_at": self._clock(),
+                },
+                keep_earlier=False,
+                came_from=came_from,
+            )
+        swapped = self._require(copy_id).conflict
+        assert swapped is not None
+        return self._require(swapped.note)
 
     # Secret notes: the text only ever encrypted here (stickle.crypto.secret_notes)
 

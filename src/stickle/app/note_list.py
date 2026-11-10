@@ -263,10 +263,11 @@ class NoteList(QWidget):
 
     def _text(self, note: Note) -> str:
         title = shown_title(note) or self.tr("(empty note)")
+        copy = [self.tr("conflict copy")] if note.conflict is not None else []
         if self.in_trash:
             deleted = self.tr("deleted %1").replace("%1", deleted_on(note))
-            return " · ".join([title, *self._labels(note), deleted])
-        states: list[str] = self._labels(note)
+            return " · ".join([title, *copy, *self._labels(note), deleted])
+        states: list[str] = [*copy, *self._labels(note)]
         if note.hidden:
             states.append(self.tr("hidden"))
         if not note.always_on_top:

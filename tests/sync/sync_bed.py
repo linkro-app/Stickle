@@ -252,10 +252,20 @@ class Device:
                 note.locked,
                 note.deleted_at,
                 tuple(sorted(note.marks)),
+                self.copy_of(note.id),
             )
             for note in self.notes.all()
             if note.id not in gone
         }
+
+    def copy_of(self, note_id: str) -> tuple[str, str, int] | None:
+        """What the note is a conflict copy of, as every device says it: its
+        original, the device whose text it keeps, when that was edited."""
+        note = self.notes.get(note_id)
+        if note is None or note.conflict is None:
+            return None
+        conflict = note.conflict
+        return (conflict.note, conflict.device or self.id, conflict.edited)
 
 
 def value_of(device: Device, note_id: str, name: str) -> object:

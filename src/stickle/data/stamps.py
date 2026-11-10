@@ -25,6 +25,8 @@ FIELDS = {
     "locked": "locked",
     "deleted_at": "deleted_at",
     "secret_title": "secret_title",
+    # A conflict copy's: with conflict_device and conflict_edited, changed together.
+    "conflict_of": "conflict_of",
 }
 _MARK = "mark:"
 
