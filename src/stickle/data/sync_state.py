@@ -106,6 +106,19 @@ def changed(connection: apsw.Connection, vault: str) -> list[str]:
     )
 
 
+def changed_at(connection: apsw.Connection, vault: str) -> list[tuple[str, str]]:
+    """Notes not secret that changed here since they were last merged, or never
+    were: by id, with when they last changed."""
+    rows = connection.execute(
+        "SELECT notes.id, notes.updated_at FROM notes LEFT JOIN sync_notes"
+        " ON sync_notes.vault = ? AND sync_notes.note_id = notes.id"
+        " WHERE notes.secret_body IS NULL"
+        " AND (sync_notes.note_id IS NULL OR notes.change_seq > sync_notes.merged_seq)",
+        (vault,),
+    )
+    return [(str(note_id), str(at)) for note_id, at in rows]
+
+
 def mentioning(connection: apsw.Connection, vault: str, ids: Iterable[str]) -> list[str]:
     """Notes whose file in the vault, as last seen or put, or whose category or
     marks here, name one of these ids (of categories and marks): by id."""

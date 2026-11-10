@@ -22,7 +22,7 @@ from stickle.app.labels import mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.reminders import ReminderKeeper
 from stickle.app.sync_status import WEBDAV_NAME, SyncStatus
-from stickle.core.clock import Clocks
+from stickle.core.clock import Clocks, millis_at
 from stickle.core.cloud_time import CloudTime
 from stickle.core.labels import Mark
 from stickle.crypto.vault_keys import DataKeys
@@ -56,6 +56,7 @@ log = logging.getLogger(__name__)
 QUIT_WAIT = 5.0  # seconds what is waiting to be put may take when the user quits
 LEAVING_TIMEOUT = 4.0  # seconds, for each step of a request made on the way out
 LOOK_AGAIN_MS = 1_000  # for the last request of a thread told to end
+UNSENT_AFTER_MS = 60_000  # a note not in the cloud this long after it changed is shown so
 COLLECT_EVERY_MS = 5 * 60 * 1000
 WAIT_MS = 30_000  # for the app's write to end: this thread can wait
 CACHE_KIB = 512
@@ -321,6 +322,8 @@ class Syncing(QObject):
     first_looked = Signal(object)
     # A round's way through the notes: what it is doing, how many so far, of how many.
     moving = Signal(str, int, int)
+    # The notes that, a minute after they changed, are still not in the cloud (ids).
+    unsent_changed = Signal(object)
     _round_ended = Signal(object)
 
     def __init__(
@@ -365,6 +368,11 @@ class Syncing(QObject):
         self.moving.connect(self.status.moved)
         self._leaving_as = ""
         self._finished = False
+        self._unsent: frozenset[str] = frozenset()
+        self._looks_for_unsent = False  # not before a first round has been through
+        self._next_unsent = QTimer(self)
+        self._next_unsent.setSingleShot(True)
+        self._next_unsent.timeout.connect(self._look_for_unsent)
         self._written_rows: set[int] = set()
         self._noticing = False
         self._round_ended.connect(self._show)
@@ -494,6 +502,8 @@ class Syncing(QObject):
         self._noticing = False
         rows, self._written_rows = self._written_rows, set()
         self.runner.edited(self._has_big_text(rows))
+        if self._looks_for_unsent and not self._next_unsent.isActive():
+            self._next_unsent.start(UNSENT_AFTER_MS)
 
     def _has_big_text(self, rows: set[int]) -> bool:
         if not rows or len(rows) > ROWS_LOOKED_AT:
@@ -518,7 +528,40 @@ class Syncing(QObject):
             self._manager.take_in(changed, bool(report.records.changed))
             if self._reminders is not None:
                 self._reminders.take_in(changed)
+        self._looks_for_unsent = True
+        self._look_for_unsent()
         self.round_shown.emit(ended)
+
+    def _look_for_unsent(self) -> None:
+        """Which notes, a minute after they changed, are still not in the cloud;
+        looked at again when the next will be that old (with none to go up, no
+        timer runs)."""
+        if not self._looks_for_unsent:
+            return
+        now = self._rounds.cloud.now()
+        unsent: set[str] = set()
+        soonest: int | None = None
+        for note_id, at in sync_state.changed_at(self._connection, self.login.vault):
+            try:
+                left = millis_at(at) + UNSENT_AFTER_MS - now
+            except ValueError:
+                continue
+            if left <= 0:
+                unsent.add(note_id)
+            elif soonest is None or left < soonest:
+                soonest = left
+        if soonest is None:
+            self._next_unsent.stop()
+        else:
+            self._next_unsent.start(soonest)
+        found = frozenset(unsent)
+        if found != self._unsent:
+            self._unsent = found
+            self.unsent_changed.emit(found)
+
+    def _stop_looking_for_unsent(self) -> None:
+        self._looks_for_unsent = False
+        self._next_unsent.stop()
 
     def feedback_lines(self) -> Sequence[str]:
         """What a report of a problem says of sync (none before a first round)."""
@@ -536,6 +579,7 @@ class Syncing(QObject):
     def leaving(self) -> None:
         """On the app's thread, first: what is typed is saved, and nothing
         changed from now on is told of."""
+        self._stop_looking_for_unsent()
         self._manager.save_all()
         self._connection.set_update_hook(None)
         self._notice()
@@ -564,6 +608,7 @@ class Syncing(QObject):
     def finish(self, seconds: float) -> None:
         """Ends it; seconds: how long what is waiting to be put may take."""
         self._finished = True
+        self._stop_looking_for_unsent()
         self._connection.set_update_hook(None)
         self._notice()
         self._collector.stop()

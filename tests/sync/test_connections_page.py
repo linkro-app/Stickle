@@ -1,6 +1,7 @@
 """The Connections page with sync on, against a WebDAV server of the test's own:
 what it shows and sets, and leaving: nothing of the notes is touched, and of
-the Stickle folder only this computer's own file goes."""
+the Stickle folder only this computer's own file goes. And the notes that, a
+minute after they changed, have not reached the cloud."""
 
 import gc
 import logging
@@ -8,7 +9,7 @@ import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import apsw
 import pytest
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import QLabel, QWidget
 from pytestqt.qtbot import QtBot
 from real_server import account, account_given, folder_of_its_own
 from test_turn_on import (
+    DB_KEY,
     MS,
     PAIRS,
     PASSWORD,
@@ -44,13 +46,22 @@ from test_turn_on import (
 from update_translations import TS_DIR, compile_to
 from webdav_server import HOST, Server, webdav
 
-from stickle.app.application import disconnect_sync
+from stickle.app.application import connect_sync, disconnect_sync
 from stickle.app.background import Job
 from stickle.app.i18n import Translations
 from stickle.app.settings_window import SettingsWindow
+from stickle.app.sync_display import SyncDisplay
 from stickle.app.sync_panel import ChangeName, DisconnectSync, SyncPanel, on_one_line, server_of
 from stickle.app.sync_setup import SyncSetup
-from stickle.app.syncing import LEAVING_TIMEOUT, QUIT_WAIT, Ended, Syncing, stopped_as_kept
+from stickle.app.syncing import (
+    LEAVING_TIMEOUT,
+    QUIT_WAIT,
+    Ended,
+    Syncing,
+    cloud_time,
+    stopped_as_kept,
+)
+from stickle.app.syncing import Syncing as SyncRun
 from stickle.app.times import day_text
 from stickle.app.turn_on_sync import TurnOnSync
 from stickle.core.hlc import Hlc
@@ -1014,6 +1025,138 @@ def test_a_stopped_kind_this_version_does_not_know_is_not_told_of(bed: Bed, qtbo
     assert stopped_as_kept(None) is None
 
 
+# A note not in the cloud yet
+
+
+def unsent_of(live: Syncing) -> list[frozenset[str]]:
+    told: list[frozenset[str]] = []
+    live.unsent_changed.connect(told.append)
+    return told
+
+
+def test_a_note_going_up_as_usual_is_never_shown_as_not_there(bed: Bed, qtbot: QtBot) -> None:
+    live = bed.first.live
+    assert live is not None
+    told = unsent_of(live)
+    note = bed.first.pc.notes.create("곧 올라갈 메모")
+    assert [each for each, _at in sync_state.changed_at(bed.first.db, bed.login.vault)] == [note.id]
+    bed.first.round_over(qtbot)
+    assert sync_state.changed_at(bed.first.db, bed.login.vault) == []
+    assert told == []
+    assert not live._next_unsent.isActive()  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_minute_on_it_is_shown_and_once_up_it_is_not(
+    bed: Bed, qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = bed.first.live
+    assert live is not None
+    told = unsent_of(live)
+    monkeypatch.setattr("stickle.app.syncing.UNSENT_AFTER_MS", 150)
+    note = bed.first.pc.notes.create("못 올린 메모")
+    qtbot.wait(20)  # told of the change: it is looked at when it can be that old
+    qtbot.waitUntil(lambda: told != [], timeout=MS)
+    assert told == [frozenset({note.id})]
+
+    bed.first.round_over(qtbot)
+    assert told == [frozenset({note.id}), frozenset()]
+    assert not live._next_unsent.isActive()  # pyright: ignore[reportPrivateUsage]
+
+
+def test_it_is_looked_at_when_the_next_will_be_that_old(
+    bed: Bed, qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = bed.first.live
+    assert live is not None
+    told = unsent_of(live)
+    monkeypatch.setattr("stickle.app.syncing.UNSENT_AFTER_MS", 30_000)
+    bed.first.pc.notes.create("메모")
+    live._look_for_unsent()  # pyright: ignore[reportPrivateUsage]
+    timer = live._next_unsent  # pyright: ignore[reportPrivateUsage]
+    assert timer.isActive()
+    assert 25_000 < timer.remainingTime() <= 30_000
+    assert told == []  # not that old yet
+
+
+def test_before_a_first_round_nothing_is_shown(
+    qtbot: QtBot, tmp_path: Path, share: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A first upload does not put a cloud on every note."""
+    monkeypatch.setattr("stickle.app.syncing.UNSENT_AFTER_MS", 0)
+    computer = Computer(make_pc(tmp_path, "pc"), Keys())
+    computer.pc.notes.create("이미 있던 메모")
+    with webdav(share, PASSWORD) as server:
+        target = target_of(server)
+        made = make(target, PAIRS)
+        target.close()
+        login = Login(
+            made.vault, WEBDAV, on_server(server), "stickle", PASSWORD, dict(made.keys.keys)
+        )
+        started = SyncRun(
+            computer.db,
+            computer.pc.path,
+            DB_KEY,
+            login,
+            cloud_time(computer.db, computer.pc.clocks),
+            computer.pc.manager,
+        )
+        told = unsent_of(started)
+        started._look_for_unsent()  # pyright: ignore[reportPrivateUsage]
+        started._noticing = True  # pyright: ignore[reportPrivateUsage]
+        started._notice()  # pyright: ignore[reportPrivateUsage]
+        assert told == []
+        assert not started._next_unsent.isActive()  # pyright: ignore[reportPrivateUsage]
+        started.runner.finish(0.0)
+        computer.end()
+
+
+def test_a_time_it_cannot_read_is_passed_over(
+    bed: Bed, qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = bed.first.live
+    assert live is not None
+    told = unsent_of(live)
+
+    def not_a_time(_db: object, _vault: str) -> list[tuple[str, str]]:
+        return [("x", "not a time")]
+
+    monkeypatch.setattr("stickle.app.syncing.sync_state.changed_at", not_a_time)
+    live._look_for_unsent()  # pyright: ignore[reportPrivateUsage]
+    assert told == []
+
+
+def test_a_secret_note_is_not_counted_among_them(bed: Bed, qtbot: QtBot) -> None:
+    pc = bed.first.pc
+    note = pc.notes.create("비밀로 할 메모")
+    bed.first.round_over(qtbot)
+    pc.notes.seal_in_place(note.id, "제목", b"sealed")
+    assert sync_state.changed_at(bed.first.db, bed.login.vault) == []
+
+
+def test_leaving_stops_looking(bed: Bed, qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> None:
+    live = bed.first.live
+    assert live is not None
+    monkeypatch.setattr("stickle.app.syncing.UNSENT_AFTER_MS", 30_000)
+    bed.first.pc.notes.create("메모")
+    live._look_for_unsent()  # pyright: ignore[reportPrivateUsage]
+    assert live._next_unsent.isActive()  # pyright: ignore[reportPrivateUsage]
+    live.leaving()
+    assert not live._next_unsent.isActive()  # pyright: ignore[reportPrivateUsage]
+    live._look_for_unsent()  # pyright: ignore[reportPrivateUsage]
+    assert not live._next_unsent.isActive()  # pyright: ignore[reportPrivateUsage]
+    live.runner.finish(0.0)
+
+
+def test_ending_stops_looking(bed: Bed, qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> None:
+    live = bed.first.live
+    assert live is not None
+    monkeypatch.setattr("stickle.app.syncing.UNSENT_AFTER_MS", 30_000)
+    bed.first.pc.notes.create("메모")
+    live._look_for_unsent()  # pyright: ignore[reportPrivateUsage]
+    live.finish(0.0)
+    assert not live._next_unsent.isActive()  # pyright: ignore[reportPrivateUsage]
+
+
 # Coming back
 
 
@@ -1055,6 +1198,27 @@ def test_turned_on_again_nothing_is_doubled_and_what_it_missed_comes(
     assert bed.own_file(bed.first) in bed.files()
     assert len(second.pc.notes.all()) == 2
     assert [o.name for o in others(second.db, bed.login.vault, second.device)] != []
+
+
+def test_what_shows_how_sync_stands_is_told_as_it_goes_on_and_off(bed: Bed, qtbot: QtBot) -> None:
+    followed: list[object] = []
+
+    class Display:
+        def follow(self, syncing: object) -> None:
+            followed.append(syncing)
+
+    display = cast(SyncDisplay, Display())
+    live = bed.first.live
+    assert live is not None
+    live.runner.finish(0.0)
+    disconnect_sync(bed.first.db, live, bed.first.pc.clocks, display)
+    assert followed == [None]
+    pc = bed.first.pc
+    started = connect_sync(
+        pc.db, pc.path, DB_KEY, bed.login, True, pc.clocks, pc.manager, None, display
+    )
+    pc.started.append(started)
+    assert followed == [None, started]
 
 
 def test_turned_on_again_the_page_is_a_new_one(bed: Bed, qtbot: QtBot) -> None:

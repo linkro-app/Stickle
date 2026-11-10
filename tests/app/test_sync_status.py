@@ -128,6 +128,46 @@ def test_notes_a_round_passed_over_are_said_though_it_went_through(qtbot: QtBot)
     assert text == "2 note(s) to upload · trying again shortly"
 
 
+def test_how_far_is_told_at_most_twice_a_second(qtbot: QtBot) -> None:
+    line = Line()
+    line.status.moved(PUTTING, 21, 1000)
+    for done in range(22, 60):
+        line.status.moved(PUTTING, done, 1000)
+    assert line.changes == 1
+    assert line.status.text().startswith("Uploading to WebDAV · 59 of")  # the line is up to date
+    qtbot.wait(520)
+    line.status.moved(PUTTING, 60, 1000)
+    assert line.changes == 2
+
+
+def test_a_new_round_tells_how_far_at_once(qtbot: QtBot) -> None:
+    line = Line()
+    line.status.moved(PUTTING, 21, 1000)
+    line.ended()
+    told = line.changes
+    line.status.moved(PUTTING, 22, 1000)
+    assert line.changes == told + 1
+
+
+def test_it_says_whether_there_was_no_answer_and_what_is_to_do(qtbot: QtBot) -> None:
+    line = Line()
+    assert not line.status.offline and not line.status.halted
+    line.ended(Outcome(wait=15.0, failures=1, offline=True))
+    assert line.status.offline and not line.status.halted
+    line.ended(Outcome(full=True))
+    assert line.status.halted and not line.status.offline
+    line.ended(Outcome(Stopped.SIGN_IN))
+    assert line.status.halted and not line.status.update_carries_on
+    line.ended(Outcome(Stopped.NEWER))
+    assert line.status.update_carries_on
+    line.ended()
+    assert not line.status.halted and not line.status.offline
+
+
+def test_stopped_as_it_was_left_is_what_there_is_to_do(qtbot: QtBot) -> None:
+    assert Line(Stopped.BIG_CHANGE).status.halted
+
+
 def test_changing_what_a_round_changed_happens_once(qtbot: QtBot) -> None:
     line = Line()
     line.ended()

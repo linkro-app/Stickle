@@ -602,7 +602,7 @@ class TurnOnSync(QDialog):
             case NoAccessError():
                 self._fail_at_server(
                     self.tr(
-                        "This account can't write to that folder."
+                        "This account can't write to the folder at this address."
                         " Check its permissions on the server."
                     ),
                     self.address,

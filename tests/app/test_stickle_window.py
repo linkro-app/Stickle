@@ -83,6 +83,13 @@ def trayless(qtbot: QtBot, connection: apsw.Connection, tmp_path: Path) -> Itera
     app.close()
 
 
+def test_the_trays_line_for_sync_opens_the_connection_settings(app: App) -> None:
+    app.tray.sync_action.trigger()
+    assert app.window.settings.isVisible()
+    assert app.window.settings.tabs.currentWidget() is app.window.settings.connections_page
+    app.window.settings.close()
+
+
 def hidden_note(app: App, text: str) -> str:
     note = app.notes.create(text)
     app.notes.set_hidden(note.id, True)

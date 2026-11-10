@@ -31,7 +31,7 @@ not stored.
 
 import logging
 import random
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from functools import partial
 from typing import TYPE_CHECKING, cast, override
 
@@ -278,6 +278,7 @@ class NoteManager(QObject):
         # stored (an ordinary note's; a secret one's is in _stored_secret).
         self._edit_kept: set[NoteWindow] = set()
         self._saved: dict[NoteWindow, str] = {}
+        self._unsent: Collection[str] = frozenset()  # a minute on, not in the cloud
         self._settings = settings
         self._layouts = layouts
         self._labels = labels
@@ -445,6 +446,7 @@ class NoteManager(QObject):
             )
         if note is not None and not note.secret:
             self._saved[window] = note.body
+        window.set_unsent(window.note_id in self._unsent)
         window.has_earlier = lambda: self.has_earlier(window.note_id)
         window.versions_requested.connect(lambda: self.show_versions(window))
         window.new_note_requested.connect(lambda: self.new_note_from(window))
@@ -1966,6 +1968,12 @@ class NoteManager(QObject):
     def matching(self, term: str) -> set[str]:
         """Ids of stored notes whose text contains term (as last saved)."""
         return self._repository.matching(term) if self._repository else set()
+
+    def show_unsent(self, note_ids: Collection[str]) -> None:
+        """These notes, a minute on, have not reached the cloud: their windows say so."""
+        self._unsent = note_ids
+        for window in self._windows:
+            window.set_unsent(window.note_id in note_ids)
 
     def window_for(self, note_id: str) -> NoteWindow | None:
         return next((w for w in self._windows if w.note_id == note_id), None)

@@ -104,7 +104,8 @@ class CategoryTag(_TitleBarPart):
     category is changed from the note menu, staying on top with the pin. A
     secret note shows a keyhole instead, and not its category: filled while
     locked, in outline while open. A small alarm clock at its corner: a
-    reminder is coming, at the time its tooltip says."""
+    reminder is coming, at the time its tooltip says. A faint cloud at another:
+    a minute on, it has not reached the cloud."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -112,6 +113,7 @@ class CategoryTag(_TitleBarPart):
         self.on_top = False
         self.secret: Literal["locked", "open"] | None = None
         self.reminder: str | None = None  # when it rings next, as the user reads it
+        self.unsent = False
         self.background = QColor(Qt.GlobalColor.white)
         # Not a button: a press here starts moving the note, as on the bar.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -142,6 +144,12 @@ class CategoryTag(_TitleBarPart):
         self.retranslate()
         self.update()
 
+    def set_unsent(self, unsent: bool) -> None:
+        if unsent != self.unsent:
+            self.unsent = unsent
+            self.retranslate()
+            self.update()
+
     def retranslate(self) -> None:
         if self.secret == "locked":
             text = QCoreApplication.translate("CategoryTag", "Secret note, covered")
@@ -163,6 +171,11 @@ class CategoryTag(_TitleBarPart):
                 .replace("%2", self.reminder)
                 .replace("%1", text)
             )
+        if self.unsent:
+            said = QCoreApplication.translate(
+                "CategoryTag", "Not in the cloud yet. It's saved on this computer."
+            )
+            text = f"{text}\n{said}"
         self.setAccessibleName(text)
         self.setToolTip(text)
 
@@ -197,6 +210,7 @@ class CategoryTag(_TitleBarPart):
             self.devicePixelRatioF(),
             self.secret,
             alarm=self.reminder is not None,
+            unsent=self.unsent,
         )
         painter = QPainter(self)
         painter.drawPixmap(QPointF(PADDING, (self.height() - size) / 2), icon)

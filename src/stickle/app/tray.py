@@ -3,13 +3,14 @@
 import logging
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from PySide6.QtCore import QElapsedTimer, QObject, QTimer, QUrl
 from PySide6.QtGui import QActionGroup, QGuiApplication
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from stickle.app import note_window
-from stickle.app.app_icon import make_icon
+from stickle.app.app_icon import SyncSign, halted_icon, make_icon
 from stickle.app.i18n import Translations
 from stickle.app.notes import HIDDEN_LISTED, NoteManager, clipboard_text
 from stickle.app.support import open_support
@@ -81,6 +82,16 @@ class MenuWatch(QObject):
             self._menu.hide()
 
 
+@dataclass(frozen=True)
+class SyncShown:
+    """How sync stands, for the tray to say."""
+
+    line: str  # empty: nothing known of it yet
+    sign: SyncSign
+    halted: bool = False  # there is something for the user to do
+    update_carries_on: bool = False
+
+
 class Tray(QSystemTrayIcon):
     def __init__(
         self,
@@ -91,7 +102,8 @@ class Tray(QSystemTrayIcon):
         updates: UpdateCheck | None = None,
     ) -> None:
         super().__init__(make_icon())
-        self._faded = False
+        self._icon_is: tuple[bool, SyncSign | None] = (False, None)
+        self._sync: SyncShown | None = None
         self.setToolTip("Stickle")
         self._notes = notes
         self._updates = updates
@@ -101,6 +113,9 @@ class Tray(QSystemTrayIcon):
         # Some desktops (GNOME's AppIndicator) open this menu on any click, so the
         # Stickle window must be reachable from it, not only from a click on the icon.
         self.open_window_action = self._menu.addAction("")
+        # Shown while sync has stopped until the user does something (see the app).
+        self.sync_action = self._menu.addAction(halted_icon(), "")
+        self.sync_action.setVisible(False)
         # Shown while a newer Stickle is out, for as long as that holds.
         self.new_version_action = self._menu.addAction("")
         self.new_version_action.setVisible(False)
@@ -240,7 +255,23 @@ class Tray(QSystemTrayIcon):
     def _update_news(self, _news: object) -> None:
         self.refresh_new_version()
 
+    def set_sync(self, shown: SyncShown | None) -> None:
+        """How sync stands, if this computer syncs."""
+        self._sync = shown
+        self._show_state()
+        self._refresh_sync_action()
+
+    def _refresh_sync_action(self) -> None:
+        shown = self._sync
+        release = self._updates.release if self._updates is not None else None
+        told_already = shown is not None and shown.update_carries_on and release is not None
+        visible = shown is not None and shown.halted and bool(shown.line) and not told_already
+        self.sync_action.setVisible(visible)
+        if shown is not None and visible:
+            self.sync_action.setText(shown.line.replace("&", "&&") + "…")
+
     def refresh_new_version(self) -> None:
+        self._refresh_sync_action()
         release = self._updates.release if self._updates is not None else None
         self.new_version_action.setVisible(release is not None)
         if release is not None:
@@ -281,6 +312,34 @@ class Tray(QSystemTrayIcon):
         if self._notes:
             self._notes.raise_all()
 
+    def _show_state(self) -> None:
+        """The icon and its tooltip, as things stand."""
+        set_aside = self._notes is not None and self._notes.set_aside
+        sign = None if self._sync is None else self._sync.sign
+        # Faded while the notes are out of sight, so the icon says why none show;
+        # set only on a change, as some desktops redraw the whole tray for it.
+        if (set_aside, sign) != self._icon_is:
+            self._icon_is = (set_aside, sign)
+            self.setIcon(make_icon(set_aside, sign))
+        if set_aside:
+            tooltip = self.tr("Stickle: notes hidden for now")
+        elif self._notes is not None and self._notes.covered:
+            # No other sign: nothing pops up over the full-screen program.
+            tooltip = self.tr(
+                "Stickle: %n note(s) hidden for a full-screen program", "", self._notes.covered
+            )
+        elif self._notes is not None and self._notes.view is not None:
+            # Always in sight, so that notes out of view are not thought lost.
+            tooltip = self.tr("Stickle: only “%1” on the desktop").replace(
+                "%1", self._notes.view_name()
+            )
+        else:
+            tooltip = "Stickle"
+        if self._sync is not None and self._sync.line:
+            tooltip = f"{tooltip}\n{self._sync.line}"
+        if tooltip != self.toolTip():
+            self.setToolTip(tooltip)
+
     def retranslate(self) -> None:
         self.open_window_action.setText(self.tr("&Open Stickle Manager"))
         self.new_note_action.setText(self.tr("&New note"))
@@ -298,28 +357,7 @@ class Tray(QSystemTrayIcon):
         self.import_action.setText(self.tr("&Bring notes in from another app…"))
         self.export_action.setText(self.tr("&Export all notes…"))
         self.restore_backup_action.setText(self.tr("&Restore from a backup…"))
-        set_aside = self._notes is not None and self._notes.set_aside
-        # Faded while the notes are out of sight, so the icon says why none show;
-        # set only on a change, as some desktops redraw the whole tray for it.
-        if set_aside != self._faded:
-            self._faded = set_aside
-            self.setIcon(make_icon(faded=set_aside))
-        if set_aside:
-            self.setToolTip(self.tr("Stickle: notes hidden for now"))
-        elif self._notes is not None and self._notes.covered:
-            # No other sign: nothing pops up over the full-screen program.
-            self.setToolTip(
-                self.tr(
-                    "Stickle: %n note(s) hidden for a full-screen program", "", self._notes.covered
-                )
-            )
-        elif self._notes is not None and self._notes.view is not None:
-            # Always in sight, so that notes out of view are not thought lost.
-            self.setToolTip(
-                self.tr("Stickle: only “%1” on the desktop").replace("%1", self._notes.view_name())
-            )
-        else:
-            self.setToolTip("Stickle")
+        self._show_state()
         self.refresh_notes()
         self.settings_action.setText(self.tr("&Settings…"))
         self.quit_action.setText(self.tr("&Quit Stickle"))

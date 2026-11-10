@@ -3,9 +3,11 @@ this computer's clock being set, and the same wherever the devices are."""
 
 from datetime import UTC, datetime
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from stickle.core.clock import millis_at, stamp_at
 from stickle.core.cloud_time import SLOWEST, CloudTime, date_millis
 
 HOUR = 3_600_000
@@ -148,3 +150,12 @@ def test_a_date_is_the_same_moment_in_any_zone_it_is_written_in() -> None:
 def test_what_is_not_a_date_is_none() -> None:
     for header in (None, "", "yesterday", "Sat, 99 Nov 2026 01:30:00 GMT"):
         assert date_millis(header) is None
+
+
+def test_a_time_kept_reads_back_as_the_same_moment() -> None:
+    assert millis_at(stamp_at(1_700_000_000_123)) == 1_700_000_000_123
+
+
+def test_what_is_not_a_time_is_said_not_to_be() -> None:
+    with pytest.raises(ValueError):
+        millis_at("not a time")

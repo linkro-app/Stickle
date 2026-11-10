@@ -64,6 +64,7 @@ from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
+from stickle.app.sync_display import SyncLine
 from stickle.app.sync_setup import SyncSetup
 from stickle.app.times import local_time
 from stickle.app.titles import shown_title
@@ -351,6 +352,10 @@ class StickleWindow(QWidget):
         bottom.addStretch(1)
         bottom.addWidget(self.quit_button)
         layout.addLayout(bottom)
+        # How sync stands, on a computer that syncs: the connection settings, pressed.
+        self.sync_line = SyncLine(self)
+        self.sync_line.pressed.connect(self.open_connections)
+        layout.addWidget(self.sync_line)
 
         self._set_tab_order()
         notes.changed.connect(self.refresh)
@@ -434,6 +439,7 @@ class StickleWindow(QWidget):
             self.about_button,
             self.settings_button,
             self.quit_button,
+            self.sync_line.link,
         ]
         for before, after in itertools.pairwise(order):
             QWidget.setTabOrder(before, after)
@@ -497,6 +503,9 @@ class StickleWindow(QWidget):
     def open_settings(self, page: QWidget | None = None) -> None:
         """The settings, on the page last shown unless told which."""
         self.settings.present(page)
+
+    def open_connections(self) -> None:
+        self.open_settings(self.settings.connections_page)
 
     def open_shortcut_settings(self) -> None:
         self.open_settings(self.settings.shortcuts_page)

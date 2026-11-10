@@ -45,6 +45,7 @@ from stickle.app.shortcuts import GlobalShortcuts, no_portal
 from stickle.app.signals import SignalWatcher
 from stickle.app.startup import open_notes
 from stickle.app.stickle_window import StickleWindow
+from stickle.app.sync_display import SyncDisplay
 from stickle.app.sync_setup import SyncSetup
 from stickle.app.tray import Tray
 from stickle.app.update_check import UpdateCheck
@@ -324,6 +325,7 @@ def connect_stickle_window(
         tray.export_action.triggered.connect(window.export_all)
         tray.restore_backup_action.triggered.connect(window.restore_backup)
         tray.settings_action.triggered.connect(lambda: window.open_settings())
+        tray.sync_action.triggered.connect(window.open_connections)
         return
 
     manager.last_note_closed.connect(lambda: window.open(notice=True))
@@ -399,10 +401,11 @@ def connect_sync(
     clocks: Clocks,
     manager: NoteManager,
     reminders: ReminderKeeper | None,
+    display: SyncDisplay | None = None,
 ) -> Syncing:
     """Sync turned on while the app runs: how to reach the cloud kept, this run
     stamping things by the cloud's time from now on, and a first round at once.
-    joining: the vault was there before this device."""
+    joining: the vault was there before this device. display: told of it."""
     from stickle.app.syncing import Syncing as SyncRun
     from stickle.app.syncing import cloud_time
     from stickle.sync.engine import joined
@@ -416,15 +419,24 @@ def connect_sync(
     )
     started.start()
     started.sync_now()
+    if display is not None:
+        display.follow(started)
     return started
 
 
-def disconnect_sync(connection: apsw.Connection, syncing: Syncing, clocks: Clocks) -> None:
+def disconnect_sync(
+    connection: apsw.Connection,
+    syncing: Syncing,
+    clocks: Clocks,
+    display: SyncDisplay | None = None,
+) -> None:
     """Sync turned off while the app runs: nothing kept of how to reach the
-    cloud, and this run going by this computer's clock again."""
+    cloud, and this run going by this computer's clock again. display: told of it."""
     sync_connection.forget(connection)
     clocks.cloud = None
     syncing.left()
+    if display is not None:
+        display.follow(None)
 
 
 def sync_lines(syncing: Syncing | None) -> Sequence[str]:
@@ -966,14 +978,22 @@ def run(
             def connected(login: sync_connection.Login, joining: bool) -> Syncing:
                 nonlocal syncing
                 syncing = connect_sync(
-                    notes_db, database, opened_with, login, joining, clocks, manager, reminders
+                    notes_db,
+                    database,
+                    opened_with,
+                    login,
+                    joining,
+                    clocks,
+                    manager,
+                    reminders,
+                    sync_display,
                 )
                 return syncing
 
             def disconnected() -> None:
                 nonlocal syncing
                 if syncing is not None:
-                    disconnect_sync(notes_db, syncing, clocks)
+                    disconnect_sync(notes_db, syncing, clocks, sync_display)
                     syncing = None
 
             sync_setup = SyncSetup(
@@ -1019,6 +1039,9 @@ def run(
             syncing = SyncRun(
                 connection, unlock.database, unlock.opened_key, login, cloud, manager, reminders
             )
+        # Keeps the tray, Stickle Manager and the notes up with sync, on or off.
+        sync_display = SyncDisplay(tray, stickle_window, manager, translations)
+        sync_display.follow(syncing)
         # Kept here, as the Stickle window is: a window of its own, with no parent.
         missed_window = (
             connect_missed(reminders, stickle_window, tray) if reminders is not None else None

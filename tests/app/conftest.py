@@ -1,3 +1,4 @@
+import gc
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -24,9 +25,12 @@ def translations_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def windows_deleted() -> Iterator[None]:
     """The windows a test added are deleted when it ends, as an event loop would:
     pytest-qt only asks for it, and a window left until a later test's loop is
-    still told of that test's language change, its database closed by then."""
+    still told of that test's language change, its database closed by then.
+    What is left of them is collected here too: left to Python's collector, it
+    goes in the middle of some later test, and that has brought the run down."""
     yield
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    gc.collect()
 
 
 @pytest.fixture

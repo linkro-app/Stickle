@@ -21,6 +21,7 @@ from stickle.core.labels import DEFAULT_ICON, LABEL_ICONS
 
 ICONS = Path(__file__).resolve().parent / "icons" / "lucide"
 TAPE_OPACITY = 0.7
+CLOUD_OPACITY = 0.6
 LIST_ICON_SIZE = 16
 BOLD_STROKE = b'stroke-width="2.6"'  # on the 24-unit grid; Lucide draws at 2
 
@@ -224,6 +225,37 @@ def paint_alarm(painter: QPainter, color: QColor, area: QRectF) -> None:
     painter.restore()
 
 
+def paint_cloud(painter: QPainter, color: QColor, area: QRectF) -> None:
+    """A small faint cloud at the icon's top right corner, cut out of what is
+    under it: the note is not in the cloud yet."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    size = min(area.width(), area.height())
+    width, height = size * 0.56, size * 0.36
+    left, top = area.right() - width, area.top()
+    outline = QPainterPath()
+    outline.setFillRule(Qt.FillRule.WindingFill)
+    base = top + height * 0.62
+    radius = height * 0.38
+    outline.addRoundedRect(QRectF(left, base, width, height * 0.38), radius / 2, radius / 2)
+    outline.addEllipse(QPointF(left + width * 0.3, base), radius, radius)
+    outline.addEllipse(
+        QPointF(left + width * 0.6, top + radius * 1.05), radius * 1.15, radius * 1.15
+    )
+    outline = outline.simplified()
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+    painter.setPen(QPen(Qt.GlobalColor.black, max(1.0, size * 0.1)))
+    painter.setBrush(Qt.GlobalColor.black)
+    painter.drawPath(outline)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+    faint = QColor(color)
+    faint.setAlphaF(CLOUD_OPACITY)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(faint)
+    painter.drawPath(outline)
+    painter.restore()
+
+
 def state_pixmap(
     category: str | None,
     color: QColor,
@@ -232,11 +264,13 @@ def state_pixmap(
     scale: float = 1.0,
     secret: Literal["locked", "open"] | None = None,
     alarm: bool = False,
+    unsent: bool = False,
 ) -> QPixmap:
     """The title bar's left icon at size logical pixels: the category's (or the
-    app's, for None) in color, with tape in the tape colour when on top and a
-    small alarm clock with a reminder coming. A secret note shows a keyhole
-    instead, whatever its category."""
+    app's, for None) in color, with tape in the tape colour when on top, a
+    small alarm clock with a reminder coming, and a faint cloud when it is not
+    in the cloud yet. A secret note shows a keyhole instead, whatever its
+    category."""
     pixels = round(size * scale)
     pixmap = QPixmap(pixels, pixels)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -254,6 +288,8 @@ def state_pixmap(
         paint_tape(painter, tape, QRectF(0, 0, pixels, pixels))
     if alarm:
         paint_alarm(painter, color, QRectF(0, 0, pixels, pixels))
+    if unsent:
+        paint_cloud(painter, color, QRectF(0, 0, pixels, pixels))
     painter.end()
     pixmap.setDevicePixelRatio(scale)
     return pixmap

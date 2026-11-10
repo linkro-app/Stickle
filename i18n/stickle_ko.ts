@@ -528,6 +528,10 @@
         <source>%1, reminder %2</source>
         <translation>%1, 알림 %2</translation>
     </message>
+    <message>
+        <source>Not in the cloud yet. It&apos;s saved on this computer.</source>
+        <translation>아직 클라우드에 올리지 못했습니다. 이 PC에는 저장되어 있습니다.</translation>
+    </message>
 </context>
 <context>
     <name>ChangeName</name>
@@ -3853,6 +3857,13 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
 </context>
 <context>
+    <name>SyncLine</name>
+    <message>
+        <source>Open the connection settings</source>
+        <translation>연결 설정 열기</translation>
+    </message>
+</context>
+<context>
     <name>SyncPanel</name>
     <message>
         <source>Stickle connects to:</source>
@@ -3938,8 +3949,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>동기화 멈춤 — 서버 비밀번호 확인 필요</translation>
     </message>
     <message>
-        <source>This account can&apos;t write to that folder. Check its permissions on the server.</source>
-        <translation>이 계정은 그 폴더에 쓸 수 없습니다. 서버에서 권한을 확인하세요.</translation>
+        <source>Sync stopped — check the Stickle folder&apos;s permissions on the server</source>
+        <translation>동기화 멈춤 — 서버에서 Stickle 폴더 권한 확인 필요</translation>
     </message>
     <message>
         <source>Sync stopped — check a big change from another computer</source>
@@ -4360,8 +4371,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>서버가 사용자 이름이나 비밀번호를 받아들이지 않았습니다. 확인하고 다시 해 보세요.</translation>
     </message>
     <message>
-        <source>This account can&apos;t write to that folder. Check its permissions on the server.</source>
-        <translation>이 계정은 그 폴더에 쓸 수 없습니다. 서버에서 권한을 확인하세요.</translation>
+        <source>This account can&apos;t write to the folder at this address. Check its permissions on the server.</source>
+        <translation>이 계정은 이 주소의 폴더에 쓸 수 없습니다. 서버에서 권한을 확인하세요.</translation>
     </message>
     <message>
         <source>There&apos;s no WebDAV folder at that address. Check the address.</source>

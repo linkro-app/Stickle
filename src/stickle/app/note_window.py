@@ -1546,6 +1546,10 @@ class NoteWindow(QWidget):
         cursor.insertText(line)
         self.edit(cursor.position())
 
+    def set_unsent(self, unsent: bool) -> None:
+        """A minute on, whether it has not reached the cloud."""
+        self.title_bar.category_tag.set_unsent(unsent)
+
     def set_next_reminder(self, when: str | None) -> None:
         """When its reminder rings next (as the user reads it), None for none."""
         self.title_bar.category_tag.set_reminder(when)

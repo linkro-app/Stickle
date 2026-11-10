@@ -37,6 +37,11 @@ def stamp_at(millis: int) -> str:
     return _format(datetime.fromtimestamp(millis / 1000, UTC))
 
 
+def millis_at(stamp: str) -> int:
+    """A timestamp as milliseconds since 1970. ValueError if it is not one."""
+    return round(datetime.fromisoformat(stamp).timestamp() * 1000)
+
+
 class Clocks:
     """The time a run stamps what it stores with: this computer's, or, while it
     syncs, the cloud's (stickle.core.cloud_time)."""

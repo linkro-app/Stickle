@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QDate, QDateTime, QLocale, QObject, Signal
+from PySide6.QtCore import QDate, QDateTime, QElapsedTimer, QLocale, QObject, Signal
 
 from stickle.app.times import moment_text
 from stickle.sync.engine import GETTING
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 WEBDAV_NAME = "WebDAV"  # the same in every language
 MANY = 20  # notes on the move beyond which the line says how far it has got
+MOVING_EVERY_MS = 500  # how far it has got is said at most this often
 
 
 class SyncWords(QObject):
@@ -26,7 +27,7 @@ class SyncWords(QObject):
                 return self.tr("Sync stopped — check your server password")
             case Stopped.NO_ACCESS:
                 return self.tr(
-                    "This account can't write to that folder. Check its permissions on the server."
+                    "Sync stopped — check the Stickle folder's permissions on the server"
                 )
             case Stopped.BIG_CHANGE:
                 return self.tr("Sync stopped — check a big change from another computer")
@@ -100,6 +101,21 @@ class SyncStatus(QObject):
         self._offline = False
         self._waiting = 0  # notes a round that failed, or passed over them, left to upload
         self._moving: tuple[str, int, int] | None = None
+        self._told_moving = QElapsedTimer()
+
+    @property
+    def offline(self) -> bool:
+        """Whether the last round had no answer at all."""
+        return self._offline
+
+    @property
+    def halted(self) -> bool:
+        """Whether there is something for the user to do: stopped, or uploads stopped."""
+        return self._stopped is not None or self._full
+
+    @property
+    def update_carries_on(self) -> bool:
+        return self._stopped is Stopped.NEWER
 
     def round_ended(self, ended: Ended) -> None:
         outcome = ended.outcome
@@ -107,14 +123,19 @@ class SyncStatus(QObject):
         self._full = outcome.full
         self._offline = outcome.offline
         self._moving = None
+        self._told_moving.invalidate()
         self._synced = self._last_synced()
         self._waiting = self._to_put() if ended.wait is not None else len(set(ended.report.left))
         self.changed.emit()
 
     def moved(self, what: str, done: int, of: int) -> None:
-        if of > MANY:
-            self._moving = (what, done, of)
-            self.changed.emit()
+        if of <= MANY:
+            return
+        self._moving = (what, done, of)
+        if self._told_moving.isValid() and not self._told_moving.hasExpired(MOVING_EVERY_MS):
+            return
+        self._told_moving.start()
+        self.changed.emit()
 
     def text(self) -> str:
         """The line; empty before anything is known of it."""

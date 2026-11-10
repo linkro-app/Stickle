@@ -101,7 +101,8 @@ def test_every_item_has_a_key_of_its_own(translations: Translations, language: s
     tray.new_version_action.setText(tray.tr("&Get Stickle %1…"))  # shown with a release
 
     for menu in (tray.contextMenu(), tray.data_menu):
-        texts = [a.text() for a in keyed(menu)]
+        # How sync stands, when there is that to say: in words with no letter of their own.
+        texts = [a.text() for a in keyed(menu) if a is not tray.sync_action]
         keys = [
             t.replace("&&", "")[t.replace("&&", "").index("&") + 1].lower()
             for t in texts
