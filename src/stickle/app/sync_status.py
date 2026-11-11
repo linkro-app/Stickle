@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QDate, QDateTime, QElapsedTimer, QLocale, QObject, Signal
 
 from stickle.app.times import moment_text
+from stickle.data.settings import CLOUD_FULL
+from stickle.platform.updates import SOFTWARE_CENTER, kept_by
 from stickle.sync.engine import GETTING
 from stickle.sync.outcome import Stopped
 
@@ -47,17 +49,55 @@ class SyncWords(QObject):
                 return self.tr("Sync stopped — update Stickle to carry on")
 
     def told(self, why: Stopped, cloud: str) -> str:
-        """Stopped for what a window asks about: the sentence telling of it once."""
+        """The sentence telling once that sync stopped, and why."""
         match why:
+            case Stopped.SIGN_IN:
+                said = self.tr(
+                    "The server didn't accept the password, so sync stopped. If you changed"
+                    " it on the server, enter the new one."
+                )
+            case Stopped.NO_ACCESS:
+                said = self.tr(
+                    "This account can no longer write to the Stickle folder on the server, so"
+                    " sync stopped. Your notes are still on this computer. Fix its permissions"
+                    " on the server, then choose Sync now under Settings, Connections."
+                )
+            case Stopped.NEWER:
+                said = self.tr(
+                    "A newer Stickle on another computer changed the file format, so sync"
+                    " waits until you update. Your notes are still on this computer."
+                )
             case Stopped.BIG_CHANGE:
                 said = self.tr("Another computer changed many notes at once, so sync stopped.")
             case Stopped.VAULT_GONE:
                 said = self.tr("The Stickle folder is gone from %1, so sync stopped.")
             case Stopped.VAULT_CHANGED:
                 said = self.tr("The Stickle folder in %1 was made anew, so sync stopped.")
-            case _:
+            case Stopped.CERTIFICATE:
                 said = self.tr("The server's certificate changed, so sync stopped.")
         return said.replace("%1", cloud)
+
+    def update_elsewhere(self) -> str:
+        """Said after that, where the software center keeps Stickle up to date."""
+        return self.tr("Update it in your software center.")
+
+    def full_told(self, cloud: str) -> str:
+        return self.tr(
+            "%1 is full, so uploads stopped. Changes from your other computers still come"
+            " in. Free up space and it carries on."
+        ).replace("%1", cloud)
+
+    def way_on(self, why: Stopped) -> str:
+        """The button beside what says that sync stopped, and why: where it leads."""
+        match why:
+            case Stopped.SIGN_IN:
+                return self.tr("&Enter the password…")
+            case Stopped.NO_ACCESS:
+                return self.tr("&Open connection settings")
+            case Stopped.NEWER:  # G is for getting changes, on the Connections page
+                return self.tr("Get the ne&w version…")
+            case _:
+                return self.tr("&Review…")
 
     def full(self, cloud: str) -> str:
         return self.tr("Uploads stopped — your %1 is full").replace("%1", cloud)
@@ -144,11 +184,36 @@ class SyncStatus(QObject):
         """Why sync stopped, if a window of its own asks what to do (Stopped's value)."""
         return self._stopped.value if self._stopped in ASKING else None
 
+    @property
+    def asks_password(self) -> bool:
+        """Whether it stopped for the server turning down the password."""
+        return self._stopped is Stopped.SIGN_IN
+
+    @property
+    def told(self) -> str | None:
+        """What is told once: why sync stopped (Stopped's value), or uploads did
+        (CLOUD_FULL); None: neither."""
+        if self._stopped is not None:
+            return self._stopped.value
+        return CLOUD_FULL if self._full else None
+
     def notice(self) -> str:
-        """What tells once that sync stopped for what a window asks about; empty if not."""
-        if self._stopped is None or self._stopped not in ASKING:
+        """The sentence telling once of what told says; empty if nothing."""
+        words = self._words
+        if self._stopped is None:
+            return words.full_told(self._cloud) if self._full else ""
+        said = words.told(self._stopped, self._cloud)
+        if self._stopped is Stopped.NEWER and kept_by() == SOFTWARE_CENTER:
+            said = f"{said} {words.update_elsewhere()}"
+        return said
+
+    def way_on(self) -> str:
+        """The button beside that sentence; empty if there is none (OK alone)."""
+        if self._stopped is None:
             return ""
-        return self._words.told(self._stopped, self._cloud)
+        if self._stopped is Stopped.NEWER and kept_by() == SOFTWARE_CENTER:
+            return ""  # updated where Stickle cannot lead
+        return self._words.way_on(self._stopped)
 
     def round_ended(self, ended: Ended) -> None:
         outcome = ended.outcome

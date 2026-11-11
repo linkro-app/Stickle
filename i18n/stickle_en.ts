@@ -335,6 +335,16 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>SyncDisplay</name>
+    <message numerus="yes">
+        <source>While this computer wasn&apos;t syncing, %n note(s) were deleted on your other computers, so they&apos;re in the trash here too.</source>
+        <translation>
+            <numerusform>While this computer wasn&apos;t syncing, %n note was deleted on your other computers, so it&apos;s in the trash here too.</numerusform>
+            <numerusform>While this computer wasn&apos;t syncing, %n notes were deleted on your other computers, so they&apos;re in the trash here too.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>SyncStopped</name>
     <message numerus="yes">
         <source>%Ln note(s) would go to the trash</source>

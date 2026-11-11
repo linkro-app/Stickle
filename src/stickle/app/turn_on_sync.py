@@ -18,7 +18,9 @@ at the server at once and goes on as that is now. The folder as it was, sync
 just goes on (with the certificate trusted anew, if that was it); gone, a new
 one is made from this computer's notes; another there, it is opened with its
 key. A folder there is never made over. Nothing of the connection kept changes
-until the new one is kept in its place.
+until the new one is kept in its place. Stopped with the server turning down
+the password kept, it starts with the password to type anew: the one turned
+down is not sent again (servers count those, and lock the account out).
 
 Opened on request: this is what brings TLS and HTTP into a run.
 """
@@ -208,11 +210,17 @@ def _look(target: WebDav) -> str | None:
 
 class TurnOnSync(QDialog):
     def __init__(
-        self, setup: SyncSetup, parent: QWidget | None = None, again: Login | None = None
+        self,
+        setup: SyncSetup,
+        parent: QWidget | None = None,
+        again: Login | None = None,
+        password: bool = False,
     ) -> None:
         """again: the connection kept, which sync stopped with (its Stickle folder
         gone, made anew, or the server's certificate changed): the window starts
-        by looking at the server as kept, and goes on as that is now."""
+        by looking at the server as kept, and goes on as that is now. password:
+        it stopped with the server turning down the password kept; the window
+        starts at the server, asking it nothing until a new one is typed."""
         super().__init__(parent)
         self._setup = setup
         self._again = again
@@ -288,9 +296,12 @@ class TurnOnSync(QDialog):
             return
         self.address.setText(again.address)
         self.user.setText(again.user)
-        self.password.setText(again.secret)
         self._certificate = again.certificate  # after the address, which forgets it
         self._show(self.server_page)
+        if password:
+            self._fail(self._turned_down(), self.password)
+            return
+        self.password.setText(again.secret)
         self._connect()
 
     # The pages
@@ -748,13 +759,7 @@ class TurnOnSync(QDialog):
             case VaultThereError() | VaultGoneError():  # another computer got there first
                 self._look_again()
             case SignInNeededError():
-                self._fail_at_server(
-                    self.tr(
-                        "The server didn't accept the user name or password."
-                        " Check them and try again."
-                    ),
-                    self.password,
-                )
+                self._fail_at_server(self._turned_down(), self.password)
             case NoAccessError():
                 self._fail_at_server(
                     self.tr(
@@ -792,6 +797,11 @@ class TurnOnSync(QDialog):
                         " then try again."
                     )
                 )
+
+    def _turned_down(self) -> str:
+        return self.tr(
+            "The server didn't accept the user name or password. Check them and try again."
+        )
 
     def _fail_at_server(self, text: str, field: QWidget) -> None:
         page = self.pages.current()

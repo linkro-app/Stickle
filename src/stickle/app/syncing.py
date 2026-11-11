@@ -117,6 +117,7 @@ class Ended:
     outcome: Outcome
     certificate: bytes | None = None  # what a server showed, if that stopped it
     backup_failed: bool = False  # the big change let in, but no backup could be made first
+    taken_in: bool = False  # the big change let in, backed up and taken in (the user saw it)
 
     @property
     def wait(self) -> float | None:
@@ -157,6 +158,7 @@ class _Rounds:
     editing: Editing | None = None  # the notes being edited on screen
     held: frozenset[str] = frozenset()  # those the last round held: read again
     kept: bool = True  # the login is kept here (not yet, while turning sync on)
+    _backed_up: bool = False  # this round, to take in what it stopped for
     _stopped: str | None = None
     _offset: int = 0
 
@@ -237,6 +239,7 @@ class _Rounds:
             take(self.database(), self.store)
         except (OSError, apsw.Error) as error:  # a full disk, say
             raise BackupFailedError() from error
+        self._backed_up = True
 
     def accept_next(self) -> None:
         """The next round takes in what it stopped for, after a backup."""
@@ -258,6 +261,7 @@ class _Rounds:
         report = Report()
         error: Exception | None = None
         db: apsw.Connection | None = None
+        self._backed_up = False
         try:
             db = self.database()
             sync_vault(
@@ -290,6 +294,7 @@ class _Rounds:
             outcome,
             error.certificate if isinstance(error, CertificateError) else None,
             backup_failed,
+            self._backed_up,
         )
 
     def _outcome(self, error: Exception | None, report: Report) -> Outcome:

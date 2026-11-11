@@ -1,10 +1,12 @@
 """The colours the user added to the palette ("my colours").
 
 Each is a row of its own, so that colours added on two devices are both kept.
-A removed colour keeps its row, marked deleted. At most MAX_OWN_COLORS are
-shown, in their order; the same colour twice shows once. Notes store the
-colour itself, so nothing here changes how a note looks. Each change stamps
-the fields it changes (stickle.data.record_stamps), for sync.
+A removed colour keeps its row, marked deleted. All are shown, in their order;
+the same colour twice shows once. One is added only while fewer than
+MAX_OWN_COLORS are shown: those added on two devices may come to more, and
+none of them is hidden. Notes store the colour itself, so nothing here changes
+how a note looks. Each change stamps the fields it changes
+(stickle.data.record_stamps), for sync.
 """
 
 import uuid
@@ -23,7 +25,7 @@ MAX_OWN_COLORS = 12
 
 
 class OwnColorsFullError(ValueError):
-    """MAX_OWN_COLORS are shown already."""
+    """MAX_OWN_COLORS or more are shown already."""
 
 
 @dataclass(frozen=True)
@@ -57,16 +59,16 @@ class ColorRepository:
         ]
 
     def colors(self) -> list[OwnColor]:
-        """Those shown, in their order: each colour once, MAX_OWN_COLORS at most."""
+        """Those shown, in their order: each colour once."""
         shown: list[OwnColor] = []
         for color in self._live():
             if color.hex not in {c.hex for c in shown}:
                 shown.append(color)
-        return shown[:MAX_OWN_COLORS]
+        return shown
 
     def add(self, hex_value: str) -> OwnColor:
         """Last in the order; the one there already, for a colour shown already.
-        OwnColorsFullError when MAX_OWN_COLORS are shown."""
+        OwnColorsFullError when MAX_OWN_COLORS or more are shown."""
         if not is_hex(hex_value):
             raise ValueError(f"colour {hex_value}")
         shown = self.colors()

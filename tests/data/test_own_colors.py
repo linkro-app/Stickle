@@ -57,20 +57,39 @@ def test_the_same_colour_is_kept_once(connection: apsw.Connection) -> None:
     assert hexes(colors) == ["#a3c9f0"]
 
 
-def test_twelve_at_most(connection: apsw.Connection) -> None:
+def test_twelve_are_added_at_most(connection: apsw.Connection) -> None:
     colors = ColorRepository(connection)
     for n in range(MAX_OWN_COLORS):
         colors.add(f"#0000{n:02x}")
 
     with pytest.raises(OwnColorsFullError):
         colors.add("#ffffff")
-    # More than twelve brought together from two devices: the first twelve show,
-    # none is removed.
-    connection.execute(
-        "INSERT INTO custom_colors (id, hex, position, updated_at)"
-        " VALUES ('other', '#ffffff', 99, '2026-10-26T00:00:00.000Z')"
-    )
-    assert len(hexes(colors)) == MAX_OWN_COLORS and "#ffffff" not in hexes(colors)
+    assert colors.add("#000003").hex == "#000003"  # one there already: no room needed
+
+
+def test_more_brought_together_from_two_devices_all_show(connection: apsw.Connection) -> None:
+    colors = ColorRepository(connection)
+    for n in range(MAX_OWN_COLORS):
+        colors.add(f"#0000{n:02x}")
+    for n, value in enumerate(("#ffffff", "#eeeeee")):
+        connection.execute(
+            "INSERT INTO custom_colors (id, hex, position, updated_at)"
+            " VALUES (?, ?, ?, '2026-10-26T00:00:00.000Z')",
+            (f"other {n}", value, 99 + n),
+        )
+
+    shown = hexes(colors)
+    assert len(shown) == MAX_OWN_COLORS + 2 and shown[-2:] == ["#ffffff", "#eeeeee"]
+    with pytest.raises(OwnColorsFullError):
+        colors.add("#dddddd")
+    for color in colors.colors()[:3]:  # down to eleven: room for one again
+        colors.remove(color.id)
+    assert colors.add("#dddddd").hex == "#dddddd"
+    with pytest.raises(OwnColorsFullError):
+        colors.add("#cccccc")
+    order = colors.colors()
+    moved = colors.move(order[-1].id, -1)  # the last ones move as the others do
+    assert [c.hex for c in moved][-2:] == ["#dddddd", "#eeeeee"]
 
 
 @pytest.mark.parametrize("value", ["#A3C9F0", "a3c9f0", "#a3c9f", "#a3c9f0 ", "yellow", ""])

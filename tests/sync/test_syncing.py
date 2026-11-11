@@ -664,7 +664,7 @@ def test_a_big_change_stops_and_changes_nothing(pc: Pc) -> None:
         pc.other.notes.delete(note_id)
     pc.other_syncs()
     ended = pc.round()
-    assert ended.outcome.stopped is Stopped.BIG_CHANGE
+    assert ended.outcome.stopped is Stopped.BIG_CHANGE and not ended.taken_in
     assert all(pc.window_of(note_id) is not None for note_id in made)
     assert backups(pc.path) == []
     assert not any(pc.notes.get(note_id).deleted for note_id in made)  # pyright: ignore[reportOptionalMemberAccess]
@@ -680,9 +680,11 @@ def test_a_big_change_taken_in_goes_ahead_after_a_backup(pc: Pc) -> None:
         pc.syncing.take_big_change()
     ended = said(told)
     assert isinstance(ended, Ended) and ended.outcome.stopped is None
+    assert ended.taken_in  # what it took in the user saw: not told of again
     assert all(pc.window_of(note_id) is None for note_id in made)
     assert all(pc.notes.get(note_id).deleted for note_id in made)  # pyright: ignore[reportOptionalMemberAccess]
     assert len(backups(pc.path)) == 1
+    assert not pc.round().taken_in  # that round only
 
 
 def test_a_big_change_with_no_backup_takes_nothing_in_and_stays_stopped(
@@ -701,7 +703,7 @@ def test_a_big_change_with_no_backup_takes_nothing_in_and_stays_stopped(
     with pc.qtbot.waitSignal(pc.syncing.round_shown, timeout=ROUND_MS) as told:
         pc.syncing.take_big_change()
     ended = said(told)
-    assert isinstance(ended, Ended) and ended.backup_failed
+    assert isinstance(ended, Ended) and ended.backup_failed and not ended.taken_in
     assert ended.outcome.stopped is Stopped.BIG_CHANGE and ended.wait is None
     assert not any(pc.notes.get(note_id).deleted for note_id in made)  # pyright: ignore[reportOptionalMemberAccess]
     assert all(pc.window_of(note_id) is not None for note_id in made)

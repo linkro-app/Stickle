@@ -31,6 +31,7 @@ from stickle.app.syncing import BigChange, Ended, Syncing
 from stickle.app.tray import Tray
 from stickle.app.turn_on_sync import TurnOnSync
 from stickle.crypto.recovery import RecoveryKeyTypoError
+from stickle.data.colors import OwnColor
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.sync.devices import Other
 from stickle.sync.engine import GETTING, PUTTING, FirstLook, Report
@@ -384,6 +385,26 @@ def _again_done(stage: Stage) -> QWidget:
     return window
 
 
+def _again_password(stage: Stage) -> QWidget:
+    """The server turned the password kept down: it is typed anew."""
+    kept = Login(VAULT, WEBDAV, ADDRESS, USER, PASSWORD, {})
+    return stage.keep(TurnOnSync(_setup(None), None, kept, True))
+
+
+class _ManyColours(NoteManager):
+    """More colours of one's own than are added here, from two computers."""
+
+    def own_color_entries(self) -> list[OwnColor]:
+        return [OwnColor(f"colour {n}", f"#{n * 17:02x}{200 - n * 9:02x}c0", n) for n in range(14)]
+
+
+def _many_colours(stage: Stage) -> QWidget:
+    window = stage.keep(SettingsWindow(stage.keep(_ManyColours()), stage.translations))
+    window.tabs.setCurrentWidget(window.notes_page)
+    window.refresh()
+    return window
+
+
 # The window that asks, while sync is stopped for it
 
 
@@ -525,18 +546,34 @@ def _disconnecting(stage: Stage) -> QWidget:
 # Where it shows outside the settings
 
 
-def shown_by(stage: Stage, syncing: FakeSyncing) -> tuple[Tray, StickleWindow]:
+def _displayed(stage: Stage, syncing: FakeSyncing) -> tuple[Tray, StickleWindow, SyncDisplay]:
     manager = stage.keep(NoteManager())
     stage.keep(syncing)
     tray = stage.keep(Tray(manager.new_note, lambda: None, stage.translations, manager))
     window = stage.keep(StickleWindow(manager, stage.translations, lambda: None))
     display = stage.keep(SyncDisplay(tray, window, manager, stage.translations))
     display.follow(cast("Syncing", syncing))
+    return tray, window, display
+
+
+def shown_by(stage: Stage, syncing: FakeSyncing) -> tuple[Tray, StickleWindow]:
+    tray, window, _display = _displayed(stage, syncing)
     return tray, window
 
 
 def _manager(make: Callable[[], FakeSyncing]) -> Callable[[Stage], QWidget]:
     return lambda stage: shown_by(stage, make())[1]
+
+
+def _manager_trashed(make: Callable[[], FakeSyncing]) -> Callable[[Stage], QWidget]:
+    """Notes put in the trash here, deleted elsewhere while this computer was away."""
+
+    def build(stage: Stage) -> QWidget:
+        _tray, window, display = _displayed(stage, make())
+        display._more_trashed(3)
+        return window
+
+    return build
 
 
 def _menu(make: Callable[[], FakeSyncing]) -> Callable[[Stage], QWidget]:
@@ -652,6 +689,8 @@ _REASONS = {
 }
 # Those a window asks about, as the window shows them.
 ASKING_ORDER = (Stopped.BIG_CHANGE, Stopped.VAULT_GONE, Stopped.VAULT_CHANGED, Stopped.CERTIFICATE)
+# The others, told once all the same.
+TOLD_ORDER = (Stopped.SIGN_IN, Stopped.NO_ACCESS, Stopped.NEWER)
 
 SCENES: list[Scene] = [
     Scene("turn-on-1-intro", _turn_on),
@@ -713,8 +752,14 @@ SCENES: list[Scene] = [
     Scene("stopped-big-change-again", _asking_after(Ended(Report(), Outcome(Stopped.BIG_CHANGE)))),
     Scene("stopped-disconnecting", _asking_disconnecting),
     *(Scene(f"manager-told-{_REASONS[why]}", _manager(_stopped(why))) for why in ASKING_ORDER),
+    *(Scene(f"manager-told-{_REASONS[why]}", _manager(_stopped(why))) for why in TOLD_ORDER),
+    Scene("manager-told-full", _manager(_full)),
+    Scene("manager-told-trash", _manager_trashed(_synced)),
+    Scene("manager-told-trash-and-stopped", _manager_trashed(_stopped(Stopped.SIGN_IN))),
     Scene("turn-on-again-new-folder", _again_absent),
     Scene("turn-on-again-done", _again_done),
+    Scene("turn-on-again-password", _again_password),
+    Scene("settings-own-colours-many", _many_colours),
     Scene("connections-full", _page_showing(_full)),
     Scene("connections-many-computers", _page_showing(_many_computers)),
     Scene("connections-long-names", _page_showing(_long_names)),

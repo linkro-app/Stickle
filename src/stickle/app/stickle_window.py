@@ -55,7 +55,8 @@ from stickle.app.in_use import OnTopWhileInUse, call_up
 from stickle.app.label_manager import LabelManager
 from stickle.app.labels import category_item_icon, keyhole_item_icon
 from stickle.app.master_password import MasterPasswords
-from stickle.app.note_list import NoteList
+from stickle.app.new_version import new_version_page
+from stickle.app.note_list import TRASH, NoteList
 from stickle.app.notes import SECRET_NOTES, NoteManager, clipboard_text
 from stickle.app.protection_changes import Change, ProtectionChanges
 from stickle.app.recovery_key_dialog import RecoveryKeys
@@ -64,7 +65,7 @@ from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
-from stickle.app.sync_display import SyncLine, SyncStopLine
+from stickle.app.sync_display import SyncLine, SyncStopLine, SyncTrashLine
 from stickle.app.sync_setup import SyncSetup
 from stickle.app.times import local_time
 from stickle.app.titles import shown_title
@@ -171,6 +172,7 @@ class StickleWindow(QWidget):
         # While a newer Stickle is out (not where a store keeps it up to date),
         # a line saying so at the top.
         self._updates = updates
+        self._update_told = False  # by what tells that sync waits for one
         self.new_version_label = QLabel(self)
         self.new_version_label.setWordWrap(True)
         self.new_version_button = QPushButton(self)
@@ -197,8 +199,9 @@ class StickleWindow(QWidget):
         self.changes_seen_button.clicked.connect(self._changes_seen)
         # The data folder inside a cloud program's folder, told once for that place.
         self.cloud_folder_line = CloudFolderLine(settings, self)
-        # Sync stopped for something a window asks about, told once (see SyncDisplay).
+        # Sync stopped, and notes it put in the trash, told once (see SyncDisplay).
         self.sync_stop_line = SyncStopLine(self)
+        self.sync_trash_line = SyncTrashLine(self)
         # Where the lines saying how sync stands lead (SyncDisplay says, once sync runs).
         self.open_standing: Callable[[], None] = self.open_connections
 
@@ -329,6 +332,7 @@ class StickleWindow(QWidget):
         layout.addLayout(changes_buttons)
         layout.addWidget(self.cloud_folder_line)
         layout.addWidget(self.sync_stop_line)
+        layout.addWidget(self.sync_trash_line)
         missed = QHBoxLayout()
         missed.addWidget(self.missed_label, 1)
         missed.addWidget(self.missed_button)
@@ -381,6 +385,18 @@ class StickleWindow(QWidget):
         note_list.refresh()
         note_list.search_box.setFocus()
 
+    def show_trash(self) -> None:
+        """Open, listing the notes in the trash, whatever category, mark or search
+        was chosen there."""
+        self.open()
+        note_list = self.note_list
+        note_list.category_box.setCurrentIndex(0)  # all categories
+        note_list.mark_box.setCurrentIndex(0)  # all marks
+        note_list.search_box.clear()
+        note_list.filter_box.setCurrentIndex(note_list.filter_box.findData(TRASH))
+        note_list.refresh()
+        note_list.list.setFocus()
+
     def bring_in(self) -> None:
         """The window for bringing notes over from another app, one at a time."""
         if self._data is None:
@@ -428,8 +444,10 @@ class StickleWindow(QWidget):
             self.changes_seen_button,
             self.cloud_folder_line.open_button,
             self.cloud_folder_line.ok_button,
-            self.sync_stop_line.review_button,
+            self.sync_stop_line.action_button,
             self.sync_stop_line.ok_button,
+            self.sync_trash_line.action_button,
+            self.sync_trash_line.ok_button,
             self.missed_button,
             self.new_version_button,
             self.new_note_button,
@@ -577,11 +595,30 @@ class StickleWindow(QWidget):
     def _update_news(self, _news: object) -> None:
         self.refresh_new_version()
 
+    def set_update_told(self, told: bool) -> None:
+        """Whether a line above says that sync waits for an update: meanwhile the
+        line saying that a newer Stickle is out does not say so too."""
+        self._update_told = told
+        self.refresh_new_version()
+
+    def new_version_page(self) -> str | None:
+        """Where a newer Stickle is got; None: the software center updates it."""
+        return new_version_page(self._updates)
+
+    def get_new_version(self) -> None:
+        """There; where the software center updates it, the connection settings."""
+        page = self.new_version_page()
+        if page is None:
+            self.open_connections()
+        else:
+            note_window.open_url(QUrl(page))
+
     def refresh_new_version(self) -> None:
         """Said at the top for as long as a newer Stickle is out (no pop-up)."""
         release = self._updates.release if self._updates is not None else None
-        self.new_version_label.setVisible(release is not None)
-        self.new_version_button.setVisible(release is not None)
+        shown = release is not None and not self._update_told
+        self.new_version_label.setVisible(shown)
+        self.new_version_button.setVisible(shown)
         if release is not None:
             text = self.tr("Stickle %1 is out.").replace("%1", release.version)
             self.new_version_label.setText(text)

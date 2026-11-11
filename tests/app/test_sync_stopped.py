@@ -331,7 +331,8 @@ def test_a_stop_is_told_at_the_top_and_once_to_the_system(qtbot: QtBot, settings
     sync.status.moved("getting", 1, 40)
     sync.ended(Outcome(Stopped.VAULT_GONE))  # stopped again: not told again
     assert at.told == [said]
-    line.review_button.click()
+    assert line.action_button.text() == "&Review…"
+    line.action_button.click()
     window = stopped_window()
     assert window is not None and window.why is Stopped.VAULT_GONE
     window.reject()
@@ -391,14 +392,6 @@ def test_a_round_that_failed_for_now_forgets_nothing_told(qtbot: QtBot, settings
     assert len(at.told) == 1
 
 
-def test_a_stop_with_nothing_to_ask_is_not_told_here(qtbot: QtBot, settings: Settings) -> None:
-    at = manager_of(qtbot, settings)
-    sync = FakeSync(None)
-    at.display.follow(cast(Syncing, sync))
-    sync.ended(Outcome(Stopped.SIGN_IN))
-    assert at.window.sync_stop_line.isHidden() and at.told == []
-
-
 def test_the_notification_opens_the_window(qtbot: QtBot, settings: Settings) -> None:
     at = manager_of(qtbot, settings)
     sync = FakeSync(None)
@@ -437,7 +430,7 @@ def test_the_lines_saying_how_sync_stands_lead_to_the_window(
 
 def test_otherwise_they_lead_to_the_connection_settings(qtbot: QtBot, settings: Settings) -> None:
     at = manager_of(qtbot, settings)
-    at.display.follow(cast(Syncing, FakeSync(Stopped.SIGN_IN)))
+    at.display.follow(cast(Syncing, FakeSync(Stopped.NO_ACCESS)))
     at.window.sync_line.pressed.emit()
     assert stopped_window() is None
     assert at.window.settings.isVisible()
@@ -466,6 +459,6 @@ def test_the_line_is_reached_by_the_keyboard_after_the_lines_before_it(
     sync.ended(Outcome(Stopped.BIG_CHANGE))
     line = at.window.sync_stop_line
     following: QWidget | None = at.window.cloud_folder_line.ok_button.nextInFocusChain()
-    assert following is line.review_button
-    assert line.review_button.nextInFocusChain() is line.ok_button
+    assert following is line.action_button
+    assert line.action_button.nextInFocusChain() is line.ok_button
     assert line.ok_button.accessibleDescription() == line.label.text()

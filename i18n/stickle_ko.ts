@@ -3923,6 +3923,15 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
 </context>
 <context>
+    <name>SyncDisplay</name>
+    <message numerus="yes">
+        <source>While this computer wasn&apos;t syncing, %n note(s) were deleted on your other computers, so they&apos;re in the trash here too.</source>
+        <translation>
+            <numerusform>동기화하지 않는 동안 다른 PC에서 지운 메모 %n개를 이 PC에서도 휴지통으로 옮겼습니다.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>SyncGuideLine</name>
     <message>
         <source>If you get stuck, see the sync guide on the Stickle website. It walks through each step and answers common questions.</source>
@@ -3938,6 +3947,13 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Open the connection settings</source>
         <translation>연결 설정 열기</translation>
+    </message>
+</context>
+<context>
+    <name>SyncNoticeLine</name>
+    <message>
+        <source>OK</source>
+        <translation>확인</translation>
     </message>
 </context>
 <context>
@@ -4028,10 +4044,6 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>&amp;Review…</source>
         <translation>보기(&amp;R)…</translation>
-    </message>
-    <message>
-        <source>OK</source>
-        <translation>확인</translation>
     </message>
 </context>
 <context>
@@ -4144,6 +4156,13 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
 </context>
 <context>
+    <name>SyncTrashLine</name>
+    <message>
+        <source>S&amp;how the trash</source>
+        <translation>휴지통 보기(&amp;H)</translation>
+    </message>
+</context>
+<context>
     <name>SyncWords</name>
     <message>
         <source>Sync stopped — check your server password</source>
@@ -4174,6 +4193,18 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>동기화 멈춤 — 업데이트하면 이어집니다</translation>
     </message>
     <message>
+        <source>The server didn&apos;t accept the password, so sync stopped. If you changed it on the server, enter the new one.</source>
+        <translation>서버가 비밀번호를 받아들이지 않아 동기화를 멈췄습니다. 서버에서 비밀번호를 바꾸었으면 새 비밀번호를 넣으세요.</translation>
+    </message>
+    <message>
+        <source>This account can no longer write to the Stickle folder on the server, so sync stopped. Your notes are still on this computer. Fix its permissions on the server, then choose Sync now under Settings, Connections.</source>
+        <translation>이 계정이 서버의 Stickle 폴더에 쓸 수 없게 되어 동기화를 멈췄습니다. 메모는 이 PC에 그대로 있습니다. 서버에서 권한을 고친 뒤 설정 &apos;연결&apos;의 [지금 동기화]를 누르세요.</translation>
+    </message>
+    <message>
+        <source>A newer Stickle on another computer changed the file format, so sync waits until you update. Your notes are still on this computer.</source>
+        <translation>다른 PC의 새 Stickle이 저장 형식을 바꿔서, 업데이트할 때까지 동기화를 멈춥니다. 메모는 이 PC에 그대로 있습니다.</translation>
+    </message>
+    <message>
         <source>Another computer changed many notes at once, so sync stopped.</source>
         <translation>다른 PC에서 메모를 한꺼번에 많이 바꿔 동기화를 멈췄습니다.</translation>
     </message>
@@ -4188,6 +4219,30 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>The server&apos;s certificate changed, so sync stopped.</source>
         <translation>서버의 인증서가 바뀌어 동기화를 멈췄습니다.</translation>
+    </message>
+    <message>
+        <source>Update it in your software center.</source>
+        <translation>소프트웨어 센터에서 업데이트하세요.</translation>
+    </message>
+    <message>
+        <source>%1 is full, so uploads stopped. Changes from your other computers still come in. Free up space and it carries on.</source>
+        <translation>%1 공간이 가득 차서 올리기를 멈췄습니다. 다른 PC에서 고친 메모는 계속 받습니다. 공간을 비우면 이어집니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Enter the password…</source>
+        <translation>비밀번호 넣기(&amp;E)…</translation>
+    </message>
+    <message>
+        <source>&amp;Open connection settings</source>
+        <translation>연결 설정 열기(&amp;O)</translation>
+    </message>
+    <message>
+        <source>Get the ne&amp;w version…</source>
+        <translation>새 버전 받기(&amp;W)…</translation>
+    </message>
+    <message>
+        <source>&amp;Review…</source>
+        <translation>보기(&amp;R)…</translation>
     </message>
     <message>
         <source>Uploads stopped — your %1 is full</source>

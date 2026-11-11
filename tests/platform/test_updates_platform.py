@@ -4,16 +4,18 @@ import sys
 import pytest
 
 from stickle.platform.tls import https_context
-from stickle.platform.updates import updated_by_its_store
+from stickle.platform.updates import SOFTWARE_CENTER, kept_by, updated_by_its_store
 
 
 def test_flatpak_keeps_stickle_up_to_date_itself() -> None:
     assert updated_by_its_store({"FLATPAK_ID": "co.linkro.stickle"})
+    assert kept_by({"FLATPAK_ID": "co.linkro.stickle"}) == SOFTWARE_CENTER
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the Store package is Windows only")
 def test_elsewhere_stickle_checks_itself() -> None:
     assert not updated_by_its_store({})
+    assert kept_by({}) is None
 
 
 def test_certificates_and_names_are_checked() -> None:

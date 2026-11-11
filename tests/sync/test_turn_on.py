@@ -51,7 +51,15 @@ from stickle.data.settings import Settings
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.data.versions import VersionRepository
 from stickle.sync.engine import GETTING, PUTTING, FirstLook, Report
-from stickle.sync.format import VAULT_FILE, VaultInfo, json_bytes, read_vault_file, vault_file
+from stickle.sync.format import (
+    NOTES,
+    VAULT_FILE,
+    VaultInfo,
+    item_path,
+    json_bytes,
+    read_vault_file,
+    vault_file,
+)
 from stickle.sync.outcome import Outcome, Stopped
 from stickle.sync.targets.webdav import WebDav, parse_address
 from stickle.sync.vault import Vault, join, make
@@ -213,6 +221,7 @@ def make_bench(
     looking: Looking | None = None,
     notes_here: int = 3,
     again: Login | None = None,
+    password: bool = False,
 ) -> Bench:
     syncing = FakeSyncing()
     logins: list[tuple[Login, bool]] = []
@@ -240,7 +249,7 @@ def make_bench(
         None if looking is None else looking.look,
         None if looking is None else cloud_only,
     )
-    window = TurnOnSync(setup, None, again)
+    window = TurnOnSync(setup, None, again, password)
     if again is None:  # else it may close by itself, and goes once closed
         qtbot.addWidget(window)
     window.show()
@@ -1309,6 +1318,84 @@ def test_a_password_the_server_no_longer_takes_is_asked_for_on_the_server_step(
         assert bench.logins[0][0].secret == PASSWORD
 
 
+# Going on again with a password typed anew: the one kept was turned down
+
+
+def turned_down(server: Server, vault: Vault, address: str | None = None) -> Login:
+    """As kept: the server's password changed there since."""
+    where = on_server(server) if address is None else address
+    return Login(vault.vault, WEBDAV, where, "stickle", "old", vault.keys.keys, server.certificate)
+
+
+def test_the_password_turned_down_is_typed_anew_and_not_sent_again(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    with webdav(share, PASSWORD) as server:
+        old = folder_made(server)
+        server.asked.clear()
+        bench = make_bench(qtbot, keys, again=turned_down(server, old), password=True)
+        window = bench.window
+        assert window.pages.current() is window.server_page
+        assert (window.address.text(), window.user.text()) == (on_server(server), "stickle")
+        assert window.password.text() == ""  # not the one turned down, sent again by Enter
+        assert window.focusWidget() is window.password
+        assert "didn't accept the user name or password" in bench.said()
+        assert not window.next_button.isEnabled()
+        assert window.back_button.isHidden()
+        qtbot.wait(300)
+        assert server.asked == []  # nothing asked of the server before a password is typed
+
+        window.password.setText("wrong too")
+        bench.press()
+        bench.idle()
+        assert "didn't accept" in bench.said()
+        assert window.focusWidget() is window.password
+        assert bench.logins == [] and window.isVisible()
+
+        window.password.setText(PASSWORD)
+        bench.press()
+        qtbot.waitUntil(lambda: bench.logins != [], timeout=MS)
+        ((login, joining),) = bench.logins
+        assert not joining
+        taken = Login(old.vault, WEBDAV, on_server(server), "stickle", PASSWORD, old.keys.keys)
+        assert login == taken
+        qtbot.waitUntil(lambda: closed(window), timeout=MS)
+
+
+def test_cancelled_typing_a_password_anew_asks_and_keeps_nothing(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    with webdav(share, PASSWORD) as server:
+        old = folder_made(server)
+        server.asked.clear()
+        bench = make_bench(qtbot, keys, again=turned_down(server, old), password=True)
+        bench.window.password.setText(PASSWORD)
+        bench.window.reject()
+        assert bench.logins == [] and server.asked == []
+
+
+def test_typing_a_password_anew_at_another_address_looks_at_its_certificate_anew(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    with webdav(share, PASSWORD, own=self_signed()) as server:
+        address = f"https://{HOST}:{server.port}/share"
+        vault = folder_made(server, address)
+        server.asked.clear()
+        bench = make_bench(qtbot, keys, again=turned_down(server, vault, address), password=True)
+        window = bench.window
+        window.address.setText(f"{address}/")  # the certificate was trusted for the other
+        window.password.setText(PASSWORD)
+        bench.press()
+        bench.page(window.certificate_page)
+        bench.idle()
+        assert server.asked == []  # no password before the certificate is trusted again
+        bench.press()
+        qtbot.waitUntil(lambda: bench.logins != [], timeout=MS)
+        ((login, _joining),) = bench.logins
+        assert login.vault == vault.vault and login.secret == PASSWORD
+        assert login.certificate == server.certificate
+
+
 # The whole way, with the app's own ways of keeping and starting
 
 
@@ -1683,6 +1770,47 @@ def test_two_computers_through_a_big_change_and_a_stickle_folder_deleted_and_mad
     second.end()
 
 
+def test_a_password_turned_down_stops_sync_until_one_typed_anew_is_taken(
+    qtbot: QtBot, tmp_path: Path, share: Path, keys: Keys
+) -> None:
+    pc = make_pc(tmp_path, "pc")
+    note = pc.notes.create("kept here meanwhile")
+    with webdav(share, PASSWORD) as server:
+        vault = folder_made(server)
+        syncing = pc.connect(turned_down(server, vault), True)
+        qtbot.waitUntil(lambda: syncing.status.stopped is Stopped.SIGN_IN, timeout=MS)
+        assert first_login(pc).stopped == Stopped.SIGN_IN.value
+        asked = len(server.asked)
+        syncing.woke()  # what would bring a round about by itself, while it goes on
+        syncing.runner.focused()
+        syncing.runner.edited()
+        qtbot.wait(1_000)
+        assert len(server.asked) == asked  # the password turned down is not sent again
+
+        again = Bench(
+            TurnOnSync(pc.setup(keys), None, syncing.kept_login(), True), qtbot, [], FakeSyncing()
+        )
+        again.window.show()
+        assert len(server.asked) == asked
+        again.window.password.setText("wrong too")
+        again.press()
+        again.idle()
+        assert "didn't accept" in again.said()
+        assert first_login(pc).secret == "old" and pc.syncing is syncing  # as it was
+
+        again.window.password.setText(PASSWORD)
+        again.press()
+        qtbot.waitUntil(lambda: closed(again.window), timeout=MS)
+        kept = first_login(pc)
+        assert (kept.secret, kept.stopped, kept.vault) == (PASSWORD, None, vault.vault)
+        assert pc.syncing is not syncing
+        assert pc.round(qtbot).outcome.stopped is None
+        target = target_of(server)
+        assert target.get(item_path(NOTES, note.id)).data  # it went up at last
+        target.close()
+    pc.end()
+
+
 REAL_MS = 60_000
 
 
@@ -1785,4 +1913,47 @@ def test_on_a_real_server_a_stickle_folder_deleted_is_made_again(
         assert join(other, RECOVERY_KEY, RECOVERY).vault == anew
         other.close()
         assert pc.notes.get(note.id) is not None
+        pc.end()
+
+
+@pytest.mark.skipif(not account_given(), reason="needs a real WebDAV server")
+def test_on_a_real_server_a_password_typed_anew_carries_on(
+    qtbot: QtBot, tmp_path: Path, keys: Keys
+) -> None:
+    """No wrong password goes to this server: it counts them, and may block the
+    account. A stop for one turned down is set as kept, as a round would."""
+    given = account()
+    assert given is not None
+    pc = make_pc(tmp_path, "pc")
+    pc.notes.create("made before the password was asked for")
+    with folder_of_its_own() as target:
+        address = target._address  # pyright: ignore[reportPrivateUsage]
+        window = TurnOnSync(pc.setup(keys))
+        window.show()
+        bench = Bench(window, qtbot, [], FakeSyncing())
+        bench.to_server_page()
+        bench.fill(address.text, given.password, given.user)
+        bench.press()
+        qtbot.waitUntil(lambda: window.pages.current() is window.absent_page, timeout=REAL_MS)
+        qtbot.waitUntil(lambda: window.next_button.isEnabled(), timeout=REAL_MS)
+        window.next_button.click()
+        qtbot.waitUntil(lambda: "On your other" in window.last_line.text(), timeout=REAL_MS)
+        window.reject()
+        vault = first_login(pc).vault
+
+        sync_connection.set_stopped(pc.db, Stopped.SIGN_IN.value)
+        kept = pc.syncing.kept_login()
+        assert kept.stopped == Stopped.SIGN_IN.value
+        again = TurnOnSync(pc.setup(keys), None, kept, True)
+        again.show()
+        assert again.password.text() == ""
+        again.password.setText(given.password)
+        again.next_button.click()
+        qtbot.waitUntil(lambda: closed(again), timeout=REAL_MS)
+        kept = first_login(pc)
+        assert (kept.stopped, kept.vault) == (None, vault)
+        with qtbot.waitSignal(pc.syncing.round_shown, timeout=REAL_MS) as told:
+            pc.syncing.sync_now()
+        ended = first_said(told)
+        assert isinstance(ended, Ended) and ended.outcome.stopped is None
         pc.end()

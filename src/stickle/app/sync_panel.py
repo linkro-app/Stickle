@@ -32,6 +32,7 @@ from stickle.app.times import day_text
 from stickle.core.updates import FEED_HOST
 from stickle.data.settings import DEVICE_NAME_LONGEST, SYNC_EVERY_CHOICES
 from stickle.sync.devices import Other
+from stickle.sync.outcome import Stopped
 
 if TYPE_CHECKING:
     from stickle.app.syncing import Ended, Syncing
@@ -218,7 +219,9 @@ class SyncPanel(QWidget):
     # Told, rather than holding on to whoever shows it: a window kept alive by
     # something it owns would be deleted in the middle of deleting that.
     disconnected = Signal()
-    review = Signal()  # stopped for what a window asks about: that window, please
+    # Stopped for what a window asks about, the password or an update: where that
+    # is dealt with, please.
+    review = Signal()
 
     def __init__(
         self, syncing: Syncing, disconnect: Callable[[], None], parent: QWidget | None = None
@@ -324,7 +327,7 @@ class SyncPanel(QWidget):
         self.account.setText(
             f"{self.syncing.cloud_name} · {server_of(login.address)} · {login.user}"
         )
-        self.review_button.setText(self.tr("&Review…"))
+        self.review_button.setText(self.tr("&Review…"))  # named while hidden too
         self.sync_now_button.setText(self.tr("&Sync now"))
         self.every_label.setText(self.tr("&Get changes from other computers:"))
         labels = (
@@ -348,10 +351,15 @@ class SyncPanel(QWidget):
         self._show_computers()
 
     def _show_status(self) -> None:
-        text = self.syncing.status.text()
+        status = self.syncing.status
+        text = status.text()
         self.status.setText(text)
         self.status.setAccessibleName(text)
-        self.review_button.setVisible(self.syncing.status.asks is not None)
+        # Not to this page: Sync now is beside it, for once the permissions are fixed.
+        way_on = "" if status.stopped is Stopped.NO_ACCESS else status.way_on()
+        if way_on:
+            self.review_button.setText(way_on)
+        self.review_button.setVisible(bool(way_on))
         self.review_button.setAccessibleDescription(text)
 
     def _line(self, other: Other) -> str:

@@ -285,11 +285,22 @@ def _why_or_none(value: object) -> TypeGuard[str | None]:
     return value is None or (isinstance(value, str) and 0 < len(value) <= 32)
 
 
-# Sync stopped for something a window asks about: why, once a notification of the
-# system told of it, and once the user said OK to the line in Stickle Manager.
-# Both go once sync goes on again, to tell of the next stop.
+# Sync stopped, or its uploads did with the cloud full: why, once a notification
+# of the system told of it, and once the user said OK to the line in Stickle
+# Manager. Both go once sync goes on again, to tell of the next stop.
 SYNC_STOP_TOLD = Setting[str | None]("sync_stop_told", "device", None, _why_or_none)
 SYNC_STOP_SEEN = Setting[str | None]("sync_stop_seen", "device", None, _why_or_none)
+CLOUD_FULL = "full"  # what they keep of uploads stopped (beside Stopped's values)
+
+
+def _count(value: object) -> TypeGuard[int]:
+    return type(value) is int and value >= 0
+
+
+# Notes sync put in the trash here, deleted on other devices while this one was
+# away for more than a year: how many, said at the top of Stickle Manager until
+# the user says OK (0: none to say).
+SYNC_TRASHED = Setting[int]("sync_trashed", "device", 0, _count)
 
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
@@ -320,6 +331,7 @@ SETTINGS: dict[str, Setting[object]] = {
         CLOUD_FOLDER_SEEN,
         SYNC_STOP_TOLD,
         SYNC_STOP_SEEN,
+        SYNC_TRASHED,
     )
 }
 

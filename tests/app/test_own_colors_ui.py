@@ -301,3 +301,49 @@ def test_adding_stops_at_twelve(
         manager.add_own_color(f"#2000{n:02x}")
 
     assert not settings.add_own_button.isEnabled()
+
+
+def test_more_than_twelve_brought_together_all_show_and_go_round(
+    qtbot: QtBot,
+    manager: NoteManager,
+    connection: apsw.Connection,
+    settings: SettingsWindow,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for n in range(MAX_OWN_COLORS):
+        manager.add_own_color(f"#3000{n:02x}")
+    # Two more added on another computer meanwhile, brought in by sync.
+    for n, value in enumerate(("#3100aa", "#3100bb")):
+        connection.execute(
+            "INSERT INTO custom_colors (id, hex, position, updated_at)"
+            " VALUES (?, ?, ?, '2026-11-11T00:00:00.000Z')",
+            (f"elsewhere {n}", value, 50 + n),
+        )
+    manager.own_colors_changed.emit()
+    fourteen = MAX_OWN_COLORS + 2
+    assert settings.own_list.count() == fourteen
+    assert settings.own_list.item(fourteen - 1).text() == "My colour 14  #3100bb"
+    assert not settings.add_own_button.isEnabled()
+    window = a_note(manager)
+    window.color_menu.aboutToShow.emit()
+    assert len(window.own_color_actions) == fourteen
+    window.own_color_actions["#3100bb"].trigger()
+    assert window.color == "#3100bb"
+    said: list[str] = []
+    monkeypatch.setattr(window, "announce", said.append)
+    manager.set_color(window, list(PALETTE)[-1])
+    for _ in range(fourteen):
+        window.next_color_action.trigger()
+    assert window.color == "#3100bb" and said[-1] == "My colour 14"
+    window.next_color_action.trigger()
+    assert window.color == "yellow"  # round to the start, every one of them gone through
+    assert len(set(said)) == fourteen + 1
+
+    for _ in range(3):  # down to eleven: there is room for one again
+        settings.own_list.setCurrentRow(0)
+        settings.remove_own_button.click()
+    assert settings.add_own_button.isEnabled()
+    choose_in_dialog(monkeypatch, SKY)
+    settings.add_own_button.click()
+    assert manager.own_colors()[-1] == SKY
+    assert not settings.add_own_button.isEnabled()
