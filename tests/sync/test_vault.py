@@ -59,6 +59,7 @@ from stickle.sync.vault import (
     is_there,
     join,
     make,
+    there,
     unfinished,
 )
 
@@ -168,6 +169,16 @@ def test_where_there_is_nothing_no_vault_is_there() -> None:
     target = FakeCloud(DROPBOX).target("a")
     assert not is_there(target)
     assert unfinished(target) is None
+
+
+def test_the_vault_there_is_told_by_its_id_but_not_one_left_unfinished() -> None:
+    cloud = FakeCloud(DROPBOX)
+    target = cloud.target("a")
+    assert there(target) is None
+    cloud.put_by_hand(VAULT_FILE, vault_file(VaultInfo(VAULT)))
+    assert there(target) is None  # unfinished: made over, not joined
+    made = make(target, PAIRS, unfinished(target))
+    assert there(cloud.target("b")) == made.vault
 
 
 def test_a_making_cut_short_changed_since_is_not_written_over() -> None:

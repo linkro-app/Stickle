@@ -172,3 +172,24 @@ def test_the_menu_stays_while_stickle_or_the_same_window_is_in_front(qtbot: QtBo
     qtbot.wait(MenuWatch.INTERVAL_MS * 2)
     assert menu.isVisible()
     menu.hide()
+
+
+def test_a_click_on_a_notification_opens_what_that_one_told_of(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tray = Tray(lambda: None, lambda: None, Translations())
+    shown: list[str] = []
+
+    def show_message(_title: str, text: str, *_icon: object) -> None:
+        shown.append(text)
+
+    monkeypatch.setattr(tray, "showMessage", show_message)
+    opened: list[str] = []
+    tray.messageClicked.emit()  # nothing to open yet
+    tray.default_click = lambda: opened.append("Stickle Manager")
+    tray.tell("Sync stopped", lambda: opened.append("the window that asks"))
+    tray.messageClicked.emit()
+    tray.tell("A reminder", None, tray.icon(), "Reminder")
+    tray.messageClicked.emit()  # not the window of the one before
+    assert shown == ["Sync stopped", "A reminder"]
+    assert opened == ["the window that asks", "Stickle Manager"]

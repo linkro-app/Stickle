@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import QElapsedTimer, QObject, QTimer, QUrl
-from PySide6.QtGui import QActionGroup, QGuiApplication
+from PySide6.QtGui import QActionGroup, QGuiApplication, QIcon
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from stickle.app import note_window
@@ -107,6 +107,11 @@ class Tray(QSystemTrayIcon):
         self.setToolTip("Stickle")
         self._notes = notes
         self._updates = updates
+        # What a click on a notification opens, unless the last one shown said
+        # otherwise (see tell).
+        self.default_click: Callable[[], object] | None = None
+        self._message_opens: Callable[[], object] | None = None
+        self.messageClicked.connect(self._message_clicked)
 
         # QSystemTrayIcon does not own its menu, so keep a reference.
         self._menu = QMenu()
@@ -254,6 +259,26 @@ class Tray(QSystemTrayIcon):
 
     def _update_news(self, _news: object) -> None:
         self.refresh_new_version()
+
+    def tell(
+        self,
+        text: str,
+        clicked: Callable[[], object] | None = None,
+        icon: QIcon | None = None,
+        title: str = "Stickle",
+    ) -> None:
+        """One notification of the system. clicked: what a click on it opens
+        (None: default_click); icon: Stickle's own, rather than the system's."""
+        self._message_opens = clicked
+        if icon is None:
+            self.showMessage(title, text)
+        else:
+            self.showMessage(title, text, icon)
+
+    def _message_clicked(self) -> None:
+        opens = self._message_opens or self.default_click
+        if opens is not None:
+            opens()
 
     def set_sync(self, shown: SyncShown | None) -> None:
         """How sync stands, if this computer syncs."""

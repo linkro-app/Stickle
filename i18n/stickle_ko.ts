@@ -3955,6 +3955,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>· %1 — 하루에 한 번 새 버전 확인(일반 칸에서 끌 수 있음)</translation>
     </message>
     <message>
+        <source>&amp;Review…</source>
+        <translation>보기(&amp;R)…</translation>
+    </message>
+    <message>
         <source>&amp;Sync now</source>
         <translation>지금 동기화(&amp;S)</translation>
     </message>
@@ -4020,6 +4024,126 @@ Your notes as they are now are backed up first, so you can come back to them the
     </message>
 </context>
 <context>
+    <name>SyncStopLine</name>
+    <message>
+        <source>&amp;Review…</source>
+        <translation>보기(&amp;R)…</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>확인</translation>
+    </message>
+</context>
+<context>
+    <name>SyncStopped</name>
+    <message>
+        <source>Sync stopped</source>
+        <translation>동기화 멈춤</translation>
+    </message>
+    <message>
+        <source>&amp;Disconnect</source>
+        <translation>연결 끊기(&amp;D)</translation>
+    </message>
+    <message>
+        <source>Another computer removed or changed many notes at once, so sync stopped before bringing that in. The notes on this computer are untouched, and you can keep using them.</source>
+        <translation>다른 PC에서 메모를 한꺼번에 많이 지우거나 옮겨서, 받기 전에 동기화를 멈췄습니다. 이 PC의 메모는 그대로 있고 계속 쓸 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>A backup is made first. Afterwards you can still get notes back from the trash or the backup.</source>
+        <translation>받기 전에 백업을 만듭니다. 받은 뒤에도 휴지통과 백업에서 되돌릴 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>Until then, changes on this computer won&apos;t upload either.</source>
+        <translation>받지 않는 동안에는 이 PC에서 고친 메모도 올라가지 않습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Back up and bring in</source>
+        <translation>백업하고 받기(&amp;B)</translation>
+    </message>
+    <message>
+        <source>&amp;Not now</source>
+        <translation>지금은 받지 않기(&amp;N)</translation>
+    </message>
+    <message>
+        <source>The Stickle folder is gone from %1. The notes on this computer are untouched.</source>
+        <translation>%1에서 Stickle 폴더가 없어졌습니다. 이 PC의 메모는 그대로 있습니다.</translation>
+    </message>
+    <message>
+        <source>If you deleted it on purpose, disconnect. If you make it again, your other computers need the recovery key or spare password once to keep syncing.</source>
+        <translation>일부러 지웠으면 연결을 끊으세요. 다시 만들면 다른 PC에서는 복구 키나 예비 암호를 한 번 넣어야 이어서 동기화됩니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Make it again from this computer&apos;s notes…</source>
+        <translation>이 PC의 메모로 다시 만들기(&amp;M)…</translation>
+    </message>
+    <message>
+        <source>The Stickle folder in %1 was made anew, perhaps by another of your computers.</source>
+        <translation>%1의 Stickle 폴더가 새로 만들어졌습니다. 다른 PC에서 다시 만들었을 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>To keep syncing, enter the recovery key or spare password once.</source>
+        <translation>이어서 동기화하려면 복구 키나 예비 암호를 한 번 넣으세요.</translation>
+    </message>
+    <message>
+        <source>&amp;Sync with the new folder…</source>
+        <translation>새 폴더와 동기화(&amp;S)…</translation>
+    </message>
+    <message>
+        <source>The server&apos;s certificate has changed. If you changed it on the server yourself, there&apos;s nothing to worry about.</source>
+        <translation>서버의 인증서가 바뀌었습니다. 서버에서 직접 바꿨다면 걱정하지 않아도 됩니다.</translation>
+    </message>
+    <message>
+        <source>If you don&apos;t know why, check that the new fingerprint matches the one on the server&apos;s admin page. If it doesn&apos;t, someone may be intercepting the connection.</source>
+        <translation>모르는 일이면 새 지문이 서버 관리 화면의 지문과 같은지 꼭 확인하세요. 다르면 누군가 연결을 가로채고 있을 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;View the new certificate…</source>
+        <translation>새 인증서 보기(&amp;V)…</translation>
+    </message>
+    <message>
+        <source>Secret note</source>
+        <translation>비밀 메모</translation>
+    </message>
+    <message>
+        <source>Empty note</source>
+        <translation>빈 메모</translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln note(s) would go to the trash</source>
+        <translation>
+            <numerusform>휴지통으로 갈 메모 %Ln개</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln note(s) would be deleted for good</source>
+        <translation>
+            <numerusform>영구히 지워질 메모 %Ln개</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln new conflict copies</source>
+        <translation>
+            <numerusform>새로 생길 충돌 사본 %Ln개</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Backing up, then bringing it in…</source>
+        <translation>백업을 만들고 받는 중입니다…</translation>
+    </message>
+    <message>
+        <source>Disconnecting…</source>
+        <translation>연결을 끊는 중입니다…</translation>
+    </message>
+    <message>
+        <source>Couldn&apos;t make the backup, so nothing was brought in. Check that the disk has room, then try again.</source>
+        <translation>백업을 만들지 못해 받지 않았습니다. 디스크 공간을 확인하고 다시 해 보세요.</translation>
+    </message>
+    <message>
+        <source>More changed on the other computer meanwhile, so sync stopped again.</source>
+        <translation>그 사이 다른 PC에서 더 바뀌어 다시 멈췄습니다.</translation>
+    </message>
+</context>
+<context>
     <name>SyncWords</name>
     <message>
         <source>Sync stopped — check your server password</source>
@@ -4048,6 +4172,22 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Sync stopped — update Stickle to carry on</source>
         <translation>동기화 멈춤 — 업데이트하면 이어집니다</translation>
+    </message>
+    <message>
+        <source>Another computer changed many notes at once, so sync stopped.</source>
+        <translation>다른 PC에서 메모를 한꺼번에 많이 바꿔 동기화를 멈췄습니다.</translation>
+    </message>
+    <message>
+        <source>The Stickle folder is gone from %1, so sync stopped.</source>
+        <translation>%1에서 Stickle 폴더가 없어져 동기화를 멈췄습니다.</translation>
+    </message>
+    <message>
+        <source>The Stickle folder in %1 was made anew, so sync stopped.</source>
+        <translation>%1의 Stickle 폴더가 새로 만들어져 동기화를 멈췄습니다.</translation>
+    </message>
+    <message>
+        <source>The server&apos;s certificate changed, so sync stopped.</source>
+        <translation>서버의 인증서가 바뀌어 동기화를 멈췄습니다.</translation>
     </message>
     <message>
         <source>Uploads stopped — your %1 is full</source>
@@ -4496,6 +4636,12 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>이 예비 암호로는 이 Stickle 폴더를 열 수 없습니다.</translation>
     </message>
     <message numerus="yes">
+        <source>Stickle will make a new Stickle folder in %1 and upload the %Ln note(s) on this computer. Your other computers carry on syncing once they enter this computer&apos;s recovery key or spare password.</source>
+        <translation>
+            <numerusform>%1에 새 Stickle 폴더를 만들고 이 PC의 메모 %Ln개를 올립니다. 다른 PC는 이 PC의 복구 키나 예비 암호를 한 번 넣으면 이어서 동기화합니다.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <source>Stickle will make its folder in %1 and upload the %Ln note(s) on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</source>
         <translation>
             <numerusform>%1에 Stickle 폴더를 만들고 이 PC의 메모 %Ln개를 올립니다. 다른 PC에서는 이 PC의 복구 키나 예비 암호로 동기화를 켭니다.</numerusform>
@@ -4608,6 +4754,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Done. This computer&apos;s notes now sync too.</source>
         <translation>끝났습니다. 이제 이 PC의 메모도 함께 동기화됩니다.</translation>
+    </message>
+    <message>
+        <source>Done. On your other computers, enter this computer&apos;s recovery key or spare password once.</source>
+        <translation>끝났습니다. 다른 PC에서 이 PC의 복구 키나 예비 암호를 한 번 넣으세요.</translation>
     </message>
     <message>
         <source>Done. On your other computers, choose Turn on sync… under Settings, Connections, and enter this computer&apos;s recovery key or spare password.</source>

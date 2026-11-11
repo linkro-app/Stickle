@@ -335,6 +335,30 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>SyncStopped</name>
+    <message numerus="yes">
+        <source>%Ln note(s) would go to the trash</source>
+        <translation>
+            <numerusform>%Ln note would go to the trash</numerusform>
+            <numerusform>%Ln notes would go to the trash</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln note(s) would be deleted for good</source>
+        <translation>
+            <numerusform>%Ln note would be deleted for good</numerusform>
+            <numerusform>%Ln notes would be deleted for good</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln new conflict copies</source>
+        <translation>
+            <numerusform>%Ln new conflict copy</numerusform>
+            <numerusform>%Ln new conflict copies</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>SyncWords</name>
     <message numerus="yes">
         <source>Offline · %n note(s) to upload</source>
@@ -370,6 +394,13 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
 </context>
 <context>
     <name>TurnOnSync</name>
+    <message numerus="yes">
+        <source>Stickle will make a new Stickle folder in %1 and upload the %Ln note(s) on this computer. Your other computers carry on syncing once they enter this computer&apos;s recovery key or spare password.</source>
+        <translation>
+            <numerusform>Stickle will make a new Stickle folder in %1 and upload the %Ln note on this computer. Your other computers carry on syncing once they enter this computer&apos;s recovery key or spare password.</numerusform>
+            <numerusform>Stickle will make a new Stickle folder in %1 and upload the %Ln notes on this computer. Your other computers carry on syncing once they enter this computer&apos;s recovery key or spare password.</numerusform>
+        </translation>
+    </message>
     <message numerus="yes">
         <source>Stickle will make its folder in %1 and upload the %Ln note(s) on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</source>
         <translation>

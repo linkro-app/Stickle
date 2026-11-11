@@ -109,11 +109,16 @@ def is_there(target: Target) -> bool:
     """Whether a vault is there to join: not one left unfinished, which is made
     over. NewerFormatError (stickle.sync.format) for one of a newer format;
     UnreadableError for one that does not read (half written: later)."""
+    return there(target) is not None
+
+
+def there(target: Target) -> str | None:
+    """The id of the vault there to join, if there is one (as is_there)."""
     try:
-        read_vault_file(target.get(VAULT_FILE).data)
+        info = read_vault_file(target.get(VAULT_FILE).data)
     except NotThereError:
-        return False
-    return unfinished(target) is None
+        return None
+    return info.vault if unfinished(target) is None else None
 
 
 def make(target: Target, pairs: Mapping[str, SealedSlot], over: AsRead | None = None) -> Vault:

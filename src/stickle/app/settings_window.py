@@ -12,7 +12,7 @@ from collections.abc import Callable
 from datetime import time
 from typing import TYPE_CHECKING, override
 
-from PySide6.QtCore import QEvent, QLocale, QObject, QSize, Qt, QTime
+from PySide6.QtCore import QEvent, QLocale, QObject, QSize, Qt, QTime, Signal
 from PySide6.QtGui import QFont, QGuiApplication, QKeyEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -108,6 +108,9 @@ def _hint(parent: QWidget) -> QLabel:
 
 
 class SettingsWindow(QDialog):
+    # Sync stopped for what a window asks about, and the user wants that window.
+    sync_review_asked = Signal()
+
     def __init__(
         self,
         notes: NoteManager,
@@ -417,6 +420,7 @@ class SettingsWindow(QDialog):
 
             self.sync_panel = SyncPanel(syncing, setup.disconnect, self.connections_page)
             self.sync_panel.disconnected.connect(self.refresh)
+            self.sync_panel.review.connect(self.sync_review_asked)
             self._connections_layout.insertWidget(1, self.sync_panel)
             self._set_tab_order()
 
@@ -553,6 +557,10 @@ class SettingsWindow(QDialog):
         self.relock_box.blockSignals(False)
         self.leave_box.setChecked(self._notes.lock_on_leave)
         self.protection_dates.setText(self.dates())
+        self.refresh_sync()
+
+    def refresh_sync(self) -> None:
+        """The Connections page as sync stands: on, off, or with another connection."""
         self.turn_on_sync_button.setText(self.tr("&Turn on sync…"))
         self._show_sync()
         setup = self._sync_setup

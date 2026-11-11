@@ -308,6 +308,7 @@ def test_it_is_reached_by_the_keyboard_and_opens_the_settings(
 
 class FakeSync(QObject):
     unsent_changed = Signal(object)
+    round_shown = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()

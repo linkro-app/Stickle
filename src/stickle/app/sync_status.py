@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 WEBDAV_NAME = "WebDAV"  # the same in every language
 MANY = 20  # notes on the move beyond which the line says how far it has got
 MOVING_EVERY_MS = 500  # how far it has got is said at most this often
+# Stopped for these, a window asks what to do (stickle.app.sync_stopped).
+ASKING = frozenset(
+    {Stopped.BIG_CHANGE, Stopped.VAULT_GONE, Stopped.VAULT_CHANGED, Stopped.CERTIFICATE}
+)
 
 
 class SyncWords(QObject):
@@ -41,6 +45,19 @@ class SyncWords(QObject):
                 return self.tr("Sync stopped — the server's certificate changed")
             case Stopped.NEWER:
                 return self.tr("Sync stopped — update Stickle to carry on")
+
+    def told(self, why: Stopped, cloud: str) -> str:
+        """Stopped for what a window asks about: the sentence telling of it once."""
+        match why:
+            case Stopped.BIG_CHANGE:
+                said = self.tr("Another computer changed many notes at once, so sync stopped.")
+            case Stopped.VAULT_GONE:
+                said = self.tr("The Stickle folder is gone from %1, so sync stopped.")
+            case Stopped.VAULT_CHANGED:
+                said = self.tr("The Stickle folder in %1 was made anew, so sync stopped.")
+            case _:
+                said = self.tr("The server's certificate changed, so sync stopped.")
+        return said.replace("%1", cloud)
 
     def full(self, cloud: str) -> str:
         return self.tr("Uploads stopped — your %1 is full").replace("%1", cloud)
@@ -116,6 +133,22 @@ class SyncStatus(QObject):
     @property
     def update_carries_on(self) -> bool:
         return self._stopped is Stopped.NEWER
+
+    @property
+    def stopped(self) -> Stopped | None:
+        """Why sync stopped until the user does something, if it did."""
+        return self._stopped
+
+    @property
+    def asks(self) -> str | None:
+        """Why sync stopped, if a window of its own asks what to do (Stopped's value)."""
+        return self._stopped.value if self._stopped in ASKING else None
+
+    def notice(self) -> str:
+        """What tells once that sync stopped for what a window asks about; empty if not."""
+        if self._stopped is None or self._stopped not in ASKING:
+            return ""
+        return self._words.told(self._stopped, self._cloud)
 
     def round_ended(self, ended: Ended) -> None:
         outcome = ended.outcome

@@ -326,7 +326,7 @@ def connect_stickle_window(
         tray.export_action.triggered.connect(window.export_all)
         tray.restore_backup_action.triggered.connect(window.restore_backup)
         tray.settings_action.triggered.connect(lambda: window.open_settings())
-        tray.sync_action.triggered.connect(window.open_connections)
+        tray.sync_action.triggered.connect(lambda: window.open_standing())
         return
 
     manager.last_note_closed.connect(lambda: window.open(notice=True))
@@ -411,8 +411,6 @@ def connect_sync(
     only_the_cloud: joining, this device's notes go first, what is typed saved
     and a backup made before (if that fails, nothing is kept or let go of),
     and taken away together with keeping the login."""
-    from stickle.app.syncing import Syncing as SyncRun
-    from stickle.app.syncing import cloud_time
     from stickle.sync.engine import cloud_only, joined
 
     gone: list[str] = []
@@ -436,14 +434,55 @@ def connect_sync(
         manager.take_in(gone)
         if reminders is not None:
             reminders.take_in(gone)
+    return start_sync(connection, store, key, login, clocks, manager, reminders, display)
+
+
+def start_sync(
+    connection: apsw.Connection,
+    store: Path,
+    key: bytes,
+    login: sync_connection.Login,
+    clocks: Clocks,
+    manager: NoteManager,
+    reminders: ReminderKeeper | None,
+    display: SyncDisplay | None = None,
+    now: bool = True,
+) -> Syncing:
+    """Rounds for login, as kept, from now on; now: a first one at once."""
+    from stickle.app.syncing import Syncing as SyncRun
+    from stickle.app.syncing import cloud_time
+
     started = SyncRun(
         connection, store, key, login, cloud_time(connection, clocks), manager, reminders
     )
     started.start()
-    started.sync_now()
+    if now:
+        started.sync_now()
     if display is not None:
         display.follow(started)
     return started
+
+
+def replace_sync(
+    current: Syncing | None,
+    connect: Callable[[], Syncing],
+    resume: Callable[[sync_connection.Login], Syncing],
+    kept: Callable[[], sync_connection.Login | None],
+) -> Syncing:
+    """Another connection in place of current (another vault, a certificate
+    trusted anew): current ends first, so that nothing of it is written once the
+    other is kept. If connecting fails, current's connection, still kept, goes
+    on as it was."""
+    if current is None:
+        return connect()
+    current.end()
+    try:
+        return connect()
+    except Exception:
+        login = kept()
+        if login is not None:
+            resume(login)
+        raise
 
 
 def disconnect_sync(
@@ -625,7 +664,22 @@ def notifier(tray: Tray, tray_available: bool) -> Callable[[str, str], object] |
         return notify
     if tray_available:
         # With Stickle's own icon, not the system's "information" one.
-        return lambda title, text: tray.showMessage(title, text, tray.icon())
+        return lambda title, text: tray.tell(text, None, tray.icon(), title)
+    return None
+
+
+def stop_notifier(
+    tray: Tray, tray_available: bool
+) -> Callable[[str, Callable[[], object]], object] | None:
+    """How a stop of sync is told to the system once: through the tray icon, a
+    click on it opening the window that asks; on Linux without a tray, through
+    the desktop, which tells of no click."""
+    if tray_available:
+        return lambda text, clicked: tray.tell(text, clicked)
+    if sys.platform == "linux":
+        from stickle.platform.linux.notifications import notify
+
+        return lambda text, _clicked: notify("Stickle", text)
     return None
 
 
@@ -637,7 +691,7 @@ def tell_changes(changes: ProtectionChanges, window: StickleWindow, tray: Tray |
     window.refresh_changes()
     told = window.changes_told()
     if told and tray is not None and not window.isVisible():
-        tray.showMessage("Stickle", told)
+        tray.tell(told)
 
 
 def tell_cloud_folder(
@@ -654,7 +708,7 @@ def tell_cloud_folder(
     except apsw.Error as error:
         log.warning("could not keep the cloud folder told: %s", type(error).__name__)
     if tray is not None and not window.isVisible():
-        tray.showMessage("Stickle", window.cloud_folder_line.text())
+        tray.tell(window.cloud_folder_line.text())
 
 
 def read_appimage_files() -> None:
@@ -1001,18 +1055,37 @@ def run(
                 login: sync_connection.Login, joining: bool, only_the_cloud: bool = False
             ) -> Syncing:
                 nonlocal syncing
-                syncing = connect_sync(
-                    notes_db,
-                    database,
-                    opened_with,
-                    login,
-                    joining,
-                    clocks,
-                    manager,
-                    reminders,
-                    sync_display,
-                    only_the_cloud,
-                )
+
+                def connect() -> Syncing:
+                    return connect_sync(
+                        notes_db,
+                        database,
+                        opened_with,
+                        login,
+                        joining,
+                        clocks,
+                        manager,
+                        reminders,
+                        sync_display,
+                        only_the_cloud,
+                    )
+
+                def resume(kept: sync_connection.Login) -> Syncing:
+                    nonlocal syncing
+                    syncing = start_sync(
+                        notes_db,
+                        database,
+                        opened_with,
+                        kept,
+                        clocks,
+                        manager,
+                        reminders,
+                        sync_display,
+                        now=False,
+                    )
+                    return syncing
+
+                syncing = replace_sync(syncing, connect, resume, lambda: login_here(notes_db))
                 return syncing
 
             def disconnected() -> None:
@@ -1074,7 +1147,15 @@ def run(
                 connection, unlock.database, unlock.opened_key, login, cloud, manager, reminders
             )
         # Keeps the tray, Stickle Manager and the notes up with sync, on or off.
-        sync_display = SyncDisplay(tray, stickle_window, manager, translations)
+        sync_display = SyncDisplay(
+            tray,
+            stickle_window,
+            manager,
+            translations,
+            settings=Settings(connection) if connection else None,
+            setup=sync_setup,
+            notify=stop_notifier(tray, tray_available),
+        )
         sync_display.follow(syncing)
         # Kept here, as the Stickle window is: a window of its own, with no parent.
         missed_window = (
@@ -1130,15 +1211,14 @@ def run(
             shown_tray = tray if tray_available else None
             told, window_for_changes = changes, stickle_window
             if told is not None:
-                tray.messageClicked.connect(lambda: stickle_window.open())
+                tray.default_click = lambda: stickle_window.open()
                 tell_changes(told, stickle_window, shown_tray)
 
             if instance is not None and connection is not None:
                 held = folder_holding(instance, cloud_folders())
                 found = in_cloud_folder(instance, portable, held)
                 if found is not None:
-                    if told is None:
-                        tray.messageClicked.connect(lambda: stickle_window.open())
+                    tray.default_click = lambda: stickle_window.open()
                     tell_cloud_folder(found, stickle_window, shown_tray, Settings(connection))
 
             def unlocked() -> None:

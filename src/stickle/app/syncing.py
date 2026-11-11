@@ -26,8 +26,9 @@ from stickle.core.being_edited import Editing
 from stickle.core.clock import Clocks, millis_at
 from stickle.core.cloud_time import CloudTime
 from stickle.core.labels import Mark
+from stickle.core.markdown import note_title
 from stickle.crypto.vault_keys import DataKeys
-from stickle.data import sync_connection, sync_state
+from stickle.data import sync_connection, sync_held, sync_state
 from stickle.data.backups import take
 from stickle.data.database import open_database
 from stickle.data.notes import NoteRepository
@@ -103,6 +104,11 @@ def _shown_name(mark_id: str, name: str | None) -> str:
     return mark_name(Mark(mark_id, name, "", 0))
 
 
+class BackupFailedError(Exception):
+    """The backup before taking in a big change could not be made: nothing of
+    it was taken in, and sync stays stopped for it."""
+
+
 @dataclass(frozen=True)
 class Ended:
     """A round over: what it brought (as far as it got), and what comes of it."""
@@ -110,6 +116,7 @@ class Ended:
     report: Report
     outcome: Outcome
     certificate: bytes | None = None  # what a server showed, if that stopped it
+    backup_failed: bool = False  # the big change let in, but no backup could be made first
 
     @property
     def wait(self) -> float | None:
@@ -118,6 +125,17 @@ class Ended:
     @property
     def stopped(self) -> bool:
         return self.outcome.stopped is not None
+
+
+@dataclass(frozen=True)
+class BigChange:
+    """What a round stopped for, note by note: the first line of each note here
+    (None: a secret note's), of those that would go to the trash, be deleted for
+    good, or have a conflict copy made of them."""
+
+    trash: list[str | None]
+    gone: list[str | None]
+    copies: list[str | None]
 
 
 @dataclass
@@ -215,7 +233,10 @@ class _Rounds:
         return NoteRepository(db, clocks.stamp, clocks.millis)
 
     def _back_up(self) -> None:
-        take(self.database(), self.store)
+        try:
+            take(self.database(), self.store)
+        except (OSError, apsw.Error) as error:  # a full disk, say
+            raise BackupFailedError() from error
 
     def accept_next(self) -> None:
         """The next round takes in what it stopped for, after a backup."""
@@ -259,7 +280,8 @@ class _Rounds:
         self.held = frozenset(report.held) | (self.held if error is not None else frozenset())
         outcome = self._outcome(error, report)
         self.failures = outcome.failures
-        if error is None:
+        backup_failed = isinstance(error, BackupFailedError)
+        if error is None or backup_failed:  # not tried again by itself without a backup
             self.accept = False
         if db is not None:
             self._keep(db, outcome, report)
@@ -267,9 +289,13 @@ class _Rounds:
             report,
             outcome,
             error.certificate if isinstance(error, CertificateError) else None,
+            backup_failed,
         )
 
     def _outcome(self, error: Exception | None, report: Report) -> Outcome:
+        if isinstance(error, BackupFailedError):
+            log.warning("sync: no backup, so the big change was not taken in")
+            return Outcome(Stopped.BIG_CHANGE)
         try:
             outcome = after(error, self.failures, report.full)
         except Exception as unknown:
@@ -451,6 +477,14 @@ class Syncing(QObject):
     def login(self) -> Login:
         return self._rounds.login
 
+    def kept_login(self) -> Login:
+        """The connection as kept now: a certificate no longer needed is not in it."""
+        try:
+            return sync_connection.current(self._connection) or self.login
+        except (apsw.Error, ValueError, KeyError, TypeError) as error:
+            log.warning("sync: the connection kept does not read: %s", type(error).__name__)
+            return self.login
+
     def to_put(self) -> int:
         """Notes changed here and not in the cloud yet."""
         return len(sync_state.changed(self._connection, self.login.vault))
@@ -491,6 +525,32 @@ class Syncing(QObject):
         """The big change a round stopped for is taken in, after a backup."""
         self.runner.do(self._rounds.accept_next)
         self.runner.asked()
+
+    def big_change(self) -> BigChange:
+        """What the last round stopped for, as kept (nothing if it did not)."""
+        lists: dict[str, list[str | None]] = {
+            sync_held.TRASH: [],
+            sync_held.GONE: [],
+            sync_held.COPY: [],
+        }
+        notes = NoteRepository(self._connection)
+        for each in sync_held.every(self._connection, self.login.vault):
+            if each.kind not in lists:  # of a later version
+                continue
+            here = each.copy_of if each.kind == sync_held.COPY else each.note_id
+            note = None if here is None else notes.get(here)
+            if note is None:
+                continue  # gone here since
+            lists[each.kind].append(None if note.secret else note_title(note.body))
+        return BigChange(lists[sync_held.TRASH], lists[sync_held.GONE], lists[sync_held.COPY])
+
+    def end(self) -> None:
+        """Ended at once, on the app's thread, for another connection to take its
+        place: what is typed is saved, and whatever is waiting to be put goes
+        with the next one (each vault keeps its own state of the notes)."""
+        self.leaving()
+        self.finish(0.0)
+        self.left()
 
     def _written(self, _kind: int, _database: str, table: str, row: int) -> None:
         """A row changed, on the app's connection (sync has one of its own). Nothing

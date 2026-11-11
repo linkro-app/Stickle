@@ -338,7 +338,9 @@ def test_with_no_update_check_only_the_server_is_listed(bed: Bed, qtbot: QtBot) 
 def test_every_part_of_it_is_reached_by_the_keyboard_in_order(bed: Bed, qtbot: QtBot) -> None:
     window = bed.first.page(qtbot)
     panel = panel_of(window)
-    wanted = [*panel.tab_order(), window.sync_guide.link]
+    in_sight = [each for each in panel.tab_order() if each.isVisibleTo(window)]
+    assert panel.review_button not in in_sight  # only while stopped for what a window asks
+    wanted = [*in_sight, window.sync_guide.link]
     walked: list[QWidget] = []
     at: QWidget = window.turn_on_sync_button  # out of sight, with sync on: what comes after it
     while len(walked) < len(wanted):

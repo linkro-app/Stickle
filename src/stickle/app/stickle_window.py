@@ -64,7 +64,7 @@ from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
-from stickle.app.sync_display import SyncLine
+from stickle.app.sync_display import SyncLine, SyncStopLine
 from stickle.app.sync_setup import SyncSetup
 from stickle.app.times import local_time
 from stickle.app.titles import shown_title
@@ -197,6 +197,10 @@ class StickleWindow(QWidget):
         self.changes_seen_button.clicked.connect(self._changes_seen)
         # The data folder inside a cloud program's folder, told once for that place.
         self.cloud_folder_line = CloudFolderLine(settings, self)
+        # Sync stopped for something a window asks about, told once (see SyncDisplay).
+        self.sync_stop_line = SyncStopLine(self)
+        # Where the lines saying how sync stands lead (SyncDisplay says, once sync runs).
+        self.open_standing: Callable[[], None] = self.open_connections
 
         # Shown only when there is no tray and every note was hidden: the window
         # then opened by itself, so it says why at the top, where it is seen, and
@@ -324,6 +328,7 @@ class StickleWindow(QWidget):
         layout.addWidget(self.changes_label)
         layout.addLayout(changes_buttons)
         layout.addWidget(self.cloud_folder_line)
+        layout.addWidget(self.sync_stop_line)
         missed = QHBoxLayout()
         missed.addWidget(self.missed_label, 1)
         missed.addWidget(self.missed_button)
@@ -354,7 +359,8 @@ class StickleWindow(QWidget):
         layout.addLayout(bottom)
         # How sync stands, on a computer that syncs: the connection settings, pressed.
         self.sync_line = SyncLine(self)
-        self.sync_line.pressed.connect(self.open_connections)
+        self.sync_line.pressed.connect(lambda: self.open_standing())
+        self.settings.sync_review_asked.connect(lambda: self.open_standing())
         layout.addWidget(self.sync_line)
 
         self._set_tab_order()
@@ -422,6 +428,8 @@ class StickleWindow(QWidget):
             self.changes_seen_button,
             self.cloud_folder_line.open_button,
             self.cloud_folder_line.ok_button,
+            self.sync_stop_line.review_button,
+            self.sync_stop_line.ok_button,
             self.missed_button,
             self.new_version_button,
             self.new_note_button,

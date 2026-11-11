@@ -279,6 +279,18 @@ PROTECTION_CHANGES = Setting[list[dict[str, object]]](
 CLOUD_FOLDER_TOLD = Setting[str | None]("cloud_folder_told", "device", None, _sha256_or_none)
 CLOUD_FOLDER_SEEN = Setting[str | None]("cloud_folder_seen", "device", None, _sha256_or_none)
 
+
+def _why_or_none(value: object) -> TypeGuard[str | None]:
+    """Why sync stopped, as stickle.sync.outcome.Stopped writes it, or None."""
+    return value is None or (isinstance(value, str) and 0 < len(value) <= 32)
+
+
+# Sync stopped for something a window asks about: why, once a notification of the
+# system told of it, and once the user said OK to the line in Stickle Manager.
+# Both go once sync goes on again, to tell of the next stop.
+SYNC_STOP_TOLD = Setting[str | None]("sync_stop_told", "device", None, _why_or_none)
+SYNC_STOP_SEEN = Setting[str | None]("sync_stop_seen", "device", None, _why_or_none)
+
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -306,6 +318,8 @@ SETTINGS: dict[str, Setting[object]] = {
         FULL_SCREEN_EXCEPTIONS,
         CLOUD_FOLDER_TOLD,
         CLOUD_FOLDER_SEEN,
+        SYNC_STOP_TOLD,
+        SYNC_STOP_SEEN,
     )
 }
 

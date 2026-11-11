@@ -218,6 +218,7 @@ class SyncPanel(QWidget):
     # Told, rather than holding on to whoever shows it: a window kept alive by
     # something it owns would be deleted in the middle of deleting that.
     disconnected = Signal()
+    review = Signal()  # stopped for what a window asks about: that window, please
 
     def __init__(
         self, syncing: Syncing, disconnect: Callable[[], None], parent: QWidget | None = None
@@ -234,6 +235,8 @@ class SyncPanel(QWidget):
 
         self.account = _wrapped(self)
         self.status = _wrapped(self)
+        self.review_button = QPushButton(self)
+        self.review_button.clicked.connect(self.review)
         self.sync_now_button = QPushButton(self)
         self.sync_now_button.clicked.connect(self._sync_now)
         self.every_label = QLabel(self)
@@ -253,12 +256,18 @@ class SyncPanel(QWidget):
         self.rename_button.clicked.connect(self._rename)
         self.disconnect_button = QPushButton(self)
         self.disconnect_button.clicked.connect(self._disconnect)
-        for button in (self.sync_now_button, self.rename_button, self.disconnect_button):
+        for button in (
+            self.review_button,
+            self.sync_now_button,
+            self.rename_button,
+            self.disconnect_button,
+        ):
             button.setAutoDefault(False)
 
         standing = QHBoxLayout()
         _no_gap(standing)
         standing.addWidget(self.status, 1)
+        standing.addWidget(self.review_button)
         standing.addWidget(self.sync_now_button)
         every = QHBoxLayout()
         _no_gap(every)
@@ -286,6 +295,7 @@ class SyncPanel(QWidget):
 
     def tab_order(self) -> list[QWidget]:
         return [
+            self.review_button,
             self.sync_now_button,
             self.every_box,
             self.computers,
@@ -314,6 +324,7 @@ class SyncPanel(QWidget):
         self.account.setText(
             f"{self.syncing.cloud_name} · {server_of(login.address)} · {login.user}"
         )
+        self.review_button.setText(self.tr("&Review…"))
         self.sync_now_button.setText(self.tr("&Sync now"))
         self.every_label.setText(self.tr("&Get changes from other computers:"))
         labels = (
@@ -340,6 +351,8 @@ class SyncPanel(QWidget):
         text = self.syncing.status.text()
         self.status.setText(text)
         self.status.setAccessibleName(text)
+        self.review_button.setVisible(self.syncing.status.asks is not None)
+        self.review_button.setAccessibleDescription(text)
 
     def _line(self, other: Other) -> str:
         name = on_one_line(other.name)

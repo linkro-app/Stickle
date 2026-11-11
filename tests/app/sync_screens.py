@@ -26,7 +26,8 @@ from stickle.app.sync_display import SyncDisplay
 from stickle.app.sync_panel import ChangeName, DisconnectSync
 from stickle.app.sync_setup import SyncSetup
 from stickle.app.sync_status import WEBDAV_NAME, SyncStatus
-from stickle.app.syncing import Ended, Syncing
+from stickle.app.sync_stopped import SyncStopped
+from stickle.app.syncing import BigChange, Ended, Syncing
 from stickle.app.tray import Tray
 from stickle.app.turn_on_sync import TurnOnSync
 from stickle.crypto.recovery import RecoveryKeyTypoError
@@ -124,6 +125,15 @@ class FakeSyncing(QObject):
 
     def leave(self) -> None:
         pass
+
+    def big_change(self) -> BigChange:
+        return A_BIG_CHANGE
+
+    def take_big_change(self) -> None:
+        pass
+
+    def kept_login(self) -> Login:
+        return self.login
 
 
 class Stage:
@@ -355,6 +365,79 @@ def _last_ended(outcome: Outcome, joining: bool = False) -> Callable[[Stage], QW
     return build
 
 
+def _again(window: TurnOnSync) -> TurnOnSync:
+    """As going on again from the server as kept (without reaching it)."""
+    window._again = Login(VAULT, WEBDAV, ADDRESS, USER, PASSWORD, {})
+    return window
+
+
+def _again_absent(stage: Stage) -> QWidget:
+    window = _again(_turn_on(stage))
+    window._show_recovery_state()
+    window._show(window.absent_page)
+    return window
+
+
+def _again_done(stage: Stage) -> QWidget:
+    window = _again(_last(stage))
+    window._round_shown(Ended(Report(), Outcome()))
+    return window
+
+
+# The window that asks, while sync is stopped for it
+
+
+A_BIG_CHANGE = BigChange(
+    ["장보기: 우유, 빵 · Groceries", "", None, LONG_NAME * 2, *(f"메모 {n}" for n in range(8))],
+    ["회의 10시 · Meeting at 10", "전화번호 정리"],
+    ["여행 준비물"],
+)
+
+
+def _asking(why: Stopped) -> Callable[[Stage], SyncStopped]:
+    def build(stage: Stage) -> SyncStopped:
+        syncing = stage.keep(_synced().round_was(Outcome(why)))
+        return stage.keep(SyncStopped(cast("Syncing", syncing), lambda: None, lambda: None))
+
+    return build
+
+
+def _asking_unfolded(stage: Stage) -> QWidget:
+    window = _asking(Stopped.BIG_CHANGE)(stage)
+    window.trash.toggle.click()
+    return window
+
+
+def _asking_busy(stage: Stage) -> QWidget:
+    window = _asking(Stopped.BIG_CHANGE)(stage)
+    window.first_button.click()
+    window._taking = False  # not waited for in a scene
+    return window
+
+
+def _asking_after(ended: Ended) -> Callable[[Stage], QWidget]:
+    def build(stage: Stage) -> QWidget:
+        window = _asking(Stopped.BIG_CHANGE)(stage)
+        window.first_button.click()
+        window._round_shown(ended)
+        return window
+
+    return build
+
+
+def _asking_disconnecting(stage: Stage) -> QWidget:
+    window = _asking(Stopped.VAULT_GONE)(stage)
+    window.leaving = True
+    window._busy(True)
+    window._say(lambda: window.tr("Disconnecting…"))
+
+    def over() -> None:
+        window.leaving = False
+
+    stage.at_end(over)
+    return window
+
+
 # The settings' Connections page
 
 
@@ -567,6 +650,8 @@ _REASONS = {
     Stopped.CERTIFICATE: "certificate",
     Stopped.NEWER: "newer",
 }
+# Those a window asks about, as the window shows them.
+ASKING_ORDER = (Stopped.BIG_CHANGE, Stopped.VAULT_GONE, Stopped.VAULT_CHANGED, Stopped.CERTIFICATE)
 
 SCENES: list[Scene] = [
     Scene("turn-on-1-intro", _turn_on),
@@ -618,6 +703,18 @@ SCENES: list[Scene] = [
         Scene(f"connections-stopped-{name}", _page_showing(_stopped(why)))
         for why, name in _REASONS.items()
     ),
+    *(Scene(f"stopped-{_REASONS[why]}", _asking(why)) for why in ASKING_ORDER),
+    Scene("stopped-big-change-unfolded", _asking_unfolded),
+    Scene("stopped-big-change-backing-up", _asking_busy),
+    Scene(
+        "stopped-big-change-no-backup",
+        _asking_after(Ended(Report(), Outcome(Stopped.BIG_CHANGE), None, True)),
+    ),
+    Scene("stopped-big-change-again", _asking_after(Ended(Report(), Outcome(Stopped.BIG_CHANGE)))),
+    Scene("stopped-disconnecting", _asking_disconnecting),
+    *(Scene(f"manager-told-{_REASONS[why]}", _manager(_stopped(why))) for why in ASKING_ORDER),
+    Scene("turn-on-again-new-folder", _again_absent),
+    Scene("turn-on-again-done", _again_done),
     Scene("connections-full", _page_showing(_full)),
     Scene("connections-many-computers", _page_showing(_many_computers)),
     Scene("connections-long-names", _page_showing(_long_names)),

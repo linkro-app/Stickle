@@ -12,6 +12,14 @@ tried again only when the user asks. No password goes to a server whose
 certificate no public authority issued until the user has looked at it and
 trusted it.
 
+Sync stopped with its Stickle folder gone, made anew, or the server showing
+another certificate, the same window goes on from the server as kept: it looks
+at the server at once and goes on as that is now. The folder as it was, sync
+just goes on (with the certificate trusted anew, if that was it); gone, a new
+one is made from this computer's notes; another there, it is opened with its
+key. A folder there is never made over. Nothing of the connection kept changes
+until the new one is kept in its place.
+
 Opened on request: this is what brings TLS and HTTP into a run.
 """
 
@@ -48,7 +56,7 @@ from stickle.app.syncing import Ended
 from stickle.app.typed import forget_typed
 from stickle.crypto.keyfile import KeyFileError
 from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
-from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY
+from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY, DataKeys
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.sync.engine import GETTING, FirstLook
 from stickle.sync.format import NewerFormatError
@@ -67,9 +75,9 @@ from stickle.sync.vault import (
     Vault,
     VaultGoneError,
     VaultThereError,
-    is_there,
     join,
     make,
+    there,
     unfinished,
 )
 
@@ -192,16 +200,22 @@ class _Pages(QWidget):
             each.setVisible(each is page)
 
 
-def _look(target: WebDav) -> bool:
-    """Whether a vault is there, once the server has shown it is one to use."""
+def _look(target: WebDav) -> str | None:
+    """The vault there, if there is one, once the server has shown it is one to use."""
     target.check()
-    return is_there(target)
+    return there(target)
 
 
 class TurnOnSync(QDialog):
-    def __init__(self, setup: SyncSetup, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, setup: SyncSetup, parent: QWidget | None = None, again: Login | None = None
+    ) -> None:
+        """again: the connection kept, which sync stopped with (its Stickle folder
+        gone, made anew, or the server's certificate changed): the window starts
+        by looking at the server as kept, and goes on as that is now."""
         super().__init__(parent)
         self._setup = setup
+        self._again = again
         self._words = SyncWords(self)
         self._job: Job | None = None
         self._target: WebDav | None = None
@@ -269,7 +283,15 @@ class TurnOnSync(QDialog):
         self.setMinimumWidth(WIDTH)
         self.resize(WIDTH, self.height())
         self.retranslate()
-        self._show(self.intro_page)
+        if again is None:
+            self._show(self.intro_page)
+            return
+        self.address.setText(again.address)
+        self.user.setText(again.user)
+        self.password.setText(again.secret)
+        self._certificate = again.certificate  # after the address, which forgets it
+        self._show(self.server_page)
+        self._connect()
 
     # The pages
 
@@ -528,7 +550,8 @@ class TurnOnSync(QDialog):
         busy = self._job is not None
         self.pages.setEnabled(not busy)
         last = page is self.last_page
-        self.back_button.setVisible(page not in (self.intro_page, self.preview_page) and not last)
+        first = self.server_page if self._again is not None else self.intro_page
+        self.back_button.setVisible(page not in (first, self.preview_page) and not last)
         self.back_button.setEnabled(not busy)
         self.cloud_only_button.setVisible(page is self.preview_page and self._preview is not None)
         self.cloud_only_button.setEnabled(not busy)
@@ -700,8 +723,11 @@ class TurnOnSync(QDialog):
         self._address, self._target = address, target
         self._begin(lambda: _look(target), self._looked, self.tr("Checking the server…"))
 
-    def _looked(self, there: object) -> None:
-        if there:
+    def _looked(self, vault: object) -> None:
+        again = self._again
+        if again is not None and vault == again.vault:  # as it was: on with it
+            self._connected(self._login(Vault(again.vault, DataKeys(again.keys))), False)
+        elif vault is not None:
             self._show(self.present_page)
         else:
             self._show_recovery_state()
@@ -786,6 +812,14 @@ class TurnOnSync(QDialog):
     # The Stickle folder is not there: made
 
     def _absent_sentence(self) -> str:
+        if self._again is not None:  # the other computers sync already, and stopped
+            return self.tr(
+                "Stickle will make a new Stickle folder in %1 and upload the %Ln note(s) on"
+                " this computer. Your other computers carry on syncing once they enter this"
+                " computer's recovery key or spare password.",
+                "",
+                self._setup.note_count(),
+            ).replace("%1", WEBDAV_NAME)
         return self.tr(
             "Stickle will make its folder in %1 and upload the %Ln note(s) on this computer."
             " On your other computers, turn on sync with this computer's recovery key or"
@@ -1059,6 +1093,9 @@ class TurnOnSync(QDialog):
                     )
                 )
             return
+        if self._again is not None and login.vault == self._again.vault:
+            self.accept()  # the folder as it was: sync just goes on, and says so where it does
+            return
         self._joining = joining
         self._close_target()
         forget_typed(self, self.way_in)
@@ -1115,6 +1152,11 @@ class TurnOnSync(QDialog):
     def _finished(self) -> str:
         if self._joining:
             return self.tr("Done. This computer's notes now sync too.")
+        if self._again is not None:
+            return self.tr(
+                "Done. On your other computers, enter this computer's recovery key or spare"
+                " password once."
+            )
         return self.tr(
             "Done. On your other computers, choose Turn on sync… under Settings, Connections,"
             " and enter this computer's recovery key or spare password."

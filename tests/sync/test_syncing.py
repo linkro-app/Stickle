@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import apsw
 import pytest
@@ -20,7 +20,7 @@ from sync_bed import KEY, KEYS, VAULT, Clock, Device
 
 from stickle.app import syncing as syncing_module
 from stickle.app.about_dialog import AboutDialog
-from stickle.app.application import login_here
+from stickle.app.application import login_here, replace_sync
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.app.reminders import ReminderKeeper
@@ -683,6 +683,103 @@ def test_a_big_change_taken_in_goes_ahead_after_a_backup(pc: Pc) -> None:
     assert all(pc.window_of(note_id) is None for note_id in made)
     assert all(pc.notes.get(note_id).deleted for note_id in made)  # pyright: ignore[reportOptionalMemberAccess]
     assert len(backups(pc.path)) == 1
+
+
+def test_a_big_change_with_no_backup_takes_nothing_in_and_stays_stopped(
+    pc: Pc, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    made = ten_notes(pc)
+    for note_id in made:
+        pc.other.notes.delete(note_id)
+    pc.other_syncs()
+    assert pc.round().outcome.stopped is Stopped.BIG_CHANGE
+
+    def full(*_args: object, **_kwargs: object) -> Path:
+        raise OSError("the disk is full")
+
+    monkeypatch.setattr(syncing_module, "take", full)
+    with pc.qtbot.waitSignal(pc.syncing.round_shown, timeout=ROUND_MS) as told:
+        pc.syncing.take_big_change()
+    ended = said(told)
+    assert isinstance(ended, Ended) and ended.backup_failed
+    assert ended.outcome.stopped is Stopped.BIG_CHANGE and ended.wait is None
+    assert not any(pc.notes.get(note_id).deleted for note_id in made)  # pyright: ignore[reportOptionalMemberAccess]
+    assert all(pc.window_of(note_id) is not None for note_id in made)
+    assert _stopped(pc) == "big change"
+    # Not tried again by itself, nor taken in by the next round asked for.
+    assert pc.syncing.runner._schedule.next_at() is None  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.undo()
+    assert pc.round().outcome.stopped is Stopped.BIG_CHANGE
+    assert backups(pc.path) == []
+
+
+def test_what_a_big_change_stopped_for_is_listed_note_by_note(pc: Pc) -> None:
+    made = ten_notes(pc)
+    assert pc.syncing.big_change().trash == []  # nothing stopped for
+    for note_id in made[:6]:
+        pc.other.notes.delete(note_id)
+    for note_id in made[6:]:
+        pc.other.notes.delete(note_id)
+        pc.other.notes.purge(note_id)
+    pc.other_syncs()
+    assert pc.round().outcome.stopped is Stopped.BIG_CHANGE
+    change = pc.syncing.big_change()
+    assert sorted(t or "" for t in change.trash) == [f"note {n}" for n in range(6)]
+    assert sorted(t or "" for t in change.gone) == [f"note {n}" for n in range(6, 10)]
+    assert change.copies == []
+
+
+def test_sync_ended_for_another_connection_does_no_more(pc: Pc) -> None:
+    note_id = note_of_both(pc)
+    pc.syncing.end()
+    assert not pc.syncing.runner.running
+    pc.notes.update_body(note_id, "changed after it ended")
+    pc.qtbot.wait(300)
+    pc.other_syncs()
+    assert pc.other.texts()[note_id] == "first"  # nothing went up
+
+
+def test_another_connection_takes_the_place_of_the_one_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    done: list[str] = []
+
+    class Current:
+        def end(self) -> None:
+            done.append("ended")
+
+    def connect() -> Syncing:
+        done.append("connected")
+        return cast(Syncing, object())
+
+    def resume(login: Login) -> Syncing:
+        raise AssertionError("not resumed")
+
+    replace_sync(cast(Syncing, Current()), connect, resume, lambda: None)
+    assert done == ["ended", "connected"]
+    done.clear()
+    replace_sync(None, connect, resume, lambda: None)
+    assert done == ["connected"]
+
+
+def test_a_connection_that_fails_leaves_the_one_before_going_on() -> None:
+    kept = Login(VAULT, WEBDAV, "https://nas.example/dav", "u", "p", KEYS.keys)
+    resumed: list[Login] = []
+
+    class Current:
+        def end(self) -> None:
+            pass
+
+    def connect() -> Syncing:
+        raise OSError("the disk is full")
+
+    def resume(login: Login) -> Syncing:
+        resumed.append(login)
+        return cast(Syncing, object())
+
+    with pytest.raises(OSError, match="full"):
+        replace_sync(cast(Syncing, Current()), connect, resume, lambda: kept)
+    assert resumed == [kept]
 
 
 def joining(qtbot: QtBot, tmp_path: Path, cloud: FakeCloud) -> Pc:

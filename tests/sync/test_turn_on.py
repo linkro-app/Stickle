@@ -4,22 +4,25 @@ is kept before the Stickle folder is made or opened, and a password goes only to
 a server the user chose to trust."""
 
 import gc
+import shutil
+import ssl
 import threading
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QLocale, QObject, Qt, Signal
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QLineEdit, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
-from real_server import account, account_given, folder_of_its_own
+from real_server import account, account_given, another_way_in, folder_of_its_own
+from shiboken6 import Shiboken
 from webdav_server import HOST, Server, self_signed, webdav
 
-from stickle.app.application import connect_sync
+from stickle.app.application import connect_sync, replace_sync, start_sync
 from stickle.app.background import Job
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
@@ -28,6 +31,7 @@ from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, RecoveryKeyD
 from stickle.app.settings_window import SettingsWindow
 from stickle.app.support import site_language
 from stickle.app.sync_setup import SyncGuideLine, SyncSetup
+from stickle.app.sync_stopped import SyncStopped
 from stickle.app.syncing import Ended, Syncing, look_first
 from stickle.app.turn_on_sync import WIDTH, TurnOnSync, shown_fingerprint
 from stickle.core.clock import Clocks
@@ -50,7 +54,7 @@ from stickle.sync.engine import GETTING, PUTTING, FirstLook, Report
 from stickle.sync.format import VAULT_FILE, VaultInfo, json_bytes, read_vault_file, vault_file
 from stickle.sync.outcome import Outcome, Stopped
 from stickle.sync.targets.webdav import WebDav, parse_address
-from stickle.sync.vault import make
+from stickle.sync.vault import Vault, join, make
 
 PASSWORD = "correct horse battery staple"
 SPARE = "a spare password"
@@ -68,6 +72,9 @@ MS = 20_000
 @pytest.fixture(autouse=True)
 def windows_deleted() -> Iterator[None]:
     yield
+    for window in QApplication.topLevelWidgets():
+        if isinstance(window, TurnOnSync) and window.isVisible():
+            window.reject()  # one going on again, left open
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     gc.enable()
     gc.collect()  # here, and not on some thread of the next tests' servers
@@ -205,6 +212,7 @@ def make_bench(
     sealed_for: Mapping[str, SealedSlot] = PAIRS,
     looking: Looking | None = None,
     notes_here: int = 3,
+    again: Login | None = None,
 ) -> Bench:
     syncing = FakeSyncing()
     logins: list[tuple[Login, bool]] = []
@@ -232,8 +240,9 @@ def make_bench(
         None if looking is None else looking.look,
         None if looking is None else cloud_only,
     )
-    window = TurnOnSync(setup)
-    qtbot.addWidget(window)
+    window = TurnOnSync(setup, None, again)
+    if again is None:  # else it may close by itself, and goes once closed
+        qtbot.addWidget(window)
     window.show()
     return Bench(window, qtbot, logins, syncing)
 
@@ -264,6 +273,7 @@ def test_turning_on_is_offered_until_it_is_on(
 
     class NoPanel(QWidget):
         disconnected = Signal()
+        review = Signal()
 
         def __init__(self, syncing: Syncing, _gone: object, parent: QWidget) -> None:
             super().__init__(parent)
@@ -1143,6 +1153,162 @@ def test_work_whose_window_went_comes_to_what_it_was_told(qtbot: QtBot) -> None:
     assert seen == []
 
 
+# Going on again, from the server as kept: its Stickle folder gone, made anew,
+# or its certificate changed
+
+
+def first_said(told: Any) -> object:
+    """What the signal waited for said first."""
+    return told.args[0]
+
+
+def closed(window: QWidget) -> bool:
+    """Closed, and so gone or about to be."""
+    return not Shiboken.isValid(window) or not window.isVisible()
+
+
+def kept(address: str, vault: Vault, certificate: bytes | None = None) -> Login:
+    return Login(vault.vault, WEBDAV, address, "stickle", PASSWORD, vault.keys.keys, certificate)
+
+
+def folder_made(server: Server, address: str | None = None) -> Vault:
+    target = (
+        target_of(server)
+        if address is None
+        else WebDav(parse_address(address), "stickle", PASSWORD, server.certificate)
+    )
+    made = make(target, PAIRS)
+    target.close()
+    return made
+
+
+def folder_deleted(share: Path) -> None:
+    shutil.rmtree(share / "share")
+    (share / "share").mkdir()
+
+
+def test_with_the_folder_gone_a_new_one_is_made_from_this_computers_notes(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    with webdav(share, PASSWORD) as server:
+        old = folder_made(server)
+        folder_deleted(share)
+        bench = make_bench(qtbot, keys, again=kept(on_server(server), old))
+        window = bench.window
+        bench.page(window.absent_page)
+        bench.idle()
+        assert not window.back_button.isHidden()  # to the server, as kept
+        assert "make a new Stickle folder in WebDAV and upload the 3 note(s)" in (
+            window.absent_text.text()
+        )
+        assert "carry on syncing once they enter" in window.absent_text.text()
+        bench.press()
+        bench.page(window.last_page)
+        ((login, joining),) = bench.logins
+        assert not joining
+        assert login.vault != old.vault
+        assert login.keys != old.keys.keys  # a data key of its own
+        assert (login.address, login.user, login.secret) == (on_server(server), "stickle", PASSWORD)
+        target = target_of(server)
+        assert join(target, RECOVERY_KEY, RECOVERY).vault == login.vault
+        target.close()
+        bench.syncing.round_shown.emit(Ended(Report(), Outcome()))
+        assert "enter this computer's recovery key or spare password once" in (
+            window.last_line.text()
+        )
+
+
+def test_with_the_folder_back_as_it_was_sync_just_goes_on(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    with webdav(share, PASSWORD) as server:
+        old = folder_made(server)
+        before = files_of(share)
+        bench = make_bench(qtbot, keys, again=kept(on_server(server), old))
+        qtbot.waitUntil(lambda: bench.logins != [], timeout=MS)
+        ((login, joining),) = bench.logins
+        assert not joining and login == kept(on_server(server), old)
+        qtbot.waitUntil(lambda: closed(bench.window), timeout=MS)
+        assert files_of(share) == before  # nothing made over it
+
+
+def test_with_a_new_folder_there_it_is_opened_with_its_key_and_not_made_over(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    with webdav(share, PASSWORD) as server:
+        old = folder_made(server)
+        folder_deleted(share)
+        anew = folder_made(server)  # by another computer
+        bench = make_bench(qtbot, keys, again=kept(on_server(server), old))
+        window = bench.window
+        bench.page(window.present_page)
+        bench.idle()
+        assert bench.logins == []
+        window.way_in.setText(RECOVERY)
+        bench.press()
+        bench.page(window.last_page)
+        ((login, joining),) = bench.logins
+        assert joining and login.vault == anew.vault
+        target = target_of(server)
+        assert read_vault_file(target.get(VAULT_FILE).data).vault == anew.vault
+        target.close()
+
+
+def test_a_certificate_changed_is_shown_anew_and_trusted_only_when_the_user_says_so(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    before = ssl.PEM_cert_to_DER_cert(self_signed()[0].decode("ascii"))
+    with webdav(share, PASSWORD, own=self_signed()) as server:
+        address = f"https://{HOST}:{server.port}/share"
+        vault = folder_made(server, address)
+        server.asked.clear()
+        bench = make_bench(qtbot, keys, again=kept(address, vault, before))
+        window = bench.window
+        bench.page(window.certificate_page)
+        bench.idle()
+        assert server.certificate is not None
+        assert window.fingerprint.text() == shown_fingerprint(server.certificate)
+        assert server.asked == []  # no password to a certificate not trusted
+        assert bench.logins == []
+        bench.press()  # trusted
+        qtbot.waitUntil(lambda: bench.logins != [], timeout=MS)
+        ((login, joining),) = bench.logins
+        assert not joining and login.vault == vault.vault
+        assert login.certificate == server.certificate
+        qtbot.waitUntil(lambda: closed(window), timeout=MS)
+
+
+def test_cancelled_going_on_again_keeps_nothing(qtbot: QtBot, keys: Keys, share: Path) -> None:
+    with webdav(share, PASSWORD) as server:
+        old = folder_made(server)
+        folder_deleted(share)
+        bench = make_bench(qtbot, keys, again=kept(on_server(server), old))
+        bench.page(bench.window.absent_page)
+        bench.idle()
+        bench.window.reject()
+        assert bench.logins == []
+        assert files_of(share) == {}
+
+
+def test_a_password_the_server_no_longer_takes_is_asked_for_on_the_server_step(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    with webdav(share, PASSWORD) as server:
+        old = folder_made(server)
+        changed = Login(old.vault, WEBDAV, on_server(server), "stickle", "old", old.keys.keys)
+        bench = make_bench(qtbot, keys, again=changed)
+        window = bench.window
+        bench.idle()
+        assert window.pages.current() is window.server_page
+        assert window.back_button.isHidden()  # the steps before are for turning it on
+        assert "didn't accept" in bench.said()
+        assert window.focusWidget() is window.password
+        window.password.setText(PASSWORD)
+        bench.press()
+        qtbot.waitUntil(lambda: bench.logins != [], timeout=MS)
+        assert bench.logins[0][0].secret == PASSWORD
+
+
 # The whole way, with the app's own ways of keeping and starting
 
 
@@ -1156,19 +1322,43 @@ class Pc:
     started: list[Syncing]
 
     def connect(self, login: Login, joining: bool, only_the_cloud: bool = False) -> Syncing:
-        started = connect_sync(
-            self.db,
-            self.path,
-            DB_KEY,
-            login,
-            joining,
-            self.clocks,
-            self.manager,
-            None,
-            only_the_cloud=only_the_cloud,
-        )
+        """As the app connects: in place of the connection before, if there is one."""
+
+        def connect() -> Syncing:
+            return connect_sync(
+                self.db,
+                self.path,
+                DB_KEY,
+                login,
+                joining,
+                self.clocks,
+                self.manager,
+                None,
+                only_the_cloud=only_the_cloud,
+            )
+
+        def resume(kept: Login) -> Syncing:
+            started = start_sync(
+                self.db, self.path, DB_KEY, kept, self.clocks, self.manager, None, now=False
+            )
+            self.started.append(started)
+            return started
+
+        current = self.started[-1] if self.started else None
+        started = replace_sync(current, connect, resume, lambda: sync_connection.current(self.db))
         self.started.append(started)
         return started
+
+    @property
+    def syncing(self) -> Syncing:
+        return self.started[-1]
+
+    def round(self, qtbot: QtBot) -> Ended:
+        with qtbot.waitSignal(self.syncing.round_shown, timeout=MS) as told:
+            self.syncing.sync_now()
+        ended = first_said(told)
+        assert isinstance(ended, Ended)
+        return ended
 
     def look(self, login: Login, moving: Callable[[str, int, int], None]) -> FirstLook | None:
         return look_first(self.path, DB_KEY, login, moving)
@@ -1406,6 +1596,93 @@ def test_keeping_only_the_cloud_notes_backs_up_what_was_typed_and_brings_in_the_
     second.end()
 
 
+def going_on_again(qtbot: QtBot, pc: Pc, keys: Keys) -> Bench:
+    """The window that turns sync on, from the server as pc keeps it."""
+    window = TurnOnSync(pc.setup(keys), None, pc.syncing.kept_login())
+    window.show()
+    return Bench(window, qtbot, [], FakeSyncing())
+
+
+def test_two_computers_through_a_big_change_and_a_stickle_folder_deleted_and_made_again(
+    qtbot: QtBot, tmp_path: Path, share: Path, keys: Keys
+) -> None:
+    first, second = make_pc(tmp_path, "first"), make_pc(tmp_path, "second")
+    made = [first.notes.create(f"메모 {n}").id for n in range(12)]
+    with webdav(share, PASSWORD) as server:
+        first_has_made_the_folder(qtbot, first, keys, server)
+        joined = TurnOnSync(second.setup(keys))
+        joined.show()
+        bench = Bench(joined, qtbot, [], FakeSyncing())
+        bench.connect(on_server(server))
+        bench.page(joined.present_page)
+        bench.idle()
+        joined.way_in.setText(RECOVERY)
+        bench.press()
+        qtbot.waitUntil(lambda: "now sync too" in joined.last_line.text(), timeout=MS)
+        joined.reject()
+        assert len(texts(second)) == 12
+
+        # A big change: asked about, and taken in only when the user says so.
+        for note_id in made:
+            first.notes.delete(note_id)
+        assert first.round(qtbot).outcome.stopped is None
+        assert second.round(qtbot).outcome.stopped is Stopped.BIG_CHANGE
+        asking = SyncStopped(second.syncing, lambda: None, lambda: None)
+        asking.show()
+        assert asking.trash.toggle.text() == "12 note(s) would go to the trash"
+        asking.trash.toggle.click()
+        shown = sorted(
+            asking.trash.lines.item(row).text() for row in range(asking.trash.lines.count())
+        )
+        assert shown == sorted(f"메모 {n}" for n in range(12))
+        asking.second_button.click()  # not now
+        assert len(texts(second)) == 12 and backups(second.path) == []
+        asking = SyncStopped(second.syncing, lambda: None, lambda: None)
+        asking.show()
+        finished: list[int] = []
+        asking.finished.connect(finished.append)
+        asking.first_button.click()
+        qtbot.waitUntil(lambda: finished != [], timeout=MS)
+        assert texts(second) == [] and len(second.notes.deleted()) == 12
+        assert len(backups(second.path)) == 1
+
+        # The Stickle folder deleted: made again, from the second's notes.
+        old = first_login(second).vault
+        folder_deleted(share)
+        assert second.round(qtbot).outcome.stopped is Stopped.VAULT_GONE
+        again = going_on_again(qtbot, second, keys)
+        again.page(again.window.absent_page)
+        again.idle()
+        again.press()
+        again.page(again.window.last_page)
+        qtbot.waitUntil(lambda: "password once" in again.window.last_line.text(), timeout=MS)
+        again.window.reject()
+        anew = first_login(second).vault
+        assert anew != old
+        target = target_of(server)
+        assert read_vault_file(target.get(VAULT_FILE).data).vault == anew
+        target.close()
+
+        # The first finds it made anew, and goes on with it with the recovery key.
+        assert first.round(qtbot).outcome.stopped is Stopped.VAULT_CHANGED
+        again = going_on_again(qtbot, first, keys)
+        again.page(again.window.present_page)
+        again.idle()
+        again.window.way_in.setText(RECOVERY)
+        again.press()
+        again.page(again.window.last_page)
+        qtbot.waitUntil(lambda: "now sync too" in again.window.last_line.text(), timeout=MS)
+        again.window.reject()
+        assert first_login(first).vault == anew
+        assert len(first.notes.all()) == 12  # the same notes, not two of each
+        note = second.notes.create("둘째 PC의 새 메모")
+        assert second.round(qtbot).outcome.stopped is None
+        assert first.round(qtbot).outcome.stopped is None
+        assert first.notes.get(note.id) is not None
+    first.end()
+    second.end()
+
+
 REAL_MS = 60_000
 
 
@@ -1461,3 +1738,51 @@ def test_on_a_real_server_one_computer_turns_it_on_and_another_joins(
         assert second.notes.get(own.id) is not None
         first.end()
         second.end()
+
+
+@pytest.mark.skipif(not account_given(), reason="needs a real WebDAV server")
+def test_on_a_real_server_a_stickle_folder_deleted_is_made_again(
+    qtbot: QtBot, tmp_path: Path, keys: Keys
+) -> None:
+    given = account()
+    assert given is not None
+    pc = make_pc(tmp_path, "pc")
+    note = pc.notes.create("made before the folder went")
+    with folder_of_its_own() as target:
+        address = target._address  # pyright: ignore[reportPrivateUsage]
+        window = TurnOnSync(pc.setup(keys))
+        window.show()
+        bench = Bench(window, qtbot, [], FakeSyncing())
+        bench.to_server_page()
+        bench.fill(address.text, given.password, given.user)
+        bench.press()
+        qtbot.waitUntil(lambda: window.pages.current() is window.absent_page, timeout=REAL_MS)
+        qtbot.waitUntil(lambda: window.next_button.isEnabled(), timeout=REAL_MS)
+        window.next_button.click()
+        qtbot.waitUntil(lambda: "On your other" in window.last_line.text(), timeout=REAL_MS)
+        window.reject()
+        old = first_login(pc).vault
+
+        gone = target._ask("DELETE", f"{address.path}/Stickle/")  # pyright: ignore[reportPrivateUsage]
+        assert gone.status in (200, 204), gone.status
+        with qtbot.waitSignal(pc.syncing.round_shown, timeout=REAL_MS) as told:
+            pc.syncing.sync_now()
+        ended = first_said(told)
+        assert isinstance(ended, Ended) and ended.outcome.stopped is Stopped.VAULT_GONE
+
+        again = going_on_again(qtbot, pc, keys)
+        qtbot.waitUntil(
+            lambda: again.window.pages.current() is again.window.absent_page, timeout=REAL_MS
+        )
+        qtbot.waitUntil(lambda: again.window.next_button.isEnabled(), timeout=REAL_MS)
+        again.window.next_button.click()
+        qtbot.waitUntil(lambda: "password once" in again.window.last_line.text(), timeout=REAL_MS)
+        again.window.reject()
+        anew = first_login(pc).vault
+        assert anew != old
+        assert read_vault_file(target.get(VAULT_FILE).data).vault == anew
+        other = another_way_in(target)
+        assert join(other, RECOVERY_KEY, RECOVERY).vault == anew
+        other.close()
+        assert pc.notes.get(note.id) is not None
+        pc.end()
