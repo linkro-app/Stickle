@@ -36,7 +36,9 @@ def test_every_english_plural_has_a_singular_and_a_plural() -> None:
         assert translation.get("type") is None, source
         forms = [form.text or "" for form in translation.findall("numerusform")]
         assert len(forms) == 2, source
-        assert all("%n" in form and "(s)" not in form for form in forms), source
+        # %Ln: the number as the language writes it (1,000).
+        counted = ("%n" in form or "%Ln" in form for form in forms)
+        assert all(counted) and all("(s)" not in form for form in forms), source
 
 
 def test_one_note_and_two_notes(qtbot: QtBot, tmp_path: Path) -> None:

@@ -67,9 +67,9 @@ put (stickle.core.made_notes: they can be made again, and the vault stands for
 them); a note of its own with the same text as one of the vault's, both out of
 the trash, is folded into that one, as one note changed on two devices (its
 places on screen, size and earlier texts handed over), and no big change is
-stopped for. What that would make is told before (first_look); keeping only
-the vault's notes instead (cloud_only) backs up first and removes this
-device's without a trace.
+stopped for. What that would make is told before (first_look), nothing of it
+kept but the files read; keeping only the vault's notes instead (cloud_only)
+backs up first and removes this device's without a trace.
 
 A note being edited on screen (stickle.core.being_edited) keeps what is typed: what
 would change its text, lock it, put it in the trash or empty it, or make a
@@ -302,30 +302,39 @@ def first_look(
     place: Place,
     cloud_now: Callable[[], int],
     notes: NoteRepository | None = None,
+    progress: Progress | None = None,
 ) -> FirstLook:
     """What merging would make of this device's notes and those of the vault it
-    joined, before its first round with it: the vault's notes read once, and
-    kept for that round, which does not fetch them again."""
+    joins, before its first round with it: the vault's notes read once, and
+    kept for that round, which does not fetch them again where tags tell writes
+    apart. Nothing else is written, here or there. progress: told as they are read."""
     confirm(place.target, place.vault)
     notes = notes or NoteRepository(connection)
-    looking = _Round(connection, notes, place, cloud_now, joining=True)
+    looking = _Round(connection, notes, place, cloud_now, joining=True, progress=progress)
     looking.look()
     return looking.preview()
 
 
 def cloud_only(
-    connection: apsw.Connection, notes: NoteRepository, vault: str, back_up: Callable[[], object]
+    connection: apsw.Connection,
+    notes: NoteRepository,
+    vault: str,
+    back_up: Callable[[], object],
+    along: Callable[[], object] | None = None,
 ) -> int:
-    """Only the vault's notes kept, for a vault this device just joined: backed
-    up first (back_up), then this device's notes removed without a trace, in
-    the trash and secret ones too (the vault never had them), and the vault
-    taken as joined. How many were removed."""
+    """Only the vault's notes kept, for a vault this device joins: backed up
+    first (back_up; if that fails, nothing is removed), then this device's notes
+    removed without a trace, in the trash and secret ones too (the vault never
+    had them), and the vault taken as joined; along: done in that same
+    transaction. How many were removed."""
     back_up()
     gone = notes.all()
     with writing(connection):
         for note in gone:
             notes.drop(note.id)
         sync_state.set_joining(connection, vault, True)
+        if along is not None:
+            along()
     return len(gone)
 
 

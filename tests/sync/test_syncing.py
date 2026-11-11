@@ -24,7 +24,7 @@ from stickle.app.application import login_here
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.app.reminders import ReminderKeeper
-from stickle.app.syncing import BIG_TEXT, Ended, Syncing, cloud_time
+from stickle.app.syncing import BIG_TEXT, Ended, Syncing, cloud_time, look_first
 from stickle.core.clock import Clocks
 from stickle.core.hlc import wall_millis
 from stickle.core.labels import Mark
@@ -41,7 +41,7 @@ from stickle.data.settings import Settings
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.data.versions import VersionRepository
 from stickle.sync import schedule as schedule_module
-from stickle.sync.engine import PUTTING, FirstLook
+from stickle.sync.engine import GETTING, PUTTING, FirstLook
 from stickle.sync.format import NOTES, item_path
 from stickle.sync.outcome import Stopped
 from stickle.sync.targets.base import SignInNeededError
@@ -706,56 +706,36 @@ def end(pc: Pc) -> None:
     pc.db.close()
 
 
-def test_what_a_first_connection_would_make_is_told(
+def look_of(pc: Pc, told: list[tuple[str, int, int]] | None = None) -> FirstLook | None:
+    """What merging would make, looked at as the window turning sync on has it done."""
+    login = sync_connection.current(pc.db)
+    assert login is not None
+
+    def moving(doing: str, done: int, of: int) -> None:
+        if told is not None:
+            told.append((doing, done, of))
+
+    return look_first(pc.path, KEY, login, moving, lambda _heard, _gone: pc.cloud.target("a"))
+
+
+def test_what_a_first_connection_would_make_is_told_as_the_notes_come(
     qtbot: QtBot, tmp_path: Path, cloud: FakeCloud
 ) -> None:
     pc = joining(qtbot, tmp_path, cloud)
-    with qtbot.waitSignal(pc.syncing.first_looked, timeout=ROUND_MS) as told:
-        pc.syncing.look_first()
-    look = said(told)
+    told: list[tuple[str, int, int]] = []
+    look = look_of(pc, told)
     assert isinstance(look, FirstLook)
     assert (look.here, look.cloud, look.alike) == (2, 2, 1)
+    assert sorted(look.recent) == ["alike on both", "in the vault"]  # pyright: ignore[reportArgumentType]
+    assert told == [(GETTING, 1, 2), (GETTING, 2, 2)]
+    assert sorted(note.body for note in pc.notes.live()) == ["alike on both", "only here"]
     end(pc)
 
 
 def test_a_first_look_that_fails_says_so(qtbot: QtBot, tmp_path: Path, cloud: FakeCloud) -> None:
     pc = joining(qtbot, tmp_path, cloud)
     cloud.trouble = lambda _request: Trouble.UNAVAILABLE
-    with qtbot.waitSignal(pc.syncing.first_looked, timeout=ROUND_MS) as told:
-        pc.syncing.look_first()
-    assert said(told) is None
-    end(pc)
-
-
-def test_merging_on_a_first_connection_makes_alike_notes_one(
-    qtbot: QtBot, tmp_path: Path, cloud: FakeCloud
-) -> None:
-    pc = joining(qtbot, tmp_path, cloud)
-    with qtbot.waitSignal(pc.syncing.round_shown, timeout=ROUND_MS):
-        pc.syncing.merge_first()
-    assert sorted(note.body for note in pc.notes.live()) == [
-        "alike on both",
-        "in the vault",
-        "only here",
-    ]
-    assert sorted(window.text for window in pc.manager.windows) == [
-        "alike on both",
-        "in the vault",
-        "only here",
-    ]
-    end(pc)
-
-
-def test_keeping_only_the_cloud_lets_this_computers_go_after_a_backup(
-    qtbot: QtBot, tmp_path: Path, cloud: FakeCloud
-) -> None:
-    pc = joining(qtbot, tmp_path, cloud)
-    with qtbot.waitSignal(pc.syncing.round_shown, timeout=ROUND_MS):
-        pc.syncing.keep_only_the_cloud()
-    pc.qtbot.waitUntil(lambda: len(pc.manager.windows) == 2, timeout=ROUND_MS)
-    assert sorted(note.body for note in pc.notes.live()) == ["alike on both", "in the vault"]
-    assert sorted(window.text for window in pc.manager.windows) == ["alike on both", "in the vault"]
-    assert len(backups(pc.path)) == 1
+    assert look_of(pc) is None
     end(pc)
 
 

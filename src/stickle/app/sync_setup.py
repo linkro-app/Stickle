@@ -22,6 +22,10 @@ from stickle.data.sync_connection import Login
 
 if TYPE_CHECKING:
     from stickle.app.syncing import Syncing
+    from stickle.sync.engine import FirstLook
+
+# Told as notes go by: what is being done, how many so far, of how many.
+type Moving = Callable[[str, int, int], None]
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,12 @@ class SyncSetup:
     # Connected (the login; whether the vault was there before): kept, and rounds start.
     connect: Callable[[Login, bool], Syncing]
     disconnect: Callable[[], None]  # sync left: the connection forgotten, the app going on
+    # What merging with the vault of a login would make, nothing kept yet; off
+    # the app's thread (None: it could not be looked at). None: not looked at.
+    look: Callable[[Login, Moving], FirstLook | None] | None = None
+    # Connected to a vault there before, keeping only its notes: this computer's
+    # go first, after a backup (if that fails, nothing is kept or let go of).
+    connect_cloud_only: Callable[[Login], Syncing] | None = None
 
 
 class SyncGuideLine(QWidget):

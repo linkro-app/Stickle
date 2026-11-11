@@ -6,13 +6,14 @@ a server the user chose to trust."""
 import gc
 import threading
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
 import apsw
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, QLocale, QObject, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QLocale, QObject, Qt, Signal
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
 from real_server import account, account_given, folder_of_its_own
@@ -27,15 +28,17 @@ from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, RecoveryKeyD
 from stickle.app.settings_window import SettingsWindow
 from stickle.app.support import site_language
 from stickle.app.sync_setup import SyncGuideLine, SyncSetup
-from stickle.app.syncing import Ended, Syncing
-from stickle.app.turn_on_sync import TurnOnSync, shown_fingerprint
+from stickle.app.syncing import Ended, Syncing, look_first
+from stickle.app.turn_on_sync import WIDTH, TurnOnSync, shown_fingerprint
 from stickle.core.clock import Clocks
 from stickle.crypto import master, recovery
 from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
 from stickle.crypto.sealed import SealedSlot, make_sealed_slot
 from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY
 from stickle.data import sync_connection, sync_state
+from stickle.data.backups import backups
 from stickle.data.colors import ColorRepository
+from stickle.data.database import open_database
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
@@ -43,7 +46,7 @@ from stickle.data.schema import open_store
 from stickle.data.settings import Settings
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.data.versions import VersionRepository
-from stickle.sync.engine import GETTING, PUTTING, Report
+from stickle.sync.engine import GETTING, PUTTING, FirstLook, Report
 from stickle.sync.format import VAULT_FILE, VaultInfo, json_bytes, read_vault_file, vault_file
 from stickle.sync.outcome import Outcome, Stopped
 from stickle.sync.targets.webdav import WebDav, parse_address
@@ -164,6 +167,27 @@ class Bench:
         return self.window.message.text()
 
 
+@dataclass
+class Looking:
+    """What merging would make, as the app would find it (off the app's thread),
+    and keeping only the cloud's notes."""
+
+    answers: list[FirstLook | None]
+    moves: list[tuple[str, int, int]] = field(default_factory=list[tuple[str, int, int]])
+    hold: threading.Event | None = None  # the download goes on until this is set
+    asked: list[Login] = field(default_factory=list[Login])
+    cloud_only: list[Login] = field(default_factory=list[Login])
+    no_backup: bool = False
+
+    def look(self, login: Login, moving: Callable[[str, int, int], None]) -> FirstLook | None:
+        self.asked.append(login)
+        for move in self.moves:
+            moving(*move)
+        if self.hold is not None:
+            self.hold.wait(MS / 1000)
+        return self.answers.pop(0)
+
+
 @pytest.fixture
 def keys() -> Keys:
     return Keys()
@@ -179,6 +203,8 @@ def make_bench(
     keys: Keys,
     connect: Callable[[Login, bool], object] | None = None,
     sealed_for: Mapping[str, SealedSlot] = PAIRS,
+    looking: Looking | None = None,
+    notes_here: int = 3,
 ) -> Bench:
     syncing = FakeSyncing()
     logins: list[tuple[Login, bool]] = []
@@ -189,8 +215,22 @@ def make_bench(
             connect(login, joining)
         return cast(Syncing, syncing)
 
+    def cloud_only(login: Login) -> Syncing:
+        assert looking is not None
+        if looking.no_backup:
+            raise OSError("the disk is full")
+        looking.cloud_only.append(login)
+        return cast(Syncing, syncing)
+
     setup = SyncSetup(
-        lambda: None, keys.keys(), lambda: 3, lambda: sealed_for, connected, lambda: None
+        lambda: None,
+        keys.keys(),
+        lambda: notes_here,
+        lambda: sealed_for,
+        connected,
+        lambda: None,
+        None if looking is None else looking.look,
+        None if looking is None else cloud_only,
     )
     window = TurnOnSync(setup)
     qtbot.addWidget(window)
@@ -732,6 +772,178 @@ def test_a_folder_of_a_newer_format_is_said(bench: Bench, share: Path) -> None:
     assert bench.logins == []
 
 
+# Notes here too: what merging would make, shown before anything is kept
+
+A_LOOK = FirstLook(2, 5, 1, ["회의록 11월", None, ""])
+
+
+def opened_with_notes_here(
+    qtbot: QtBot, keys: Keys, share: Path, looking: Looking, notes_here: int = 3
+) -> Bench:
+    """Up to the Stickle folder there opened, the window going on from there."""
+    bench = make_bench(qtbot, keys, looking=looking, notes_here=notes_here)
+    with webdav(share, PASSWORD) as server:
+        folder_there(server)
+        bench.connect(on_server(server))
+        bench.page(bench.window.present_page)
+        bench.idle()
+        bench.window.way_in.setText(RECOVERY)
+        bench.press()
+        bench.qtbot.waitUntil(
+            lambda: bench.window.pages.current() is not bench.window.present_page, timeout=MS
+        )
+        bench.idle()
+    return bench
+
+
+def test_what_merging_would_make_is_shown_before_anything_is_kept(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    looking = Looking([A_LOOK])
+    bench = opened_with_notes_here(qtbot, keys, share, looking)
+    window = bench.window
+    assert window.pages.current() is window.preview_page
+    assert bench.logins == [] and looking.cloud_only == []
+    assert looking.asked[0].secret == PASSWORD  # the look reaches the server as sync would
+    assert window.preview_counts.text().splitlines() == [
+        "2 note(s) on this computer",
+        "5 note(s) in the cloud",
+        "1 have the same text and become one.",
+    ]
+    assert window.recent_heading.text() == "Recently changed in the cloud"
+    lines = [line.full_text() for line in window.recent_lines]
+    assert lines == ["회의록 11월", "Secret note", "Empty note"]
+    assert [line.font().italic() for line in window.recent_lines] == [False, True, True]
+    assert window.next_button.text() == "&Merge (recommended)" and window.next_button.isDefault()
+    assert window.cloud_only_button.isVisible() and not window.back_button.isVisible()
+    told = window.next_button.accessibleDescription()
+    assert "5 note(s) in the cloud" in told and "회의록 11월" in told
+    assert window.way_in.text() == ""  # not needed any more
+
+
+def test_merging_turns_sync_on_joining(qtbot: QtBot, keys: Keys, share: Path) -> None:
+    bench = opened_with_notes_here(qtbot, keys, share, Looking([A_LOOK]))
+    bench.press()
+    bench.page(bench.window.last_page)
+    assert [joining for _, joining in bench.logins] == [True]
+
+
+def test_keeping_only_the_cloud_notes_is_asked_again_and_enter_goes_back(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    looking = Looking([A_LOOK])
+    bench = opened_with_notes_here(qtbot, keys, share, looking)
+    window = bench.window
+    window.cloud_only_button.click()
+    assert window.pages.current() is window.confirm_page
+    assert window.confirm_text.text().startswith("This deletes the 2 note(s) on this computer")
+    assert window.back_button.isDefault() and not window.next_button.isDefault()
+    assert window.back_button.hasFocus()
+    assert window.back_button.accessibleDescription() == window.confirm_text.text()
+    QTest.keyClick(window, Qt.Key.Key_Return)
+    assert window.pages.current() is window.preview_page
+    assert looking.cloud_only == []
+
+    window.cloud_only_button.click()
+    assert window.next_button.text() == "&Delete and bring in"
+    bench.press()
+    bench.page(window.last_page)
+    assert len(looking.cloud_only) == 1 and bench.logins == []
+
+
+def test_a_backup_that_cannot_be_made_is_said_and_nothing_is_kept(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    looking = Looking([A_LOOK], no_backup=True)
+    bench = opened_with_notes_here(qtbot, keys, share, looking)
+    bench.window.cloud_only_button.click()
+    bench.press()
+    assert bench.window.pages.current() is bench.window.confirm_page
+    assert "Couldn't make the backup" in bench.said()
+    assert looking.cloud_only == [] and bench.logins == []
+
+
+def test_cancelled_while_it_shows_what_merging_would_make_nothing_is_kept(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    looking = Looking([A_LOOK])
+    bench = opened_with_notes_here(qtbot, keys, share, looking)
+    bench.window.cloud_only_button.click()
+    bench.window.cancel_button.click()
+    assert bench.logins == [] and looking.cloud_only == []
+
+
+@pytest.mark.parametrize(
+    ("look", "notes_here"),
+    [
+        pytest.param(A_LOOK, 0, id="no notes here"),
+        pytest.param(FirstLook(3, 5, 3, []), 3, id="each one of the cloud's"),
+        pytest.param(FirstLook(0, 5, 0, []), 1, id="only the welcome note"),
+    ],
+)
+def test_with_nothing_of_its_own_to_weigh_it_merges_without_asking(
+    qtbot: QtBot, keys: Keys, share: Path, look: FirstLook, notes_here: int
+) -> None:
+    looking = Looking([look])
+    bench = opened_with_notes_here(qtbot, keys, share, looking, notes_here)
+    assert bench.window.pages.current() is bench.window.last_page
+    assert [joining for _, joining in bench.logins] == [True]
+    assert len(looking.asked) == (0 if notes_here == 0 else 1)
+
+
+def test_a_download_that_fails_is_said_and_tried_again(
+    qtbot: QtBot, keys: Keys, share: Path
+) -> None:
+    looking = Looking([None, A_LOOK])
+    bench = opened_with_notes_here(qtbot, keys, share, looking)
+    window = bench.window
+    assert window.pages.current() is window.preview_page
+    assert "Couldn't download the notes in the cloud" in bench.said()
+    assert window.next_button.text() == "&Try again" and window.next_button.isEnabled()
+    assert not window.cloud_only_button.isVisible() and not window.preview_counts.isVisible()
+    bench.press()
+    bench.idle()
+    assert window.preview_counts.isVisible() and window.cloud_only_button.isVisible()
+    assert len(looking.asked) == 2 and bench.logins == []
+
+
+@pytest.mark.parametrize(("of", "counted"), [(40, True), (20, False)])
+def test_how_far_the_download_has_got_is_said_when_there_are_many(
+    qtbot: QtBot, keys: Keys, share: Path, of: int, counted: bool
+) -> None:
+    hold = threading.Event()
+    looking = Looking([A_LOOK], moves=[(GETTING, 1, of), (GETTING, 7, of)], hold=hold)
+    bench = make_bench(qtbot, keys, looking=looking)
+    with webdav(share, PASSWORD) as server:
+        folder_there(server)
+        bench.connect(on_server(server))
+        bench.page(bench.window.present_page)
+        bench.idle()
+        bench.window.way_in.setText(RECOVERY)
+        bench.press()
+        qtbot.waitUntil(lambda: bench.window.pages.current() is bench.window.preview_page)
+        if counted:
+            qtbot.waitUntil(lambda: f"· 7 of {of}" in bench.said(), timeout=MS)
+        else:
+            qtbot.wait(100)
+            assert bench.said() == "Downloading the notes in the cloud…"
+        assert not bench.window.next_button.isEnabled()  # busy
+        hold.set()
+        bench.idle()
+    assert bench.said() == ""
+    assert bench.window.preview_counts.isVisible()
+
+
+def test_a_long_first_line_does_not_widen_the_window(qtbot: QtBot, keys: Keys, share: Path) -> None:
+    long_line = "아주 긴 첫 줄 " * 80
+    bench = opened_with_notes_here(qtbot, keys, share, Looking([FirstLook(2, 5, 0, [long_line])]))
+    window = bench.window
+    assert window.width() == WIDTH
+    shown = window.recent_lines[0]
+    assert shown.full_text() == long_line and shown.text().endswith("…")
+    assert not window.recent_lines[1].isVisible()
+
+
 # Cancelled
 
 
@@ -943,12 +1155,23 @@ class Pc:
     path: Path
     started: list[Syncing]
 
-    def connect(self, login: Login, joining: bool) -> Syncing:
+    def connect(self, login: Login, joining: bool, only_the_cloud: bool = False) -> Syncing:
         started = connect_sync(
-            self.db, self.path, DB_KEY, login, joining, self.clocks, self.manager, None
+            self.db,
+            self.path,
+            DB_KEY,
+            login,
+            joining,
+            self.clocks,
+            self.manager,
+            None,
+            only_the_cloud=only_the_cloud,
         )
         self.started.append(started)
         return started
+
+    def look(self, login: Login, moving: Callable[[str, int, int], None]) -> FirstLook | None:
+        return look_first(self.path, DB_KEY, login, moving)
 
     def setup(self, keys: Keys) -> SyncSetup:
         return SyncSetup(
@@ -958,6 +1181,8 @@ class Pc:
             lambda: PAIRS,
             self.connect,
             lambda: None,
+            self.look,
+            lambda login: self.connect(login, True, only_the_cloud=True),
         )
 
     def end(self) -> None:
@@ -1071,6 +1296,116 @@ def test_one_computer_turns_sync_on_and_another_joins_and_gets_its_note(
         second.end()
 
 
+def files_of(share: Path) -> dict[str, bytes]:
+    root = share / "share"
+    return {
+        str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()
+    }
+
+
+def texts(pc: Pc) -> list[str]:
+    return sorted(note.body for note in pc.notes.live())
+
+
+def first_has_made_the_folder(qtbot: QtBot, first: Pc, keys: Keys, server: Server) -> None:
+    window = TurnOnSync(first.setup(keys))
+    window.show()
+    bench = Bench(window, qtbot, [], FakeSyncing())
+    bench.connect(on_server(server))
+    bench.page(window.absent_page)
+    bench.idle()
+    bench.press()
+    qtbot.waitUntil(lambda: "On your other" in window.last_line.text(), timeout=MS)
+    window.reject()
+
+
+def second_sees_what_merging_would_make(
+    qtbot: QtBot, second: Pc, keys: Keys, server: Server
+) -> Bench:
+    window = TurnOnSync(second.setup(keys))
+    window.show()
+    bench = Bench(window, qtbot, [], FakeSyncing())
+    bench.connect(on_server(server))
+    bench.page(window.present_page)
+    bench.idle()
+    window.way_in.setText(RECOVERY)
+    bench.press()
+    bench.page(window.preview_page)
+    bench.idle()
+    return bench
+
+
+def test_a_computer_with_notes_merges_with_the_cloud_once_the_user_says_so(
+    qtbot: QtBot, tmp_path: Path, share: Path, keys: Keys
+) -> None:
+    first, second = make_pc(tmp_path, "first"), make_pc(tmp_path, "second")
+    for text in ("같은 글", "첫 PC의 글"):
+        first.notes.create(text)
+    for text in ("같은 글", "둘째 PC의 글"):
+        second.notes.create(text)
+    second.manager.open_stored()
+    with webdav(share, PASSWORD) as server:
+        first_has_made_the_folder(qtbot, first, keys, server)
+        before = files_of(share)
+        bench = second_sees_what_merging_would_make(qtbot, second, keys, server)
+        window = bench.window
+        assert window.preview_counts.text().splitlines() == [
+            "2 note(s) on this computer",
+            "2 note(s) in the cloud",
+            "1 have the same text and become one.",
+        ]
+        shown = sorted(line.full_text() for line in window.recent_lines if not line.isHidden())
+        assert shown == ["같은 글", "첫 PC의 글"]
+        # Nothing kept, here or there, before the user chooses.
+        assert sync_connection.current(second.db) is None
+        assert second.clocks.cloud is None
+        assert texts(second) == ["같은 글", "둘째 PC의 글"]
+        assert files_of(share) == before
+        bench.press()
+        bench.page(window.last_page)
+        qtbot.waitUntil(lambda: "now sync too" in window.last_line.text(), timeout=MS)
+        window.reject()
+    assert texts(second) == ["같은 글", "둘째 PC의 글", "첫 PC의 글"]  # 2 + 2 - 1
+    assert sorted(each.text for each in second.manager.windows) == texts(second)
+    first.end()
+    second.end()
+
+
+def test_keeping_only_the_cloud_notes_backs_up_what_was_typed_and_brings_in_the_clouds(
+    qtbot: QtBot, tmp_path: Path, share: Path, keys: Keys
+) -> None:
+    first, second = make_pc(tmp_path, "first"), make_pc(tmp_path, "second")
+    first.notes.create("첫 PC의 글")
+    typed_in = second.notes.create("둘째 PC의 글").id
+    second.notes.delete(second.notes.create("둘째 PC의 휴지통").id)
+    second.manager.open_stored()
+    with webdav(share, PASSWORD) as server:
+        first_has_made_the_folder(qtbot, first, keys, server)
+        bench = second_sees_what_merging_would_make(qtbot, second, keys, server)
+        window = bench.window
+        assert window.preview_counts.text().splitlines()[0] == "1 note(s) on this computer"
+        typing = second.manager.window_for(typed_in)
+        assert isinstance(typing, NoteWindow)
+        typing.edit()
+        typing.editor.insertPlainText(" 고침")  # not saved yet
+        window.cloud_only_button.click()
+        bench.press()  # straight on: what is typed is saved before the backup
+        bench.page(window.last_page)
+        qtbot.waitUntil(lambda: "now sync too" in window.last_line.text(), timeout=MS)
+        window.reject()
+    assert [note.body for note in second.notes.all()] == ["첫 PC의 글"]  # the trash too
+    assert second.notes.deletion_records() == []
+    assert [each.text for each in second.manager.windows] == ["첫 PC의 글"]
+    assert sync_connection.current(second.db) is not None
+    (backup,) = backups(second.path)
+    kept = open_database(backup.path, DB_KEY, read_only=True)
+    bodies = sorted(str(row[0]) for row in kept.execute("SELECT body FROM notes"))
+    kept.close()
+    assert bodies == ["둘째 PC의 글 고침", "둘째 PC의 휴지통"]
+    first.end()
+    second.end()
+
+
 REAL_MS = 60_000
 
 
@@ -1082,6 +1417,7 @@ def test_on_a_real_server_one_computer_turns_it_on_and_another_joins(
     assert given is not None
     first, second = make_pc(tmp_path, "first"), make_pc(tmp_path, "second")
     made = first.notes.create("made on the first computer")
+    own = second.notes.create("made on the second computer")  # what merging would make shown
 
     def up_to_the_folder(pc: Pc, address: str) -> TurnOnSync:
         window = TurnOnSync(pc.setup(keys))
@@ -1109,10 +1445,19 @@ def test_on_a_real_server_one_computer_turns_it_on_and_another_joins(
         assert other.pages.current() is other.present_page
         other.way_in.setText(RECOVERY)
         other.next_button.click()
+        qtbot.waitUntil(lambda: other.pages.current() is other.preview_page, timeout=REAL_MS)
+        qtbot.waitUntil(lambda: other.back_button.isEnabled(), timeout=REAL_MS)
+        assert other.preview_counts.text().splitlines()[:2] == [
+            "1 note(s) on this computer",
+            "1 note(s) in the cloud",
+        ]
+        assert sync_connection.current(second.db) is None
+        other.next_button.click()  # merge
         qtbot.waitUntil(lambda: other.pages.current() is other.last_page, timeout=REAL_MS)
         qtbot.waitUntil(lambda: "now sync too" in other.last_line.text(), timeout=REAL_MS)
         other.reject()
         got = second.notes.get(made.id)
         assert got is not None and got.body == "made on the first computer"
+        assert second.notes.get(own.id) is not None
         first.end()
         second.end()

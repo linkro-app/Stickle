@@ -2341,8 +2341,8 @@ class NoteManager(QObject):
             if note is not None and not note.hidden and not note.deleted:
                 self._open_taken_in(note)
             return
-        if window.secret:
-            return  # secret notes are not synced yet
+        if window.secret and note is not None:
+            return  # secret notes are not synced yet (but one let go of goes)
         editing = self._being_edited(window)
         if note is None or ((note.hidden or note.deleted) and not editing):
             self._autosaves[window].stop()

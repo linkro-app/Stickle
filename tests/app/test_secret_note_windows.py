@@ -223,6 +223,21 @@ def earlier_rows(connection: apsw.Connection, window: NoteWindow) -> list[tuple[
     return [(body, sealed) for body, sealed in rows]
 
 
+# Let go of (keeping only a cloud's notes, turning sync on): its window goes
+
+
+def test_a_secret_note_let_go_of_closes_its_window_one_still_there_stays(
+    qtbot: QtBot, manager: NoteManager, answers: Answers, connection: apsw.Connection
+) -> None:
+    gone = secret_note(qtbot, manager, answers)
+    stays = secret_note(qtbot, manager, answers, "남는 비밀", first=False)
+    assert gone.note_id is not None and stays.note_id is not None
+    NoteRepository(connection).drop(gone.note_id)
+    manager.take_in([gone.note_id, stays.note_id])
+    assert manager.window_for(gone.note_id) is None
+    assert manager.window_for(stays.note_id) is stays and stays.secret
+
+
 # Its earlier versions follow it: sealed when made secret, opened when made ordinary
 
 

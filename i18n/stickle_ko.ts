@@ -4400,6 +4400,14 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>뒤로(&amp;B)</translation>
     </message>
     <message>
+        <source>&amp;Keep only the cloud notes…</source>
+        <translation>클라우드 것만 쓰기(&amp;K)…</translation>
+    </message>
+    <message>
+        <source>Recently changed in the cloud</source>
+        <translation>클라우드에서 최근에 고친 메모</translation>
+    </message>
+    <message>
         <source>Close</source>
         <translation>닫기</translation>
     </message>
@@ -4422,6 +4430,18 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>&amp;Open</source>
         <translation>열기(&amp;O)</translation>
+    </message>
+    <message>
+        <source>&amp;Try again</source>
+        <translation>다시 시도(&amp;T)</translation>
+    </message>
+    <message>
+        <source>&amp;Merge (recommended)</source>
+        <translation>합치기(추천)(&amp;M)</translation>
+    </message>
+    <message>
+        <source>&amp;Delete and bring in</source>
+        <translation>지우고 받기(&amp;D)</translation>
     </message>
     <message>
         <source>&amp;Next</source>
@@ -4476,9 +4496,9 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>이 예비 암호로는 이 Stickle 폴더를 열 수 없습니다.</translation>
     </message>
     <message numerus="yes">
-        <source>Stickle will make its folder in %1 and upload the %n note(s) on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</source>
+        <source>Stickle will make its folder in %1 and upload the %Ln note(s) on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</source>
         <translation>
-            <numerusform>%1에 Stickle 폴더를 만들고 이 PC의 메모 %n개를 올립니다. 다른 PC에서는 이 PC의 복구 키나 예비 암호로 동기화를 켭니다.</numerusform>
+            <numerusform>%1에 Stickle 폴더를 만들고 이 PC의 메모 %Ln개를 올립니다. 다른 PC에서는 이 PC의 복구 키나 예비 암호로 동기화를 켭니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -4520,6 +4540,54 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Opening the Stickle folder…</source>
         <translation>Stickle 폴더를 여는 중입니다…</translation>
+    </message>
+    <message>
+        <source>Downloading the notes in the cloud…</source>
+        <translation>클라우드 메모를 받는 중입니다…</translation>
+    </message>
+    <message>
+        <source>Downloading the notes in the cloud · %1 of %2</source>
+        <translation>클라우드 메모를 받는 중입니다 · %2개 중 %1개</translation>
+    </message>
+    <message>
+        <source>Couldn&apos;t download the notes in the cloud. Check your network and try again.</source>
+        <translation>클라우드 메모를 받지 못했습니다. 네트워크를 확인하고 다시 해 보세요.</translation>
+    </message>
+    <message>
+        <source>Secret note</source>
+        <translation>비밀 메모</translation>
+    </message>
+    <message>
+        <source>Empty note</source>
+        <translation>빈 메모</translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln note(s) on this computer</source>
+        <translation>
+            <numerusform>이 PC 메모 %Ln개</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln note(s) in the cloud</source>
+        <translation>
+            <numerusform>클라우드 메모 %Ln개</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln have the same text and become one.</source>
+        <translation>
+            <numerusform>내용이 같은 메모 %Ln개는 하나로 합칩니다.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>This deletes the %Ln note(s) on this computer and brings in the cloud notes. A backup is made first.</source>
+        <translation>
+            <numerusform>이 PC의 메모 %Ln개를 지우고 클라우드 메모를 받습니다. 지우기 전에 백업을 만듭니다.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Couldn&apos;t make the backup, so the notes on this computer weren&apos;t deleted. Check that the disk has room, then try again.</source>
+        <translation>백업을 만들지 못해 이 PC의 메모를 지우지 않았습니다. 디스크 공간을 확인하고 다시 해 보세요.</translation>
     </message>
     <message>
         <source>Downloading your notes. You can close this window; it carries on.</source>

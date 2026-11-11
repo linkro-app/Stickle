@@ -371,10 +371,38 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
 <context>
     <name>TurnOnSync</name>
     <message numerus="yes">
-        <source>Stickle will make its folder in %1 and upload the %n note(s) on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</source>
+        <source>Stickle will make its folder in %1 and upload the %Ln note(s) on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</source>
         <translation>
-            <numerusform>Stickle will make its folder in %1 and upload the %n note on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</numerusform>
-            <numerusform>Stickle will make its folder in %1 and upload the %n notes on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</numerusform>
+            <numerusform>Stickle will make its folder in %1 and upload the %Ln note on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</numerusform>
+            <numerusform>Stickle will make its folder in %1 and upload the %Ln notes on this computer. On your other computers, turn on sync with this computer&apos;s recovery key or spare password.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln note(s) on this computer</source>
+        <translation>
+            <numerusform>%Ln note on this computer</numerusform>
+            <numerusform>%Ln notes on this computer</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln note(s) in the cloud</source>
+        <translation>
+            <numerusform>%Ln note in the cloud</numerusform>
+            <numerusform>%Ln notes in the cloud</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%Ln have the same text and become one.</source>
+        <translation>
+            <numerusform>%Ln has the same text and becomes one.</numerusform>
+            <numerusform>%Ln have the same text and become one.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>This deletes the %Ln note(s) on this computer and brings in the cloud notes. A backup is made first.</source>
+        <translation>
+            <numerusform>This deletes the %Ln note on this computer and brings in the cloud notes. A backup is made first.</numerusform>
+            <numerusform>This deletes the %Ln notes on this computer and brings in the cloud notes. A backup is made first.</numerusform>
         </translation>
     </message>
 </context>

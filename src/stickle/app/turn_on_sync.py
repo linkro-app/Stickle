@@ -3,10 +3,14 @@ the server, and the Stickle folder there (made, or opened with what the other
 computers open it with), then the first round going on.
 
 Nothing is kept until the folder is made or opened: cancelled before that, this
-computer is as it was. Whatever talks to the server is done off the app's
-thread, so the window goes on answering. A wrong password is said, and tried
-again only when the user asks. No password goes to a server whose certificate
-no public authority issued until the user has looked at it and trusted it.
+computer is as it was. Opening a folder there before, with notes on this
+computer too, first shows what merging would make, the cloud's notes
+downloaded to count them; nothing is kept until the user chooses to merge or
+to keep only the cloud's notes. Whatever talks to the server is done off the
+app's thread, so the window goes on answering. A wrong password is said, and
+tried again only when the user asks. No password goes to a server whose
+certificate no public authority issued until the user has looked at it and
+trusted it.
 
 Opened on request: this is what brings TLS and HTTP into a run.
 """
@@ -15,8 +19,8 @@ import logging
 from collections.abc import Callable
 from typing import override
 
-from PySide6.QtCore import QEvent, QLocale, Qt
-from PySide6.QtGui import QFont, QFontDatabase, QShowEvent
+from PySide6.QtCore import QEvent, QLocale, QObject, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -25,6 +29,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QRadioButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -38,14 +43,14 @@ from stickle.app.secret_dialogs import (
     show_recovery_key,
 )
 from stickle.app.sync_setup import SyncGuideLine, SyncSetup
-from stickle.app.sync_status import WEBDAV_NAME, SyncWords
+from stickle.app.sync_status import MANY, WEBDAV_NAME, SyncWords
 from stickle.app.syncing import Ended
 from stickle.app.typed import forget_typed
 from stickle.crypto.keyfile import KeyFileError
 from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
 from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY
 from stickle.data.sync_connection import WEBDAV, Login
-from stickle.sync.engine import GETTING
+from stickle.sync.engine import GETTING, FirstLook
 from stickle.sync.format import NewerFormatError
 from stickle.sync.targets.base import CertificateError, NoAccessError, SignInNeededError
 from stickle.sync.targets.webdav import (
@@ -73,6 +78,8 @@ log = logging.getLogger(__name__)
 WIDTH = 540
 GROUP = 2  # characters of a fingerprint shown together
 GROUPS_IN_A_LINE = 16
+SHADE = 0.65  # dim text: this much of the text's colour over the window's, still easy to read
+RECENT = 3  # the cloud's notes edited last whose first lines are shown
 
 
 def shown_fingerprint(certificate: bytes) -> str:
@@ -111,6 +118,55 @@ def _page() -> tuple[QWidget, QVBoxLayout]:
     layout = QVBoxLayout(page)
     layout.setContentsMargins(0, 0, 0, 0)
     return page, layout
+
+
+def _dim(label: QLabel, palette: QPalette) -> None:
+    """In a colour between the text's and the window's, from the window's palette."""
+    text = palette.color(QPalette.ColorRole.WindowText)
+    back = palette.color(QPalette.ColorRole.Window)
+    mixed = QColor(
+        round(text.red() * SHADE + back.red() * (1 - SHADE)),
+        round(text.green() * SHADE + back.green() * (1 - SHADE)),
+        round(text.blue() * SHADE + back.blue() * (1 - SHADE)),
+    )
+    shown = QPalette(label.palette())
+    shown.setColor(QPalette.ColorRole.WindowText, mixed)
+    label.setPalette(shown)
+
+
+class _OneLine(QLabel):
+    """A line of its own, cut short with … to the room there is (read whole by
+    screen readers): a long first line does not widen the window."""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self._full = ""
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+    def full_text(self) -> str:
+        return self._full
+
+    def set_full_text(self, text: str) -> None:
+        self._full = text
+        self.setAccessibleName(text)
+        self._fit()
+
+    @override
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._fit()
+
+    def _fit(self) -> None:
+        metrics = self.fontMetrics()
+        self.setText(metrics.elidedText(self._full, Qt.TextElideMode.ElideRight, self.width()))
+
+
+class _Relay(QObject):
+    """How far a download has got, from the thread doing it to the window: kept
+    by the work, so that a window gone meanwhile is not told."""
+
+    moved = Signal(str, int, int)
 
 
 class _Pages(QWidget):
@@ -155,6 +211,11 @@ class TurnOnSync(QDialog):
         self._joining = False
         self._ended = False  # the first round is through, or stopped
         self._line: Callable[[], str] = lambda: ""
+        # The folder opened, while what merging would make is shown: the login is
+        # read once, as the typed password is forgotten then.
+        self._opened_login: Login | None = None
+        self._preview: FirstLook | None = None  # what it would make (None: not known yet)
+        self._relay: _Relay | None = None
 
         self.pages = _Pages(self)
         self.intro_page = self._make_intro_page()
@@ -163,6 +224,8 @@ class TurnOnSync(QDialog):
         self.certificate_page = self._make_certificate_page()
         self.absent_page = self._make_absent_page()
         self.present_page = self._make_present_page()
+        self.preview_page = self._make_preview_page()
+        self.confirm_page = self._make_confirm_page()
         self.last_page = self._make_last_page()
         for page in (
             self.intro_page,
@@ -171,6 +234,8 @@ class TurnOnSync(QDialog):
             self.certificate_page,
             self.absent_page,
             self.present_page,
+            self.preview_page,
+            self.confirm_page,
             self.last_page,
         ):
             self.pages.add(page)
@@ -178,15 +243,22 @@ class TurnOnSync(QDialog):
         self.message = _wrapped(self)
         self.message.hide()
         self.back_button = QPushButton(self)
+        self.cloud_only_button = QPushButton(self)  # beside the next step, as the other choice
         self.next_button = QPushButton(self)
         self.cancel_button = QPushButton(self)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        for button in (self.back_button, self.next_button, self.cancel_button):
+        for button in (
+            self.back_button,
+            self.cloud_only_button,
+            self.next_button,
+            self.cancel_button,
+        ):
             button.setAutoDefault(False)
             buttons.addWidget(button)
         self.next_button.setDefault(True)
         self.back_button.clicked.connect(self._back)
+        self.cloud_only_button.clicked.connect(self._ask_cloud_only)
         self.next_button.clicked.connect(self._next)
         self.cancel_button.clicked.connect(self.reject)
 
@@ -305,6 +377,27 @@ class TurnOnSync(QDialog):
         self.way_in.textChanged.connect(self._update_buttons)
         return page
 
+    def _make_preview_page(self) -> QWidget:
+        page, layout = _page()
+        self.preview_counts = _wrapped(page)
+        self.recent_heading = _wrapped(page)
+        self.recent_lines = [_OneLine(page) for _ in range(RECENT)]
+        layout.addWidget(self.preview_counts)
+        layout.addSpacing(8)
+        layout.addWidget(self.recent_heading)
+        for line in self.recent_lines:
+            _dim(line, self.palette())
+            layout.addWidget(line)
+        layout.addStretch(1)
+        return page
+
+    def _make_confirm_page(self) -> QWidget:
+        page, layout = _page()
+        self.confirm_text = _wrapped(page)
+        layout.addWidget(self.confirm_text)
+        layout.addStretch(1)
+        return page
+
     def _make_last_page(self) -> QWidget:
         page, layout = _page()
         self.last_line = _wrapped(page)
@@ -369,9 +462,14 @@ class TurnOnSync(QDialog):
             )
         )
         self.back_button.setText(self.tr("&Back"))
+        self.cloud_only_button.setText(self.tr("&Keep only the cloud notes…"))
+        self.recent_heading.setText(self.tr("Recently changed in the cloud"))
         self._show_way_in_name()
         self._show_address_note()
         self._show_recovery_state()
+        self._show_look()
+        if self.pages.current() is self.preview_page and self._preview is not None:
+            self.next_button.setAccessibleDescription(self._look_told())
         self.last_line.setText(self._line())
         self._update_buttons()
 
@@ -379,6 +477,9 @@ class TurnOnSync(QDialog):
     def changeEvent(self, event: QEvent) -> None:
         if event.type() == QEvent.Type.LanguageChange:
             self.retranslate()
+        elif event.type() == QEvent.Type.PaletteChange:
+            for line in self.recent_lines:
+                _dim(line, self.palette())
         super().changeEvent(event)
 
     def _show(self, page: QWidget) -> None:
@@ -396,6 +497,14 @@ class TurnOnSync(QDialog):
             focus = self.cancel_button
         if page is self.absent_page and not self.next_button.isEnabled():
             focus = self.make_key_button
+        if page is self.confirm_page:
+            focus = self.back_button  # what cannot be undone is not one Enter away
+        # What the page says, with the button that has the keyboard.
+        if page is self.preview_page and self._preview is not None:
+            self.next_button.setAccessibleDescription(self._look_told())
+        self.back_button.setAccessibleDescription(
+            self.confirm_text.text() if page is self.confirm_page else ""
+        )
         focus.setFocus()
         self._fit()
 
@@ -419,11 +528,17 @@ class TurnOnSync(QDialog):
         busy = self._job is not None
         self.pages.setEnabled(not busy)
         last = page is self.last_page
-        self.back_button.setVisible(page is not self.intro_page and not last)
+        self.back_button.setVisible(page not in (self.intro_page, self.preview_page) and not last)
         self.back_button.setEnabled(not busy)
+        self.cloud_only_button.setVisible(page is self.preview_page and self._preview is not None)
+        self.cloud_only_button.setEnabled(not busy)
         self.next_button.setVisible(not last)
         self.next_button.setEnabled(not busy and self._can_go_on())
         self.next_button.setText(self._next_text())
+        # Enter does not delete: on the page that asks, it goes back.
+        asking = page is self.confirm_page
+        self.next_button.setDefault(not asking)
+        self.back_button.setDefault(asking)
         self.cancel_button.setText(self.tr("Close") if last else self.tr("Cancel"))
 
     def _next_text(self) -> str:
@@ -436,6 +551,12 @@ class TurnOnSync(QDialog):
             return self.tr("&Start")
         if page is self.present_page:
             return self.tr("&Open")
+        if page is self.preview_page:
+            if self._preview is None and self._job is None:  # the download failed
+                return self.tr("&Try again")
+            return self.tr("&Merge (recommended)")
+        if page is self.confirm_page:
+            return self.tr("&Delete and bring in")
         return self.tr("&Next")
 
     def _can_go_on(self) -> bool:
@@ -481,6 +602,8 @@ class TurnOnSync(QDialog):
             self._show(self.intro_page)
         elif page is self.server_page:
             self._show(self.choose_page)
+        elif page is self.confirm_page:
+            self._show(self.preview_page)
         else:
             self._close_target()
             self._show(self.server_page)
@@ -500,6 +623,13 @@ class TurnOnSync(QDialog):
             self._start()
         elif page is self.present_page:
             self._open()
+        elif page is self.preview_page:
+            if self._preview is None:
+                self._look_first()
+            else:
+                self._connected(self._ready_login(), True)
+        elif page is self.confirm_page:
+            self._connected(self._ready_login(), True, only_the_cloud=True)
 
     def _begin(self, work: Callable[[], object], then: Callable[..., None], busy: str) -> None:
         def ended(outcome: object) -> None:
@@ -657,7 +787,7 @@ class TurnOnSync(QDialog):
 
     def _absent_sentence(self) -> str:
         return self.tr(
-            "Stickle will make its folder in %1 and upload the %n note(s) on this computer."
+            "Stickle will make its folder in %1 and upload the %Ln note(s) on this computer."
             " On your other computers, turn on sync with this computer's recovery key or"
             " spare password.",
             "",
@@ -757,7 +887,7 @@ class TurnOnSync(QDialog):
 
     def _made(self, vault: object) -> None:
         assert isinstance(vault, Vault)
-        self._connected(vault, False)
+        self._connected(self._login(vault), False)
 
     # The Stickle folder is there: opened
 
@@ -788,13 +918,24 @@ class TurnOnSync(QDialog):
 
     def _opened(self, vault: object) -> None:
         assert isinstance(vault, Vault)
-        self._connected(vault, True)
+        login = self._login(vault)
+        if self._setup.look is None or self._setup.note_count() == 0:
+            self._connected(login, True)  # nothing here to weigh against the cloud's
+            return
+        self._opened_login = login
+        forget_typed(self, self.way_in)
+        self._close_target()  # the look reaches the server on its own
+        self._look_first()
 
-    # Connected
+    # What merging would make, before anything is kept
 
-    def _connected(self, vault: Vault, joining: bool) -> None:
+    def _ready_login(self) -> Login:
+        assert self._opened_login is not None
+        return self._opened_login
+
+    def _login(self, vault: Vault) -> Login:
         assert self._address is not None
-        login = Login(
+        return Login(
             vault.vault,
             WEBDAV,
             self._address.text,
@@ -803,15 +944,120 @@ class TurnOnSync(QDialog):
             vault.keys.keys,
             self._certificate,
         )
-        try:
-            syncing = self._setup.connect(login, joining)
-        except Exception as error:  # nothing kept: the user may try again
-            log.error("sync: could not be turned on: %s", type(error).__name__)
+
+    def _look_first(self) -> None:
+        look = self._setup.look
+        assert look is not None
+        login = self._ready_login()
+        relay = _Relay()
+        relay.moved.connect(self._moved_on)
+        self._relay = relay
+        self._preview = None
+        self._show(self.preview_page)
+        self._begin(
+            lambda: look(login, relay.moved.emit),
+            self._first_looked,
+            self.tr("Downloading the notes in the cloud…"),
+        )
+
+    def _moved_on(self, doing: str, done: int, of: int) -> None:
+        """How far the download has got, while it goes on and there are many."""
+        if self._job is None or doing != GETTING or of <= MANY:
+            return
+        locale = QLocale()
+        self._say(
+            self.tr("Downloading the notes in the cloud · %1 of %2")
+            .replace("%1", locale.toString(done))
+            .replace("%2", locale.toString(of))
+        )
+
+    def _first_looked(self, look: object) -> None:
+        self._relay = None
+        if not isinstance(look, FirstLook):
             self._fail(
                 self.tr(
-                    "Couldn't reach the server. Check the address and your network, then try again."
+                    "Couldn't download the notes in the cloud. Check your network and try again."
                 )
             )
+            return
+        if look.here <= look.alike:  # each of this computer's becomes one of the cloud's
+            self._connected(self._ready_login(), True)
+            return
+        self._preview = look
+        self._show_look()
+        self._show(self.preview_page)
+
+    def _show_look(self) -> None:
+        """What merging would make, on the page that shows it."""
+        look = self._preview
+        recent = [] if look is None else look.recent[:RECENT]
+        self.preview_counts.setVisible(look is not None)
+        self.recent_heading.setVisible(bool(recent))
+        for at, line in enumerate(self.recent_lines):
+            line.setVisible(at < len(recent))
+            title = recent[at] if at < len(recent) else ""
+            if title is None:
+                line.set_full_text(self.tr("Secret note"))
+            else:
+                line.set_full_text(title or self.tr("Empty note"))
+            font = QFont(line.font())
+            font.setItalic(not title)  # what stands for a line, not one of the note's
+            line.setFont(font)
+        if look is None:
+            return
+        counts = [
+            self.tr("%Ln note(s) on this computer", "", look.here),
+            self.tr("%Ln note(s) in the cloud", "", look.cloud),
+        ]
+        if look.alike:
+            counts.append(self.tr("%Ln have the same text and become one.", "", look.alike))
+        self.preview_counts.setText("\n".join(counts))
+        self.confirm_text.setText(
+            self.tr(
+                "This deletes the %Ln note(s) on this computer and brings in the cloud notes."
+                " A backup is made first.",
+                "",
+                look.here,
+            )
+        )
+
+    def _look_told(self) -> str:
+        """The page that shows what merging would make, as screen readers say it
+        with the button that has the keyboard."""
+        lines = [self.preview_counts.text()]
+        shown = [line.full_text() for line in self.recent_lines if not line.isHidden()]
+        if shown:
+            lines += [self.recent_heading.text(), *shown]
+        return "\n".join(lines)
+
+    def _ask_cloud_only(self) -> None:
+        self._show(self.confirm_page)
+
+    # Connected
+
+    def _connected(self, login: Login, joining: bool, only_the_cloud: bool = False) -> None:
+        try:
+            if only_the_cloud:
+                assert self._setup.connect_cloud_only is not None
+                syncing = self._setup.connect_cloud_only(login)
+            else:
+                syncing = self._setup.connect(login, joining)
+        except Exception as error:  # nothing kept, nothing let go of: the user may try again
+            log.error("sync: could not be turned on: %s", type(error).__name__)
+            if only_the_cloud:
+                self._fail(
+                    self.tr(
+                        "Couldn't make the backup, so the notes on this computer weren't"
+                        " deleted. Check that the disk has room, then try again."
+                    )
+                )
+            else:
+                self._fail(
+                    self.tr(
+                        "Couldn't reach the server. Check the address and your network,"
+                        " then try again."
+                    )
+                )
             return
         self._joining = joining
         self._close_target()

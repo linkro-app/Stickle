@@ -41,9 +41,7 @@ from stickle.sync.engine import (
     Place,
     Progress,
     Report,
-    cloud_only,
     first_look,
-    joined,
     sync_vault,
 )
 from stickle.sync.format import DEVICES, item_path
@@ -140,6 +138,7 @@ class _Rounds:
     progress: Progress | None = None
     editing: Editing | None = None  # the notes being edited on screen
     held: frozenset[str] = frozenset()  # those the last round held: read again
+    kept: bool = True  # the login is kept here (not yet, while turning sync on)
     _stopped: str | None = None
     _offset: int = 0
 
@@ -152,7 +151,8 @@ class _Rounds:
         return self._db
 
     def _no_longer_trusted(self) -> None:
-        sync_connection.no_longer_trusted(self.database())
+        if self.kept:
+            sync_connection.no_longer_trusted(self.database())
 
     def _new_target(self) -> Target:
         return self._reach(self.cloud.heard, self._no_longer_trusted)
@@ -222,26 +222,16 @@ class _Rounds:
         self.accept = True
 
     def first_look(self) -> FirstLook | None:
-        """What merging with the vault this device just joined would make; None
-        if it could not be looked at."""
+        """What merging with the vault this device joins would make; None if it
+        could not be looked at."""
         try:
             db = self.database()
-            return first_look(db, self.place_of(db), self.cloud.now, self.repository(db))
+            return first_look(
+                db, self.place_of(db), self.cloud.now, self.repository(db), self.progress
+            )
         except Exception as error:  # the user is told, and may try again
             log.warning("sync: could not look at the vault: %s", type(error).__name__)
             return None
-
-    def merge_first(self) -> None:
-        """This device's notes are merged with the vault's it just joined."""
-        joined(self.database(), self.login.vault)
-
-    def only_the_cloud(self) -> Ended:
-        """This device's notes let go of, after a backup, for the vault's it just joined."""
-        db = self.database()
-        notes = self.repository(db)
-        gone = [note.id for note in notes.all()]
-        cloud_only(db, notes, self.login.vault, self._back_up)
-        return Ended(Report(changed=gone), Outcome())
 
     def __call__(self, full: bool) -> Ended:
         report = Report()
@@ -322,11 +312,28 @@ class _Rounds:
             self._db = None
 
 
+def look_first(
+    store: Path,
+    key: bytes,
+    login: Login,
+    progress: Progress | None = None,
+    make_target: Callable[[Callable[[int, int], None], Callable[[], None]], Target] | None = None,
+) -> FirstLook | None:
+    """What merging this device's notes with those of the vault login opens would
+    make, before anything of it is kept here: on a connection of its own to the
+    notes database and to the cloud, off the app's thread. None if it could not
+    be looked at. progress: told as the vault's notes are read."""
+    rounds = _Rounds(store, key, login, CloudTime(since_start, 0), make_target, kept=False)
+    rounds.progress = progress
+    try:
+        return rounds.first_look()
+    finally:
+        rounds.close()
+
+
 class Syncing(QObject):
     # A round over and what it brought shown (Ended).
     round_shown = Signal(object)
-    # What merging with a vault just joined would make (FirstLook, None: not known).
-    first_looked = Signal(object)
     # A round's way through the notes: what it is doing, how many so far, of how many.
     moving = Signal(str, int, int)
     # The notes that, a minute after they changed, are still not in the cloud (ids).
@@ -483,20 +490,6 @@ class Syncing(QObject):
     def take_big_change(self) -> None:
         """The big change a round stopped for is taken in, after a backup."""
         self.runner.do(self._rounds.accept_next)
-        self.runner.asked()
-
-    def look_first(self) -> None:
-        """What merging with the vault just joined would make: first_looked says."""
-        self.runner.do(lambda: self.first_looked.emit(self._rounds.first_look()))
-
-    def merge_first(self) -> None:
-        """This device's notes merged with those of the vault it just joined."""
-        self.runner.do(self._rounds.merge_first)
-        self.runner.asked()
-
-    def keep_only_the_cloud(self) -> None:
-        """This device's notes let go of, after a backup, for the vault's."""
-        self.runner.do(lambda: self._round_ended.emit(self._rounds.only_the_cloud()))
         self.runner.asked()
 
     def _written(self, _kind: int, _database: str, table: str, row: int) -> None:

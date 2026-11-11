@@ -6,7 +6,7 @@ it reaches the state by the same methods the window's own flow calls."""
 # pyright: reportPrivateUsage=false
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 from PySide6.QtCore import QDate, QDateTime, QObject, QPoint, Qt, QTime, Signal
@@ -32,7 +32,7 @@ from stickle.app.turn_on_sync import TurnOnSync
 from stickle.crypto.recovery import RecoveryKeyTypoError
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.sync.devices import Other
-from stickle.sync.engine import GETTING, PUTTING, Report
+from stickle.sync.engine import GETTING, PUTTING, FirstLook, Report
 from stickle.sync.format import NewerFormatError
 from stickle.sync.outcome import Outcome, Stopped
 from stickle.sync.targets.base import CertificateError, NoAccessError, SignInNeededError
@@ -269,6 +269,64 @@ def _present_failing(error: Exception) -> Callable[[Stage], QWidget]:
         return window
 
     return build
+
+
+A_LOOK = FirstLook(12, 340, 3, ["장보기: 우유, 빵 · Groceries", None, ""])
+A_LONG_LOOK = FirstLook(1_000, 1_250, 0, [LONG_NAME * 3, LONG_ADDRESS * 2, "회의 10시"])
+
+
+def _preview(look: FirstLook) -> Callable[[Stage], QWidget]:
+    """What merging with a Stickle folder there before would make (a secret
+    note and an empty one among the cloud's last three)."""
+
+    def build(stage: Stage) -> QWidget:
+        window = _turn_on(stage)
+        window._preview = look
+        window._show_look()
+        window._show(window.preview_page)
+        return window
+
+    return build
+
+
+def _downloading(stage: Stage) -> QWidget:
+    window = _turn_on(stage)
+    window._show(window.preview_page)
+    window._job = cast("Job", object())  # as long as there is one, it is busy
+    window._update_buttons()
+    window._moved_on(GETTING, 340, 1_000)
+
+    def over() -> None:
+        window._job = None
+
+    stage.at_end(over)
+    return window
+
+
+def _download_failed(stage: Stage) -> QWidget:
+    window = _turn_on(stage)
+    window._show(window.preview_page)
+    window._first_looked(None)
+    return window
+
+
+def _confirm(stage: Stage) -> TurnOnSync:
+    window = cast("TurnOnSync", _preview(A_LOOK)(stage))
+    window.cloud_only_button.click()
+    return window
+
+
+def _confirm_failed(stage: Stage) -> QWidget:
+    def no_backup(_login: Login) -> Syncing:
+        raise OSError("the disk is full")
+
+    window = stage.keep(TurnOnSync(replace(_setup(None), connect_cloud_only=no_backup)))
+    window._opened_login = Login(VAULT, WEBDAV, ADDRESS, USER, PASSWORD, {1: bytes(32)})
+    window._preview = A_LOOK
+    window._show_look()
+    window._show(window.confirm_page)
+    window.next_button.click()
+    return window
 
 
 def _last(stage: Stage, joining: bool = False) -> TurnOnSync:
@@ -534,6 +592,12 @@ SCENES: list[Scene] = [
     Scene("turn-on-4-join-wrong", _present_failing(NoWayInError())),
     Scene("turn-on-4-join-typo", _present_failing(RecoveryKeyTypoError())),
     Scene("turn-on-4-join-newer", _present_failing(NewerFormatError())),
+    Scene("turn-on-4-preview", _preview(A_LOOK)),
+    Scene("turn-on-4-preview-long", _preview(A_LONG_LOOK)),
+    Scene("turn-on-4-preview-downloading", _downloading),
+    Scene("turn-on-4-preview-failed", _download_failed),
+    Scene("turn-on-4-confirm", _confirm),
+    Scene("turn-on-4-confirm-failed", _confirm_failed),
     Scene("turn-on-5-uploading", _last),
     Scene("turn-on-5-downloading", lambda stage: _last(stage, True)),
     Scene("turn-on-5-uploading-count", _last_moving(PUTTING, False)),

@@ -17,7 +17,7 @@ from sync_bed import VAULT, Clock, Device, settle
 from stickle.core import made_notes
 from stickle.data import sync_state
 from stickle.data.versions import VersionRepository
-from stickle.sync.engine import cloud_only, first_look, joined
+from stickle.sync.engine import GETTING, cloud_only, first_look, joined
 from stickle.sync.format import NOTES, item_at, item_path
 from stickle.sync.targets.base import UnavailableError
 
@@ -133,6 +133,27 @@ def test_the_first_look_tells_what_merging_would_make_and_takes_nothing_in(
     assert (looked.here, looked.cloud, looked.alike) == (5, 6, 2)
     assert looked.recent == ["A만 4", "A만 3", "A만 2"]
     assert _texts(b) == before
+
+
+def test_the_first_look_tells_how_far_it_has_got_and_writes_nothing_there(
+    two: tuple[FakeCloud, Device, Device],
+) -> None:
+    cloud, a, b = two
+    for text in ("하나", "둘", "셋"):
+        a.notes.create(text)
+    a.sync()
+    b.notes.create("B")
+    before = cloud.files()
+    told: list[tuple[str, int, int]] = []
+
+    def moving(doing: str, done: int, of: int) -> None:
+        told.append((doing, done, of))
+
+    first_look(b.db, b.place, b.clock, b.notes, moving)
+
+    assert told == [(GETTING, 1, 3), (GETTING, 2, 3), (GETTING, 3, 3)]
+    assert cloud.files() == before
+    assert not sync_state.joining(b.db, VAULT)
 
 
 def test_the_first_look_counts_a_note_the_vault_has_by_its_id_alike_when_its_text_is(
@@ -290,6 +311,30 @@ def test_keeping_only_the_vaults_notes_removes_nothing_if_the_backup_fails(
     with pytest.raises(OSError):
         cloud_only(b.db, b.notes, VAULT, failing)
     assert _texts(b) == ["B"] and not sync_state.joining(b.db, VAULT)
+
+
+def test_what_goes_along_with_keeping_only_the_vaults_notes_is_all_or_nothing(
+    two: tuple[FakeCloud, Device, Device],
+) -> None:
+    _, a, b = two
+    a.sync()
+    b.notes.create("B")
+    along: list[int] = []
+
+    def counted() -> None:
+        along.append(len(b.notes.all()))  # in the transaction: the notes already gone
+
+    assert cloud_only(b.db, b.notes, VAULT, lambda: None, counted) == 1
+    assert along == [0]
+
+    c_note = b.notes.create("C").id
+
+    def failing() -> None:
+        raise OSError("could not keep the login")
+
+    with pytest.raises(OSError):
+        cloud_only(b.db, b.notes, VAULT, lambda: None, failing)
+    assert [note.id for note in b.notes.all()] == [c_note]  # nothing let go of
 
 
 def test_a_first_round_cut_short_is_carried_on_as_it_began(

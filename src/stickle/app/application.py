@@ -111,6 +111,7 @@ from stickle.unlock import Unlock
 
 if TYPE_CHECKING:
     from stickle.app.syncing import Syncing
+    from stickle.sync.engine import FirstLook
 
 APP_ID = "co.linkro.stickle"
 
@@ -402,18 +403,39 @@ def connect_sync(
     manager: NoteManager,
     reminders: ReminderKeeper | None,
     display: SyncDisplay | None = None,
+    only_the_cloud: bool = False,
 ) -> Syncing:
     """Sync turned on while the app runs: how to reach the cloud kept, this run
     stamping things by the cloud's time from now on, and a first round at once.
-    joining: the vault was there before this device. display: told of it."""
+    joining: the vault was there before this device. display: told of it.
+    only_the_cloud: joining, this device's notes go first, what is typed saved
+    and a backup made before (if that fails, nothing is kept or let go of),
+    and taken away together with keeping the login."""
     from stickle.app.syncing import Syncing as SyncRun
     from stickle.app.syncing import cloud_time
-    from stickle.sync.engine import joined
+    from stickle.sync.engine import cloud_only, joined
 
-    with connection:
-        if joining:
-            joined(connection, login.vault)
-        sync_connection.keep(connection, login)
+    gone: list[str] = []
+    if only_the_cloud:
+        manager.save_all()
+        notes = NoteRepository(connection, clocks.stamp, clocks.millis)
+        gone = [note.id for note in notes.all()]
+        cloud_only(
+            connection,
+            notes,
+            login.vault,
+            lambda: take(connection, store),
+            lambda: sync_connection.keep(connection, login),
+        )
+    else:
+        with connection:
+            if joining:
+                joined(connection, login.vault)
+            sync_connection.keep(connection, login)
+    if gone:
+        manager.take_in(gone)
+        if reminders is not None:
+            reminders.take_in(gone)
     started = SyncRun(
         connection, store, key, login, cloud_time(connection, clocks), manager, reminders
     )
@@ -975,7 +997,9 @@ def run(
         ):
             opened_with, database, notes_db = unlock.opened_key, unlock.database, connection
 
-            def connected(login: sync_connection.Login, joining: bool) -> Syncing:
+            def connected(
+                login: sync_connection.Login, joining: bool, only_the_cloud: bool = False
+            ) -> Syncing:
                 nonlocal syncing
                 syncing = connect_sync(
                     notes_db,
@@ -987,6 +1011,7 @@ def run(
                     manager,
                     reminders,
                     sync_display,
+                    only_the_cloud,
                 )
                 return syncing
 
@@ -996,6 +1021,13 @@ def run(
                     disconnect_sync(notes_db, syncing, clocks, sync_display)
                     syncing = None
 
+            def look(
+                login: sync_connection.Login, moving: Callable[[str, int, int], None]
+            ) -> FirstLook | None:
+                from stickle.app.syncing import look_first
+
+                return look_first(database, opened_with, login, moving)
+
             sync_setup = SyncSetup(
                 lambda: syncing,
                 recovery,
@@ -1003,6 +1035,8 @@ def run(
                 unlock.vault_pairs,
                 connected,
                 disconnected,
+                look,
+                lambda login: connected(login, True, only_the_cloud=True),
             )
         # Before any note opens: each offers to become a secret note.
         manager.secrets = secret_passwords(
