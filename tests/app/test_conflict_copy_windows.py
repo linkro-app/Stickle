@@ -11,7 +11,7 @@ from pathlib import Path
 import apsw
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from pytestqt.qtbot import QtBot
@@ -311,6 +311,35 @@ def test_a_copy_of_a_note_not_being_edited_opens_at_once(
     manager.take_in([copy_id])
 
     assert manager.window_for(copy_id) is not None
+
+
+@pytest.mark.parametrize("width", [260, 180])
+def test_a_short_note_shows_its_whole_band_before_its_text(
+    qtbot: QtBot, manager: NoteManager, notes: NoteRepository, width: int
+) -> None:
+    original_id = notes.create("원본").id
+    [copy] = opened(manager, copy_of(notes, original_id, "사본\n" * 20))
+    font = QFont(copy.font())
+    font.setPointSizeF(font.pointSizeF() * 1.4)  # lines as tall as Ubuntu's fonts make them
+    copy.setFont(font)
+
+    copy.resize(width, 200)
+
+    line = copy.conflict_bar.line
+    qtbot.waitUntil(lambda: line.height() >= line.heightForWidth(line.width()), timeout=2000)
+    assert copy.stack.height() > 0  # the text keeps a line, and scrolls
+
+
+def test_a_note_no_longer_a_copy_gives_its_text_its_room_again(
+    manager: NoteManager, notes: NoteRepository
+) -> None:
+    original_id = notes.create("원본").id
+    [copy] = opened(manager, copy_of(notes, original_id, "사본"))
+    assert copy.stack.minimumHeight() > 0
+
+    copy.set_copy(None)
+
+    assert copy.stack.minimumHeight() == 0
 
 
 def test_a_narrow_note_offers_the_three_under_resolve(

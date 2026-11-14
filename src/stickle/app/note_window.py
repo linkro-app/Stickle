@@ -1657,8 +1657,19 @@ class NoteWindow(QWidget):
                 bar.hide()
             if had_keyboard and copy is None:
                 self._back_from_band()
+            self._band_first()
         self._show_conflict()
         self._show_menu_state()
+
+    def _band_first(self) -> None:
+        """While a conflict copy's band shows, it has all the room it takes before
+        the text does: the text keeps a line at least, and scrolls. (In a short
+        note, or with a taller font, the band's line was cut off — Ubuntu.)"""
+        if self.copy is None:
+            self.stack.setMinimumHeight(0)  # as its parts ask again
+            return
+        line = self.view.fontMetrics().lineSpacing()
+        self.stack.setMinimumHeight(line + 2 * self.view.frameWidth() + 8)
 
     def set_copies(self, count: int) -> None:
         """An original's: how many conflict copies of it are out of the trash."""
