@@ -50,7 +50,7 @@ from stickle.app.sync_setup import SyncSetup
 from stickle.app.tray import Tray
 from stickle.app.update_check import UpdateCheck
 from stickle.app.whats_new import give_news
-from stickle.core.clock import Clock, Clocks, utc_now
+from stickle.core.clock import Clock, Clocks, stamp_of, utc_now
 from stickle.core.layout import Place, Rect, place_of
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import WrongRecoveryKeyError
@@ -70,6 +70,7 @@ from stickle.data.backups import (
 from stickle.data.colors import ColorRepository
 from stickle.data.database import WrongKeyError
 from stickle.data.export import ExportResult, SecretExport, export_all
+from stickle.data.going_back import GoneBack, keep_sync_state
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
@@ -128,6 +129,11 @@ def report_ready(perf: PerfMode, manager: NoteManager) -> None:
 log = logging.getLogger(__name__)
 _ended_by_signal = False
 _restore_staged = False
+# What the line telling of going back says, on a computer that syncs (else None).
+_going_back: GoneBack | None = None
+# Seconds a request still out at the end may take to come back before the
+# backup is put in place (it takes no more than its own time, 30 per step).
+SYNC_END_WAIT = 60.0
 
 
 def ended_by_signal() -> bool:
@@ -154,13 +160,15 @@ def go_back_to(
     """Back up the notes as they are, stage the backup and quit to put it in place.
     The notes secret now stay secret in it: their earlier text there sealed with
     secret_key, or, without it, their text as it is now; what goes with the key
-    files stays as it is now. False, with nothing changed, if the copies could
+    files stays as it is now. Sync goes on from it as it is now, once it has
+    ended (finish_going_back). False, with nothing changed, if the copies could
     not be made."""
-    global _restore_staged
+    global _restore_staged, _going_back
     manager.save_all()
     seal = None if secret_key is None else functools.partial(seal_text, secret_key)
     try:
-        take(connection, database, clock, before_restore=True)
+        taken = next((each.taken for each in backups(database) if each.path == backup), None)
+        before = take(connection, database, clock, before_restore=True)
         stage_restore(database, backup)
         kept = keep_secret_notes_secret(database, key, secret_notes_known(connection), seal)
         keep_key_state(database, key, connection)
@@ -172,9 +180,34 @@ def go_back_to(
         how = "their earlier text sealed" if seal is not None else "as they are now"
         log.info("%d secret notes kept secret in the backup, %s", kept, how)
     log.info("going back to a backup: starting again")
+    _going_back = None if taken is None else GoneBack(stamp_of(taken), before.name)
     _restore_staged = True
     QTimer.singleShot(0, quit_app)
     return True
+
+
+def finish_going_back(
+    connection: apsw.Connection,
+    database: Path,
+    key: bytes,
+    syncing: Syncing | None,
+    clocks: Clocks,
+) -> None:
+    """Last, before the database is closed to put the backup staged in its place:
+    once sync has ended, the copy goes on with sync as the database has it now,
+    and what changed since the backup goes to every computer that syncs
+    (stickle.data.going_back). If it cannot, the backup is not put in place,
+    and the notes stay as they are."""
+    if syncing is not None and not syncing.ended(SYNC_END_WAIT):
+        log.error("going back to a backup: sync did not end, the backup is not put in place")
+        cancel_restore(database)
+        return
+    try:
+        keep_sync_state(database, key, connection, clocks.millis(), _going_back)
+    except (OSError, apsw.Error, WrongKeyError, MigrationError) as error:
+        why = type(error).__name__
+        log.error("going back to a backup: %s, the backup is not put in place", why)
+        cancel_restore(database)
 
 
 def data_access(
@@ -259,6 +292,7 @@ def data_access(
             ),
             old_secret_texts=old_texts,
             secrets=lambda: manager.secrets,
+            syncs=lambda: sync_connection.current(connection) is not None,
         ),
         export=export,
         importing=ImportAccess(
@@ -1293,5 +1327,7 @@ def run(
     finally:
         watcher.close()
         if connection is not None:
+            if _restore_staged and unlock is not None and unlock.opened_key is not None:
+                finish_going_back(connection, unlock.database, unlock.opened_key, syncing, clocks)
             connection.close()
         log.info("quit")

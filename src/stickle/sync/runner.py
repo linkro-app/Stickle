@@ -157,6 +157,13 @@ class Runner[T: Turn]:
         """Whether the thread is still at it."""
         return self._thread.is_alive()
 
+    def join(self, seconds: float) -> bool:
+        """Waits for the thread to end, told to before (finish), seconds at
+        most; whether it has."""
+        if self._thread.is_alive():
+            self._thread.join(seconds)
+        return not self._thread.is_alive()
+
     @property
     def over(self) -> bool:
         """Whether the time it was given to end is up: no more requests."""

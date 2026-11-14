@@ -14,7 +14,7 @@ they were; made ordinary, they are opened again. They never go to the vault,
 but go into the full export with every other table.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import apsw
@@ -55,7 +55,21 @@ def keep(db: apsw.Connection, note_id: str, now: str, restored: bool = False) ->
     ).fetchall()
     if not rows:
         return False
-    body, sealed, digest, made_at, made_by = rows[0]
+    return keep_text(db, note_id, rows[0], now, restored)
+
+
+def keep_text(
+    db: apsw.Connection,
+    note_id: str,
+    text: Sequence[apsw.SQLiteValue],
+    now: str,
+    restored: bool = False,
+) -> bool:
+    """A text the note had, kept as an earlier one: as the note holds it (its
+    body, its sealed text or None, their hash, when it became its text, and
+    where from), read here or elsewhere (going back to a backup puts the text
+    of now in the copy put in place). False when there is none to keep."""
+    body, sealed, digest, made_at, made_by = text
     if sealed is None and not str(body).strip():
         return False
     db.execute(

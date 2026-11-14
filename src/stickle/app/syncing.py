@@ -690,3 +690,9 @@ class Syncing(QObject):
         self.runner.finish(seconds)
         if not self.runner.running:
             gc.enable()
+
+    def ended(self, seconds: float) -> bool:
+        """Once finished: waits for a request still out to come back (it takes
+        no more than its own time), seconds at most; whether it has. Nothing of
+        sync then writes to the database any more."""
+        return self.runner.join(seconds)

@@ -3,9 +3,10 @@
 import logging
 import secrets
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import apsw
 import pytest
@@ -17,18 +18,21 @@ from update_translations import TS_DIR, compile_to
 
 from stickle.app import application
 from stickle.app import backups as app_backups
-from stickle.app.application import data_access, go_back_to
+from stickle.app.application import data_access, finish_going_back, go_back_to
 from stickle.app.backups import BackupAccess, DailyBackups, RestoreDialog
 from stickle.app.i18n import Translations
 from stickle.app.notes import NoteManager
 from stickle.app.secret_dialogs import OpenSecretDialog
 from stickle.app.stickle_window import StickleWindow
+from stickle.app.syncing import Syncing
+from stickle.core.clock import Clocks
 from stickle.crypto.secret_notes import open_text, seal_text
-from stickle.data import backups
+from stickle.data import backups, sync_connection
 from stickle.data.backups import Backup, Contents
 from stickle.data.database import open_database
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
+from stickle.data.settings import SYNC_GONE_BACK, Settings
 from stickle.unlock import Unlock
 
 KEY = secrets.token_bytes(32)
@@ -421,3 +425,145 @@ def test_a_backup_with_no_earlier_secret_text_asks_nothing(
     dialog.restore_chosen()
 
     assert asked == [] and application.restore_staged()
+
+
+# On a computer that syncs
+
+
+def test_a_computer_that_syncs_is_told_every_computer_goes_back(
+    qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    found = [(Backup(tmp_path / "c.db", at(12), False), Contents(3, newer=False))]
+    restored: list[Path] = []
+    asked: list[tuple[str, str]] = []
+
+    def confirm(_parent: QWidget, _title: str, text: str, go: str) -> bool:
+        asked.append((text, go))
+        return True
+
+    monkeypatch.setattr(app_backups, "confirm", confirm)
+    access = replace(access_for(found, restored), syncs=lambda: True)
+    dialog = RestoreDialog(access)
+    qtbot.addWidget(dialog)
+
+    dialog.restore_chosen()
+
+    text, go = asked[0]
+    assert "on every computer that syncs, they go back to this backup" in text
+    assert "Notes made after the backup are kept" in text
+    assert "once sync is on again" in text
+    assert go == "&Go back on every computer"
+    assert restored == [tmp_path / "c.db"]
+
+
+def test_the_question_on_a_computer_that_syncs_reads_in_korean(
+    qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, translations: Translations
+) -> None:
+    translations.apply("ko")
+    found = [(Backup(tmp_path / "c.db", at(12), False), Contents(3, newer=False))]
+    asked: list[tuple[str, str]] = []
+
+    def confirm(_parent: QWidget, _title: str, text: str, go: str) -> bool:
+        asked.append((text, go))
+        return False
+
+    monkeypatch.setattr(app_backups, "confirm", confirm)
+    access = replace(access_for(found, []), syncs=lambda: True)
+    dialog = RestoreDialog(access)
+    qtbot.addWidget(dialog)
+
+    dialog.restore_chosen()
+
+    text, go = asked[0]
+    assert "동기화하는 모든 PC의 메모가 이 백업으로 되돌아갑니다" in text
+    assert go == "모든 PC에서 되돌리기(&G)"
+
+
+def test_going_back_without_asking_asks_nothing(
+    qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    found = [(Backup(tmp_path / "c.db", at(12), True), Contents(3, newer=False))]
+    restored: list[Path] = []
+
+    def never(*_args: object) -> bool:
+        raise AssertionError("asked")
+
+    monkeypatch.setattr(app_backups, "confirm", never)
+    access = replace(access_for(found, restored), syncs=lambda: True)
+    dialog = RestoreDialog(access)
+    qtbot.addWidget(dialog)
+
+    assert dialog.go_back(tmp_path / "c.db", at(12), ask=False)
+    assert restored == [tmp_path / "c.db"]
+
+
+def syncs_here(connection: apsw.Connection) -> None:
+    login = sync_connection.Login("vault", sync_connection.WEBDAV, "https://dav", "u", "p", {})
+    sync_connection.keep(connection, login)
+
+
+class Ending:
+    """A sync told to end: whether it does in the time it is given."""
+
+    def __init__(self, ends: bool) -> None:
+        self.ends = ends
+        self.waited: list[float] = []
+
+    def ended(self, seconds: float) -> bool:
+        self.waited.append(seconds)
+        return self.ends
+
+
+def test_going_back_on_a_computer_that_syncs_goes_on_with_sync_as_it_is_now(
+    qtbot: QtBot, connection: apsw.Connection, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(application, "_restore_staged", False)
+    notes = NoteRepository(connection)
+    notes.create("그때")
+    chosen = backups.take(connection, database, FakeClock("2026-10-17T12:00:00.000Z"))
+    syncs_here(connection)  # turned on since the backup
+    quits: list[bool] = []
+    assert go_back_to(
+        chosen, NoteManager(notes), connection, database, KEY, lambda: quits.append(True)
+    )
+    qtbot.waitUntil(lambda: quits == [True])
+    sync = Ending(True)
+
+    finish_going_back(connection, database, KEY, cast(Syncing, sync), Clocks())
+    connection.close()
+    assert backups.finish_restore(database)
+
+    assert sync.waited == [application.SYNC_END_WAIT]
+    put = open_store(database, KEY)
+    try:
+        assert sync_connection.current(put) is not None  # not the backup's: none then
+        told = Settings(put).get(SYNC_GONE_BACK)
+        before = [b for b in backups.backups(database) if b.before_restore]
+        assert told == {"to": "2026-10-17T12:00:00.000Z", "before": before[0].path.name}
+    finally:
+        put.close()
+
+
+def test_a_sync_that_does_not_end_leaves_the_notes_as_they_are(
+    qtbot: QtBot,
+    connection: apsw.Connection,
+    database: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(application, "_restore_staged", False)
+    notes = NoteRepository(connection)
+    chosen = backups.take(connection, database, FakeClock("2026-10-17T12:00:00.000Z"))
+    notes.create("지금")
+    quits: list[bool] = []
+    assert go_back_to(
+        chosen, NoteManager(notes), connection, database, KEY, lambda: quits.append(True)
+    )
+    qtbot.waitUntil(lambda: quits == [True])
+
+    with caplog.at_level(logging.ERROR):
+        finish_going_back(connection, database, KEY, cast(Syncing, Ending(False)), Clocks())
+
+    assert not database.with_name("notes.db.restoring").exists()
+    assert "sync did not end" in caplog.text
+    assert not backups.finish_restore(database)  # nothing to put in place: as they are

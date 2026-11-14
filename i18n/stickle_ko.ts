@@ -3138,6 +3138,22 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
     <message>
         <source>Go back to your notes as they were at %1?
 
+This computer syncs its notes: on every computer that syncs, they go back to this backup. The text of each as it is now stays in each computer&apos;s &quot;Earlier versions&quot;, and all your notes as they are now in this computer&apos;s backup from before going back. Notes made after the backup are kept. Stickle then starts again.
+
+With sync turned off first, the notes gone back to still reach the other computers once sync is on again.</source>
+        <translation>메모를 %1 상태로 되돌릴까요?
+
+이 PC는 동기화를 켜 두었습니다. 동기화하는 모든 PC의 메모가 이 백업으로 되돌아갑니다. 지금 글은 각 PC의 &quot;이전 버전&quot;에, 지금 메모 전체는 이 PC의 &quot;되돌리기 직전 상태&quot; 백업에 남습니다. 백업 뒤에 만든 메모는 그대로 둡니다. 그다음 Stickle이 다시 시작됩니다.
+
+동기화를 끄고 되돌려도, 다시 켜면 되돌린 메모가 다른 PC로 갑니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Go back on every computer</source>
+        <translation>모든 PC에서 되돌리기(&amp;G)</translation>
+    </message>
+    <message>
+        <source>Go back to your notes as they were at %1?
+
 Your notes as they are now are backed up first, so you can come back to them the same way. Stickle then starts again.</source>
         <translation>메모를 %1 상태로 되돌릴까요?
 
@@ -3929,6 +3945,17 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>
             <numerusform>동기화하지 않는 동안 다른 PC에서 지운 메모 %n개를 이 PC에서도 휴지통으로 옮겼습니다.</numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Every computer that syncs went back to the backup from %1.</source>
+        <translation>동기화하는 모든 PC를 %1 백업으로 되돌렸습니다.</translation>
+    </message>
+</context>
+<context>
+    <name>SyncGoneBackLine</name>
+    <message>
+        <source>&amp;Undo</source>
+        <translation>되돌리기 전으로(&amp;U)</translation>
     </message>
 </context>
 <context>

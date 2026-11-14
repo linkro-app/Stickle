@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import apsw
 
 WEBDAV = "webdav"
-_OFFSET = "cloud_offset"
+OFFSET = "cloud_offset"  # the key of how far the cloud's clock is, among the counters
 
 
 @dataclass(frozen=True)
@@ -93,7 +93,7 @@ def set_stopped(connection: apsw.Connection, why: str | None) -> None:
 
 def cloud_offset(connection: apsw.Connection) -> int:
     """The cloud's clock less this computer's, in milliseconds, as last known."""
-    rows = connection.execute("SELECT value FROM local_counters WHERE key = ?", (_OFFSET,))
+    rows = connection.execute("SELECT value FROM local_counters WHERE key = ?", (OFFSET,))
     found = rows.fetchall()
     return int(found[0][0]) if found else 0  # pyright: ignore[reportArgumentType]
 
@@ -102,11 +102,11 @@ def keep_cloud_offset(connection: apsw.Connection, offset: int) -> None:
     connection.execute(
         "INSERT INTO local_counters (key, value) VALUES (?, ?)"
         " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (_OFFSET, offset),
+        (OFFSET, offset),
     )
 
 
 def forget(connection: apsw.Connection) -> None:
     with connection:
         connection.execute("DELETE FROM sync_connection")
-        connection.execute("DELETE FROM local_counters WHERE key = ?", (_OFFSET,))
+        connection.execute("DELETE FROM local_counters WHERE key = ?", (OFFSET,))

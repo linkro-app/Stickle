@@ -61,11 +61,18 @@ from test_unlock import FAST, Store
 
 from stickle import unlock as unlocking
 from stickle.app import application
-from stickle.app.application import go_back_to, master_passwords, recovery_keys, secret_passwords
+from stickle.app.application import (
+    finish_going_back,
+    go_back_to,
+    master_passwords,
+    recovery_keys,
+    secret_passwords,
+)
 from stickle.app.master_password import MasterPasswords
 from stickle.app.notes import NoteManager
 from stickle.app.recovery_key_dialog import RecoveryKeys
 from stickle.app.secret_dialogs import SecretPasswords
+from stickle.core.clock import Clocks
 from stickle.core.colors import DEFAULT_COLOR
 from stickle.crypto import key_files, master, recovery
 from stickle.crypto.key_files import NAMES, SECOND_FOLDER, B, C
@@ -741,7 +748,10 @@ class SecretNotesMachine(RuleBasedStateMachine):
                     secret_key,
                 )
             if staged:
-                failed = writes.step()  # Stickle has quit: the copy put in place
+                # Stickle has quit: sync goes on from the copy as it is now (with none
+                # here, what changed since is still stamped anew), then it is put in place.
+                finish_going_back(self.connection, database, self.database_key, None, Clocks())
+                failed = writes.step()
                 self.connection.close()
                 if failed:
                     cancel_restore(database)

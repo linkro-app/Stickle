@@ -82,6 +82,9 @@ class BackupAccess:
     # How many notes secret now the backup holds the earlier text of, in the clear.
     old_secret_texts: Callable[[Path], int] = lambda _path: 0
     secrets: Callable[[], SecretPasswords | None] = lambda: None
+    # Whether this computer syncs: going back then takes every computer that
+    # syncs back too, which the user is told before.
+    syncs: Callable[[], bool] = lambda: False
 
 
 def _confirm(parent: QWidget, title: str, text: str, go: str) -> bool:
@@ -220,8 +223,49 @@ class RestoreDialog(QDialog):
         item = self._chosen()
         if item is None:
             return
-        moment = when(item.data(Qt.ItemDataRole.UserRole + 1))
-        asked = confirm(
+        self.go_back(
+            Path(item.data(Qt.ItemDataRole.UserRole)), item.data(Qt.ItemDataRole.UserRole + 1)
+        )
+
+    def go_back(self, path: Path, taken: datetime, ask: bool = True) -> bool:
+        """Back to the backup at path, taken then; asked first (ask) on what
+        that does, and for the secret notes' password when the backup holds the
+        earlier text of notes secret now. Whether it is on its way (Stickle
+        starts again); a backup that could not be gone back to is said so here."""
+        if ask and not self._asked(when(taken)):
+            return False
+        secret_key: bytes | None = None
+        found = self._access.old_secret_texts(path)
+        secrets = self._access.secrets()
+        if found and secrets is not None:
+            dialog = OpenSecretDialog(secrets, parent=self, purpose="restore", count=found)
+            if not ask_secret(dialog):
+                return False
+            secret_key = dialog.take_key()  # None: those notes stay as they are now
+        if not self._access.restore(path, secret_key):
+            self.problem.setText(self.tr("The notes could not be restored. Nothing was changed."))
+            self.problem.show()
+            return False
+        return True
+
+    def _asked(self, moment: str) -> bool:
+        if self._access.syncs():
+            return confirm(
+                self,
+                self.tr("Restore from a backup"),
+                self.tr(
+                    "Go back to your notes as they were at %1?\n\n"
+                    "This computer syncs its notes: on every computer that syncs, they go back"
+                    " to this backup. The text of each as it is now stays in each computer's"
+                    ' "Earlier versions", and all your notes as they are now in this computer\'s'
+                    " backup from before going back. Notes made after the backup are kept."
+                    " Stickle then starts again.\n\n"
+                    "With sync turned off first, the notes gone back to still reach the other"
+                    " computers once sync is on again."
+                ).replace("%1", moment),
+                self.tr("&Go back on every computer"),
+            )
+        return confirm(
             self,
             self.tr("Restore from a backup"),
             self.tr(
@@ -231,17 +275,3 @@ class RestoreDialog(QDialog):
             ).replace("%1", moment),
             self.tr("&Restore"),
         )
-        if not asked:
-            return
-        path = Path(item.data(Qt.ItemDataRole.UserRole))
-        secret_key: bytes | None = None
-        found = self._access.old_secret_texts(path)
-        secrets = self._access.secrets()
-        if found and secrets is not None:
-            dialog = OpenSecretDialog(secrets, parent=self, purpose="restore", count=found)
-            if not ask_secret(dialog):
-                return
-            secret_key = dialog.take_key()  # None: those notes stay as they are now
-        if not self._access.restore(path, secret_key):
-            self.problem.setText(self.tr("The notes could not be restored. Nothing was changed."))
-            self.problem.show()

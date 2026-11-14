@@ -65,7 +65,7 @@ from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
-from stickle.app.sync_display import SyncLine, SyncStopLine, SyncTrashLine
+from stickle.app.sync_display import SyncGoneBackLine, SyncLine, SyncStopLine, SyncTrashLine
 from stickle.app.sync_setup import SyncSetup
 from stickle.app.times import local_time
 from stickle.app.titles import shown_title
@@ -202,6 +202,7 @@ class StickleWindow(QWidget):
         # Sync stopped, and notes it put in the trash, told once (see SyncDisplay).
         self.sync_stop_line = SyncStopLine(self)
         self.sync_trash_line = SyncTrashLine(self)
+        self.sync_gone_back_line = SyncGoneBackLine(self)
         # Where the lines saying how sync stands lead (SyncDisplay says, once sync runs).
         self.open_standing: Callable[[], None] = self.open_connections
 
@@ -331,6 +332,7 @@ class StickleWindow(QWidget):
         layout.addWidget(self.changes_label)
         layout.addLayout(changes_buttons)
         layout.addWidget(self.cloud_folder_line)
+        layout.addWidget(self.sync_gone_back_line)
         layout.addWidget(self.sync_stop_line)
         layout.addWidget(self.sync_trash_line)
         missed = QHBoxLayout()
@@ -426,6 +428,20 @@ class StickleWindow(QWidget):
         self.restore_dialog.raise_()
         self.restore_dialog.activateWindow()
 
+    def undo_going_back(self, name: str) -> None:
+        """Back to the notes as they were before going back to a backup (the
+        backup of them made then, by its file's name), not asked again: the line
+        telling of it offers this. Without that backup, the window to choose one."""
+        if self._data is None:
+            return
+        if self.restore_dialog is None:
+            self.restore_dialog = RestoreDialog(self._data.backups, self)
+        found = next((b for b in self._data.backups.available() if b.path.name == name), None)
+        if found is None:
+            self.restore_backup()
+        elif not self.restore_dialog.go_back(found.path, found.taken, ask=False):
+            self.restore_backup()  # where it says why
+
     def manage_labels(self) -> None:
         """The window for categories and marks, one at a time, brought forward if open."""
         if self.label_manager is None:
@@ -444,6 +460,8 @@ class StickleWindow(QWidget):
             self.changes_seen_button,
             self.cloud_folder_line.open_button,
             self.cloud_folder_line.ok_button,
+            self.sync_gone_back_line.action_button,
+            self.sync_gone_back_line.ok_button,
             self.sync_stop_line.action_button,
             self.sync_stop_line.ok_button,
             self.sync_trash_line.action_button,

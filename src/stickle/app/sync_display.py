@@ -3,7 +3,8 @@ Manager, and each note that has not reached the cloud. Sync stopped, or its
 uploads with the cloud full, is told once: a line at the top of Stickle Manager
 until the user says OK and, with that window closed, one notification of the
 system. So are notes put in the trash here, deleted on the other computers
-while this one was away for more than a year. The lines that say how sync
+while this one was away for more than a year, and going back to a backup on
+every computer that syncs (in the run after it only). The lines that say how sync
 stands, the button beside what tells of a stop and a click on its notification
 lead to what is to be done: the window that asks, the server password, the new
 version, or the connection settings.
@@ -20,16 +21,19 @@ from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, override
 
 import apsw
-from PySide6.QtCore import QEvent, QObject, Signal
+from PySide6.QtCore import QEvent, QObject, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from stickle.app.app_icon import SyncSign, halted_pixmap
+from stickle.app.backups import when
 from stickle.app.in_use import call_up
 from stickle.app.link_label import LinkLabel
 from stickle.app.tray import SyncShown
+from stickle.core.clock import moment_of
 from stickle.data.settings import (
     CLOUD_FULL,
+    SYNC_GONE_BACK,
     SYNC_STOP_SEEN,
     SYNC_STOP_TOLD,
     SYNC_TRASHED,
@@ -128,6 +132,15 @@ class SyncTrashLine(SyncNoticeLine):
         return self.tr("S&how the trash")  # S is for the settings
 
 
+class SyncGoneBackLine(SyncNoticeLine):
+    """Every computer that syncs went back to a backup, told in the run after it
+    with the way back: the notes as they were just before, without asking again."""
+
+    @override
+    def own_way_on(self) -> str:
+        return self.tr("&Undo")
+
+
 class SyncLine(QWidget):
     """The line at the foot of Stickle Manager. Pressed, it opens the connection
     settings. Out of sight on a computer that does not sync."""
@@ -217,6 +230,14 @@ class SyncDisplay(QObject):
         window.sync_stop_line.seen.connect(self._seen)
         window.sync_trash_line.acted.connect(window.show_trash)
         window.sync_trash_line.seen.connect(self._trash_seen)
+        # Going back to a backup, told in this run only: the way back from it is
+        # taken without asking again, not to be pressed days after by chance.
+        self._gone_back = None if settings is None else settings.get(SYNC_GONE_BACK)
+        if self._gone_back is not None:
+            self._set(SYNC_GONE_BACK, None)
+            QTimer.singleShot(0, self._tell_gone_back_once)
+        window.sync_gone_back_line.acted.connect(self._undo_going_back)
+        window.sync_gone_back_line.seen.connect(self._gone_back_seen)
 
     def follow(self, syncing: Syncing | None) -> None:
         """This run's sync from now on; None: it has stopped, or there is none."""
@@ -385,12 +406,41 @@ class SyncDisplay(QObject):
         else:
             line.hide()
 
+    # Going back to a backup on every computer that syncs
+
+    def _gone_back_text(self) -> str:
+        to = "" if self._gone_back is None else self._gone_back["to"]
+        return self.tr("Every computer that syncs went back to the backup from %1.").replace(
+            "%1", when(moment_of(to)) if to else ""
+        )
+
+    def _tell_gone_back_once(self) -> None:
+        self._tell_gone_back()
+        if self._notify is not None and not self._window.isVisible():
+            self._notify(self._gone_back_text(), self._window.open)
+
+    def _tell_gone_back(self) -> None:
+        line = self._window.sync_gone_back_line
+        if self._gone_back is not None:
+            line.tell(self._gone_back_text())
+        else:
+            line.hide()
+
+    def _undo_going_back(self) -> None:
+        if self._gone_back is not None:
+            self._window.undo_going_back(self._gone_back["before"])
+
+    def _gone_back_seen(self) -> None:
+        self._gone_back = None
+        self._tell_gone_back()
+
     def _unsent(self, note_ids: Collection[str]) -> None:
         self._manager.show_unsent(note_ids)
 
     def _show(self) -> None:
         self._tell_stop()
         self._tell_trashed()
+        self._tell_gone_back()
         if self._syncing is None:
             self._tray.set_sync(None)
             self._window.sync_line.show_status("", False)

@@ -33,7 +33,13 @@ from stickle.app.turn_on_sync import TurnOnSync
 from stickle.app.update_check import UpdateCheck
 from stickle.core.updates import Release
 from stickle.data.schema import open_store
-from stickle.data.settings import SYNC_STOP_SEEN, SYNC_STOP_TOLD, SYNC_TRASHED, Settings
+from stickle.data.settings import (
+    SYNC_GONE_BACK,
+    SYNC_STOP_SEEN,
+    SYNC_STOP_TOLD,
+    SYNC_TRASHED,
+    Settings,
+)
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.platform.updates import STORE
 from stickle.sync.engine import Report
@@ -467,6 +473,9 @@ def test_the_lines_are_reached_by_the_keyboard_in_their_order(
     at = manager_of(qtbot, settings)
     at.follow(FakeSync()).ended(Outcome(Stopped.SIGN_IN), trashed=1)
     stop, trash = at.window.sync_stop_line, at.window.sync_trash_line
+    gone = at.window.sync_gone_back_line
+    assert gone.action_button.nextInFocusChain() is gone.ok_button
+    assert gone.ok_button.nextInFocusChain() is stop.action_button
     assert stop.action_button.nextInFocusChain() is stop.ok_button
     assert stop.ok_button.nextInFocusChain() is trash.action_button
     assert trash.action_button.nextInFocusChain() is trash.ok_button
@@ -508,3 +517,71 @@ def test_where_the_software_center_updates_it_the_page_has_no_button_for_it(
     panel = SyncPanel(cast(Syncing, FakeSyncing().round_was(Outcome(Stopped.NEWER))), lambda: None)
     qtbot.addWidget(panel)
     assert panel.review_button.isHidden()
+
+
+# Going back to a backup on every computer that syncs
+
+
+def gone_back(settings: Settings) -> None:
+    settings.set(
+        SYNC_GONE_BACK,
+        {"to": "2026-11-14T03:00:00.000Z", "before": "notes-20261115T010203000Z-before-restore.db"},
+    )
+
+
+def test_going_back_is_told_in_the_run_after_with_the_way_back(
+    qtbot: QtBot, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gone_back(settings)
+    at = manager_of(qtbot, settings)
+    undone: list[str] = []
+    monkeypatch.setattr(at.window, "undo_going_back", undone.append)
+    line = at.window.sync_gone_back_line
+
+    qtbot.waitUntil(lambda: not line.isHidden())
+
+    assert line.label.text().startswith("Every computer that syncs went back to the backup from ")
+    assert "2026-11-14" in line.label.text()
+    assert line.action_button.text() == "&Undo"
+    assert [each for each in at.told if "went back to the backup" in each]
+    assert settings.get(SYNC_GONE_BACK) is None  # this run only
+    line.action_button.click()
+    assert undone == ["notes-20261115T010203000Z-before-restore.db"]
+    assert not line.isHidden()  # until OK
+    line.ok_button.click()
+    assert line.isHidden()
+
+
+def test_a_run_after_that_says_nothing_of_it(qtbot: QtBot, settings: Settings) -> None:
+    gone_back(settings)
+    manager_of(qtbot, settings)
+    qtbot.wait(10)
+    again = manager_of(qtbot, settings)
+    qtbot.wait(10)
+    assert again.window.sync_gone_back_line.isHidden()
+    assert not again.told
+
+
+def test_with_stickle_manager_open_the_system_is_not_told_of_it(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    gone_back(settings)
+    at = manager_of(qtbot, settings)
+    at.window.show()
+    qtbot.waitUntil(lambda: not at.window.sync_gone_back_line.isHidden())
+    assert not at.told
+
+
+def test_going_back_is_told_in_korean(
+    qtbot: QtBot, settings: Settings, translations: Translations
+) -> None:
+    translations.apply("ko")
+    gone_back(settings)
+    at = manager_of(qtbot, settings)
+    line = at.window.sync_gone_back_line
+
+    qtbot.waitUntil(lambda: not line.isHidden())
+
+    assert line.label.text().startswith("동기화하는 모든 PC를 ")
+    assert line.label.text().endswith(" 백업으로 되돌렸습니다.")
+    assert line.action_button.text() == "되돌리기 전으로(&U)"

@@ -302,6 +302,26 @@ def _count(value: object) -> TypeGuard[int]:
 # the user says OK (0: none to say).
 SYNC_TRASHED = Setting[int]("sync_trashed", "device", 0, _count)
 
+
+def _gone_back(value: object) -> TypeGuard[dict[str, str] | None]:
+    """{"to": the backup's time, "before": the file of the backup made just before}."""
+    if value is None:
+        return True
+    if not isinstance(value, dict):
+        return False
+    fields = cast(dict[str, object], value)
+    if set(fields) != {"to", "before"} or fields["to"] is None:
+        return False
+    before = fields["before"]
+    named = isinstance(before, str) and 0 < len(before) <= 128 and not ({"/", "\\"} & set(before))
+    return _stamp_or_none(fields["to"]) and named
+
+
+# This computer went back to a backup, and every computer that syncs with it:
+# told at the top of Stickle Manager in the run that follows, with the way back
+# from it (going back to the backup made just before, without asking again).
+SYNC_GONE_BACK = Setting[dict[str, str] | None]("sync_gone_back", "device", None, _gone_back)
+
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -332,6 +352,7 @@ SETTINGS: dict[str, Setting[object]] = {
         SYNC_STOP_TOLD,
         SYNC_STOP_SEEN,
         SYNC_TRASHED,
+        SYNC_GONE_BACK,
     )
 }
 
