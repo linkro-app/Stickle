@@ -270,6 +270,49 @@ def test_with_its_original_gone_only_keep_both_is_offered(
     assert not copy.use_copy_action.isVisible()
 
 
+def test_a_copy_of_a_note_being_edited_opens_once_the_edit_is_over(
+    qtbot: QtBot, manager: NoteManager, notes: NoteRepository
+) -> None:
+    original_id = notes.create("회의 11시").id
+    [original] = opened(manager, original_id)
+    original.edit()
+    copy_id = copy_of(notes, original_id, "회의 10시")  # made on the laptop meanwhile
+
+    manager.take_in([copy_id])
+
+    # Not on the original's place, over the note being typed in; its cloud says so.
+    assert manager.window_for(copy_id) is None
+    assert original.title_bar.category_tag.conflict
+    original.show_formatted()  # Esc
+    qtbot.waitUntil(lambda: manager.window_for(copy_id) is not None, timeout=3000)
+
+
+def test_a_copy_kept_back_opens_when_its_note_is_closed_while_edited(
+    qtbot: QtBot, manager: NoteManager, notes: NoteRepository
+) -> None:
+    original_id = notes.create("회의 11시").id
+    [original] = opened(manager, original_id)
+    original.edit()
+    copy_id = copy_of(notes, original_id, "회의 10시")
+    manager.take_in([copy_id])
+
+    original.release()
+
+    qtbot.waitUntil(lambda: manager.window_for(copy_id) is not None, timeout=3000)
+
+
+def test_a_copy_of_a_note_not_being_edited_opens_at_once(
+    manager: NoteManager, notes: NoteRepository
+) -> None:
+    original_id = notes.create("회의 11시").id
+    opened(manager, original_id)
+    copy_id = copy_of(notes, original_id, "회의 10시")
+
+    manager.take_in([copy_id])
+
+    assert manager.window_for(copy_id) is not None
+
+
 def test_a_narrow_note_offers_the_three_under_resolve(
     qtbot: QtBot, manager: NoteManager, notes: NoteRepository
 ) -> None:

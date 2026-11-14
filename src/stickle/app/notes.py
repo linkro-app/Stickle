@@ -338,6 +338,10 @@ class NoteManager(QObject):
         self.editing = Editing()
         self._in_edit: set[NoteWindow] = set()
         self._take_after: set[NoteWindow] = set()
+        # Conflict copies made elsewhere of a note being edited here: their windows
+        # open once that edit is over (opened at once, on its place, one covered the
+        # note being typed in).
+        self._copies_after: dict[NoteWindow, set[str]] = {}
 
     @property
     def windows(self) -> tuple[NoteWindow, ...]:
@@ -588,6 +592,9 @@ class NoteManager(QObject):
     def _forget(self, window: NoteWindow) -> None:
         self._end_edit(window)
         self._take_after.discard(window)
+        waiting = self._copies_after.pop(window, set())
+        if waiting:  # closed while edited: the copies it kept back open now
+            QTimer.singleShot(0, self, lambda: self._open_copies(waiting))
         self._forget_key(window)
         self._saved.pop(window, None)
         self._before_fit.pop(window, None)
@@ -2281,6 +2288,7 @@ class NoteManager(QObject):
             self._end_edit(window)
             if window in self._take_after:
                 self._after_edit(window)
+            self._open_copies(self._copies_after.pop(window, set()))
             if held:
                 self.held_released.emit()
 
@@ -2339,7 +2347,11 @@ class NoteManager(QObject):
         window = self.window_for(note_id)
         if window is None:
             if note is not None and not note.hidden and not note.deleted:
-                self._open_taken_in(note)
+                editing = self._original_in_edit(note)
+                if editing is not None:  # its window once that edit is over
+                    self._copies_after.setdefault(editing, set()).add(note.id)
+                else:
+                    self._open_taken_in(note)
             return
         if window.secret and note is not None:
             return  # secret notes are not synced yet (but one let go of goes)
@@ -2370,6 +2382,27 @@ class NoteManager(QObject):
             self._take_after.add(window)
         else:
             window.set_collapsed(note.collapsed)
+
+    def _original_in_edit(self, note: Note) -> NoteWindow | None:
+        """A conflict copy's original, if its text is being edited here."""
+        if note.conflict is None:
+            return None
+        original = self.window_for(note.conflict.note)
+        return original if original is not None and self._being_edited(original) else None
+
+    def _open_copies(self, note_ids: Collection[str]) -> None:
+        """Copies kept back while their original was edited, as they are now."""
+        if self._repository is None:
+            return
+        for note_id in note_ids:
+            try:
+                note = self._repository.get(note_id)
+            except apsw.Error as error:
+                log.error("could not show a note sync brought: %s", type(error).__name__)
+                continue
+            shown = note is not None and not note.hidden and not note.deleted
+            if note is not None and shown and self.window_for(note_id) is None:
+                self._open_taken_in(note)
 
     def _open_taken_in(self, note: Note) -> None:
         """A note that came from elsewhere, opened without taking the keyboard
