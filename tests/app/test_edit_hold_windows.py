@@ -122,6 +122,36 @@ def test_what_comes_while_it_is_edited_shows_once_it_is_over(
     qtbot.waitUntil(lambda: manager.window_for(note_id) is None, timeout=3000)
 
 
+def test_what_comes_for_a_note_shown_formatted_is_shown(
+    manager: NoteManager, notes: NoteRepository
+) -> None:
+    note_id = notes.create("회의 9시").id
+    window = opened(manager, note_id)
+    assert not window.editing
+
+    came(notes, note_id, "회의 10시")
+    manager.take_in([note_id])
+
+    assert not window.editing
+    assert window.view.toPlainText() == "회의 10시"  # what is seen, not only what would be edited
+
+
+def test_what_came_while_it_was_edited_is_seen_once_it_is_over(
+    qtbot: QtBot, manager: NoteManager, notes: NoteRepository
+) -> None:
+    note_id = notes.create("회의 9시").id
+    window = opened(manager, note_id)
+    window.edit()
+    came(notes, note_id, "회의 10시")
+    manager.take_in([note_id])
+    assert window.view.toPlainText() != "회의 10시"  # waits for the edit
+
+    window.show_formatted()  # Esc
+
+    qtbot.waitUntil(lambda: window.view.toPlainText() == "회의 10시", timeout=3000)
+    assert not window.editing
+
+
 def test_the_held_line_goes_and_sync_is_told_when_the_edit_is_over(
     qtbot: QtBot, manager: NoteManager, notes: NoteRepository
 ) -> None:

@@ -1859,13 +1859,17 @@ class NoteWindow(QWidget):
 
     def replace_text(self, text: str) -> None:
         """Its text put back from what its owner stored (an earlier version gone
-        back to): shown formatted, and not a change to save again."""
+        back to, or what came from another computer): shown formatted, and not a
+        change to save again."""
         self._last_text = text
         self.editor.setPlainText(text)
-        if text.strip():
+        if not text.strip():
+            if not self.collapsed:
+                self.edit()
+        elif self.editing:
             self.show_formatted()
-        elif not self.collapsed:
-            self.edit()
+        else:
+            self.view.show_markdown(text)  # shown formatted already: drawn again from it
 
     def set_secret_title(self, title: str | None) -> None:
         """A secret note by this title, open or locked as it is; None: an ordinary
