@@ -321,8 +321,11 @@ def _do(bed: Bed, data: st.DataObject, actions: list[str]) -> None:
         # A year passes once all have synced (a device away a year: "away").
         bed.cloud.full = False
         settle(bed.devices, tick=6 * MINUTE)
-        for note in bed.devices[0].notes.deleted():
-            bed.model.emptying(bed.devices[0], note.id, note.body)  # a year in the trash
+        # A year in the trash, on any: one edited holds the trash back meanwhile,
+        # and the others empty it once the year is up.
+        for each in bed.devices:
+            for note in each.notes.deleted():
+                bed.model.emptying(each, note.id, note.body)
         bed.clock.tick(YEAR + 1_000)
         bed.did(device, "a year on")
 
