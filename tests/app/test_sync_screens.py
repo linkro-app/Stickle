@@ -298,10 +298,12 @@ def test_a_changed_picture_is_shown_beside_the_old_one(qtbot: QtBot, tmp_path: P
     album.take("gone", filled(qtbot, "green"))
     album.end()
 
+    old = QImage(str(tmp_path / "now" / "changed.png"))
     album.begin()
     album.take("kept", filled(qtbot, "green"))
     album.take("changed", filled(qtbot, "blue", 80))
     album.take("new", filled(qtbot, "green"))
+    new = QImage(str(tmp_path / "now" / "changed.png"))
     said = album.end().splitlines()
 
     assert said[0] == "1 the same, 1 changed, 1 new, 1 gone."
@@ -309,7 +311,9 @@ def test_a_changed_picture_is_shown_beside_the_old_one(qtbot: QtBot, tmp_path: P
     assert (tmp_path / "report.txt").read_text("utf-8").splitlines() == [said[0], *said[1:]]
     pictures = list((tmp_path / "changed").glob("*.png"))
     assert [path.stem for path in pictures] == ["changed"]
+    # As wide as the two pictures taken, whatever a system makes of 60 and 80 (on a
+    # Windows display a window is 120 at least).
     joined = QImage(str(pictures[0]))
-    assert joined.width() == 60 + 12 + 80
+    assert joined.width() == old.width() + 12 + new.width()
     assert QColor(joined.pixel(10, 10)) == QColor("red")
-    assert QColor(joined.pixel(60 + 12 + 10, 10)) == QColor("blue")
+    assert QColor(joined.pixel(old.width() + 12 + 10, 10)) == QColor("blue")
