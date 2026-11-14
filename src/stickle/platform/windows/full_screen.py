@@ -4,6 +4,10 @@ The shell tells whether a full-screen program (or a presentation) is in front;
 the windows it means are those that cover their whole monitor. A maximized
 window keeping its title bar covers it too when the taskbar hides itself: that
 one is left out.
+
+The shell tells only of the main monitor, though: a program full screen on
+another one leaves it quiet. Then the window in front is looked at alone, in
+the same way.
 """
 
 import ctypes
@@ -57,6 +61,8 @@ _user32.IsIconic.argtypes = [wintypes.HWND]
 _user32.IsIconic.restype = wintypes.BOOL
 _user32.IsZoomed.argtypes = [wintypes.HWND]
 _user32.IsZoomed.restype = wintypes.BOOL
+_user32.GetForegroundWindow.argtypes = []
+_user32.GetForegroundWindow.restype = wintypes.HWND
 _user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
 _user32.GetWindowLongW.restype = ctypes.c_long
 _user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
@@ -103,10 +109,11 @@ class WindowsFullScreen:
     def find(self, known: Collection[int]) -> list[FullScreen]:
         if full_screen_in_front():
             candidates = _top_level_windows()
-        elif known:
-            candidates = [window for window in known if _user32.IsWindow(window)]
         else:
-            return []
+            candidates = [window for window in known if _user32.IsWindow(window)]
+            front = _front_window()
+            if front and front not in candidates:
+                candidates.append(front)
         found: list[FullScreen] = []
         for window in candidates:
             shown = self._full_screen(window)
@@ -162,6 +169,11 @@ class WindowsFullScreen:
             (area.left, area.top, area.right - area.left, area.bottom - area.top),
             info.szDevice,
         )
+
+
+def _front_window() -> int:
+    """The window in front (0: none, as while the desktop switches)."""
+    return _user32.GetForegroundWindow() or 0
 
 
 def _top_level_windows() -> list[int]:
