@@ -20,11 +20,22 @@ def test_qt_warnings_are_logged_as_warnings(caplog: pytest.LogCaptureFixture) ->
     assert [record.levelno for record in caplog.records] == [logging.WARNING]
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        PORTAL,  # printed at every start on GNOME, and seen as an error while testing
+        # With a screen reader on Linux, tens of thousands an hour (Orca, Ubuntu):
+        'Could not find accessible on path: "/org/a11y/atspi/accessible/2147484960"',
+        "Received text event for invalid interface.",
+        'Subscription string not handled: "Window:Destroy:"',
+        'AtSpiAdaptor::applicationInterface does not implement "GetApplicationBusAddress"'
+        ' "/org/a11y/atspi/accessible/root"',
+    ],
+)
 def test_a_warning_that_means_nothing_for_stickle_is_kept_quiet(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, message: str
 ) -> None:
-    # Printed at every start on GNOME, and seen as an error while testing.
     with caplog.at_level(logging.DEBUG, logger="qt"):
-        log_qt_message(QtMsgType.QtWarningMsg, QMessageLogContext(), PORTAL)
+        log_qt_message(QtMsgType.QtWarningMsg, QMessageLogContext(), message)
 
     assert [record.levelno for record in caplog.records] == [logging.DEBUG]

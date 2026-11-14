@@ -291,6 +291,13 @@ HARMLESS_QT_WARNINGS = (
     # Qt registers with the desktop portal, which knows the app already on some
     # desktops; Stickle uses nothing the registration is for.
     "Failed to register with host portal",
+    # Qt's bridge to a Linux screen reader, as it asks about windows already gone
+    # or about what Qt does not offer: tens of thousands an hour while one runs,
+    # which pushed the rest of the log out of its files.
+    "Could not find accessible on path",
+    "Received text event for invalid interface",
+    "Subscription string not handled",
+    "AtSpiAdaptor::applicationInterface does not implement",
 )
 
 
