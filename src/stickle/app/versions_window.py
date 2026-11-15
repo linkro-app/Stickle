@@ -32,6 +32,7 @@ from stickle.app.note_view import NoteView
 from stickle.app.times import local_time
 from stickle.core.colors import note_colors
 from stickle.core.markdown import note_title
+from stickle.core.note import SealedText
 from stickle.crypto.secret_notes import SecretNoteError
 from stickle.data.versions import EarlierVersion, VersionRepository
 
@@ -63,8 +64,8 @@ class EarlierVersionsDialog(QDialog):
         color: str,
         *,
         can_restore: bool = True,
-        opener: Callable[[bytes], str] | None = None,
-        open_secret: Callable[[], Callable[[bytes], str] | None] | None = None,
+        opener: Callable[[SealedText], str] | None = None,
+        open_secret: Callable[[], Callable[[SealedText], str] | None] | None = None,
         device_name: Callable[[str], str | None] = lambda _: None,
         parent: QWidget | None = None,
     ) -> None:
@@ -189,7 +190,7 @@ class EarlierVersionsDialog(QDialog):
     def _text(self, version_id: int) -> str | None:
         """Its whole text, opened if it is a secret note's (None if it cannot be)."""
         stored = self._versions.text(self._note_id, version_id)
-        if not isinstance(stored, bytes):
+        if not isinstance(stored, SealedText):
             return stored
         if self._opener is None:
             return None

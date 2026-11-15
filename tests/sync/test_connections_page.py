@@ -65,6 +65,7 @@ from stickle.app.syncing import Syncing as SyncRun
 from stickle.app.times import day_text
 from stickle.app.turn_on_sync import TurnOnSync
 from stickle.core.hlc import Hlc
+from stickle.core.note import SealedText
 from stickle.core.updates import FEED_HOST
 from stickle.data import record_state, sync_connection, sync_state
 from stickle.data.settings import DEVICE_NAME, SYNC_EVERY, Settings
@@ -1127,12 +1128,12 @@ def test_a_time_it_cannot_read_is_passed_over(
     assert told == []
 
 
-def test_a_secret_note_is_not_counted_among_them(bed: Bed, qtbot: QtBot) -> None:
+def test_a_secret_note_is_counted_among_them(bed: Bed, qtbot: QtBot) -> None:
     pc = bed.first.pc
     note = pc.notes.create("비밀로 할 메모")
     bed.first.round_over(qtbot)
-    pc.notes.seal_in_place(note.id, "제목", b"sealed")
-    assert sync_state.changed_at(bed.first.db, bed.login.vault) == []
+    pc.notes.seal_in_place(note.id, "제목", SealedText(b"sealed"))
+    assert [at[0] for at in sync_state.changed_at(bed.first.db, bed.login.vault)] == [note.id]
 
 
 def test_leaving_stops_looking(bed: Bed, qtbot: QtBot, monkeypatch: pytest.MonkeyPatch) -> None:

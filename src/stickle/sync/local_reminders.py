@@ -11,7 +11,8 @@ fields taken in.
   day: a reminder set anew and dealt with elsewhere as it was before rings.
 - "text_reminder:<day> <time>": how one written in its text was dealt with,
   {"next_day", "snoozed_until", "acked_at", "acked_device"}. Each device makes
-  the reminders written in a text from the text itself.
+  the reminders written in a text from the text itself; a secret note's from
+  the times its version holds (stickle.sync.note_file.Secret), its text sealed.
 
 A field this device has not changed since it was taken in goes as it came.
 How one was dealt with goes once it was, or once it is not as it starts.
@@ -19,9 +20,9 @@ How one was dealt with goes once it was, or once it is not as it starts.
 
 import re
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import cast
 
 import apsw
@@ -202,10 +203,13 @@ def take(
     here: Mapping[str, Json],
     stamped: Mapping[str, Stamp],
     copy_of: str | None,
+    written: Sequence[str] | None = None,
 ) -> bool:
     """The note's reminders as the file has them, here (its text taken in
-    already); copy_of: the note it is a conflict copy of, made here just now.
-    Whether anything changed."""
+    already); copy_of: the note it is a conflict copy of, made here just now;
+    written: when those written in its text ring, for a secret note ("<day>
+    <time>", stickle.sync.note_file.Secret; None: read from its text). Whether
+    anything changed."""
     changed = False
     now = stamped.get(RULE_FIELD)
     rule = contents.fields.get(RULE_FIELD)
@@ -233,7 +237,11 @@ def take(
     if body:
         morning = time.fromisoformat(Settings(connection).get(MORNING))
         reminders = ReminderRepository(connection)
-        changed |= reminders.match_text(note_id, due(str(body[0][0]), morning).keys(), fresh=False)
+        if written is None:
+            times = list(due(str(body[0][0]), morning).keys())
+        else:
+            times = [datetime.strptime(each, "%Y-%m-%d %H:%M") for each in written]
+        changed |= reminders.match_text(note_id, times, fresh=False)
         if copy_of is not None:
             changed |= _quiet_in_copy(connection, note_id, copy_of)
     for name, each in sorted(contents.fields.items()):

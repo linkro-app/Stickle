@@ -5,12 +5,32 @@ from dataclasses import dataclass
 
 from stickle.core.colors import DEFAULT_COLOR
 
-__all__ = ["DEFAULT_COLOR", "Conflict", "Note", "content_hash"]
+__all__ = ["DEFAULT_COLOR", "Conflict", "Note", "SealedText", "content_hash"]
 
 
 def content_hash(body: str) -> str:
     """Local content fingerprint. (Encrypted vaults will use a keyed hash instead.)"""
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class SealedText:
+    """A secret note's text, encrypted (stickle.crypto.secret_notes), as it is
+    kept here: bound to the note it was sealed for (None: the one that has it
+    — a conflict copy's opens as its original's) and sealed with the key of
+    that number (None: this computer's)."""
+
+    data: bytes
+    bound_to: str | None = None
+    key_number: str | None = None
+
+    def opens_as(self, note_id: str) -> str:
+        """The id it opens with, for the note note_id that has it."""
+        return self.bound_to or note_id
+
+    @property
+    def hash(self) -> str:
+        return content_hash(self.data.hex())
 
 
 @dataclass(frozen=True)
@@ -51,6 +71,9 @@ class Note:
     secret_title: str | None = None
     sealed: bytes | None = None
     conflict: Conflict | None = None  # a conflict copy's: what it is a copy of
+    # What sealed is bound to and sealed with (SealedText; None: its own, this computer's).
+    bound_to: str | None = None
+    key_number: str | None = None
 
     @property
     def deleted(self) -> bool:
@@ -59,3 +82,9 @@ class Note:
     @property
     def secret(self) -> bool:
         return self.sealed is not None
+
+    @property
+    def sealed_text(self) -> SealedText | None:
+        if self.sealed is None:
+            return None
+        return SealedText(self.sealed, self.bound_to, self.key_number)

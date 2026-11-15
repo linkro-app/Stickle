@@ -72,6 +72,7 @@ class SecretExport:
 class _Secret:
     title: str
     sealed: bytes
+    bound: str  # the note it opens as (a conflict copy's: its original)
 
 
 def file_stem(body: str, note_id: str) -> str:
@@ -203,10 +204,11 @@ def _secrets(connection: apsw.Connection) -> dict[str, _Secret]:
     columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(notes)")}
     if "secret_body" not in columns:
         return {}
+    bound = "coalesce(secret_bound, id)" if "secret_bound" in columns else "id"
     rows = connection.execute(
-        "SELECT id, secret_title, secret_body FROM notes WHERE secret_body IS NOT NULL"
+        f"SELECT id, secret_title, secret_body, {bound} FROM notes WHERE secret_body IS NOT NULL"
     )
-    return {str(i): _Secret(str(t or ""), bytes(b)) for i, t, b in rows}
+    return {str(i): _Secret(str(t or ""), bytes(b), str(o)) for i, t, b, o in rows}
 
 
 def _read_all(
@@ -230,6 +232,25 @@ def _read_all(
         connection.execute("COMMIT")
 
 
+# A secret note's columns, its text opened: an ordinary note's.
+_NOT_SEALED: dict[str, object] = {
+    "secret_body": None,
+    "secret_bound": None,
+    "secret_key_number": None,
+}
+
+
+def _titled(tables: dict[str, list[dict[str, object]]]) -> dict[str, list[dict[str, object]]]:
+    """The tables with a title of its own only for a secret note: one an ordinary
+    note keeps (from when it was secret on another computer) is not shown, and
+    would say it was secret in an export in the clear."""
+    notes = [
+        row if row.get("secret_body") is not None else {**row, "secret_title": None}
+        for row in tables.get("notes", [])
+    ]
+    return {**tables, "notes": notes} if "notes" in tables else tables
+
+
 def _opened(
     tables: dict[str, list[dict[str, object]]], texts: dict[str, str], key: bytes
 ) -> dict[str, list[dict[str, object]]]:
@@ -238,7 +259,7 @@ def _opened(
     that does not open with the key is left as it is: an export is not refused
     for one, and an encrypted export keeps it whole."""
     notes = [
-        {**row, "body": texts[str(row["id"])], "secret_body": None}
+        {**row, "body": texts[str(row["id"])], **_NOT_SEALED}
         if str(row.get("id")) in texts
         else row
         for row in tables.get("notes", [])
@@ -255,10 +276,17 @@ def _opened_version(row: dict[str, object], key: bytes) -> dict[str, object]:
         return row
     try:
         data = base64.b64decode(str(cast(dict[str, object], sealed)["base64"]))
-        text = open_text(key, str(row["note_id"]), data)
+        text = open_text(key, str(row.get("sealed_bound") or row["note_id"]), data)
     except KeyError, ValueError, SecretNoteError:
         return row
-    return {**row, "body": text, "sealed": None, "content_hash": content_hash(text)}
+    return {
+        **row,
+        "body": text,
+        "sealed": None,
+        "sealed_bound": None,
+        "sealed_key_number": None,
+        "content_hash": content_hash(text),
+    }
 
 
 def export_all(
@@ -276,9 +304,10 @@ def export_all(
     """
     secret = secret or SecretExport()
     version, tables, rows, secrets = _read_all(connection)
+    tables = _titled(tables)
     texts: dict[str, str] = {}
     if secret.key is not None:
-        texts = {i: open_text(secret.key, i, s.sealed) for i, s in secrets.items()}
+        texts = {i: open_text(secret.key, s.bound, s.sealed) for i, s in secrets.items()}
         tables = _opened(tables, texts, secret.key)
     moment = datetime.fromisoformat(clock().replace("Z", "+00:00")).astimezone()
     folder = _free(target / f"Stickle export {moment:%Y-%m-%d %H%M}")

@@ -45,7 +45,7 @@ from stickle.app.times import local_time
 from stickle.app.titles import shown_title
 from stickle.app.tray import menu_title
 from stickle.app.versions_window import EarlierVersionsDialog
-from stickle.core.note import Note
+from stickle.core.note import Note, SealedText
 from stickle.crypto.key_files import B, C
 from stickle.crypto.keyfile import encode_slot, wrap_with_password
 from stickle.crypto.recovery import (
@@ -1899,3 +1899,175 @@ def test_enter_on_a_choice_goes_on_to_next(qtbot: QtBot) -> None:
     QTest.keyClick(dialog.encrypted, Qt.Key.Key_Return)
 
     assert dialog.result() == QDialog.DialogCode.Accepted.value and dialog.key is None
+
+
+# What sync brings for it, from the user's other computers (sealed there with the same key)
+
+LAPTOP = "1a2b3c4d-0000-4000-8000-000000000000"
+
+
+def came(
+    connection: apsw.Connection, note_id: str, text: str | SealedText, **columns: object
+) -> None:
+    """The note as sync takes it in from the laptop."""
+    NoteRepository(connection).take_in(note_id, text, LAPTOP, columns, {}, {})
+
+
+def sealed_there(unlock: Unlock, note_id: str, text: str, bound: str | None = None) -> SealedText:
+    key = unlock.open_secret_notes(SECRET)
+    return SealedText(seal_text(key, bound or note_id, text), bound or note_id, None)
+
+
+def at_rest(qtbot: QtBot, manager: NoteManager, window: NoteWindow) -> None:
+    """Its edit over, nothing waiting to be saved: what sync brings shows at once."""
+    leave_text(window)
+    window.show_formatted()
+    qtbot.waitUntil(lambda: not manager.waiting_to_save())
+
+
+def test_an_open_secret_note_shows_the_text_sync_brought(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    at_rest(qtbot, manager, window)
+    assert window.note_id is not None
+
+    came(
+        connection,
+        window.note_id,
+        sealed_there(unlock, window.note_id, "노트북에서 고친 글"),
+        secret_title="새 제목",
+    )
+    manager.take_in([window.note_id])
+
+    assert manager.window_for(window.note_id) is window
+    assert not window.secret_locked and window.text == "노트북에서 고친 글"
+    assert window.secret_title == "새 제목"
+
+
+def test_a_locked_secret_note_takes_its_title_and_stays_locked(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    assert manager.lock_secret(window) and window.note_id is not None
+
+    came(
+        connection,
+        window.note_id,
+        sealed_there(unlock, window.note_id, "노트북의 글"),
+        secret_title="노트북 제목",
+    )
+    manager.take_in([window.note_id])
+
+    assert window.secret_locked and window.text == "" and window.secret_title == "노트북 제목"
+    answers.queue += [password()]
+    window.open_secret_requested.emit()
+    assert window.text == "노트북의 글"
+
+
+def test_a_secret_note_made_ordinary_elsewhere_shows_as_an_ordinary_one(
+    qtbot: QtBot, manager: NoteManager, answers: Answers, connection: apsw.Connection
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    assert manager.lock_secret(window) and window.note_id is not None
+    note_id = window.note_id
+
+    came(connection, note_id, "이제 보통 메모", secret_title=None)
+    manager.take_in([note_id])
+
+    now = manager.window_for(note_id)
+    assert now is not None and now is not window
+    assert not now.secret and now.text == "이제 보통 메모"
+
+
+def test_a_note_made_secret_elsewhere_shows_locked(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+) -> None:
+    secret_note(qtbot, manager, answers)  # secret notes turned on here
+    window = manager.new_note()
+    window.editor.insertPlainText(TEXT)
+    qtbot.waitExposed(window)
+    at_rest(qtbot, manager, window)
+    note_id = window.note_id
+    assert note_id is not None
+
+    came(connection, note_id, sealed_there(unlock, note_id, TEXT), secret_title="은행")
+    manager.take_in([note_id])
+
+    now = manager.window_for(note_id)
+    assert now is not None and now.secret and now.secret_locked
+    assert now.text == "" and now.secret_title == "은행"
+    assert search(connection, "zqxjkv") == []
+
+
+def test_a_secret_copy_trades_its_text_with_its_note_while_both_are_locked(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+) -> None:
+    window = secret_note(qtbot, manager, answers, "PC의 글")
+    assert manager.lock_secret(window) and window.note_id is not None
+    note_id = window.note_id
+    copy_id = "c1c1c1c1-0000-4000-8000-000000000000"
+    came(
+        connection,
+        copy_id,
+        sealed_there(unlock, copy_id, "노트북의 글", bound=note_id),
+        conflict_of=note_id,
+        conflict_device=LAPTOP,
+        conflict_edited=1_762_483_200_000,
+        secret_title="은행",
+    )
+    manager.take_in([copy_id])
+    copy = manager.window_for(copy_id)
+    assert copy is not None and copy.secret_locked
+    assert copy.copy is not None and copy.copy.swappable  # [Use this text] offered
+    copy.make_menu()
+    copy.menu.aboutToShow.emit()
+    assert copy.use_copy_action.isVisible()
+
+    answers.queue += [password()]
+    copy.open_secret_requested.emit()  # opens as its note's text did
+    assert copy.text == "노트북의 글"
+    assert manager.lock_secret(copy)
+
+    copy.conflict_bar.use_button.click()
+
+    assert manager.window_for(copy_id) is None and window.secret_locked
+    answers.queue += [password()]
+    window.open_secret_requested.emit()
+    assert window.text == "노트북의 글"
+
+
+def test_an_open_secret_note_being_edited_holds_what_sync_brings_until_it_is_locked(
+    qtbot: QtBot, manager: NoteManager, answers: Answers
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    assert window.note_id is not None
+    note_id = window.note_id
+
+    def edited() -> bool:
+        with manager.editing.taking() as being:
+            return being(note_id)
+
+    window.edit()
+    type_into(window, " 더")
+    qtbot.waitUntil(edited)
+
+    assert manager.lock_secret(window)
+
+    assert window.secret_locked and not edited()  # nothing typed in it any more

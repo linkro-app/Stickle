@@ -78,7 +78,7 @@ SYNC_SETTINGS: tuple[Setting[object], ...] = (
     SYNC_TRASHED,  # pyright: ignore[reportAssignmentType]
 )
 # A note's own fields, stamped anew when it comes back (its marks too).
-NOTE_FIELDS = tuple(f for f in stamps.FIELDS.values() if f not in ("secret_title", "conflict_of"))
+NOTE_FIELDS = tuple(f for f in stamps.FIELDS.values() if f != "conflict_of")
 # The tables of what is a note's, but its text and fields (moved with it).
 NOTE_TABLES = ("note_layouts", "note_sizes", "note_marks", "reminders", "note_stamps")
 # How a reminder was dealt with: kept as it is now.
@@ -272,7 +272,7 @@ def _set_dealt_with(copy: apsw.Connection, row_id: str, values: Sequence[apsw.SQ
 # Notes
 
 
-_TEXT = "SELECT body, secret_body, content_hash, coalesce(text_at, updated_at), text_from"
+_TEXT = f"SELECT {versions.TEXT_COLUMNS}"
 
 
 def _changed_note(

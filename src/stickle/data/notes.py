@@ -16,11 +16,12 @@ import apsw
 
 from stickle.core.clock import Clock, days_before, millis_at, utc_now
 from stickle.core.hlc import wall_millis
-from stickle.core.note import DEFAULT_COLOR, Conflict, Note, content_hash
+from stickle.core.note import DEFAULT_COLOR, Conflict, Note, SealedText, content_hash
 from stickle.data import record_stamps, stamps, sync_state, versions
 from stickle.data.imports import hide_text_hashes
 from stickle.data.labels import become
 from stickle.data.record_stamps import CATEGORY, MARK
+from stickle.data.reminders import ReminderRepository
 from stickle.data.search import search
 
 log = logging.getLogger(__name__)
@@ -28,7 +29,8 @@ log = logging.getLogger(__name__)
 COLUMNS = (
     "id, body, color, hidden, always_on_top, created_at, updated_at, content_hash, deleted_at,"
     " change_seq, opacity, status, label, locked, collapsed, auto_height, zoom, sleep_until,"
-    " style_id, secret_title, secret_body, conflict_of, conflict_device, conflict_edited"
+    " style_id, secret_title, secret_body, conflict_of, conflict_device, conflict_edited,"
+    " secret_bound, secret_key_number"
 )
 # A note that is not a conflict copy (any more).
 _NOT_A_COPY: dict[str, object] = {
@@ -53,7 +55,9 @@ class Copy:
     id: str
     conflict: Conflict
     original: bool  # its original is here, out of the trash
-    plain: bool  # neither is a secret note: their texts can change places
+    # Both are secret notes, or neither: their texts can change places (a secret
+    # one's as it is sealed, so on a computer where it is locked too).
+    swappable: bool
 
 
 class NoteDeletedError(ValueError):
@@ -108,6 +112,8 @@ def _note(row: apsw.SQLiteValues, marks: frozenset[str] = frozenset()) -> Note:
         conflict_of,
         conflict_device,
         conflict_edited,
+        secret_bound,
+        secret_key_number,
     ) = row
     conflict = None
     if conflict_of is not None:
@@ -137,7 +143,44 @@ def _note(row: apsw.SQLiteValues, marks: frozenset[str] = frozenset()) -> Note:
         secret_title=None if secret_title is None else str(secret_title),
         sealed=secret_body if isinstance(secret_body, bytes) else None,
         conflict=conflict,
+        bound_to=None if secret_bound is None else str(secret_bound),
+        key_number=None if secret_key_number is None else str(secret_key_number),
     )
+
+
+def sealed_columns(note_id: str, text: SealedText) -> dict[str, object]:
+    """The columns that hold a sealed text of the note note_id: bound to that
+    note itself is bound to none other (NULL)."""
+    return {
+        "secret_body": text.data,
+        "secret_bound": None if text.bound_to == note_id else text.bound_to,
+        "secret_key_number": text.key_number,
+        "content_hash": text.hash,
+    }
+
+
+def _text_of(note: Note) -> str | SealedText:
+    """The note's text as it holds it: in the clear, or sealed (bound to it if
+    to none other)."""
+    sealed = note.sealed_text
+    if sealed is None:
+        return note.body
+    return SealedText(sealed.data, sealed.opens_as(note.id), sealed.key_number)
+
+
+def _holds(note: Note, text: str | SealedText) -> bool:
+    """Whether the note's text is that one already."""
+    if isinstance(text, SealedText):
+        return note.sealed == text.data
+    return not note.secret and note.body == text
+
+
+# A note that holds no sealed text (any more).
+_NOT_SEALED: dict[str, object] = {
+    "secret_body": None,
+    "secret_bound": None,
+    "secret_key_number": None,
+}
 
 
 class NoteRepository:
@@ -244,20 +287,18 @@ class NoteRepository:
             note_id, {"body": body, "content_hash": content_hash(body)}, keep_earlier
         )
 
-    def replace_text(self, note_id: str, text: str | bytes, came_from: str | None) -> Note:
+    def replace_text(self, note_id: str, text: str | SealedText, came_from: str | None) -> Note:
         """The note's text replaced by one from elsewhere (another device's, a
         conflict copy's; came_from: the device it was made on, None: this one),
         in the clear or, for a secret note, encrypted; the text it had kept first."""
         note = self._require_live(note_id)
-        if isinstance(text, bytes) != note.secret:
+        if isinstance(text, SealedText) != note.secret:
             raise NoteIsSecretError(note_id) if note.secret else NoteNotSecretError(note_id)
-        if isinstance(text, bytes):
-            if text == note.sealed:
+        assignments: dict[str, object]
+        if isinstance(text, SealedText):
+            if text.data == note.sealed:
                 return note
-            assignments: dict[str, object] = {
-                "secret_body": text,
-                "content_hash": content_hash(text.hex()),
-            }
+            assignments = sealed_columns(note_id, text)
         else:
             if text == note.body:
                 return note
@@ -267,7 +308,7 @@ class NoteRepository:
     def take_in(
         self,
         note_id: str,
-        text: str | None,
+        text: str | SealedText | None,
         came_from: str | None,
         columns: Mapping[str, object],
         marks: Mapping[str, bool],
@@ -278,33 +319,37 @@ class NoteRepository:
         place of its own, which is kept first as an earlier one (came_from: the
         device the text was made on, None: this one); these columns and marks
         (id -> on) set, and these fields stamped as they are there (with when
-        they first reached the cloud), in the trash or not. Its change number now."""
+        they first reached the cloud), in the trash or not. Its change number now.
+
+        A text sealed makes the note secret, one in the clear ordinary. A note
+        made secret so keeps none of its text in the clear, nor its earlier ones
+        in the clear (no key here to seal them with): they go, overwritten once
+        what was freed is cleared away (forget_old_text_left, after)."""
         now = self._clock()
         with self._db:
             note = self.get(note_id)
             if note is None:
-                body = text or ""
+                body = text if isinstance(text, str) else ""
                 self._db.execute(
                     "INSERT INTO notes (id, body, color, created_at, updated_at, content_hash,"
                     " change_seq, text_at, text_from) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (note_id, body, DEFAULT_COLOR, now, now, content_hash(body), 0, now, came_from),
                 )
+                if isinstance(text, SealedText):
+                    self._set(note_id, sealed_columns(note_id, text))
                 self._db.execute("DELETE FROM deletion_records WHERE note_id = ?", (note_id,))
-            elif text is not None and text != note.body:
-                if note.secret:
-                    raise NoteIsSecretError(note_id)
-                versions.keep(self._db, note_id, now)
-                self._db.execute(
-                    "UPDATE notes SET body = ?, content_hash = ?, text_at = ?, text_from = ?"
-                    " WHERE id = ?",
-                    (text, content_hash(text), now, came_from, note_id),
-                )
+            elif text is not None and not _holds(note, text):
+                if isinstance(text, SealedText) and not note.secret:
+                    self._clear_plain(note_id)
+                else:
+                    versions.keep(self._db, note_id, now)
+                if isinstance(text, SealedText):
+                    assignments = {"body": "", **sealed_columns(note_id, text)}
+                else:
+                    assignments = {"body": text, "content_hash": content_hash(text), **_NOT_SEALED}
+                self._set(note_id, {**assignments, "text_at": now, "text_from": came_from})
             if columns:
-                listed = ", ".join(f"{name} = ?" for name in columns)
-                self._db.execute(
-                    f"UPDATE notes SET {listed} WHERE id = ?",
-                    (*columns.values(), note_id),  # pyright: ignore[reportArgumentType]
-                )
+                self._set(note_id, columns)
             for mark_id, on in marks.items():
                 self._db.execute(
                     "INSERT OR IGNORE INTO note_marks (note_id, mark_id) VALUES (?, ?)"
@@ -319,6 +364,29 @@ class NoteRepository:
                 (now, self._next_seq(), note_id),
             )
         return self._require(note_id).change_seq
+
+    def _set(self, note_id: str, columns: Mapping[str, object]) -> None:
+        listed = ", ".join(f"{name} = ?" for name in columns)
+        self._db.execute(
+            f"UPDATE notes SET {listed} WHERE id = ?",
+            (*columns.values(), note_id),  # pyright: ignore[reportArgumentType]
+        )
+
+    def _clear_plain(self, note_id: str) -> None:
+        """A note about to be made secret from elsewhere: its text in the clear
+        out of every place but the note (which the caller replaces), and the old
+        text owed a clearing away."""
+        versions.forget_plain(self._db, note_id)
+        sync_state.forget_text(self._db, note_id)
+        hide_text_hashes(self._db, note_id, self._millis)
+        self._owe_clearing()
+
+    def _owe_clearing(self) -> None:
+        self._db.execute(
+            "INSERT INTO local_counters (key, value) VALUES (?, 1)"
+            " ON CONFLICT (key) DO UPDATE SET value = 1",
+            (OLD_TEXT_LEFT,),
+        )
 
     def take_in_emptied(self, note_id: str) -> None:
         """The note emptied from the trash on another device: gone here too, in
@@ -341,13 +409,11 @@ class NoteRepository:
         if text is None:
             raise KeyError(version_id)
         note = self._require_live(note_id)
-        if isinstance(text, bytes) != note.secret:
+        if isinstance(text, SealedText) != note.secret:
             raise NoteIsSecretError(note_id) if note.secret else NoteNotSecretError(note_id)
-        if isinstance(text, bytes):
-            assignments: dict[str, object] = {
-                "secret_body": text,
-                "content_hash": content_hash(text.hex()),
-            }
+        assignments: dict[str, object]
+        if isinstance(text, SealedText):
+            assignments = sealed_columns(note_id, text)
         else:
             assignments = {"body": text, "content_hash": content_hash(text)}
         if assignments["content_hash"] == note.content_hash:
@@ -361,7 +427,7 @@ class NoteRepository:
         rows = self._db.execute(
             "SELECT c.id, c.conflict_of, c.conflict_device, c.conflict_edited,"
             " o.id IS NOT NULL AND o.deleted_at IS NULL,"
-            " c.secret_body IS NULL AND o.id IS NOT NULL AND o.secret_body IS NULL"
+            " o.id IS NOT NULL AND (c.secret_body IS NULL) = (o.secret_body IS NULL)"
             " FROM notes AS c LEFT JOIN notes AS o ON o.id = c.conflict_of"
             " WHERE c.conflict_of IS NOT NULL AND c.deleted_at IS NULL"
             " ORDER BY c.conflict_edited, c.id"
@@ -371,9 +437,9 @@ class NoteRepository:
                 str(copy_id),
                 Conflict(str(of), None if by is None else str(by), int(edited or 0)),  # pyright: ignore[reportArgumentType]
                 bool(live),
-                bool(plain),
+                bool(swappable),
             )
-            for copy_id, of, by, edited, live, plain in rows
+            for copy_id, of, by, edited, live, swappable in rows
         ]
 
     def keep_both(self, copy_id: str) -> Note:
@@ -388,13 +454,15 @@ class NoteRepository:
         an earlier one; the copy then holds the original's text, said to be from
         where and when that was written, and goes into the trash: taken out, it
         can change them back. In one step; each text marked as made where it
-        was. The original, after."""
+        was. The original, after. Two secret notes change their texts as they
+        are sealed, each still bound to the note it opens as (so with neither
+        open); a secret one and an ordinary one cannot."""
         with self._db:  # read again in it: sync may have changed either meanwhile
             copy = self._require_live(copy_id)
             if copy.conflict is None:
                 raise NotACopyError(copy_id)
             original = self._require_live(copy.conflict.note)
-            if copy.secret or original.secret:
+            if copy.secret != original.secret:
                 raise NoteIsSecretError(copy_id if copy.secret else original.id)
             made = {
                 str(note_id): (str(at), None if came is None else str(came))
@@ -409,12 +477,16 @@ class NoteRepository:
                 edited = millis_at(at)
             except ValueError:
                 edited = self._millis()
-            self.replace_text(original.id, copy.body, made[copy_id][1])
+            copied, kept = _text_of(copy), _text_of(original)
+            self.replace_text(original.id, copied, made[copy_id][1])
+            if isinstance(kept, SealedText):
+                text: dict[str, object] = sealed_columns(copy_id, kept)
+            else:
+                text = {"body": kept, "content_hash": content_hash(kept)}
             self._new_text(
                 copy_id,
                 {
-                    "body": original.body,
-                    "content_hash": content_hash(original.body),
+                    **text,
                     "conflict_of": original.id,
                     "conflict_device": came_from,
                     "conflict_edited": edited,
@@ -423,9 +495,18 @@ class NoteRepository:
                 keep_earlier=False,
                 came_from=came_from,
             )
+            if copy.secret:  # read from each text where it is open, so here with neither
+                self._swap_text_reminders(copy_id, original.id)
         swapped = self._require(copy_id).conflict
         assert swapped is not None
         return self._require(swapped.note)
+
+    def _swap_text_reminders(self, a: str, b: str) -> None:
+        """The reminders written in two notes' texts, as they changed places."""
+        reminders = ReminderRepository(self._db, self._clock, millis=self._millis)
+        times = {note_id: reminders.text_times(note_id) for note_id in (a, b)}
+        reminders.match_text(a, times[b], fresh=False)
+        reminders.match_text(b, times[a], fresh=False)
 
     # Secret notes: the text only ever encrypted here (stickle.crypto.secret_notes)
 
@@ -448,20 +529,15 @@ class NoteRepository:
                 note_id,
                 {
                     "body": "",
-                    "secret_body": sealed,
+                    **sealed_columns(note_id, SealedText(sealed)),
                     "secret_title": title,
-                    "content_hash": content_hash(sealed.hex()),
                 },
             )
             if seal_earlier is not None:
                 versions.seal_all(self._db, note_id, seal_earlier)
             sync_state.forget_text(self._db, note_id)
             hide_text_hashes(self._db, note_id, self._millis)  # brought in from another app
-            self._db.execute(
-                "INSERT INTO local_counters (key, value) VALUES (?, 1)"
-                " ON CONFLICT (key) DO UPDATE SET value = 1",
-                (OLD_TEXT_LEFT,),
-            )
+            self._owe_clearing()
         try:
             self.forget_old_text()
         except (apsw.Error, OSError) as error:
@@ -469,19 +545,14 @@ class NoteRepository:
             log.warning("old text not cleared away yet: %s", type(error).__name__)
         return note
 
-    def seal_in_place(self, note_id: str, title: str, sealed: bytes) -> None:
+    def seal_in_place(self, note_id: str, title: str, sealed: SealedText) -> None:
         """In a backup being gone back to: a note secret now, its text there
         replaced by sealed, in the trash or not. Its old text is cleared away by
         forget_old_text, once for all of them."""
         with self._db:
             self._change(
                 note_id,
-                {
-                    "body": "",
-                    "secret_body": sealed,
-                    "secret_title": title,
-                    "content_hash": content_hash(sealed.hex()),
-                },
+                {"body": "", **sealed_columns(note_id, sealed), "secret_title": title},
             )
             hide_text_hashes(self._db, note_id, self._millis)
 
@@ -508,17 +579,15 @@ class NoteRepository:
         )
 
     def update_secret_body(self, note_id: str, sealed: bytes, keep_earlier: bool = False) -> Note:
-        """keep_earlier: the first save of an edit, which keeps the text it had."""
+        """sealed: the note's text sealed here (for the note itself, with this
+        computer's key); keep_earlier: the first save of an edit, which keeps the
+        text it had."""
         note = self._require_live(note_id)
         if not note.secret:
             raise NoteNotSecretError(note_id)
         if sealed == note.sealed:
             return note
-        return self._new_text(
-            note_id,
-            {"secret_body": sealed, "content_hash": content_hash(sealed.hex())},
-            keep_earlier,
-        )
+        return self._new_text(note_id, sealed_columns(note_id, SealedText(sealed)), keep_earlier)
 
     def set_secret_title(self, note_id: str, title: str) -> Note:
         if not self._require_live(note_id).secret:
@@ -526,7 +595,7 @@ class NoteRepository:
         return self._change(note_id, {"secret_title": title})
 
     def make_ordinary(
-        self, note_id: str, body: str, open_earlier: Callable[[bytes], str] | None = None
+        self, note_id: str, body: str, open_earlier: Callable[[SealedText], str] | None = None
     ) -> Note:
         """A secret note an ordinary one again, its text (decrypted) as given, and
         its earlier texts opened too (open_earlier: encrypted -> text) — it is not
@@ -538,7 +607,7 @@ class NoteRepository:
                 note_id,
                 {
                     "body": body,
-                    "secret_body": None,
+                    **_NOT_SEALED,
                     "secret_title": None,
                     "content_hash": content_hash(body),
                 },

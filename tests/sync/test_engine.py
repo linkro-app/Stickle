@@ -368,9 +368,12 @@ def test_a_file_not_whole_yet_is_left_for_a_later_round(
     assert b.texts() == {note.id: "반쯤 온 파일"}
 
 
-def test_secret_notes_are_not_synced_yet_and_keep_no_text_here(
+def test_a_secret_note_sealed_with_no_key_the_vault_has_stays_here_keeping_no_text(
     devices: tuple[Device, Device], cloud: FakeCloud
 ) -> None:
+    """Sealed with this device's key, which the vault's is not (no key known
+    here): neither put nor merged (as tests/sync/test_secret_note_sync.py has
+    them go once the keys are one)."""
     a, b = devices
     note = a.notes.create("비밀이 될 글")
     a.sync()
@@ -508,9 +511,13 @@ def test_a_change_made_while_merging_is_merged_too(
     calls: list[int] = []
 
     def mine_then_edited(
-        keys: DataKeys, device: str, at: local.Here, state: sync_state.NoteState | None
+        keys: DataKeys,
+        device: str,
+        at: local.Here,
+        state: sync_state.NoteState | None,
+        key: str | None = None,
     ) -> NoteFile | None:
-        made = built(keys, device, at, state)
+        made = built(keys, device, at, state, key)
         if not calls:
             a.notes.update_body(note.id, "그사이 고친 글")  # as the user, while sync merges
         calls.append(1)

@@ -10,8 +10,11 @@ takes the newer place.
 
 A secret note's are encrypted as its text is, and they follow the note: made
 secret, its earlier texts are sealed too, and the plain ones overwritten where
-they were; made ordinary, they are opened again. They never go to the vault,
-but go into the full export with every other table.
+they were; made ordinary, they are opened again. A sealed one keeps the note
+it is bound to and the key it was sealed with, as the text was (stickle.core
+.note.SealedText): one taken in from elsewhere opens as it did there. Made
+secret elsewhere, a note has no key here to seal its plain ones with: they go.
+They never go to the vault, but go into the full export with every other table.
 """
 
 from collections.abc import Callable, Sequence
@@ -21,11 +24,16 @@ import apsw
 
 from stickle.core.clock import Clock, days_before, utc_now
 from stickle.core.markdown import note_title
-from stickle.core.note import content_hash
+from stickle.core.note import SealedText, content_hash
 from stickle.crypto.secret_notes import SecretNoteError
 
 KEEP_DAYS = 30
 KEEP_PER_NOTE = 50
+# What keep_text takes of a note: its text as the note holds it.
+TEXT_COLUMNS = (
+    "body, secret_body, content_hash, coalesce(text_at, updated_at), text_from,"
+    " secret_bound, secret_key_number"
+)
 # What the list reads of each text: enough for its first line, never the whole.
 LISTED_CHARS = 400
 
@@ -48,11 +56,7 @@ class EarlierVersion:
 def keep(db: apsw.Connection, note_id: str, now: str, restored: bool = False) -> bool:
     """The note's text as it is now, kept as an earlier one before it changes;
     False when there is none to keep (no note, or no text)."""
-    rows = db.execute(
-        "SELECT body, secret_body, content_hash, coalesce(text_at, updated_at), text_from"
-        " FROM notes WHERE id = ?",
-        (note_id,),
-    ).fetchall()
+    rows = db.execute(f"SELECT {TEXT_COLUMNS} FROM notes WHERE id = ?", (note_id,)).fetchall()
     if not rows:
         return False
     return keep_text(db, note_id, rows[0], now, restored)
@@ -65,11 +69,12 @@ def keep_text(
     now: str,
     restored: bool = False,
 ) -> bool:
-    """A text the note had, kept as an earlier one: as the note holds it (its
-    body, its sealed text or None, their hash, when it became its text, and
-    where from), read here or elsewhere (going back to a backup puts the text
+    """A text the note had, kept as an earlier one: as the note holds it
+    (TEXT_COLUMNS: its body, its sealed text or None, their hash, when it
+    became its text, where from, and what the sealed one is bound to and
+    sealed with), read here or elsewhere (going back to a backup puts the text
     of now in the copy put in place). False when there is none to keep."""
-    body, sealed, digest, made_at, made_by = text
+    body, sealed, digest, made_at, made_by, bound, number = text
     if sealed is None and not str(body).strip():
         return False
     db.execute(
@@ -77,7 +82,8 @@ def keep_text(
     )
     db.execute(
         "INSERT INTO note_versions (note_id, body, sealed, content_hash, made_at, made_by,"
-        " restored, kept_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " restored, kept_at, sealed_bound, sealed_key_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?,"
+        " ?, ?)",
         (
             note_id,
             None if sealed is not None else str(body),
@@ -87,6 +93,8 @@ def keep_text(
             made_by,
             int(restored),
             now,
+            None if sealed is None else bound,
+            None if sealed is None else number,
         ),
     )
     prune(db, now, note_id)
@@ -121,36 +129,58 @@ def plain_count(db: apsw.Connection, note_id: str) -> int:
 
 def seal_all(db: apsw.Connection, note_id: str, seal: Callable[[str], bytes]) -> int:
     """A note made secret: its earlier texts in the clear sealed as its text is
-    (seal: text -> encrypted). Their plain text is overwritten once the database
-    clears away what was freed (see NoteRepository.forget_old_text). How many."""
+    (seal: text -> encrypted, for the note itself with this computer's key).
+    Their plain text is overwritten once the database clears away what was
+    freed (see NoteRepository.forget_old_text). How many."""
     rows = db.execute(
         "SELECT id, body FROM note_versions WHERE note_id = ? AND sealed IS NULL", (note_id,)
     ).fetchall()
     for version_id, body in rows:
         sealed = seal(str(body))
         db.execute(
-            "UPDATE note_versions SET body = NULL, sealed = ?, content_hash = ? WHERE id = ?",
+            "UPDATE note_versions SET body = NULL, sealed = ?, content_hash = ?,"
+            " sealed_bound = NULL, sealed_key_number = NULL WHERE id = ?",
             (sealed, content_hash(sealed.hex()), version_id),
         )
     return len(rows)
 
 
-def open_all(db: apsw.Connection, note_id: str, open_: Callable[[bytes], str]) -> int:
+def forget_plain(db: apsw.Connection, note_id: str) -> int:
+    """A note made secret elsewhere: its earlier texts in the clear gone (no
+    key here to seal them with), overwritten once the database clears away what
+    was freed. How many."""
+    db.execute("DELETE FROM note_versions WHERE note_id = ? AND sealed IS NULL", (note_id,))
+    return db.changes()
+
+
+def _sealed(row: Sequence[apsw.SQLiteValue]) -> SealedText:
+    """(sealed, sealed_bound, sealed_key_number) as a sealed text."""
+    sealed, bound, number = row
+    return SealedText(
+        bytes(sealed),  # pyright: ignore[reportArgumentType]
+        None if bound is None else str(bound),
+        None if number is None else str(number),
+    )
+
+
+def open_all(db: apsw.Connection, note_id: str, open_: Callable[[SealedText], str]) -> int:
     """A secret note made ordinary: its earlier texts opened (open_: encrypted ->
     text). One that does not open stays as it is, sealed, rather than be lost.
     The same text opened twice is kept once. How many were opened."""
     rows = db.execute(
-        "SELECT id, sealed FROM note_versions WHERE note_id = ? AND sealed IS NOT NULL",
+        "SELECT id, sealed, sealed_bound, sealed_key_number FROM note_versions"
+        " WHERE note_id = ? AND sealed IS NOT NULL",
         (note_id,),
     ).fetchall()
     opened = 0
-    for version_id, sealed in rows:
+    for version_id, *sealed in rows:
         try:
-            body = open_(bytes(sealed))  # pyright: ignore[reportArgumentType]
+            body = open_(_sealed(sealed))
         except SecretNoteError:
             continue
         db.execute(
-            "UPDATE note_versions SET body = ?, sealed = NULL, content_hash = ? WHERE id = ?",
+            "UPDATE note_versions SET body = ?, sealed = NULL, content_hash = ?,"
+            " sealed_bound = NULL, sealed_key_number = NULL WHERE id = ?",
             (body, content_hash(body), version_id),
         )
         opened += 1
@@ -169,16 +199,17 @@ def forget(db: apsw.Connection, note_id: str) -> None:
     db.execute("DELETE FROM note_versions WHERE note_id = ?", (note_id,))
 
 
-def text_of(db: apsw.Connection, note_id: str, version_id: int) -> str | bytes | None:
+def text_of(db: apsw.Connection, note_id: str, version_id: int) -> str | SealedText | None:
     """One earlier text of the note, whole: plain, or encrypted (a secret note's)."""
     rows = db.execute(
-        "SELECT body, sealed FROM note_versions WHERE id = ? AND note_id = ?",
+        "SELECT body, sealed, sealed_bound, sealed_key_number FROM note_versions"
+        " WHERE id = ? AND note_id = ?",
         (version_id, note_id),
     ).fetchall()
     if not rows:
         return None
-    body, sealed = rows[0]
-    return bytes(sealed) if sealed is not None else str(body)  # pyright: ignore[reportArgumentType]
+    body, *sealed = rows[0]
+    return _sealed(sealed) if sealed[0] is not None else str(body)
 
 
 class VersionRepository:
@@ -215,7 +246,7 @@ class VersionRepository:
     def has_any(self, note_id: str) -> bool:
         return bool(self._listed_rows(note_id, " LIMIT 1"))
 
-    def text(self, note_id: str, version_id: int) -> str | bytes | None:
+    def text(self, note_id: str, version_id: int) -> str | SealedText | None:
         return text_of(self._db, note_id, version_id)
 
     def delete(self, note_id: str, version_id: int) -> bool:

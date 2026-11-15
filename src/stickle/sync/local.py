@@ -19,6 +19,14 @@ the file as it is and not taken here: the note keeps what it has, and the
 later change stays the file's, taken once the category or mark comes. One
 deleted is taken: the note names it on every device alike.
 
+A secret note's text goes as it is sealed here (stickle.sync.note_file
+.Secret), with the note it is bound to and the number of the key it was
+sealed with: one sealed here is bound to the note itself and sealed with this
+device's key (a number the caller gives, key). Its title goes as a field,
+"secret_title", once it was set or taken in (an ordinary note keeps what it
+had, for none of it shows). The reminders written in its text go with it, as
+this device rings them, for one that cannot open it.
+
 The text is at a version: the one this device put in the vault and has not
 seen there yet, else the one last seen there, if it has not changed here
 since. Changed, it is a new version made on that one, edited when it was last
@@ -37,27 +45,26 @@ import apsw
 from stickle.core.clock import moment_of
 from stickle.core.colors import is_color
 from stickle.core.hlc import Hlc, after
-from stickle.core.note import Note
+from stickle.core.note import Note, SealedText
 from stickle.crypto.vault_keys import DataKeys
 from stickle.data import stamps
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY
 from stickle.data.record_stamps import MARK as MARKS
+from stickle.data.reminders import TEXT_FIELD
 from stickle.data.stamps import Stamp
 from stickle.data.sync_state import NoteState
 from stickle.sync import local_records, local_reminders
 from stickle.sync.contents import Contents, Field, is_millis
 from stickle.sync.format import Json, is_id, json_bytes, parse_json
 from stickle.sync.merge import COPY_OF
-from stickle.sync.note_file import BODY, NoteFile, new_version
+from stickle.sync.note_file import BODY, NoteFile, Secret, new_version
 
-# The fields every note has, and their columns. A secret note's title goes with
-# its text, which this version does not sync yet; a conflict copy's mark only
-# with a copy.
+TITLE = "secret_title"  # a secret note's title, the one typed for it
+# The fields every note has, and their columns. A conflict copy's mark goes only
+# with a copy, a secret note's title once it was set.
 COLUMNS = {
-    field: column
-    for column, field in stamps.FIELDS.items()
-    if field not in ("secret_title", COPY_OF)
+    field: column for column, field in stamps.FIELDS.items() if field not in (TITLE, COPY_OF)
 }
 _COPY_PARTS = ("device", "edited", "note")
 MARK = stamps.mark_field("")
@@ -77,6 +84,7 @@ def known(contents: Contents) -> set[str]:
     return {
         *COLUMNS,
         COPY_OF,
+        TITLE,
         *(name for name in contents.fields if name.startswith(MARK)),
         *(name for name in contents.fields if local_reminders.is_reminder_field(name)),
     }
@@ -98,7 +106,8 @@ def as_kept(note: NoteFile, text: bool = True) -> str:
     if not text:
         body = written[BODY]
         assert isinstance(body, dict)
-        written[BODY] = {name: each for name, each in body.items() if name != "text"}
+        gone = ("text", "secret")
+        written[BODY] = {name: each for name, each in body.items() if name not in gone}
     return json_bytes(written).decode("utf-8")
 
 
@@ -143,8 +152,34 @@ def here(connection: apsw.Connection, notes: NoteRepository, note_id: str) -> He
     )
 
 
+def text_of(note: Note, key: str | None, reminders: Mapping[str, Json]) -> str | Secret | None:
+    """The note's text as its file holds it: in the clear, or as it was sealed
+    (key: the number of this device's secret notes' key, None if it has none;
+    reminders: the note's, as Here holds them). None for a secret note sealed
+    with this device's key when it has none: it cannot be told."""
+    sealed = note.sealed_text
+    if sealed is None:
+        return note.body
+    key_number = sealed.key_number or key
+    if key_number is None:
+        return None
+    times = sorted(
+        name.removeprefix(TEXT_FIELD) for name in reminders if name.startswith(TEXT_FIELD)
+    )
+    return Secret(sealed.data, sealed.opens_as(note.id), key_number, tuple(times))
+
+
+def _holds(note: Note, text: str | Secret) -> bool:
+    """Whether the note's text here is that one."""
+    if isinstance(text, Secret):
+        return note.sealed == text.sealed
+    return not note.secret and note.body == text
+
+
 def _value(note: Note, name: str, device: str) -> Json:
     """device: this device's id."""
+    if name == TITLE:
+        return note.secret_title
     if name == COPY_OF:
         conflict = note.conflict
         if conflict is None:
@@ -184,8 +219,12 @@ def _head(state: NoteState | None) -> NoteFile | None:
     return kept(state.outbox if state.outbox is not None else state.seen)
 
 
-def mine(keys: DataKeys, device: str, at: Here, state: NoteState | None) -> NoteFile | None:
-    """The note as this device has it, as a file; None when it has nothing of it."""
+def mine(
+    keys: DataKeys, device: str, at: Here, state: NoteState | None, key: str | None = None
+) -> NoteFile | None:
+    """The note as this device has it, as a file; None when it has nothing of it.
+    key: the number of this device's secret notes' key (ValueError for a secret
+    note sealed with it, without one: see text_of)."""
     head = _head(state)
     note = at.note
     if note is None:
@@ -202,18 +241,22 @@ def mine(keys: DataKeys, device: str, at: Here, state: NoteState | None) -> Note
     names |= {stamps.mark_field(mark) for mark in note.marks}
     names |= set(COLUMNS)
     fields = {name: each for name, each in before.fields.items() if not _ours(name)}
-    if COPY_OF in at.stamps:
-        names.add(COPY_OF)
+    names |= {name for name in (COPY_OF, TITLE) if name in at.stamps}
+    if note.secret:
+        names.add(TITLE)
     for name in sorted(names):
         fields[name] = _field(at, note, name, device, before.fields.get(name))
     earliest = Field(None, EARLIEST, device)
     fields |= local_reminders.fields(device, at.reminders, at.stamps, at.sent, before, earliest)
     contents = Contents(fields, before.others)
-    if head is not None and not head.body.deleted and head.body.text == note.body:
+    text = text_of(note, key, at.reminders)
+    if text is None:
+        raise ValueError("a secret note sealed with a key this device has no number for")
+    if head is not None and not head.body.deleted and head.body.text == text:
         return NoteFile(contents, head.body)
     edited = millis_of(at.text_at or note.updated_at)
     parents = [] if head is None else [head.body]
-    return NoteFile(contents, new_version(keys, parents, note.body, edited, device))
+    return NoteFile(contents, new_version(keys, parents, text, edited, device))
 
 
 def _exists(connection: apsw.Connection, table: str, row_id: str) -> bool:
@@ -276,12 +319,15 @@ def take(
         if at.note is not None:
             notes.take_in_emptied(note_id)
         return None
-    text = note.body.text if at.note is None or note.body.text != at.note.body else None
+    body = note.body.text
+    text: str | SealedText | None = None
+    if body is not None and (at.note is None or not _holds(at.note, body)):
+        text = SealedText(body.sealed, body.bound, body.key) if isinstance(body, Secret) else body
     columns: dict[str, object] = {}
     marks: dict[str, bool] = {}
     stamped: dict[str, tuple[Stamp, int | None]] = {}
     for name, each in sorted(note.contents.fields.items()):
-        if not _ours(name) and name != COPY_OF:
+        if not _ours(name) and name not in (COPY_OF, TITLE):
             continue
         stamp: Stamp = (each.hlc, None if each.device == device else each.device)
         now = at.note is not None and (
@@ -296,6 +342,10 @@ def take(
             if copied is None:
                 continue
             columns.update(copied)
+        elif name == TITLE:
+            if not (each.value is None or isinstance(each.value, str)):
+                continue
+            columns[TITLE] = each.value
         elif name.startswith(MARK):
             mark = name.removeprefix(MARK)
             if not isinstance(each.value, bool) or (
@@ -324,6 +374,7 @@ def take(
         at.reminders,
         at.stamps,
         copy_of if made_copy and isinstance(copy_of, str) else None,
+        body.reminders if isinstance(body, Secret) else None,
     )
     if reminded:
         seq = stamps.touch(connection, note_id)

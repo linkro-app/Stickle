@@ -86,7 +86,7 @@ def test_only_copies_out_of_the_trash_are_listed(repo: NoteRepository) -> None:
     repo.delete(original.id)
     assert [(each.id, each.original) for each in repo.copies()] == [(second, False)]
     repo.purge(original.id)
-    assert [(each.id, each.original, each.plain) for each in repo.copies()] == [
+    assert [(each.id, each.original, each.swappable) for each in repo.copies()] == [
         (second, False, False)
     ]
 
@@ -167,7 +167,7 @@ def test_what_cannot_change_places_is_left_as_it_is(repo: NoteRepository) -> Non
     copy = repo.get(copy_id)
     assert copy is not None and copy.body == "사본 글" and copy.deleted_at is None
     [listed] = repo.copies()
-    assert (listed.original, listed.plain) == (True, False)
+    assert (listed.original, listed.swappable) == (True, False)
 
     trashed = repo.create("휴지통의 원본")
     other = copy_of(repo, trashed.id, "다른 사본", "c3c3c3c3-0000-4000-8000-000000000000")

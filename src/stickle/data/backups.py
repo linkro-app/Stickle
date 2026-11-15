@@ -43,6 +43,7 @@ from pathlib import Path
 import apsw
 
 from stickle.core.clock import Clock, utc_now
+from stickle.core.note import SealedText
 from stickle.data import versions
 from stickle.data.database import WrongKeyError, open_database
 from stickle.data.notes import NoteRepository
@@ -196,7 +197,10 @@ def contents(backup: Path, key: bytes, latest_version: int) -> Contents | None:
 
 
 # An earlier text's columns as stickle.data.versions keeps them, its id aside.
-_VERSION_COLUMNS = "body, sealed, content_hash, made_at, made_by, restored, kept_at"
+_VERSION_COLUMNS = (
+    "body, sealed, content_hash, made_at, made_by, restored, kept_at, sealed_bound,"
+    " sealed_key_number"
+)
 
 
 @dataclass(frozen=True)
@@ -207,7 +211,7 @@ class SecretNow:
     back to): none of them."""
 
     title: str = ""
-    sealed: bytes | None = None
+    sealed: SealedText | None = None
     earlier: tuple[tuple[object, ...], ...] = ()
 
 
@@ -219,16 +223,21 @@ def secret_notes_known(connection: apsw.Connection) -> dict[str, SecretNow]:
         for (note_id,) in connection.execute("SELECT note_id FROM once_secret")
     }
     rows = connection.execute(
-        "SELECT id, secret_title, secret_body FROM notes WHERE secret_body IS NOT NULL"
+        "SELECT id, secret_title, secret_body, secret_bound, secret_key_number FROM notes"
+        " WHERE secret_body IS NOT NULL"
     ).fetchall()
-    for note_id, title, sealed in rows:
+    for note_id, title, sealed, bound, number in rows:
         earlier = connection.execute(
             f"SELECT {_VERSION_COLUMNS} FROM note_versions WHERE note_id = ? ORDER BY id",
             (note_id,),
         ).fetchall()
         known[str(note_id)] = SecretNow(
             str(title or ""),
-            bytes(sealed),  # pyright: ignore[reportArgumentType]
+            SealedText(
+                bytes(sealed),  # pyright: ignore[reportArgumentType]
+                None if bound is None else str(bound),
+                None if number is None else str(number),
+            ),
             tuple(tuple(row) for row in earlier),
         )
     return known
@@ -270,7 +279,8 @@ def _earlier_as_now(connection: apsw.Connection, note_id: str, secret: SecretNow
     """The note's earlier texts in the copy as they are now (none for one gone)."""
     connection.execute("DELETE FROM note_versions WHERE note_id = ?", (note_id,))
     connection.executemany(
-        f"INSERT INTO note_versions (note_id, {_VERSION_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO note_versions (note_id, {_VERSION_COLUMNS})"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(note_id, *row) for row in secret.earlier],  # pyright: ignore[reportArgumentType]
     )
 
@@ -309,7 +319,7 @@ def keep_secret_notes_secret(
             for note_id, text in found.items():
                 secret = known[note_id]
                 if seal is not None:
-                    notes.seal_in_place(note_id, secret.title, seal(note_id, text))
+                    notes.seal_in_place(note_id, secret.title, SealedText(seal(note_id, text)))
                 elif secret.sealed is not None:
                     notes.seal_in_place(note_id, secret.title, secret.sealed)
                 else:

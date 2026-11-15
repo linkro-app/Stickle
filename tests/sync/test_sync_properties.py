@@ -461,7 +461,7 @@ def _resolve(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> 
     if not copies:
         return
     copy = data.draw(st.sampled_from(copies))
-    if data.draw(st.booleans()) and copy.original and copy.plain:
+    if data.draw(st.booleans()) and copy.original and copy.swappable:
         bed.end_typing(device, copy.id)  # its window closes, the original's text is saved
         bed.end_typing(device, copy.conflict.note)
         device.notes.use_copy(copy.id)
@@ -511,7 +511,7 @@ def _join(bed: Bed, device: Device, data: st.DataObject) -> None:
         {
             note.body.text
             for note in cloud_notes(bed.cloud).values()
-            if note.body.text is not None
+            if isinstance(note.body.text, str)
             and not note.body.deleted
             and (
                 note.contents.fields.get(TRASH) is None or note.contents.fields[TRASH].value is None

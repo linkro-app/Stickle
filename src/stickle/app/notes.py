@@ -71,11 +71,11 @@ from stickle.core.being_edited import Editing
 from stickle.core.colors import PALETTE
 from stickle.core.labels import DEFAULT_ICON, Category, Mark
 from stickle.core.layout import Place, Rect, Size, fit, monitor_at, place_of, restore, size_of
-from stickle.core.note import DEFAULT_COLOR, Note
+from stickle.core.note import DEFAULT_COLOR, Note, SealedText
 from stickle.core.paste import pasted_text
 from stickle.core.snap import resized, snapped, together
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
-from stickle.crypto.secret_notes import SecretNoteError, open_text, seal_text
+from stickle.crypto.secret_notes import SecretNoteError, open_sealed, seal_text
 from stickle.data.colors import MAX_OWN_COLORS, ColorRepository, OwnColor, OwnColorsFullError
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
@@ -1666,9 +1666,10 @@ class NoteManager(QObject):
             return
         try:
             note = self._repository.get(window.note_id)
-            if note is None or note.sealed is None:
+            sealed = None if note is None else note.sealed_text
+            if note is None or sealed is None:
                 raise SecretNoteError("not a secret note")
-            text = open_text(bytes(key), note.id, note.sealed)
+            text = open_sealed(bytes(key), note.id, sealed)
         except (SecretNoteError, apsw.Error) as error:
             log.error("could not open a secret note: %s", type(error).__name__)
             _wipe(key)
@@ -1753,7 +1754,7 @@ class NoteManager(QObject):
                 window.note_id,
                 window.text,
                 # Its earlier texts opened too: it is not secret any more.
-                None if key is None else partial(open_text, bytes(key), window.note_id),
+                None if key is None else partial(open_sealed, bytes(key), window.note_id),
             )
         except apsw.Error as error:
             log.error("could not make a note ordinary: %s", type(error).__name__)
@@ -1821,14 +1822,14 @@ class NoteManager(QObject):
         if dialog.chosen is not None:
             self._go_back(note.id, dialog.chosen, window)
 
-    def _secret_opener(self, window: NoteWindow | None) -> Callable[[bytes], str] | None:
+    def _secret_opener(self, window: NoteWindow | None) -> Callable[[SealedText], str] | None:
         """An open secret note's earlier texts opened with its key."""
         if window is None or not window.secret or window.secret_locked or not window.note_id:
             return None
         key = self._keys.get(window)
-        return None if key is None else partial(open_text, bytes(key), window.note_id)
+        return None if key is None else partial(open_sealed, bytes(key), window.note_id)
 
-    def _open_for_versions(self, window: NoteWindow) -> Callable[[bytes], str] | None:
+    def _open_for_versions(self, window: NoteWindow) -> Callable[[SealedText], str] | None:
         """Its text shown with the password (as its own menu asks), for its versions."""
         if window.secret_locked:
             self.open_secret(window)
@@ -1848,9 +1849,10 @@ class NoteManager(QObject):
         log.info("a note went back to an earlier version")
         text: str | None = None if note.secret else note.body
         key = self._keys.get(window) if window is not None else None
-        if note.secret and key is not None and note.sealed is not None:
+        sealed = note.sealed_text
+        if key is not None and sealed is not None:
             try:
-                text = open_text(bytes(key), note.id, note.sealed)
+                text = open_sealed(bytes(key), note.id, sealed)
             except SecretNoteError:
                 text = None  # shown once opened again, as it is stored
         # Covered meanwhile (left alone too long), it shows its new text once opened.
@@ -2001,10 +2003,13 @@ class NoteManager(QObject):
         if self._repository is None:
             return True
         try:
-            stored = next((n for n in self._repository.all() if n.sealed is not None), None)
-            if stored is None or stored.sealed is None:
+            # Sealed with this computer's key: one from elsewhere may be another's.
+            here = (n for n in self._repository.all() if n.secret and n.key_number is None)
+            stored = next(here, None)
+            sealed = None if stored is None else stored.sealed_text
+            if stored is None or sealed is None:
                 return True
-            open_text(key, stored.id, stored.sealed)
+            open_sealed(key, stored.id, sealed)
         except (SecretNoteError, apsw.Error) as error:
             log.error("a secret notes' key that opens none of them: %s", type(error).__name__)
             return False
@@ -2173,7 +2178,7 @@ class NoteManager(QObject):
     def _copy_of(self, copy: Copy) -> CopyOf:
         device = copy.conflict.device
         name = None if device is None else self._device_names(device)
-        return CopyOf(device is None, name, copy.conflict.edited, copy.original, copy.plain)
+        return CopyOf(device is None, name, copy.conflict.edited, copy.original, copy.swappable)
 
     def show_original(self, window: NoteWindow) -> None:
         """A conflict copy's original, in front with the keyboard."""
@@ -2222,16 +2227,20 @@ class NoteManager(QObject):
             self._show_conflicts()  # as they are: what cannot be done is not offered
             return
         log.info("a conflict copy's text went in its note")
-        if original is not None:
+        if original is not None and note.secret:
+            self._take_in_secret(original, note)
+        elif original is not None:
             self._saved[original] = note.body
             original.replace_text(note.body)
             self._edit_kept.discard(original)
         self._autosaves[window].stop()
         window.release()
-        if self.reminders is not None:
+        if self.reminders is not None and not note.secret:  # a secret one's went with it
             self.reminders.text_saved(note.id, note.body)
             if moved is not None:
                 self.reminders.text_saved(moved.id, moved.body)
+        elif self.reminders is not None:
+            self.reminders.take_in([note.id, copy.id])
         if original is not None:
             original.bring_to_front()
         self.note_saved.emit()
@@ -2277,13 +2286,14 @@ class NoteManager(QObject):
     def _follow_edit(self, window: NoteWindow) -> None:
         """Sync told as the note's edit begins or ends. As it begins, what came
         just before shows first; as it ends, what waited for it."""
-        if window.note_id is None or window.secret or window not in self._autosaves:
+        if window.note_id is None or window not in self._autosaves:
             return
-        if window not in self._in_edit and self._being_edited(window):
+        # A secret note locked holds nothing typed (locked while edited: its edit is over).
+        if window not in self._in_edit and self._typed_in(window):
             self.editing.begin(window.note_id)
             self._in_edit.add(window)
             self._catch_up(window)  # which may end it: a checkbox ticked on a text gone
-        if window in self._in_edit and not self._being_edited(window):
+        if window in self._in_edit and not self._typed_in(window):
             held = window.held
             self._end_edit(window)
             if window in self._take_after:
@@ -2291,6 +2301,9 @@ class NoteManager(QObject):
             self._open_copies(self._copies_after.pop(window, set()))
             if held:
                 self.held_released.emit()
+
+    def _typed_in(self, window: NoteWindow) -> bool:
+        return not window.secret_locked and self._being_edited(window)
 
     def _end_edit(self, window: NoteWindow) -> None:
         if window in self._in_edit:
@@ -2310,21 +2323,39 @@ class NoteManager(QObject):
         except apsw.Error as error:
             log.warning("could not read a note again: %s", type(error).__name__)
             return
-        saved = self._saved_text(window)
-        if note is None or note.secret or note.body == saved:
+        if note is None or note.secret != window.secret:
+            return
+        if window.secret:
+            stored, saved = self._opened_text(window, note), self._stored_secret.get(window)
+        else:
+            stored, saved = note.body, self._saved_text(window)
+        if stored is None or stored == saved:
             return
         if window.text == saved:
             if window.editing:
-                window.take_text(note.body)
+                window.take_text(stored)
             else:
-                window.replace_text(note.body)
+                window.replace_text(stored)
         elif not window.editing:  # ticked on a text that is gone: what came shows
             self._autosaves[window].stop()
-            window.replace_text(note.body)
+            window.replace_text(stored)
         else:
             return  # typed on it already: saved as it is (as before sync was told)
-        self._saved[window] = note.body
+        (self._stored_secret if window.secret else self._saved)[window] = stored
         self._edit_kept.discard(window)
+
+    def _opened_text(self, window: NoteWindow, note: Note) -> str | None:
+        """An open secret note's text as stored, opened with the key its window
+        holds; None if it is locked, or its text does not open with it."""
+        key = self._keys.get(window)
+        sealed = note.sealed_text
+        if window.secret_locked or key is None or sealed is None:
+            return None
+        try:
+            return open_sealed(bytes(key), note.id, sealed)
+        except SecretNoteError as error:
+            log.warning("a secret note from elsewhere does not open: %s", type(error).__name__)
+            return None
 
     def _after_edit(self, window: NoteWindow) -> None:
         """What came while it was edited (or dragged), shown now."""
@@ -2353,12 +2384,17 @@ class NoteManager(QObject):
                 else:
                     self._open_taken_in(note)
             return
-        if window.secret and note is not None:
-            return  # secret notes are not synced yet (but one let go of goes)
         editing = self._being_edited(window)
         if note is None or ((note.hidden or note.deleted) and not editing):
             self._autosaves[window].stop()
             window.release()
+            return
+        if note.secret != window.secret and not editing:
+            # Made secret, or ordinary again, elsewhere: opened anew as it is now
+            # (locked, if secret: what was open here was opened as the other text).
+            self._autosaves[window].stop()
+            window.release()
+            self._open_taken_in(note)
             return
         # What does not touch what is typed shows at once, the rest once its
         # edit is over (closed then, if it went out of sight; folding once it is
@@ -2372,16 +2408,38 @@ class NoteManager(QObject):
         if editing:
             self._take_after.add(window)
             return
-        if note.body != window.text:
-            window.replace_text(note.body)
-        self._saved[window] = note.body
-        self._edit_kept.discard(window)
+        if window.secret:
+            self._take_in_secret(window, note)
+        else:
+            if note.body != window.text:
+                window.replace_text(note.body)
+            self._saved[window] = note.body
+            self._edit_kept.discard(window)
         if note.locked != window.locked:
             window.set_locked(note.locked)
         if window.dragging or window.resizing:
             self._take_after.add(window)
         else:
             window.set_collapsed(note.collapsed)
+
+    def _take_in_secret(self, window: NoteWindow, note: Note) -> None:
+        """A secret note's title and text as sync brought them: its text shown if
+        it is open here, else locked (one that does not open with its key, as
+        one sealed with another computer's key)."""
+        title = note.secret_title or ""
+        if title != window.secret_title:
+            window.set_secret_title(title)
+        if window.secret_locked:
+            return
+        opened = self._opened_text(window, note)
+        if opened is None:
+            self._forget_key(window)
+            window.show_secret_locked(title)
+            return
+        if opened != self._stored_secret.get(window):
+            window.replace_text(opened)
+            self._stored_secret[window] = opened
+            self._edit_kept.discard(window)
 
     def _original_in_edit(self, note: Note) -> NoteWindow | None:
         """A conflict copy's original, if its text is being edited here."""

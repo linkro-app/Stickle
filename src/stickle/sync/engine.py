@@ -42,7 +42,16 @@ place is neither read nor written over, unless this device has that note: its
 own is put there. A note with a field this version may not change is neither
 taken in nor written over, and passed over until it changes. A copy of a
 note's file under another name (as a cloud's web page makes one) is merged
-into the note, then deleted. Secret notes are not synced yet.
+into the note, then deleted.
+
+A secret note goes as it is sealed (stickle.sync.local), and is merged on the
+sealed bytes alone: a device it is locked on makes what one it is open on
+makes. One this device sealed with its own key goes only if that is the
+vault's key (stickle.sync.secret_key): one sealed with another key stays here
+as it is, neither put nor merged, until its key is matched with the vault's.
+A note made secret elsewhere keeps none of its text in the clear here
+(stickle.data.notes.NoteRepository.take_in): that text is cleared away once
+the round is through.
 
 A note the vault had and has no file for any more (read, and none there: a
 list may show a file late) is taken for one emptied elsewhere and its
@@ -89,6 +98,7 @@ of what it would bring were not among it. Notes not here, texts changed, notes
 taken out of the trash or emptied from it are not counted.
 """
 
+import logging
 from collections.abc import Callable, Collection, Mapping
 from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass, field, replace
@@ -98,7 +108,9 @@ import apsw
 from stickle.core import made_notes
 from stickle.core.being_edited import Editing, nobody_editing
 from stickle.core.markdown import note_title
+from stickle.core.note import Note
 from stickle.crypto.sealed import SealedSlot
+from stickle.crypto.secret_notes import key_number
 from stickle.crypto.vault_keys import RECOVERY_KEY
 from stickle.data import record_state, sync_held, sync_keys, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
@@ -152,6 +164,8 @@ from stickle.sync.targets.base import (
     RefusedError,
 )
 from stickle.sync.vault import confirm
+
+log = logging.getLogger(__name__)
 
 TRIES = 5  # merges of one note in a round, refused each time, before it is left
 BIG = 10  # changes a round stops for (to the trash, deleted for good, conflict copies)
@@ -256,11 +270,10 @@ def _held_field(name: str) -> bool:
 def _disturbs(at: local.Here, mine: NoteFile, merged: Merged) -> bool:
     """Whether taking the merge in would change what is being typed in the note,
     or end its edit: its text, its lock, the trash, emptying it, a conflict copy."""
-    note = at.note
-    if note is None:
+    if at.note is None:
         return False
     body = merged.note.body
-    if body.deleted or merged.copy is not None or body.text != note.body:
+    if body.deleted or merged.copy is not None or body.text != mine.body.text:
         return True
     for name in _HELD:
         a, b = mine.contents.fields.get(name), merged.note.contents.fields.get(name)
@@ -357,12 +370,14 @@ def sync_notes(
     notes: NoteRepository | None = None,
     accept: Callable[[], object] | None = None,
     editing: Editing | None = None,
+    key: str | None = None,
 ) -> Report:
     """One round; cloud_now: the time by the cloud's clock (stickle.core.cloud_time);
     accept: what a round stopped for taken in after all, after this is called
-    (to back up); editing: the notes being edited on screen."""
+    (to back up); editing: the notes being edited on screen; key: the number of
+    this device's secret notes' key (None: it has none)."""
     notes = notes or NoteRepository(connection)
-    return _Round(connection, notes, place, cloud_now, accept, editing=editing).run()
+    return _Round(connection, notes, place, cloud_now, accept, editing=editing, key=key).run()
 
 
 def sync_vault(
@@ -422,6 +437,7 @@ def sync_vault(
         report=report,
         progress=progress,
         editing=editing,
+        key=_number_here(secret_key),
     )
     told = frozenset[str]() if looked is None else looked.told
     listing = looked is None or full or not looked.enough or notes_round.first
@@ -468,6 +484,18 @@ def sync_vault(
     return report
 
 
+def _number_here(secret_key: Callable[[], Mapping[str, object] | None] | None) -> str | None:
+    """The number of this device's secret notes' key, None if it has none or
+    its key file C does not read now (its notes sealed here go nowhere then)."""
+    if secret_key is None:
+        return None
+    try:
+        return key_number(secret_key())
+    except Exception as error:  # the app's: looked at again next round
+        log.warning("sync: the secret notes' key does not read now: %s", type(error).__name__)
+        return None
+
+
 class _Round:
     def __init__(
         self,
@@ -480,9 +508,13 @@ class _Round:
         report: Report | None = None,
         progress: Progress | None = None,
         editing: Editing | None = None,
+        key: str | None = None,
     ) -> None:
-        """joining: None, as the vault was joined or not (stickle.sync.engine.joined)."""
+        """joining: None, as the vault was joined or not (stickle.sync.engine.joined);
+        key: the number of this device's secret notes' key."""
         self._db = connection
+        self._key = key
+        self._vault_key = sync_state.secret_key(connection, place.vault)
         self._editing = editing
         self._accept = accept
         self._progress = progress
@@ -517,6 +549,7 @@ class _Round:
         fetched again, if tags tell writes apart."""
         vault, target = self._place.vault, self._place.target
         self._started = self._now()
+        self._vault_key = sync_state.secret_key(self._db, vault)  # as the round saw it
         known = sync_state.known(self._db, vault)
         own = set(sync_state.unconfirmed(self._db, vault))  # put here: read back to be sure
         to_read: set[str] = own | (told or set())
@@ -579,6 +612,16 @@ class _Round:
         else:
             self._weigh()
 
+    def _goes(self, note: Note | None) -> bool:
+        """Whether the note is merged and put: all but a secret note sealed here
+        with a key other than the vault's (or one with the vault's not known yet)."""
+        if note is None or not note.secret or note.key_number is not None:
+            return True
+        return self._key is not None and self._key == self._vault_key
+
+    def _mine(self, at: local.Here, state: NoteState | None) -> NoteFile | None:
+        return local.mine(self._place.keys, self._place.device, at, state, self._key)
+
     def _taking(self) -> AbstractContextManager[Callable[[str], bool]]:
         """Held while a note is taken in: whether a note is being edited, no edit
         beginning meanwhile (stickle.core.being_edited)."""
@@ -606,7 +649,7 @@ class _Round:
             if here.note is not None or here.emptied_at is not None:
                 continue
             file, _ = self._opened(note_id)
-            if file is not None and _shown(file) and file.body.text is not None:
+            if file is not None and _shown(file) and isinstance(file.body.text, str):
                 theirs.setdefault(made_notes.digest(file.body.text), []).append(note_id)
         for text, ids in mine.items():
             for own, there in zip(sorted(ids), theirs.get(text, []), strict=False):
@@ -629,9 +672,8 @@ class _Round:
                 mine = local.mine(place.keys, place.device, at, None)
                 if mine is not None and merge(place.keys, note_id, mine, file).copy is None:
                     alike += 1
-            secret = file.contents.fields.get("secret_title")
-            plain = secret is None or secret.value is None
-            title = note_title(file.body.text or "") if plain else None
+            text = file.body.text
+            title = note_title(text) if isinstance(text, str) else None
             recent = sorted([*recent, (file.body.edited, note_id, title)], reverse=True)[:3]
         return FirstLook(here, cloud, alike, [title for _, _, title in recent])
 
@@ -661,10 +703,10 @@ class _Round:
         copies made. Nothing for a note not here."""
         place, path = self._place, item_path(NOTES, note_id)
         at = local.here(self._db, self._notes, note_id)
-        if at.note is None or at.note.secret or self._leaving.passed(path) is not None:
+        if at.note is None or not self._goes(at.note) or self._leaving.passed(path) is not None:
             return []
         made: list[str] = []
-        note = local.mine(place.keys, place.device, at, state)
+        note = self._mine(at, state)
         folded = False
         for copy_path in self._copies.get(note_id, []):
             copy = self._kept_copy(copy_path)
@@ -783,6 +825,10 @@ class _Round:
             sync_staged.clear(self._db, vault)
             sync_held.clear(self._db, vault)
             sync_state.set_joining(self._db, vault, False)
+        try:  # a note made secret elsewhere: its old text in the clear
+            self._notes.forget_old_text_left()
+        except (apsw.Error, OSError) as error:  # secret all the same; cleared at the next start
+            log.warning("sync: old text not cleared away yet: %s", type(error).__name__)
         self._report.full = self.full
         return self._report
 
@@ -977,9 +1023,9 @@ class _Round:
         place = self._place
         for _ in range(TRIES):
             at = local.here(self._db, self._notes, note_id)
-            if at.note is not None and at.note.secret:
-                return None
-            mine = local.mine(place.keys, place.device, at, state)
+            if not self._goes(at.note):
+                return None  # matched with the vault's key first
+            mine = self._mine(at, state)
             if cloud.note is not None:
                 try:
                     cloud.note.contents.check_writable(local.known(cloud.note.contents))
@@ -1073,8 +1119,8 @@ class _Round:
         """Its file read, and none there: True to put this device's back; False,
         dealt with here."""
         at = local.here(self._db, self._notes, note_id)
-        if at.note is not None and at.note.secret:
-            return False  # not synced yet
+        if not self._goes(at.note):
+            return False  # matched with the vault's key first
         vault, now = self._place.vault, self._now()
         if state.gone:  # kept here only: put back if changed here since
             if at.note is None:
@@ -1091,7 +1137,7 @@ class _Round:
             return False
         if self._last is None or now - self._last <= YEAR:
             return True  # it cannot have been cleared: the vault went back, or it was deleted
-        mine = local.mine(self._place.keys, self._place.device, at, state)
+        mine = self._mine(at, state)
         if at.note is not None and at.note.deleted_at is None:
             with self._taking() as edited:
                 if edited(note_id):
@@ -1161,10 +1207,10 @@ class _Round:
         known = sync_state.known(self._db, place.vault)
         for note in self._notes.deleted():
             state = known.get(note.id)
-            if note.secret or state is None:
+            if not self._goes(note) or state is None:
                 continue
             at = local.here(self._db, self._notes, note.id)
-            mine = local.mine(place.keys, place.device, at, state)
+            mine = self._mine(at, state)
             if mine is None:
                 continue
             if state.gone:  # kept here only: a year from when it went in the trash

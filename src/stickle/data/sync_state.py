@@ -6,8 +6,9 @@ when it was last merged, and whether its text is at a version that deletes it.
 The files are JSON, as stickle.sync writes them; to this module they are text.
 
 A note emptied from the trash, or made secret, has its text taken out of both
-files here: its text is never kept in the clear after that. What is left of
-them, the versions and fields, is what the next version is made on.
+files here (a secret note's sealed one too): its text is never kept in the
+clear after that. What is left of them, the versions and fields, is what the
+next version is made on. A secret note's text is kept as it is sealed.
 
 Each vault is kept apart: a device that synced with another vault before
 keeps what it knew of that one.
@@ -81,8 +82,8 @@ def drop(connection: apsw.Connection, vault: str, note_id: str) -> None:
 def forget_text(connection: apsw.Connection, note_id: str) -> None:
     """The note's text out of what every vault's files here hold of it."""
     connection.execute(
-        "UPDATE sync_notes SET seen = json_remove(seen, '$.body.text'),"
-        " outbox = json_remove(outbox, '$.body.text') WHERE note_id = ?",
+        "UPDATE sync_notes SET seen = json_remove(seen, '$.body.text', '$.body.secret'),"
+        " outbox = json_remove(outbox, '$.body.text', '$.body.secret') WHERE note_id = ?",
         (note_id,),
     )
 
@@ -92,14 +93,14 @@ def _ids(rows: Iterable[apsw.SQLiteValues]) -> list[str]:
 
 
 def changed(connection: apsw.Connection, vault: str) -> list[str]:
-    """Notes not secret that changed here since they were last merged, or never
-    were: by id."""
+    """Notes that changed here since they were last merged, or never were: by
+    id. A secret note sealed with a key the vault's is not goes nowhere yet, and
+    stays among them."""
     return _ids(
         connection.execute(
             "SELECT notes.id FROM notes LEFT JOIN sync_notes"
             " ON sync_notes.vault = ? AND sync_notes.note_id = notes.id"
-            " WHERE notes.secret_body IS NULL"
-            " AND (sync_notes.note_id IS NULL OR notes.change_seq > sync_notes.merged_seq)"
+            " WHERE sync_notes.note_id IS NULL OR notes.change_seq > sync_notes.merged_seq"
             " ORDER BY notes.id",
             (vault,),
         )
@@ -107,13 +108,12 @@ def changed(connection: apsw.Connection, vault: str) -> list[str]:
 
 
 def changed_at(connection: apsw.Connection, vault: str) -> list[tuple[str, str]]:
-    """Notes not secret that changed here since they were last merged, or never
-    were: by id, with when they last changed."""
+    """Notes that changed here since they were last merged, or never were: by
+    id, with when they last changed."""
     rows = connection.execute(
         "SELECT notes.id, notes.updated_at FROM notes LEFT JOIN sync_notes"
         " ON sync_notes.vault = ? AND sync_notes.note_id = notes.id"
-        " WHERE notes.secret_body IS NULL"
-        " AND (sync_notes.note_id IS NULL OR notes.change_seq > sync_notes.merged_seq)",
+        " WHERE sync_notes.note_id IS NULL OR notes.change_seq > sync_notes.merged_seq",
         (vault,),
     )
     return [(str(note_id), str(at)) for note_id, at in rows]
@@ -211,6 +211,16 @@ def joining(connection: apsw.Connection, vault: str) -> bool:
 
 def set_joining(connection: apsw.Connection, vault: str, joining: bool) -> None:
     _set_vault_value(connection, vault, "joining", int(joining))
+
+
+def secret_key(connection: apsw.Connection, vault: str) -> str | None:
+    """The number of the vault's secret notes' key, as a round last saw it
+    (stickle.sync.secret_key); None: not seen yet."""
+    return _text(_vault_value(connection, vault, "secret_key"))
+
+
+def set_secret_key(connection: apsw.Connection, vault: str, number: str) -> None:
+    _set_vault_value(connection, vault, "secret_key", number)
 
 
 def synced_at(connection: apsw.Connection, vault: str) -> int | None:

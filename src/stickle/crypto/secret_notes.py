@@ -11,7 +11,9 @@ notes database (its key, the master password) still cannot read a secret note.
                                 "sealed": "<the key, sealed for it>"}}}
 
 Each note's text is encrypted on its own with that key (XChaCha20-Poly1305),
-bound to the note's id: moved onto another note, it does not open.
+bound to the note's id: moved onto another note, it does not open. A text
+that comes from another computer keeps the id it was bound to beside it
+(stickle.core.note.SealedText): a conflict copy's opens as its original's did.
 
     {"slots": {"key_number": "<a random id>", "secret_password": {..., "how": "changed"},
                "recovery_key": {...}}}
@@ -39,6 +41,7 @@ import uuid
 from collections.abc import Mapping
 from typing import Any, cast
 
+from stickle.core.note import SealedText
 from stickle.crypto.key_files import C, KeyFiles
 from stickle.crypto.keyfile import (
     KEY_BYTES,
@@ -99,6 +102,12 @@ def open_text(key: bytes, note_id: str, sealed: bytes) -> str:
         return secret.Aead(key).decrypt(sealed, _aad(note_id)).decode("utf-8")
     except (exceptions.CryptoError, UnicodeDecodeError) as error:
         raise SecretNoteError(note_id) from error
+
+
+def open_sealed(key: bytes, note_id: str, sealed: SealedText) -> str:
+    """The text of the note note_id, sealed as it holds it (bound to it, or to
+    the note it says)."""
+    return open_text(key, sealed.opens_as(note_id), sealed.data)
 
 
 def has_secret_notes(files: KeyFiles) -> bool:

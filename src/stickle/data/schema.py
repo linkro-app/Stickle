@@ -606,10 +606,23 @@ CREATE TABLE sync_keys (
 ) WITHOUT ROWID;
 """
 
+V27 = """
+-- A secret note's text (and each earlier one) as another computer sealed it:
+-- the note it is bound to (a conflict copy's opens as its original's) and the
+-- number of the key it was sealed with. NULL: its own id, and this computer's
+-- key, as every text sealed here is (0.6's too).
+ALTER TABLE notes ADD COLUMN secret_bound TEXT;
+ALTER TABLE notes ADD COLUMN secret_key_number TEXT;
+ALTER TABLE note_versions ADD COLUMN sealed_bound TEXT;
+ALTER TABLE note_versions ADD COLUMN sealed_key_number TEXT;
+-- The number of the vault's secret notes' key, once a round has seen it.
+ALTER TABLE sync_vaults ADD COLUMN secret_key TEXT;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26),
+    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27),
 ]
 BACKUPS_KEPT = 3
 

@@ -16,8 +16,8 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from stickle.core.note import Note, content_hash
-from stickle.crypto.secret_notes import open_text, seal_text
+from stickle.core.note import Note, SealedText, content_hash
+from stickle.crypto.secret_notes import open_sealed, open_text, seal_text
 from stickle.data.notes import NoteNotSecretError, NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.versions import KEEP_DAYS, KEEP_PER_NOTE, VersionRepository
@@ -68,7 +68,9 @@ def kept(connection: apsw.Connection, clock: Clock) -> VersionRepository:
 
 
 def texts(kept: VersionRepository, note_id: str) -> list[str | bytes | None]:
-    return [kept.text(note_id, version.id) for version in kept.listed(note_id)]
+    """Each listed one's text, a sealed one's as its bytes."""
+    found = [kept.text(note_id, version.id) for version in kept.listed(note_id)]
+    return [each.data if isinstance(each, SealedText) else each for each in found]
 
 
 def now_of(notes: NoteRepository, note_id: str) -> Note:
@@ -87,8 +89,8 @@ def sealer(note_id: str) -> Callable[[str], bytes]:
     return partial(seal_text, SECRET_KEY, note_id)
 
 
-def opener(note_id: str) -> Callable[[bytes], str]:
-    return partial(open_text, SECRET_KEY, note_id)
+def opener(note_id: str) -> Callable[[SealedText], str]:
+    return partial(open_sealed, SECRET_KEY, note_id)
 
 
 def holds_anywhere(connection: apsw.Connection, word: str) -> list[str]:
@@ -273,7 +275,7 @@ def test_a_text_from_elsewhere_keeps_the_one_it_replaces(
     assert after.body == "노트북의 글"
     assert texts(kept, note.id) == ["이 PC의 글"]
     with pytest.raises(NoteNotSecretError):
-        notes.replace_text(note.id, b"sealed", came_from="laptop")
+        notes.replace_text(note.id, SealedText(b"sealed"), came_from="laptop")
 
 
 # Secret notes: their earlier texts follow them, never in the clear while secret
@@ -488,7 +490,8 @@ def run(
         elif kind == "receive":
             text = next(made)
             data = sealed(text) if model.secret else text
-            notes.replace_text(note.id, data, came_from="laptop")
+            given_text = SealedText(data) if isinstance(data, bytes) else data
+            notes.replace_text(note.id, given_text, came_from="laptop")
             model.keep(now)
             model.changed(text, data, now, came_from="laptop")
         elif kind in ("back", "delete"):
@@ -528,8 +531,11 @@ def check(
     shown: list[tuple[str, str, str | None, bool]] = []
     for version in kept.listed(note_id):
         stored = kept.text(note_id, version.id)
-        assert version.sealed == model.secret == isinstance(stored, bytes)
-        text = open_text(SECRET_KEY, note_id, stored) if isinstance(stored, bytes) else str(stored)
+        assert version.sealed == model.secret == isinstance(stored, SealedText)
+        if isinstance(stored, SealedText):
+            text = open_sealed(SECRET_KEY, note_id, stored)
+        else:
+            text = str(stored)
         shown.append((text, version.at, version.came_from, version.restored))
     assert shown == [(e.text, e.shown_at, e.came_from, e.restored) for e in model.listed(now)]
     # Every text put aside within the 30 days is still there, or is the text now,

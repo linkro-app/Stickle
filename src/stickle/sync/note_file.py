@@ -22,6 +22,29 @@ told by its id. What the hash is of, in UTF-8:
     \n
     <the text, as it is stored: line breaks are LF, nothing changed>
 
+A secret note's text is kept as it was sealed (stickle.crypto.secret_notes),
+never in the clear: "text" is null and "secret" holds it,
+
+    "secret": {"sealed": "<base64>", "bound": "<the note it is bound to>",
+               "key": "<the number of the key>", "reminders": ["<day> <time>", ...]}
+
+bound to the note it was sealed for (a conflict copy's opens as its
+original's), with the secret notes' key of that number (stickle.sync.
+secret_key), and when the reminders written in it ring (a day and a time, in
+order): a device it is locked on rings them all the same. Its id is made on the
+sealed bytes as they are, so that a device that cannot open it makes the same
+versions as one that can (the same text sealed twice is not the same version):
+
+    stickle version 1\n
+    parents <their ids in order, joined by ",">\n
+    deleted 0\n
+    body secret\n
+    bound <the note id>\n
+    key <the key's number>\n
+    reminders <them, joined by ",">\n
+    \n
+    <the sealed bytes>
+
 It is BLAKE2b, 16 bytes, written in lower-case hex. When and on which device a
 version was edited are kept beside it, not in its id: two devices making the
 same version make the same one.
@@ -32,6 +55,8 @@ joining two lines holds both. It is what tells whether one version came from
 another, which decides what a sync does with a note (decide).
 """
 
+import base64
+import binascii
 import hashlib
 import re
 from collections.abc import Mapping, Sequence
@@ -46,8 +71,20 @@ from stickle.sync.format import Json, UnreadableError, is_id
 VERSIONS = b"stickle-versions"  # the use of the lasting key that versions' ids are made with
 HISTORY = 32
 BODY = "body"
-_VERSION_NAMES = ("deleted", "device", "edited", "history", "parents", "sent", "text", "version")
+_VERSION_NAMES = (
+    "deleted",
+    "device",
+    "edited",
+    "history",
+    "parents",
+    "secret",
+    "sent",
+    "text",
+    "version",
+)
 _ID = re.compile(r"([1-9][0-9]{0,14})-([0-9a-f]{32})")
+_SECRET_NAMES = ("bound", "key", "reminders", "sealed")
+_REMINDER = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-2][0-9]:[0-5][0-9]")
 
 
 def generation(version_id: str) -> int:
@@ -57,17 +94,77 @@ def generation(version_id: str) -> int:
     return int(found.group(1))
 
 
-def version_id(keys: DataKeys, parents: Sequence[str], text: str | None, deleted: bool) -> str:
+@dataclass(frozen=True)
+class Secret:
+    """A secret note's text, as it was sealed (above)."""
+
+    sealed: bytes
+    bound: str  # the id of the note it opens as
+    key: str  # the number of the secret notes' key it was sealed with
+    reminders: tuple[str, ...] = ()  # "<day> <time>", in order
+
+    def to_json(self) -> dict[str, Json]:
+        return {
+            "bound": self.bound,
+            "key": self.key,
+            "reminders": list(self.reminders),
+            "sealed": base64.b64encode(self.sealed).decode("ascii"),
+        }
+
+    @classmethod
+    def from_json(cls, value: Json) -> Secret:
+        if not isinstance(value, dict) or tuple(sorted(value)) != _SECRET_NAMES:
+            raise UnreadableError("a secret body is not one")
+        sealed, bound, key = value["sealed"], value["bound"], value["key"]
+        reminders = value["reminders"]
+        if not (isinstance(bound, str) and is_id(bound) and isinstance(key, str) and is_id(key)):
+            raise UnreadableError("a secret body without what it is sealed for")
+        if not isinstance(reminders, list):
+            raise UnreadableError("a secret body's reminders are not ones")
+        times: list[str] = []
+        for each in cast(list[object], reminders):
+            if not (isinstance(each, str) and _REMINDER.fullmatch(each)):
+                raise UnreadableError("a secret body's reminders are not ones")
+            times.append(each)
+        if times != sorted(set(times)):
+            raise UnreadableError("a secret body's reminders are not in order")
+        if not isinstance(sealed, str):
+            raise UnreadableError("a secret body without its text")
+        try:
+            data = base64.b64decode(sealed, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise UnreadableError("a secret body's text is not base64") from error
+        if not data:
+            raise UnreadableError("a secret body without its text")
+        return cls(data, bound, key, tuple(times))
+
+
+def version_id(
+    keys: DataKeys, parents: Sequence[str], text: str | Secret | None, deleted: bool
+) -> str:
     """The id of a version with these parents, this text (None: deleted), as above."""
     ordered = sorted(parents)
+    if isinstance(text, Secret):
+        body = (
+            b"body secret\nbound "
+            + text.bound.encode()
+            + b"\nkey "
+            + text.key.encode()
+            + b"\nreminders "
+            + ",".join(text.reminders).encode()
+            + b"\n\n"
+            + text.sealed
+        )
+    else:
+        body = b"body plain\n\n" + (text or "").encode("utf-8")
     made = (
         b"stickle version 1\n"
         + b"parents "
         + ",".join(ordered).encode()
         + b"\ndeleted "
         + (b"1" if deleted else b"0")
-        + b"\nbody plain\n\n"
-        + (text or "").encode("utf-8")
+        + b"\n"
+        + body
     )
     digest = hashlib.blake2b(made, digest_size=16, key=keys.lasting_key(VERSIONS)).hexdigest()
     return f"{max((generation(p) for p in ordered), default=0) + 1}-{digest}"
@@ -75,12 +172,13 @@ def version_id(keys: DataKeys, parents: Sequence[str], text: str | None, deleted
 
 @dataclass(frozen=True)
 class Version:
-    """One version of a note's text; text None when it deletes the note."""
+    """One version of a note's text (a secret note's as it was sealed); text
+    None when it deletes the note."""
 
     id: str
     parents: tuple[str, ...]
     history: tuple[str, ...]
-    text: str | None
+    text: str | Secret | None
     deleted: bool
     edited: int  # when, in milliseconds, by the device's time (stickle.core.cloud_time)
     device: str
@@ -105,9 +203,11 @@ class Version:
             "edited": self.edited,
             "history": list(self.history),
             "parents": list(self.parents),
-            "text": self.text,
+            "text": None if isinstance(self.text, Secret) else self.text,
             "version": self.id,
         }
+        if isinstance(self.text, Secret):
+            written["secret"] = self.text.to_json()
         if self.sent is not None:
             written["sent"] = self.sent
         return written
@@ -134,11 +234,16 @@ class Version:
         edited, device = value.get("edited"), value.get("device")
         if not (isinstance(made, str) and _ids(parents) and _ids(history)):
             raise UnreadableError("a body without its version")
-        taken_out = keys is None and "text" not in value
-        if not isinstance(deleted, bool) or ((text is None) != deleted and not taken_out):
-            raise UnreadableError("a body neither text nor deleted")
         if text is not None and (not isinstance(text, str) or "\0" in text):
             raise UnreadableError("a body's text is not one")
+        held: str | Secret | None = text
+        if "secret" in value:
+            if text is not None:
+                raise UnreadableError("a body both in the clear and sealed")
+            held = Secret.from_json(value["secret"])
+        taken_out = keys is None and "text" not in value and "secret" not in value
+        if not isinstance(deleted, bool) or ((held is None) != deleted and not taken_out):
+            raise UnreadableError("a body neither text nor deleted")
         sent = value.get("sent")
         if not is_millis(edited) or not (sent is None or is_millis(sent)):
             raise UnreadableError("a body without when it was edited")
@@ -147,14 +252,14 @@ class Version:
         parents, history = cast(list[str], parents), cast(list[str], history)
         if len(parents) > 2 or len(set(parents)) != len(parents) or made in history:
             raise UnreadableError("a body's versions do not hold together")
-        if keys is not None and version_id(keys, parents, text, deleted) != made:
+        if keys is not None and version_id(keys, parents, held, deleted) != made:
             raise UnreadableError("a body is not what its version says")
         others = {name: each for name, each in value.items() if name not in _VERSION_NAMES}
         return cls(
             made,
             tuple(parents),
             tuple(history),
-            text,
+            held,
             deleted,
             cast(int, edited),
             device,
@@ -181,7 +286,7 @@ def _history(parents: Sequence[Version]) -> tuple[str, ...]:
 def new_version(
     keys: DataKeys,
     parents: Sequence[Version],
-    text: str | None,
+    text: str | Secret | None,
     edited: int,
     device: str,
 ) -> Version:

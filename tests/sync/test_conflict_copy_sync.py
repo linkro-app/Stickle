@@ -59,7 +59,7 @@ def test_both_devices_have_the_copy_as_one(pair: tuple[Device, Device]) -> None:
     assert b.copy_of(copy_id) == a.copy_of(copy_id) == (note_id, a.id, START + 1_000)
     for device in pair:
         [copy] = device.notes.copies()
-        assert (copy.id, copy.original, copy.plain) == (copy_id, True, True)
+        assert (copy.id, copy.original, copy.swappable) == (copy_id, True, True)
     assert a.notes.get(note_id).conflict is None  # pyright: ignore[reportOptionalMemberAccess]
 
 
@@ -151,7 +151,7 @@ def test_with_its_original_gone_the_copy_says_so(pair: tuple[Device, Device]) ->
     settle([a, b])
     for device in pair:
         [copy] = device.notes.copies()
-        assert (copy.id, copy.original, copy.plain) == (copy_id, False, False)
+        assert (copy.id, copy.original, copy.swappable) == (copy_id, False, False)
 
 
 def test_notes_that_are_no_copies_go_as_they_always_went(

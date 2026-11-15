@@ -4,7 +4,9 @@ Fields: each keeps the later change (its time, then its device's id). The text
 goes by versions (stickle.sync.note_file.decide). Two lines of text that each
 have what the other has not are both kept:
 
-- the same text, byte for byte: joined into one version, with both for parents;
+- the same text, byte for byte (a secret note's sealed bytes: the same text
+  sealed twice is not the same, on every device alike): joined into one
+  version, with both for parents;
 - one deletes the note (it was emptied from the trash) and the other changed
   its text: the changed text is kept, in the trash: whoever emptied it did not
   see it, and it comes back only when taken out of the trash;
@@ -14,7 +16,8 @@ have what the other has not are both kept:
   note of its own whose id comes from the note's and that version's, so that
   two devices seeing the same conflict make one copy. The copy has the note's
   fields (its colour, where it is: in the trash too) and says which note it is
-  a copy of.
+  a copy of. A secret note's copy keeps its text as it was sealed, bound to
+  the note: it opens as the note's text did.
 
 A what's-new note (stickle.core.made_notes) is made on each device with one
 id: two in different languages are not a conflict. One untouched (its first
@@ -39,7 +42,7 @@ from stickle.core.hlc import after
 from stickle.crypto.vault_keys import DataKeys
 from stickle.sync.contents import Contents, Field
 from stickle.sync.format import Json, json_bytes
-from stickle.sync.note_file import NoteFile, Step, Version, decide, new_version
+from stickle.sync.note_file import NoteFile, Secret, Step, Version, decide, new_version
 
 TRASH = "deleted_at"  # the field that puts a note in the trash: when, else None
 COPY_OF = "conflict_of"  # a conflict copy's: {"note", "device", "edited"} of what it copies
@@ -89,7 +92,9 @@ def copy_id(keys: DataKeys, note_id: str, version_id: str) -> str:
     return keys.record_id(_COPY, f"{note_id} {version_id}")
 
 
-def _join(keys: DataKeys, a: Version, b: Version, text: str | None, author: Version) -> Version:
+def _join(
+    keys: DataKeys, a: Version, b: Version, text: str | Secret | None, author: Version
+) -> Version:
     return new_version(keys, [a, b], text, author.edited, author.device)
 
 
@@ -147,7 +152,7 @@ def _a_reminder(name: str) -> bool:
 def _untouched(note_id: str, version: Version) -> bool:
     """A what's-new note's first version, its text as the app wrote it."""
     text = version.text
-    return not version.parents and text is not None and made_notes.news(note_id, text)
+    return not version.parents and isinstance(text, str) and made_notes.news(note_id, text)
 
 
 def _followed(mine: NoteFile, cloud: NoteFile, note_id: str) -> Step | None:

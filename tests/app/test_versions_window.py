@@ -22,6 +22,7 @@ from stickle.app.note_list import NoteList
 from stickle.app.notes import NoteManager
 from stickle.app.times import local_time
 from stickle.app.versions_window import EarlierVersionsDialog
+from stickle.core.note import SealedText
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.versions import VersionRepository
@@ -322,7 +323,7 @@ def test_the_list_reads_first_lines_and_only_the_one_picked_whole(
     read: list[int] = []
     whole = kept.text
 
-    def reading(owner: str, version_id: int) -> str | bytes | None:
+    def reading(owner: str, version_id: int) -> str | SealedText | None:
         read.append(version_id)
         return whole(owner, version_id)
 

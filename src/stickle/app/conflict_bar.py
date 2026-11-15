@@ -38,7 +38,7 @@ class CopyOf:
     name: str | None  # else the computer's, as it calls itself (None: not known)
     edited: int  # when, in milliseconds
     original: bool  # its original is here, out of the trash: it can be shown
-    swappable: bool  # and its text can go in it (neither is a secret note)
+    swappable: bool  # and its text can go in it (both secret notes, or neither)
 
 
 def written(copy: CopyOf) -> str:

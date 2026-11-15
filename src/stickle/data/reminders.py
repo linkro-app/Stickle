@@ -262,6 +262,15 @@ class ReminderRepository:
             if self._db.changes():
                 self._stamp(note_id, RULE_FIELD)
 
+    def text_times(self, note_id: str) -> list[datetime]:
+        """When the reminders written in the note's text ring, as kept here."""
+        rows = self._db.execute(
+            "SELECT start_day, at_time FROM reminders"
+            " WHERE note_id = ? AND kind = ? AND deleted_at IS NULL",
+            (note_id, TEXT),
+        )
+        return [datetime.strptime(f"{day} {at}", "%Y-%m-%d %H:%M") for day, at in rows]
+
     def match_text(self, note_id: str, times: Iterable[datetime], fresh: bool = True) -> bool:
         """The reminders written in the note's text, as it was saved: one for each
         time written (on this computer's clock). A time still written keeps its

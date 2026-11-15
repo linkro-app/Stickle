@@ -148,7 +148,8 @@ def test_without_the_key_they_keep_their_text_as_now(
 
     body, sealed, title = row(staged(database), KEY, note.id)
     assert (body, title) == ("", "새 제목")
-    assert sealed is not None and sealed == now[note.id].sealed
+    kept = now[note.id].sealed
+    assert sealed is not None and kept is not None and sealed == kept.data
     assert open_text(SECRET_KEY, note.id, sealed) == "지금 글"
     assert found_in(staged(database), KEY, "PLAINWORD") == []
 

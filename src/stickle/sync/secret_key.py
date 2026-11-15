@@ -33,7 +33,9 @@ said it put it, when this device's C is not as last agreed on), and:
 - another key: left as it is, both sides (matching the passwords comes later).
 
 Only the app's thread writes C: what this device is to take goes back to it
-(SecretFollow), taken only if C is still as the round saw it.
+(SecretFollow), taken only if C is still as the round saw it. The vault's key
+is kept as each round sees it: the secret notes go to the vault sealed with it
+only (stickle.sync.engine).
 """
 
 import logging
@@ -221,6 +223,8 @@ class _SecretKey:
 
     def _once(self, theirs: _Vaults | None) -> bool:
         """What is done with the vault's record as read; False to read it again."""
+        if theirs is not None:
+            self._saw(theirs.current)
         mine = self._mine
         number = key_number(mine)
         if mine is not None and number is None:
@@ -312,6 +316,8 @@ class _SecretKey:
         with writing(self._db):
             sync_state.add_untold(self._db, place.vault, self._path)
         place.target.put(self._path, data, condition)  # RefusedError: read again
+        if theirs is None:
+            self._saw(number)
         mine = self._mine or {}
         self._agree(number, mine_password(mine), _recovery(mine))
         log.info("sync: the secret notes' key put in the cloud")
@@ -348,6 +354,13 @@ class _SecretKey:
         self.follows.append(
             SecretFollow(number, password, recovery, seen_digest(mine), agreed, what, by, at)
         )
+
+    def _saw(self, number: str) -> None:
+        """The vault's key, kept for the notes' round (stickle.data.sync_state)."""
+        vault = self._place.vault
+        if sync_state.secret_key(self._db, vault) != number:
+            with writing(self._db):
+                sync_state.set_secret_key(self._db, vault, number)
 
     def _agree(
         self,

@@ -68,8 +68,9 @@ class ExportedNote:
     category: str | None = None  # the export's id for it
     marks: tuple[str, ...] = ()  # the export's ids for them
     secret_title: str | None = None  # a secret note's title; None for an ordinary one
-    sealed: bytes | None = None  # a secret note's text, still encrypted (bound to exported_id)
+    sealed: bytes | None = None  # a secret note's text, still encrypted (bound to sealed_for)
     exported_id: str = ""  # its id in the export, where it is not the one here
+    bound_to: str | None = None  # the note its sealed text is bound to, if another (a copy's)
 
     @property
     def was_secret(self) -> bool:
@@ -80,6 +81,11 @@ class ExportedNote:
     def source_id(self) -> str:
         """Its id in the export."""
         return self.exported_id or self.id
+
+    @property
+    def sealed_for(self) -> str:
+        """The id its sealed text opens with: the export's, of it or of another."""
+        return self.bound_to or self.source_id
 
 
 # A note's id names its file in a synced folder: lowercase letters, digits and
@@ -237,6 +243,7 @@ def _note(row: dict[str, object], marks: dict[str, list[str]]) -> ExportedNote |
         # A title without the text sealed: exported in the clear.
         secret_title=(title or "") if sealed is not None or title is not None else None,
         sealed=sealed,
+        bound_to=None if sealed is None else _text(row.get("secret_bound")),
     )
 
 
@@ -453,7 +460,7 @@ def bring_in_export(
                     brought.secret_left += 1
                     continue
                 try:
-                    text = open_text(old_key, note.source_id, note.sealed)
+                    text = open_text(old_key, note.sealed_for, note.sealed)
                     sealed = seal_text(new_key, note.id, text)
                 except SecretNoteError:
                     brought.secret_left += 1
