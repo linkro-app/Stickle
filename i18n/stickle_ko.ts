@@ -3871,6 +3871,14 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>%1에 %2에서 예비 암호를 바꿨습니다. 이제 모든 PC에서 새 예비 암호를 씁니다.</translation>
     </message>
     <message>
+        <source>On %1 the secret notes&apos; password was set anew with the recovery key on %2. All your computers now use the new one.</source>
+        <translation>%1에 %2에서 복구 키로 비밀 메모 암호를 새로 정했습니다. 이제 모든 PC에서 새 암호로 엽니다.</translation>
+    </message>
+    <message>
+        <source>On %1 the secret notes&apos; password was changed on %2. All your computers now use the new one.</source>
+        <translation>%1에 %2에서 비밀 메모 암호를 바꿨습니다. 이제 모든 PC에서 새 암호로 엽니다.</translation>
+    </message>
+    <message>
         <source>If it was not you, set it again in the settings.</source>
         <translation>직접 하지 않았다면 설정에서 다시 정하세요.</translation>
     </message>

@@ -372,3 +372,44 @@ def test_who_did_it_is_kept_only_as_a_name(connection: apsw.Connection) -> None:
     for wrong in wrongs:
         with pytest.raises(InvalidSettingError):
             settings.set(PROTECTION_CHANGES, [entry | wrong])
+
+
+@pytest.mark.parametrize(
+    ("what", "said"),
+    [
+        ("secret_password_changed", "the secret notes' password was changed on Laptop."),
+        (
+            "secret_password_reset",
+            "the secret notes' password was set anew with the recovery key on Laptop.",
+        ),
+    ],
+)
+def test_the_secret_notes_password_set_on_another_computer_is_told(
+    qtbot: QtBot, changes: ProtectionChanges, what: str, said: str
+) -> None:
+    window = window_with(changes)
+    try:
+        changes.note_elsewhere(what, "Laptop", "2026-11-05T05:03:00.000Z")
+        window.refresh_changes()
+
+        assert said in window.changes_label.text()
+        assert "All your computers now use the new one." in window.changes_label.text()
+    finally:
+        close(window)
+
+
+def test_the_secret_notes_password_set_elsewhere_is_told_in_korean(
+    qtbot: QtBot, changes: ProtectionChanges, translations: Translations
+) -> None:
+    translations.apply("ko")
+    window = window_with(changes)
+    try:
+        changes.note_elsewhere("secret_password_changed", "노트북", "2026-11-05T05:03:00.000Z")
+        changes.note_elsewhere("secret_password_reset", "노트북", "2026-11-05T05:04:00.000Z")
+        window.refresh_changes()
+
+        told = window.changes_label.text()
+        assert "노트북에서 비밀 메모 암호를 바꿨습니다. 이제 모든 PC에서 새 암호로 엽니다." in told
+        assert "노트북에서 복구 키로 비밀 메모 암호를 새로 정했습니다." in told
+    finally:
+        close(window)

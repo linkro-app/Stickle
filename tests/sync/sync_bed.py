@@ -35,9 +35,9 @@ from fake_cloud import FakeCloud
 from stickle.core.being_edited import Editing
 from stickle.core.clock import stamp_of
 from stickle.core.hlc import Hlc
-from stickle.crypto import following, recovery
+from stickle.crypto import following, recovery, secret_notes
 from stickle.crypto.following import kept_pairs
-from stickle.crypto.key_files import KeyFiles
+from stickle.crypto.key_files import C, KeyFiles
 from stickle.crypto.sealed import SealedSlot
 from stickle.crypto.vault_keys import DataKeys, key_file
 from stickle.data import record_state, stamps, sync_keys, sync_state
@@ -67,6 +67,7 @@ from stickle.sync.format import KEYS as KEYS_FOLDER
 from stickle.sync.keys import Follow
 from stickle.sync.merge import COPY_OF
 from stickle.sync.note_file import NoteFile
+from stickle.sync.secret_key import SecretFollow
 
 KEY = secrets.token_bytes(32)
 KEYS = DataKeys({1: secrets.token_bytes(32)})
@@ -137,6 +138,7 @@ class Device:
         self.recovery_key = ""
         self.taking = True
         self.follows: list[Follow] = []  # what the last round brought for its key file B
+        self.secret: list[SecretFollow] = []  # and for its key file C
         if keyed:
             self.files = KeyFiles(folder / f"{name}-keys")
             self.files.folder.mkdir(exist_ok=True)
@@ -147,20 +149,31 @@ class Device:
         assert self.files is not None
         return kept_pairs(self.files)
 
+    def secret_slots(self) -> dict[str, object] | None:
+        assert self.files is not None
+        return self.files.peek(C)
+
     def made_the_vault(self) -> None:
         """Its pairs in keys/, as the device that made the vault leaves them."""
         for kind, pair in self.pairs().items():
             file_id, data = key_file(KEYS, kind, pair)
             self.cloud.put_by_hand(item_path(KEYS_FOLDER, file_id), data)
 
-    def take(self, follows: list[Follow]) -> None:
-        """What a round brought for B, taken as the app takes it (stickle.app.
-        application.KeysHere): B written, then agreed on."""
+    def take(self, follows: list[Follow], secret: list[SecretFollow] | None = None) -> None:
+        """What a round brought for B and C, taken as the app takes it
+        (stickle.app.application.KeysHere): each written, then agreed on."""
         assert self.files is not None
         for each in follows:
             if following.follow(self.files, each.kind, each.pair, KEY, each.seen, each.joining):
                 with self.db:
                     sync_keys.agree(self.db, VAULT, each.kind, each.agreed)
+        for taken in secret or []:
+            if secret_notes.take(
+                self.files, taken.number, taken.password, taken.recovery, taken.seen
+            ):
+                with self.db:
+                    for kind, agreed in taken.agreed.items():
+                        sync_keys.agree(self.db, VAULT, kind, agreed)
 
     def _repositories(self) -> None:
         stamp, millis = self.stamp, self.millis
@@ -228,12 +241,13 @@ class Device:
                 editing=self.editing,
                 again=again,
                 pairs=None if self.files is None else self.pairs,
+                secret_key=None if self.files is None else self.secret_slots,
             )
             if report.device != self.id:  # another device had its id: a copy of its disk
                 self._renewed(report.device)
-            self.follows = report.follows
-            if self.taking and report.follows:
-                self.take(report.follows)
+            self.follows, self.secret = report.follows, report.secret
+            if self.taking and (report.follows or report.secret):
+                self.take(report.follows, report.secret)
             return report
         return sync_notes(self.db, self.place, self.clock, self.notes, accept, self.editing)
 

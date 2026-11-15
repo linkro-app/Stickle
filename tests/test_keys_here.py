@@ -117,3 +117,42 @@ def test_one_not_written_is_taken_at_a_later_round(
     keys(VAULT, [follow])
 
     assert sync_keys.agreed(db, VAULT) == {}  # not agreed on: the round brings it again
+
+
+def test_the_secret_notes_key_is_taken_after_b_and_a_password_set_elsewhere_told(
+    unlock: Unlock, db: apsw.Connection
+) -> None:
+    from stickle.crypto import secret_notes
+    from stickle.crypto.keyfile import encode_slot, wrap_with_password
+    from stickle.sync.secret_key import AGREED_PASSWORD, CHANGED_TOLD, SecretFollow
+
+    key = unlock.turn_on_secret_notes("the password")
+    slots = unlock.files.load(secret_notes.C)
+    number = secret_notes.key_number(slots)
+    assert number is not None
+    slot = wrap_with_password(key, "set on Laptop", 1, 8192, secret_notes.PASSWORD_SLOT, "x")
+    password: dict[str, object] = {**encode_slot(slot), "how": "changed"}
+    agreed = {AGREED_PASSWORD: Agreed("a digest", "2026-11-05T05:04:00.000Z", "laptop-id")}
+    taken = SecretFollow(
+        number,
+        password,
+        None,
+        secret_notes.seen_digest(slots),
+        agreed,
+        CHANGED_TOLD,
+        "Laptop",
+        "2026-11-05T05:04:00.000Z",
+    )
+    changes = ProtectionChanges(Settings(db))
+    keys = KeysHere(unlock, db, changes)
+    told: list[str] = []
+    keys.told = lambda: told.append("told")
+
+    keys(VAULT, [], [taken])
+
+    assert unlock.open_secret_notes("set on Laptop") == key
+    assert sync_keys.agreed(db, VAULT)[AGREED_PASSWORD] == agreed[AGREED_PASSWORD]
+    assert told == ["told"]
+    assert [(c.what, c.by) for c in changes.to_tell()] == [(CHANGED_TOLD, "Laptop")]
+    keys(VAULT, [], [taken])  # C changed since that round saw it: left
+    assert unlock.open_secret_notes("set on Laptop") == key

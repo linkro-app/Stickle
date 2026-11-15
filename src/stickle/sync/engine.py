@@ -99,6 +99,7 @@ from stickle.core import made_notes
 from stickle.core.being_edited import Editing, nobody_editing
 from stickle.core.markdown import note_title
 from stickle.crypto.sealed import SealedSlot
+from stickle.crypto.vault_keys import RECOVERY_KEY
 from stickle.data import record_state, sync_held, sync_keys, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
@@ -140,6 +141,7 @@ from stickle.sync.merge import (
 from stickle.sync.note_file import NoteFile, Step
 from stickle.sync.place import Place, writing
 from stickle.sync.records import RecordReport, RecordRound
+from stickle.sync.secret_key import SecretFollow, record_of, sync_secret_key
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
@@ -198,6 +200,8 @@ class Report:
     device: str = ""  # the id the device went on as (a new one if its old one was taken)
     # The vault's recovery key or master password, for this device to take (stickle.sync.keys).
     follows: list[Follow] = field(default_factory=list[Follow])
+    # The vault's secret notes' key, for this device to take (stickle.sync.secret_key).
+    secret: list[SecretFollow] = field(default_factory=list[SecretFollow])
 
 
 @dataclass(frozen=True)
@@ -375,13 +379,16 @@ def sync_vault(
     editing: Editing | None = None,
     again: Collection[str] = (),
     pairs: Callable[[], Mapping[str, SealedSlot]] | None = None,
+    secret_key: Callable[[], Mapping[str, object] | None] | None = None,
 ) -> Report:
     """One round of the whole vault: vault.json first, the vault still the one
     it was (stickle.sync.vault.confirm: VaultError, else nothing is done); this
     device's own file (about: what it says of itself; None: not now) and the
     others'; the recovery key and the master password (pairs: those of this
     device's key file B, as they are; None: not looked at), what this device is
-    to take in Report.follows; a look at the notes (what changed there, read); the records, so
+    to take in Report.follows; then the secret notes' key (secret_key: the slots
+    of its key file C, as they are, None without one; not looked at without
+    pairs), in Report.secret; a look at the notes (what changed there, read); the records, so
     that the categories and marks notes name are here when the notes are taken
     in; then the notes, and again those that name a category
     or mark that came, a field of theirs perhaps not taken before for want of
@@ -427,10 +434,27 @@ def sync_vault(
             listing,
             lambda device: name_of(connection, place.vault, device),
         )
+        if secret_key is not None:
+            taking = [each.pair.public for each in report.follows if each.kind == RECOVERY_KEY]
+            report.secret = sync_secret_key(
+                connection,
+                place,
+                secret_key,
+                pairs,
+                record_of(place.keys) in _items(told, RECORDS),
+                listing,
+                lambda device: name_of(connection, place.vault, device),
+                taking[0] if taking else None,
+            )
     notes_round.look(_items(told, NOTES) | set(again), listing)
-    records = RecordRound(connection, place, cloud_now, shown=shown, report=report.records).run(
-        told=_items(told, RECORDS), listing=listing
-    )
+    records = RecordRound(
+        connection,
+        place,
+        cloud_now,
+        shown=shown,
+        report=report.records,
+        passed_over=frozenset({record_of(place.keys)}),
+    ).run(told=_items(told, RECORDS), listing=listing)
     came = [item for kind, item in records.changed if kind in (CATEGORY, MARK)]
     also = sync_state.mentioning(connection, place.vault, came)
     notes_round.full = records.full

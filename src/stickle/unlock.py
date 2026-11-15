@@ -15,7 +15,7 @@ could not open the existing notes.
 import logging
 import secrets
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -470,8 +470,31 @@ class Unlock:
             return False
         return True
 
-    def change_secret_password(self, key: bytes, password: str) -> None:
-        secret_notes.change_password(self.files, key, password, self._clock(), self._strength)
+    def change_secret_password(
+        self, key: bytes, password: str, how: str = secret_notes.CHANGED
+    ) -> None:
+        """how: changed, or set anew with the recovery key (secret_notes.RESET)."""
+        secret_notes.change_password(self.files, key, password, self._clock(), self._strength, how)
+
+    def number_secret_notes_key(self) -> bool:
+        """The secret notes' key, made by 0.6, given its number (once); whether
+        it was now. Nothing with their key file damaged or out of reach."""
+        try:
+            return secret_notes.number_the_key(self.files)
+        except KeyFileError, OSError:
+            return False
+
+    def take_secret_notes_key(
+        self,
+        number: str,
+        password: Mapping[str, object] | None,
+        recovery: Mapping[str, object] | None,
+        seen: str | None,
+    ) -> bool:
+        """The secret notes' key file takes the slots of the computers this one
+        syncs with (stickle.crypto.secret_notes.take); False if it changed since
+        the round saw it, or holds another key."""
+        return secret_notes.take(self.files, number, password, recovery, seen)
 
     def secret_key_copies(self) -> dict[str, object] | None:
         """The secret notes' key file as it is (their key, locked), to go out with

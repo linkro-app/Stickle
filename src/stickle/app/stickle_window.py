@@ -708,10 +708,20 @@ class StickleWindow(QWidget):
                 "On %1 a spare password was set on %2. All your computers now use the new"
                 " spare password."
             )
-        else:
+        elif change.what == "master_password_changed":
             text = self.tr(
                 "On %1 the spare password was changed on %2. All your computers now use the"
                 " new spare password."
+            )
+        elif change.what == "secret_password_reset":
+            text = self.tr(
+                "On %1 the secret notes' password was set anew with the recovery key on %2."
+                " All your computers now use the new one."
+            )
+        else:
+            text = self.tr(
+                "On %1 the secret notes' password was changed on %2. All your computers now"
+                " use the new one."
             )
         return text
 

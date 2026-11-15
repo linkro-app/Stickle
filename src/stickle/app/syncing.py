@@ -28,7 +28,7 @@ from stickle.core.cloud_time import CloudTime
 from stickle.core.labels import Mark
 from stickle.core.markdown import note_title
 from stickle.crypto.following import kept_pairs
-from stickle.crypto.key_files import KeyFiles
+from stickle.crypto.key_files import C, KeyFiles
 from stickle.crypto.sealed import SealedSlot
 from stickle.crypto.vault_keys import DataKeys
 from stickle.data import sync_connection, sync_held, sync_state
@@ -53,6 +53,7 @@ from stickle.sync.keys import Follow
 from stickle.sync.outcome import LONGEST_WAIT, Outcome, Stopped, after
 from stickle.sync.runner import Runner, Until
 from stickle.sync.schedule import START_WAIT, Schedule
+from stickle.sync.secret_key import SecretFollow
 from stickle.sync.targets.base import AsRead, CertificateError, NotThereError, Target
 
 log = logging.getLogger(__name__)
@@ -82,8 +83,9 @@ SYNCED = frozenset(
         "deletion_records",
     }
 )
-# Taking the vault's pairs in the key file B, on the app's thread (the vault, them).
-type TakeKeys = Callable[[str, Sequence[Follow]], object]
+# Taking the vault's pairs in the key file B, and its secret notes' key in C, on
+# the app's thread (the vault, them).
+type TakeKeys = Callable[[str, Sequence[Follow], Sequence[SecretFollow]], object]
 # Those looked at again when the app starts: it may have been dealt with since.
 LOOKED_AT_AGAIN = {Stopped.BIG_CHANGE.value, Stopped.NEWER.value}
 
@@ -172,6 +174,11 @@ class _Rounds:
         """The key file B's pairs as they are now (looked at, never written: the
         app's thread writes it)."""
         return kept_pairs(KeyFiles(self.store.parent))
+
+    def secret_key(self) -> Mapping[str, object] | None:
+        """The key file C's slots as they are now, None without one (looked at,
+        never written)."""
+        return KeyFiles(self.store.parent).peek(C)
 
     def database(self) -> apsw.Connection:
         if self._db is None:
@@ -289,6 +296,7 @@ class _Rounds:
                 editing=self.editing,
                 again=self.held,
                 pairs=self.pairs,
+                secret_key=self.secret_key,
             )
         except Exception as failed:  # told apart below, whatever it was
             error = failed
@@ -608,8 +616,8 @@ class Syncing(QObject):
         if self._finished:  # sent before it ended, and the app is ending too
             return
         report = ended.report
-        if report.follows and self._take_keys is not None:
-            self._take_keys(self.login.vault, report.follows)
+        if (report.follows or report.secret) and self._take_keys is not None:
+            self._take_keys(self.login.vault, report.follows, report.secret)
         changed = list(dict.fromkeys(report.changed))
         if report.device and self._reminders is not None:
             self._reminders.use_device(report.device)

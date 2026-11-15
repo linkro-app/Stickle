@@ -13,6 +13,12 @@ notes database (its key, the master password) still cannot read a secret note.
 Each note's text is encrypted on its own with that key (XChaCha20-Poly1305),
 bound to the note's id: moved onto another note, it does not open.
 
+    {"slots": {"key_number": "<a random id>", "secret_password": {..., "how": "changed"},
+               "recovery_key": {...}}}
+
+The key's number and how its password was set are slots and fields 0.6 does
+not know: kept as they are when it writes C again.
+
 A device that syncs takes the recovery key of the computers it syncs with for
 its own (stickle.crypto.following): its pair in B is replaced, and the key sealed
 for the old one could no longer be opened by the old recovery key. So the pair
@@ -26,7 +32,11 @@ computer before it joined the others; once the key is sealed for the new pair
 """
 
 import base64
+import hashlib
+import json
 import secrets
+import uuid
+from collections.abc import Mapping
 from typing import Any, cast
 
 from stickle.crypto.key_files import C, KeyFiles
@@ -48,6 +58,14 @@ PASSWORD_SLOT = "secret_password"
 RECOVERY_SLOT = "recovery_key"
 ASIDE = "pair"  # the pair the key is sealed for, kept once B no longer has it
 BEFORE_SYNC = "before_sync"  # that pair was this computer's before it joined
+# Which key it is: a random id given when it is made (or, made by 0.6, when 0.7
+# first starts), the same on every computer that has it, so that a key file of
+# another computer is taken only for the same key (stickle.sync.secret_key).
+KEY_NUMBER = "key_number"
+# How the password was set, in its slot: changed, or set anew with the recovery key.
+HOW = "how"
+CHANGED = "changed"
+RESET = "reset"
 # Sealed for the master password while it opened them too (before 0.6 was out):
 # no longer read, and left out whenever C is written again.
 OLD_MASTER_SLOT = "master_password"
@@ -111,9 +129,44 @@ def create(
     key = secrets.token_bytes(KEY_BYTES)
     slot = wrap_with_password(key, password, *strength, slot_name=PASSWORD_SLOT, set_at=set_at)
     files.save(
-        C, {PASSWORD_SLOT: encode_slot(slot), RECOVERY_SLOT: _recovery_seal(recovery_public, key)}
+        C,
+        {
+            KEY_NUMBER: new_key_number(),
+            PASSWORD_SLOT: encode_slot(slot),
+            RECOVERY_SLOT: _recovery_seal(recovery_public, key),
+        },
     )
     return key
+
+
+def new_key_number() -> str:
+    return str(uuid.uuid4())
+
+
+def key_number(slots: Mapping[str, object] | None) -> str | None:
+    """The key's number in C's slots (None: none, or not one)."""
+    number = None if slots is None else slots.get(KEY_NUMBER)
+    return number if isinstance(number, str) and _is_number(number) else None
+
+
+def _is_number(text: str) -> bool:
+    try:
+        return str(uuid.UUID(text)) == text
+    except ValueError:
+        return False
+
+
+def number_the_key(files: KeyFiles) -> bool:
+    """A key made by 0.6 given its number, once; whether it was now. Nothing
+    without secret notes, or with C damaged (never written over)."""
+    if files.raw(C) is None:
+        return False
+    slots = _slots(files)
+    if key_number(slots) is not None:
+        return False
+    slots[KEY_NUMBER] = new_key_number()
+    _save(files, slots)
+    return True
 
 
 def _password_slot(files: KeyFiles) -> PasswordSlot:
@@ -205,12 +258,13 @@ def change_password(
     password: str,
     set_at: str,
     strength: tuple[int, int] = (OPSLIMIT, MEMLIMIT),
+    how: str = CHANGED,
 ) -> None:
     """The same key, opened by a new password in place of the old one (the key
-    known: opened with the old password or the recovery key)."""
+    known: opened with the old password, or the recovery key: how is RESET)."""
     slots = _slots(files)
     slot = wrap_with_password(key, password, *strength, slot_name=PASSWORD_SLOT, set_at=set_at)
-    slots[PASSWORD_SLOT] = encode_slot(slot)
+    slots[PASSWORD_SLOT] = encode_slot(slot) | {HOW: how}
     _save(files, slots)
 
 
@@ -270,3 +324,72 @@ def open_with_pair_aside(files: KeyFiles, typed: str) -> bytes:
     public = b64_field(fields.get("public"))
     secret = open_pair(SealedSlot(decode_slot(fields[ASIDE]), public, b""), typed, RECOVERY_SLOT)
     return unseal(secret, b64_field(fields.get("sealed")))
+
+
+def _recovery_of(slots: Mapping[str, object]) -> dict[str, object] | None:
+    fields = slots.get(RECOVERY_SLOT)
+    if not isinstance(fields, dict):
+        return None
+    return {name: value for name, value in cast(dict[str, object], fields).items()}
+
+
+def seen_digest(slots: Mapping[str, object] | None) -> str | None:
+    """What tells C as one round saw it from C as the app finds it later: its
+    key's number, its password slot and what is sealed for the recovery key
+    (not a pair kept beside it). None without C."""
+    if slots is None:
+        return None
+    recovery = _recovery_of(slots) or {}
+    told = {
+        KEY_NUMBER: slots.get(KEY_NUMBER),
+        PASSWORD_SLOT: slots.get(PASSWORD_SLOT),
+        RECOVERY_SLOT: {name: recovery.get(name) for name in ("public", "sealed")},
+    }
+    text = json.dumps(told, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(b"stickle secret notes key\0" + text.encode()).hexdigest()
+
+
+def take(
+    files: KeyFiles,
+    number: str,
+    password: Mapping[str, object] | None,
+    recovery: Mapping[str, object] | None,
+    seen: str | None,
+) -> bool:
+    """C takes the slots of the computers this one syncs with for the key
+    numbered number: its password slot, and what is sealed for the recovery
+    key (None: that one stays). Without C, C is made of them (both given). Only
+    if C is still as seen (seen_digest), and holds that key: False otherwise,
+    nothing written. A pair kept beside the recovery key's slot stays only while
+    the slot taken is sealed for it. KeyFileError for slots that do not read."""
+    if password is not None:
+        decode_slot(dict(password))
+    if recovery is not None:
+        b64_field(recovery.get("public"))
+        b64_field(recovery.get("sealed"))
+    current = files.load(C)
+    if seen_digest(current) != seen:
+        return False
+    if current is None:
+        if password is None or recovery is None:
+            raise KeyFileError("a new C needs both slots")
+        files.save(
+            C,
+            {KEY_NUMBER: number, PASSWORD_SLOT: dict(password), RECOVERY_SLOT: dict(recovery)},
+        )
+        return True
+    slots = dict(current)
+    if key_number(slots) != number:
+        return False
+    if password is not None:
+        slots[PASSWORD_SLOT] = dict(password)
+    if recovery is not None:
+        before = _recovery_of(slots) or {}
+        taken: dict[str, object] = {
+            name: value for name, value in recovery.items() if name not in (ASIDE, BEFORE_SYNC)
+        }
+        if ASIDE in before and before.get("public") == taken.get("public"):
+            taken |= {name: before[name] for name in (ASIDE, BEFORE_SYNC) if name in before}
+        slots[RECOVERY_SLOT] = taken
+    _save(files, slots)
+    return True

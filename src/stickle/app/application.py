@@ -54,7 +54,7 @@ from stickle.core.clock import Clock, Clocks, stamp_of, utc_now
 from stickle.core.layout import Place, Rect, place_of
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import WrongRecoveryKeyError, pair_id
-from stickle.crypto.secret_notes import NotKeptForRecoveryKeyError, seal_text
+from stickle.crypto.secret_notes import RESET, NotKeptForRecoveryKeyError, seal_text
 from stickle.data import sync_connection
 from stickle.data.backups import (
     backups,
@@ -119,6 +119,7 @@ if TYPE_CHECKING:
     from stickle.app.syncing import Syncing, TakeKeys
     from stickle.sync.engine import FirstLook
     from stickle.sync.keys import Follow
+    from stickle.sync.secret_key import SecretFollow
 
 APP_ID = "co.linkro.stickle"
 
@@ -573,7 +574,9 @@ class KeysHere:
     own, on the app's thread, as a round brings it (stickle.sync.keys): B's
     slot written, then agreed on with the vault; one made on another computer
     told at once (told: how, once the window is there), this computer's own
-    taken for the others' on joining told later, as a change made here."""
+    taken for the others' on joining told later, as a change made here. Then
+    the vault's secret notes' key, in C, as stickle.sync.secret_key brings it:
+    a password set on another computer told at once too."""
 
     def __init__(
         self, unlock: Unlock, connection: apsw.Connection, changes: ProtectionChanges | None
@@ -583,7 +586,9 @@ class KeysHere:
         self._changes = changes
         self.told: Callable[[], object] = lambda: None
 
-    def __call__(self, vault: str, follows: Sequence[Follow]) -> None:
+    def __call__(
+        self, vault: str, follows: Sequence[Follow], secret: Sequence[SecretFollow] = ()
+    ) -> None:
         from stickle.data import sync_keys
         from stickle.sync.keys import JOINED
 
@@ -605,6 +610,23 @@ class KeysHere:
                 self._changes.note(JOINED)
             else:
                 self._changes.note_elsewhere(each.told, each.by, each.agreed.set_at or None)
+                told = True
+        for taken in secret:  # after B: what is sealed for its recovery key, B's
+            try:
+                if not self._unlock.take_secret_notes_key(
+                    taken.number, taken.password, taken.recovery, taken.seen
+                ):
+                    log.info("sync: the secret notes' key changed here meanwhile: kept")
+                    continue
+                with self._connection:
+                    for kind, agreed in taken.agreed.items():
+                        sync_keys.agree(self._connection, vault, kind, agreed)
+            except (KeyFileError, OSError, apsw.Error) as error:  # taken at a later round
+                log.error("sync: secret notes' key not taken: %s", type(error).__name__)
+                continue
+            log.info("sync: the secret notes' key taken from the cloud")
+            if self._changes is not None and taken.told is not None:
+                self._changes.note_elsewhere(taken.told, taken.by, taken.at)
                 told = True
         if told:
             self.told()
@@ -752,7 +774,7 @@ def secret_passwords(
             changes.note("secret_password_changed")
 
     def reset_password(key: bytes, password: str) -> None:
-        unlock.change_secret_password(key, password)
+        unlock.change_secret_password(key, password, RESET)
         if changes is not None:
             changes.note("secret_password_reset")
 
@@ -1145,6 +1167,8 @@ def run(
         )
         if unlock is not None:
             unlock.stamp_with(clocks.stamp)  # set by the cloud's time while this device syncs
+            if perf is None and unlock.number_secret_notes_key():
+                log.info("secret notes' key numbered")
         if unlock is not None and connection is not None:
             try:
                 if kept_recovery_key(unlock, Settings(connection)).carry_over():

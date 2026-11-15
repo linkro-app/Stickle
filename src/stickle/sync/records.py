@@ -9,11 +9,13 @@ taken in, here, with the file to put kept as sent until it is seen there, in
 one transaction, only if the item did not change here meanwhile; put, made if
 the vault has none, else written over only if it is as read.
 
-A record of a kind this version does not know, or with a field it may not
-change, is left as it is, and passed over until it changes. One whose file
-does not open whole is left for a later round, and set aside if the same
-bytes keep failing (stickle.sync.left). Another vault's file, or one that is
-not where its own id says, is neither read nor written over, unless this
+The secret notes' key's record is not one of these: a step of its own deals
+with it (stickle.sync.secret_key; passed_over). A record of a kind this
+version does not know, or with a field it may not change, is left as it is,
+and passed over until it changes. One whose file does not open whole is left
+for a later round, and set aside if the same bytes keep failing
+(stickle.sync.left). Another vault's file, or one that is not where its own id
+says, is neither read nor written over, unless this
 device has the record whose place it is in: its own is put there. A copy of a
 record's file under another name is merged into the record, then deleted. A
 record's file is never deleted: one the vault had and has no more (read, and
@@ -123,9 +125,11 @@ class RecordRound:
         clock: Clock = utc_now,
         shown: local_records.Shown = local_records.own_name,
         report: RecordReport | None = None,
+        passed_over: frozenset[str] = frozenset(),
     ) -> None:
         """shown: the name a mark shows here (a built-in one's, in this language);
-        report: where what it does is noted as it goes."""
+        report: where what it does is noted as it goes; passed_over: records
+        dealt with elsewhere, never read nor put here."""
         self._db = connection
         self._place = place
         self._now = cloud_now
@@ -135,6 +139,7 @@ class RecordRound:
         self._trusted = place.target.keeps_conditions and place.target.unique_tags
         self._leaving = Leaving(connection, place, cloud_now)
         self._copies: dict[str, list[_Copy]] = {}
+        self._passed_over = passed_over
 
     def run(
         self,
@@ -158,6 +163,8 @@ class RecordRound:
                     if copy_of is not None:
                         to_read.add(copy_of)
                     continue
+                if found[1] in self._passed_over:
+                    continue
                 listed.add(found[1])
                 if passed:
                     left = self._leaving.passed(entry.path)
@@ -179,6 +186,7 @@ class RecordRound:
             record_id(keys, kind, item): (kind, item)
             for kind, item in [*record_state.changed(self._db, vault), *(also or [])]
         }
+        to_read -= self._passed_over
         for record in sorted(to_read | here.keys()):
             self._try(record, record in to_read, here.get(record))
         with writing(self._db):
@@ -212,6 +220,8 @@ class RecordRound:
             return None
         if found.known and record_id(place.keys, found.kind, found.item) != head.item:
             self._leaving.leave(entry.path, read, NOT_OURS)
+            return None
+        if head.item in self._passed_over:
             return None
         self._copies.setdefault(head.item, []).append(_Copy(entry.path, read, found))
         return head.item

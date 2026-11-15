@@ -840,6 +840,13 @@ SCENES: list[Scene] = [
         ),
     ),
     Scene("manager-told-joined", _manager_changed_elsewhere(Change("sync_joined", ELSEWHERE_AT))),
+    Scene(
+        "manager-told-secret-password-elsewhere",
+        _manager_changed_elsewhere(
+            Change("secret_password_changed", ELSEWHERE_AT, True, "노트북"),
+            Change("secret_password_reset", ELSEWHERE_LATER, True, "노트북"),
+        ),
+    ),
     Scene("manager-told-secret-notes-resealed", _manager_resealed),
     Scene("secret-notes-recovery-key-before-sync", _recovery_key_before_sync),
     Scene("turn-on-again-new-folder", _again_absent),
