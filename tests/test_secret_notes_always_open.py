@@ -5,7 +5,8 @@ with what opens them, in any order: turning them on, making notes secret,
 editing them, making them ordinary again, deleting them and emptying the
 trash, changing their password or setting a new one with the recovery key,
 making a new recovery key, typing one made by 0.5, setting or changing the
-master password, bringing notes in from another app, exporting, taking a
+master password, taking the recovery key or spare password of the computers
+this one syncs with, bringing notes in from another app, exporting, taking a
 backup and going back to one. In between, copies of the key files are lost
 or damaged (each where it is kept: the data folder, its backups folder, the
 database), and Stickle is started again. Any step can be stopped at any
@@ -74,7 +75,7 @@ from stickle.app.recovery_key_dialog import RecoveryKeys
 from stickle.app.secret_dialogs import SecretPasswords
 from stickle.core.clock import Clocks
 from stickle.core.colors import DEFAULT_COLOR
-from stickle.crypto import key_files, master, recovery
+from stickle.crypto import following, key_files, master, recovery
 from stickle.crypto.key_files import NAMES, SECOND_FOLDER, B, C
 from stickle.crypto.keyfile import (
     KeyFileError,
@@ -87,8 +88,15 @@ from stickle.crypto.keyfile import (
     wrap_with_password,
 )
 from stickle.crypto.recovery import WrongRecoveryKeyError
-from stickle.crypto.sealed import SealedSlot, decode_sealed_slot, open_pair, unseal
+from stickle.crypto.sealed import (
+    SealedSlot,
+    decode_sealed_slot,
+    make_sealed_slot,
+    open_pair,
+    unseal,
+)
 from stickle.crypto.secret_notes import (
+    ASIDE,
     PASSWORD_SLOT,
     RECOVERY_SLOT,
     NotKeptForRecoveryKeyError,
@@ -96,6 +104,7 @@ from stickle.crypto.secret_notes import (
     open_text,
     seal_text,
 )
+from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY
 from stickle.data.backups import (
     backups,
     cancel_restore,
@@ -267,6 +276,7 @@ SWARM = (
     "make_recovery_key",
     "type_old_recovery_key",
     "set_master_password",
+    "take_the_others",
     "lose_copies",
     "lose_files",
     "take_backup",
@@ -672,6 +682,53 @@ class SecretNotesMachine(RuleBasedStateMachine):
             if writes.clean:
                 self.masters = [password]
 
+    @precondition(swarm("take_the_others", lambda self: self.recovery.exists()))
+    @rule(
+        kind=st.sampled_from([RECOVERY_KEY, MASTER_PASSWORD]),
+        password=MASTERS,
+        before_sync=st.booleans(),
+        stop=STOPS,
+    )
+    def take_the_others(
+        self, kind: str, password: str, before_sync: bool, stop: Stop | None
+    ) -> None:
+        """Syncing, this computer takes the recovery key or the spare password of
+        the computers it syncs with (joining them, or one made on another):
+        made there and so the user's, and opening these notes from then on."""
+        if kind == RECOVERY_KEY and self.recovery.is_old():
+            return  # one made by 0.5 is replaced as any other: not looked at here
+        current = following.pairs_in(self.unlock.files.load(B)).get(kind)
+        if kind == RECOVERY_KEY:
+            typed = recovery.generate()
+            self.made_recovery_keys.append(typed)
+            theirs = recovery.make_recovery_slot(bytes(32), typed, self.clock())
+        else:
+            typed = password
+            self.typed_masters.append(typed)
+            theirs = make_sealed_slot(bytes(32), typed, *FAST, master.SLOT, self.clock())
+        # Kept aside, their old recovery key still opens the secret notes (and the
+        # user was told to keep it): until sealed for the new one, the user has both.
+        secrets_wait = kind == RECOVERY_KEY and not self.unlock.secret_notes_kept_for(theirs.public)
+        # The user has it from now on, whatever becomes of taking it here: until
+        # it is taken for certain, they still have the one before too.
+        before = list(self.recovery_keys if kind == RECOVERY_KEY else self.masters)
+        if kind == RECOVERY_KEY:
+            self.recovery_keys.append(typed)
+        else:
+            self.masters.append(typed)
+        with self.writing(stop) as writes:
+            try:
+                taken = self.unlock.follow(kind, theirs, following.digest_of(current), before_sync)
+            except KeyFileError, OSError:
+                taken = False
+            if not (taken and writes.clean):
+                return
+            if kind == RECOVERY_KEY:
+                self.settings.set(RECOVERY_KEY_KEPT, recovery.pair_id(theirs.public))
+                self.recovery_keys = [*(before if secrets_wait else []), typed]
+            else:
+                self.masters = [typed]
+
     @precondition(swarm("lose_copies"))
     @rule(
         name=st.sampled_from([B, C]),
@@ -937,9 +994,14 @@ class SecretNotesMachine(RuleBasedStateMachine):
             )
             fields = cast(dict[str, object], slots_of(parse_document(data)).get(RECOVERY_SLOT))
             public = base64.b64decode(cast(str, fields["public"]))
+            sealed = base64.b64decode(cast(str, fields["sealed"]))
             if public in pairs:
-                sealed = base64.b64decode(cast(str, fields["sealed"]))
                 assert unseal(pairs[public], sealed) == key
+            if ASIDE in fields:  # the pair B no longer has: its recovery key opens it
+                aside = SealedSlot(decode_slot(fields[ASIDE]), public, b"")
+                secret = self.pair_secret(aside, self.made_recovery_keys)
+                assert secret is not None, f"no recovery key made opens the {place} C's pair"
+                assert unseal(secret, sealed) == key
 
     # Reading what is on disk, changing nothing
 

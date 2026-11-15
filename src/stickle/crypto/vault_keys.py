@@ -23,14 +23,19 @@ and the master password's are the pairs of the key file B, as they are, so a
 device seals the data key for them without either being typed; the one who
 types it on a device to come opens the pair, then the data key. keys/ cannot be
 locked with the data key it opens, so each file carries a check value made
-with the data key: only a device that has the key makes one, and a device
-seals nothing for a pair whose check does not hold. Whoever can write in the
-cloud cannot put their own pair in the user's place.
+with the data key, of all the rest of the file: only a device that has the key
+makes one, and a device seals nothing for a pair whose check does not hold, nor
+takes it for its own. Whoever can write in the cloud cannot put their own pair
+in the user's place, nor change when a pair was set, by which device, or what
+opens its secret key.
 
     {"check": "<base64>", "format": 1, "key": 1, "receiver": "recovery_key",
      "kdf": "argon2id", "opslimit": 2, "memlimit": 67108864, "salt": "<base64>",
      "box": "<the secret key, wrapped>", "public": "<base64>",
-     "sealed": "<the data key, sealed>", "set_at": "<UTC time>"}
+     "sealed": "<the data key, sealed>", "set_at": "<UTC time>",
+     "device": "<the id of the device that set it>"}
+
+The device is left out where it is not known (a vault just made).
 """
 
 import base64
@@ -61,6 +66,7 @@ RECOVERY_KEY = "recovery_key"  # the recovery key's pair: its slot in the key fi
 MASTER_PASSWORD = "master_password"  # the master password's pair
 RECEIVERS = (RECOVERY_KEY, MASTER_PASSWORD)  # devices (0.8) and members (1.2) to come
 KEY_FILE_FORMAT = 1
+CHECK = "check"
 
 
 class UnknownDataKeyError(Exception):
@@ -143,6 +149,17 @@ class Receiver:
     check: bytes
     written: Mapping[str, object] = field(default_factory=dict[str, object])  # all of it
 
+    @property
+    def device(self) -> str | None:
+        """The device that set the pair, if the file says."""
+        device = self.written.get("device")
+        return device if isinstance(device, str) else None
+
+    @property
+    def set_at(self) -> str:
+        """When the pair was set (UTC; "" if not known: the earliest of all)."""
+        return "" if self.slot is None or self.slot.set_at is None else self.slot.set_at
+
 
 def receiver_id(kind: str, public: bytes) -> str:
     """The keys/ file's id for a pair: the same wherever it is added from."""
@@ -152,29 +169,43 @@ def receiver_id(kind: str, public: bytes) -> str:
     return str(uuid.UUID(bytes=digest, version=4))
 
 
-def _check(keys: DataKeys, number: int, kind: str, file_id: str, public: bytes) -> bytes:
-    told = b"stickle keys/\0" + kind.encode() + b"\0" + file_id.encode() + b"\0" + public
+def _canonical(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _check(keys: DataKeys, number: int, file_id: str, fields: Mapping[str, object]) -> bytes:
+    """Of the file named file_id: all it holds but the check itself."""
+    rest = {name: value for name, value in fields.items() if name != CHECK}
+    told = b"stickle keys/\0" + file_id.encode() + b"\0" + _canonical(rest)
     return hashlib.blake2b(told, digest_size=32, key=derive(keys.key(number), CHECKS)).digest()
 
 
-def key_file(keys: DataKeys, kind: str, pair: SealedSlot) -> tuple[str, bytes]:
+def pair_digest(pair: SealedSlot) -> str:
+    """What tells a pair as kept from any other: its public key and its secret
+    key as wrapped (so a master password changed, the pair the same, is another),
+    not what is sealed for it. It says nothing of either key."""
+    kept = {name: value for name, value in encode_sealed_slot(pair).items() if name != "sealed"}
+    return hashlib.sha256(b"stickle pair\0" + _canonical(kept)).hexdigest()
+
+
+def key_file(
+    keys: DataKeys, kind: str, pair: SealedSlot, device: str | None = None
+) -> tuple[str, bytes]:
     """The id and bytes of a keys/ file for pair, as the key file B keeps it (its
     secret key wrapped with what the user types), with the current data key
-    sealed for it."""
+    sealed for it; device: the one that set it, if known."""
     if kind not in RECEIVERS:
         raise ValueError(f"not a way to open the data key: {kind!r}")
     number = keys.current
     file_id = receiver_id(kind, pair.public)
-    written = encode_sealed_slot(
+    written: dict[str, object] = encode_sealed_slot(
         SealedSlot(pair.secret, pair.public, seal(pair.public, keys.key(number)))
     )
-    written |= {
-        "check": base64.b64encode(_check(keys, number, kind, file_id, pair.public)).decode(),
-        "format": KEY_FILE_FORMAT,
-        "key": number,
-        "receiver": kind,
-    }
-    return file_id, json.dumps(written, sort_keys=True, separators=(",", ":")).encode()
+    written |= {"format": KEY_FILE_FORMAT, "key": number, "receiver": kind}
+    if device is not None:
+        written["device"] = device
+    written[CHECK] = base64.b64encode(_check(keys, number, file_id, written)).decode()
+    return file_id, _canonical(written)
 
 
 def read_key_file(file_id: str, data: bytes) -> Receiver:
@@ -191,7 +222,7 @@ def read_key_file(file_id: str, data: bytes) -> Receiver:
     if not isinstance(kind, str) or not _number(number) or not _number(number_format):
         raise AlteredReceiverError("no receiver, key or format")
     try:
-        check = base64.b64decode(cast(str, fields.get("check")), validate=True)
+        check = base64.b64decode(cast(str, fields.get(CHECK)), validate=True)
     except (TypeError, ValueError) as error:
         raise AlteredReceiverError("no check value") from error
     slot = None
@@ -213,7 +244,7 @@ def is_trusted(receiver: Receiver, keys: DataKeys) -> bool:
     if receiver.slot is None:
         return False
     try:
-        made = _check(keys, receiver.key, receiver.kind, receiver.id, receiver.slot.public)
+        made = _check(keys, receiver.key, receiver.id, receiver.written)
     except UnknownDataKeyError:
         return False
     return hmac.compare_digest(made, receiver.check)

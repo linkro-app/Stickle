@@ -53,7 +53,7 @@ from stickle.app.whats_new import give_news
 from stickle.core.clock import Clock, Clocks, stamp_of, utc_now
 from stickle.core.layout import Place, Rect, place_of
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
-from stickle.crypto.recovery import WrongRecoveryKeyError
+from stickle.crypto.recovery import WrongRecoveryKeyError, pair_id
 from stickle.crypto.secret_notes import NotKeptForRecoveryKeyError, seal_text
 from stickle.data import sync_connection
 from stickle.data.backups import (
@@ -77,7 +77,12 @@ from stickle.data.notes import NoteRepository
 from stickle.data.record_state import device_name
 from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import MigrationError, latest_version
-from stickle.data.settings import CLOUD_FOLDER_TOLD, KeptRecoveryKey, Settings
+from stickle.data.settings import (
+    CLOUD_FOLDER_TOLD,
+    RECOVERY_KEY_KEPT,
+    KeptRecoveryKey,
+    Settings,
+)
 from stickle.data.startup import StartupSettings
 from stickle.data.versions import VersionRepository
 from stickle.importers.base import ImportResult
@@ -111,8 +116,9 @@ from stickle.platform.updates import updated_by_its_store
 from stickle.unlock import Unlock
 
 if TYPE_CHECKING:
-    from stickle.app.syncing import Syncing
+    from stickle.app.syncing import Syncing, TakeKeys
     from stickle.sync.engine import FirstLook
+    from stickle.sync.keys import Follow
 
 APP_ID = "co.linkro.stickle"
 
@@ -445,13 +451,15 @@ def connect_sync(
     reminders: ReminderKeeper | None,
     display: SyncDisplay | None = None,
     only_the_cloud: bool = False,
+    take_keys: TakeKeys | None = None,
 ) -> Syncing:
     """Sync turned on while the app runs: how to reach the cloud kept, this run
     stamping things by the cloud's time from now on, and a first round at once.
     joining: the vault was there before this device. display: told of it.
     only_the_cloud: joining, this device's notes go first, what is typed saved
     and a backup made before (if that fails, nothing is kept or let go of),
-    and taken away together with keeping the login."""
+    and taken away together with keeping the login. take_keys: what takes the
+    vault's recovery key and master password here (the first round brings them)."""
     from stickle.sync.engine import cloud_only, joined
 
     gone: list[str] = []
@@ -475,7 +483,9 @@ def connect_sync(
         manager.take_in(gone)
         if reminders is not None:
             reminders.take_in(gone)
-    return start_sync(connection, store, key, login, clocks, manager, reminders, display)
+    return start_sync(
+        connection, store, key, login, clocks, manager, reminders, display, take_keys=take_keys
+    )
 
 
 def start_sync(
@@ -488,13 +498,21 @@ def start_sync(
     reminders: ReminderKeeper | None,
     display: SyncDisplay | None = None,
     now: bool = True,
+    take_keys: TakeKeys | None = None,
 ) -> Syncing:
     """Rounds for login, as kept, from now on; now: a first one at once."""
     from stickle.app.syncing import Syncing as SyncRun
     from stickle.app.syncing import cloud_time
 
     started = SyncRun(
-        connection, store, key, login, cloud_time(connection, clocks), manager, reminders
+        connection,
+        store,
+        key,
+        login,
+        cloud_time(connection, clocks),
+        manager,
+        reminders,
+        take_keys=take_keys,
     )
     started.start()
     if now:
@@ -548,6 +566,48 @@ def sync_lines(syncing: Syncing | None) -> Sequence[str]:
 
 def kept_recovery_key(unlock: Unlock, settings: Settings) -> KeptRecoveryKey:
     return KeptRecoveryKey(settings, lambda: unlock.recovery_key_id)
+
+
+class KeysHere:
+    """What takes the vault's recovery key or master password for these notes'
+    own, on the app's thread, as a round brings it (stickle.sync.keys): B's
+    slot written, then agreed on with the vault; one made on another computer
+    told at once (told: how, once the window is there), this computer's own
+    taken for the others' on joining told later, as a change made here."""
+
+    def __init__(
+        self, unlock: Unlock, connection: apsw.Connection, changes: ProtectionChanges | None
+    ) -> None:
+        self._unlock = unlock
+        self._connection = connection
+        self._changes = changes
+        self.told: Callable[[], object] = lambda: None
+
+    def __call__(self, vault: str, follows: Sequence[Follow]) -> None:
+        from stickle.data import sync_keys
+        from stickle.sync.keys import JOINED
+
+        told = False
+        for each in follows:
+            try:
+                if not self._unlock.follow(each.kind, each.pair, each.seen, each.joining):
+                    log.info("sync: %s changed here meanwhile: kept", each.kind)
+                    continue
+                with self._connection:
+                    sync_keys.agree(self._connection, vault, each.kind, each.agreed)
+            except (KeyFileError, OSError, apsw.Error) as error:  # taken at a later round
+                log.error("sync: %s not taken from the cloud: %s", each.kind, type(error).__name__)
+                continue
+            log.info("sync: %s taken from the cloud", each.kind)
+            if self._changes is None or each.told is None:
+                continue
+            if each.told == JOINED:
+                self._changes.note(JOINED)
+            else:
+                self._changes.note_elsewhere(each.told, each.by, each.agreed.set_at or None)
+                told = True
+        if told:
+            self.told()
 
 
 def recovery_keys(
@@ -647,29 +707,43 @@ def secret_passwords(
     changes: ProtectionChanges | None = None,
     recovery: RecoveryKeys | None = None,
     fits: Callable[[bytes], bool] = fits_any,
+    resealed: Callable[[], object] = lambda: None,
 ) -> SecretPasswords | None:
     """The secret notes' key (none in measurement mode); their password changed
     or set anew noted in changes, to be told later. A key from anywhere but
-    their password is taken only once fits shows it opens them."""
+    their password is taken only once fits shows it opens them. resealed: told
+    once they open with the recovery key of the computers this one syncs with,
+    sealed until then for the one it had before (its pair kept aside)."""
     if unlock is None or unlock.opened_key is None or master is None:
         return None
 
+    def keep_for_recovery_key(key: bytes) -> None:
+        """Sealed again for the recovery key if it is not (a new one made without
+        it, Stickle stopped in between, an earlier build, the recovery key of the
+        computers this one syncs with taken)."""
+        if unlock.secret_notes_kept_for_recovery_key or not fits(key):
+            return
+        aside = unlock.secret_notes_pair_aside
+        try:
+            unlock.keep_secret_notes_for_recovery_key(key)
+            log.info("secret notes kept for the recovery key again")
+        except (KeyFileError, OSError) as error:
+            log.warning("secret notes not kept for the recovery key: %s", type(error).__name__)
+            return
+        if aside is not None:
+            resealed()
+
     def open_secret_notes(password: str) -> bytes:
-        """With their password; sealed again for the recovery key if it is not
-        (a new one made without it, Stickle stopped in between, an earlier build)."""
+        """With their password, then kept for the recovery key."""
         key = unlock.open_secret_notes(password)
-        if not unlock.secret_notes_kept_for_recovery_key and fits(key):
-            try:
-                unlock.keep_secret_notes_for_recovery_key(key)
-                log.info("secret notes kept for the recovery key again")
-            except (KeyFileError, OSError) as error:
-                log.warning("secret notes not kept for the recovery key: %s", type(error).__name__)
+        keep_for_recovery_key(key)
         return key
 
     def open_with_recovery_key(typed: str) -> bytes:
         key = unlock.open_secret_notes_with_recovery_key(typed)
         if not fits(key):
             raise NotKeptForRecoveryKeyError("the key opens no secret note")
+        keep_for_recovery_key(key)  # opened with the one kept aside, say
         return key
 
     def change_password(key: bytes, password: str) -> None:
@@ -693,6 +767,7 @@ def secret_passwords(
         master=master,
         recovery=recovery,
         set_at=lambda: unlock.secret_password_set_at,
+        before_sync=lambda: unlock.secret_notes_pair_aside is True,
     )
 
 
@@ -729,6 +804,16 @@ def tell_changes(changes: ProtectionChanges, window: StickleWindow, tray: Tray |
     closed, in one notification of the system (a click on it opens it)."""
     if not changes.due():
         return
+    window.refresh_changes()
+    told = window.changes_told()
+    if told and tray is not None and not window.isVisible():
+        tray.tell(told)
+
+
+def tell_changes_now(window: StickleWindow, tray: Tray | None) -> None:
+    """Changes made on another computer that syncs, just taken here, told at
+    once: at the top of Stickle Manager and, with it closed, in one notification
+    of the system."""
     window.refresh_changes()
     told = window.changes_told()
     if told and tray is not None and not window.isVisible():
@@ -1052,6 +1137,14 @@ def run(
             if connection is not None and perf is None
             else None
         )
+        # Takes the vault's recovery key and master password here, as rounds bring them.
+        keys_here = (
+            KeysHere(unlock, connection, changes)
+            if unlock is not None and connection is not None and perf is None
+            else None
+        )
+        if unlock is not None:
+            unlock.stamp_with(clocks.stamp)  # set by the cloud's time while this device syncs
         if unlock is not None and connection is not None:
             try:
                 if kept_recovery_key(unlock, Settings(connection)).carry_over():
@@ -1109,6 +1202,7 @@ def run(
                         reminders,
                         sync_display,
                         only_the_cloud,
+                        keys_here,
                     )
 
                 def resume(kept: sync_connection.Login) -> Syncing:
@@ -1123,6 +1217,7 @@ def run(
                         reminders,
                         sync_display,
                         now=False,
+                        take_keys=keys_here,
                     )
                     return syncing
 
@@ -1142,6 +1237,13 @@ def run(
 
                 return look_first(database, opened_with, login, moving)
 
+            def keep_joined_recovery_key(public: bytes) -> None:
+                """Joined with it, typed: the user has the vault's recovery key."""
+                try:
+                    Settings(notes_db).set(RECOVERY_KEY_KEPT, pair_id(public))
+                except apsw.Error as error:
+                    log.warning("recovery key kept: not noted: %s", type(error).__name__)
+
             sync_setup = SyncSetup(
                 lambda: syncing,
                 recovery,
@@ -1151,10 +1253,17 @@ def run(
                 disconnected,
                 look,
                 lambda login: connected(login, True, only_the_cloud=True),
+                unlock.secret_notes_kept_for,
+                keep_joined_recovery_key,
             )
         # Before any note opens: each offers to become a secret note.
         manager.secrets = secret_passwords(
-            unlock, master, changes, recovery, manager.secret_key_fits
+            unlock,
+            master,
+            changes,
+            recovery,
+            manager.secret_key_fits,
+            lambda: sync_display.secrets_resealed(),
         )
         stickle_window = StickleWindow(
             manager,
@@ -1175,6 +1284,14 @@ def run(
             sync_setup=sync_setup,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
+        if unlock is not None:
+            opened_unlock = unlock
+            stickle_window.secret_notes_kept = lambda: (
+                opened_unlock.secret_notes_kept_for_recovery_key
+            )
+        if keys_here is not None:
+            window_told = stickle_window
+            keys_here.told = lambda: tell_changes_now(window_told, tray if tray_available else None)
         if (
             login is not None
             and cloud is not None
@@ -1185,7 +1302,14 @@ def run(
 
             assert unlock.opened_key is not None
             syncing = SyncRun(
-                connection, unlock.database, unlock.opened_key, login, cloud, manager, reminders
+                connection,
+                unlock.database,
+                unlock.opened_key,
+                login,
+                cloud,
+                manager,
+                reminders,
+                take_keys=keys_here,
             )
         # Keeps the tray, Stickle Manager and the notes up with sync, on or off.
         sync_display = SyncDisplay(

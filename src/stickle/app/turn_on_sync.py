@@ -27,7 +27,8 @@ Opened on request: this is what brings TLS and HTTP into a run.
 
 import logging
 from collections.abc import Callable
-from typing import override
+from dataclasses import dataclass, replace
+from typing import Literal, override
 
 from PySide6.QtCore import QEvent, QLocale, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette, QResizeEvent, QShowEvent
@@ -56,12 +57,14 @@ from stickle.app.sync_setup import SyncGuideLine, SyncSetup
 from stickle.app.sync_status import MANY, WEBDAV_NAME, SyncWords
 from stickle.app.syncing import Ended
 from stickle.app.typed import forget_typed
+from stickle.crypto.following import digest_of
 from stickle.crypto.keyfile import KeyFileError
 from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
 from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY, DataKeys
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.sync.engine import GETTING, FirstLook
 from stickle.sync.format import NewerFormatError
+from stickle.sync.keys import newest
 from stickle.sync.targets.base import CertificateError, NoAccessError, SignInNeededError
 from stickle.sync.targets.webdav import (
     Address,
@@ -172,6 +175,19 @@ class _OneLine(QLabel):
         self.setText(metrics.elidedText(self._full, Qt.TextElideMode.ElideRight, self.width()))
 
 
+THEIRS = "theirs"  # the vault's spare password becomes this computer's
+MINE = "mine"  # this computer's becomes the vault's, which has none
+
+
+@dataclass(frozen=True)
+class _Taken:
+    """What joining a vault does to this computer's recovery key and spare password."""
+
+    recovery: bool = False  # this computer's recovery key becomes the vault's
+    secrets_wait: bool = False  # its secret notes still open with the old one until opened
+    master: Literal["theirs", "mine"] | None = None
+
+
 class _Relay(QObject):
     """How far a download has got, from the thread doing it to the window: kept
     by the work, so that a window gone meanwhile is not told."""
@@ -236,6 +252,10 @@ class TurnOnSync(QDialog):
         # The folder opened, while what merging would make is shown: the login is
         # read once, as the typed password is forgotten then.
         self._opened_login: Login | None = None
+        # Joining: what of this computer's recovery key and spare password becomes
+        # the others' (told once on), and the public key of the recovery key typed.
+        self._taken = _Taken()
+        self._typed_pair: bytes | None = None
         self._preview: FirstLook | None = None  # what it would make (None: not known yet)
         self._relay: _Relay | None = None
 
@@ -433,6 +453,9 @@ class TurnOnSync(QDialog):
 
     def _make_last_page(self) -> QWidget:
         page, layout = _page()
+        self.keys_line = _wrapped(page)  # what joining did to the recovery key, if anything
+        self.keys_line.hide()
+        layout.addWidget(self.keys_line)
         self.last_line = _wrapped(page)
         layout.addWidget(self.last_line)
         layout.addStretch(1)
@@ -504,6 +527,7 @@ class TurnOnSync(QDialog):
         if self.pages.current() is self.preview_page and self._preview is not None:
             self.next_button.setAccessibleDescription(self._look_told())
         self.last_line.setText(self._line())
+        self.keys_line.setText(self._keys_told())
         self._update_buttons()
 
     @override
@@ -962,6 +986,8 @@ class TurnOnSync(QDialog):
 
     def _opened(self, vault: object) -> None:
         assert isinstance(vault, Vault)
+        self._taken = self._what_is_taken(vault)
+        self._typed_pair = vault.opened_by if self.by_key.isChecked() else None
         login = self._login(vault)
         if self._setup.look is None or self._setup.note_count() == 0:
             self._connected(login, True)  # nothing here to weigh against the cloud's
@@ -1107,6 +1133,10 @@ class TurnOnSync(QDialog):
             self.accept()  # the folder as it was: sync just goes on, and says so where it does
             return
         self._joining = joining
+        if joining and self._typed_pair is not None:
+            self._setup.keep_recovery_key(self._typed_pair)
+        self.keys_line.setText(self._keys_told())
+        self.keys_line.setVisible(joining and bool(self.keys_line.text()))
         self._close_target()
         forget_typed(self, self.way_in)
         self._set_line(self._going_on)
@@ -1118,6 +1148,50 @@ class TurnOnSync(QDialog):
         self._line = line
         self.last_line.setText(line())
         self._fit()
+
+    def _what_is_taken(self, vault: Vault) -> _Taken:
+        """What joining vault does to this computer's recovery key and spare
+        password: each becomes the vault's (the first round takes it), or this
+        computer's spare password the vault's, the vault having none."""
+        theirs = newest(list(vault.receivers), vault.keys)
+        mine = self._setup.pairs()
+        recovery, master = theirs.get(RECOVERY_KEY), theirs.get(MASTER_PASSWORD)
+        taken = _Taken()
+        pair = None if recovery is None else recovery.slot
+        if pair is not None and digest_of(pair) != digest_of(mine.get(RECOVERY_KEY)):
+            kept = self._setup.secret_notes_kept_for(pair.public)
+            taken = replace(taken, recovery=True, secrets_wait=not kept)
+        if master is not None and master.slot is not None:
+            if digest_of(master.slot) != digest_of(mine.get(MASTER_PASSWORD)):
+                taken = replace(taken, master=THEIRS)
+        elif MASTER_PASSWORD in mine:
+            taken = replace(taken, master=MINE)
+        return taken
+
+    def _keys_told(self) -> str:
+        """What joining did to the recovery key and the spare password, said on the last page."""
+        taken = self._taken
+        said: list[str] = []
+        if taken.recovery and taken.secrets_wait:
+            said.append(
+                self.tr(
+                    "This computer now opens with the same recovery key as your other"
+                    " computers. Until you next open its secret notes, though, they still"
+                    " open with the old recovery key, so don't throw it away yet."
+                )
+            )
+        elif taken.recovery:
+            said.append(
+                self.tr(
+                    "This computer now opens with the same recovery key as your other"
+                    " computers, so you can throw its old one away."
+                )
+            )
+        if taken.master == THEIRS:
+            said.append(self.tr("It also uses the same spare password as your other computers."))
+        elif taken.master == MINE:
+            said.append(self.tr("Your other computers now use this computer's spare password too."))
+        return " ".join(said)
 
     def _going_on(self) -> str:
         if self._joining:

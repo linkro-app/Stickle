@@ -243,19 +243,23 @@ CHANGE_KINDS = (
     "master_password_changed",
     "secret_password_changed",
     "secret_password_reset",  # set anew with the recovery key, the old one forgotten
+    "sync_joined",  # turning sync on, the recovery key of the computers it syncs with taken
 )
 
 
 def _protection_changes(value: object) -> TypeGuard[list[dict[str, object]]]:
-    """Each {"what": a kind, "at": a time, "told": whether it is to be told now}."""
+    """Each {"what": a kind, "at": a time, "told": whether it is to be told now},
+    and "by": the computer it was done on, if another (its name)."""
     if not isinstance(value, list):
         return False
     for entry in cast(list[object], value):
         if not isinstance(entry, dict):
             return False
         fields = cast(dict[str, object], entry)
+        by = fields.get("by")
         if (
-            set(fields) != {"what", "at", "told"}
+            set(fields) - {"by"} != {"what", "at", "told"}
+            or not (by is None or (isinstance(by, str) and 0 < len(by) <= 256))
             or fields["what"] not in CHANGE_KINDS
             or not _stamp_or_none(fields["at"])
             or fields["at"] is None
@@ -267,7 +271,8 @@ def _protection_changes(value: object) -> TypeGuard[list[dict[str, object]]]:
 
 # What protects the notes changed on this computer (a new recovery key, the
 # master password), told to its user later: at the next start, or once the
-# computer is unlocked, in case someone else made the change at it.
+# computer is unlocked, in case someone else made the change at it. Changed on
+# another computer that syncs, it is told at once.
 PROTECTION_CHANGES = Setting[list[dict[str, object]]](
     "protection_changes", "device", [], _protection_changes
 )
@@ -322,6 +327,11 @@ def _gone_back(value: object) -> TypeGuard[dict[str, str] | None]:
 # from it (going back to the backup made just before, without asking again).
 SYNC_GONE_BACK = Setting[dict[str, str] | None]("sync_gone_back", "device", None, _gone_back)
 
+# The secret notes, still sealed for the recovery key this computer had before
+# it took the others', were sealed for theirs once opened: said at the top of
+# Stickle Manager until the user says OK.
+SYNC_SECRETS_RESEALED = Setting[bool]("sync_secrets_resealed", "device", False, _flag)
+
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -353,6 +363,7 @@ SETTINGS: dict[str, Setting[object]] = {
         SYNC_STOP_SEEN,
         SYNC_TRASHED,
         SYNC_GONE_BACK,
+        SYNC_SECRETS_RESEALED,
     )
 }
 

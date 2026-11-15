@@ -128,10 +128,13 @@ def recovery_key_id(slot: RecoverySlot) -> str:
     from its pair's public key (from the slot's salt, for one made before 0.6).
     It opens nothing and says nothing of the key."""
     if isinstance(slot, SealedSlot):
-        seed = b"stickle recovery key pair\0" + slot.public
-    else:
-        seed = b"stickle recovery key before 0.6\0" + slot.salt
-    return hashlib.sha256(seed).hexdigest()
+        return pair_id(slot.public)
+    return hashlib.sha256(b"stickle recovery key before 0.6\0" + slot.salt).hexdigest()
+
+
+def pair_id(public: bytes) -> str:
+    """recovery_key_id of the pair with that public key."""
+    return hashlib.sha256(b"stickle recovery key pair\0" + public).hexdigest()
 
 
 def pair_for_export(files: KeyFiles) -> dict[str, object] | None:

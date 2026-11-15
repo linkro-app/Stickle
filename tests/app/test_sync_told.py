@@ -35,6 +35,7 @@ from stickle.core.updates import Release
 from stickle.data.schema import open_store
 from stickle.data.settings import (
     SYNC_GONE_BACK,
+    SYNC_SECRETS_RESEALED,
     SYNC_STOP_SEEN,
     SYNC_STOP_TOLD,
     SYNC_TRASHED,
@@ -473,9 +474,10 @@ def test_the_lines_are_reached_by_the_keyboard_in_their_order(
     at = manager_of(qtbot, settings)
     at.follow(FakeSync()).ended(Outcome(Stopped.SIGN_IN), trashed=1)
     stop, trash = at.window.sync_stop_line, at.window.sync_trash_line
-    gone = at.window.sync_gone_back_line
+    gone, sealed = at.window.sync_gone_back_line, at.window.sync_secrets_line
     assert gone.action_button.nextInFocusChain() is gone.ok_button
-    assert gone.ok_button.nextInFocusChain() is stop.action_button
+    assert gone.ok_button.nextInFocusChain() is sealed.ok_button
+    assert sealed.ok_button.nextInFocusChain() is stop.action_button
     assert stop.action_button.nextInFocusChain() is stop.ok_button
     assert stop.ok_button.nextInFocusChain() is trash.action_button
     assert trash.action_button.nextInFocusChain() is trash.ok_button
@@ -585,3 +587,45 @@ def test_going_back_is_told_in_korean(
     assert line.label.text().startswith("동기화하는 모든 PC를 ")
     assert line.label.text().endswith(" 백업으로 되돌렸습니다.")
     assert line.action_button.text() == "되돌리기 전으로(&U)"
+
+
+# The secret notes sealed for the recovery key of the computers this one syncs with
+
+
+def test_the_secret_notes_sealed_again_are_told_until_ok_and_once_to_the_system(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    at = manager_of(qtbot, settings)
+    line = at.window.sync_secrets_line
+    assert line.isHidden()
+
+    at.display.secrets_resealed()
+
+    assert line.label.text() == (
+        "This computer's secret notes now open with the same recovery key as your other"
+        " computers too. You can throw the old one away now."
+    )
+    assert line.action_button.isHidden()  # OK alone
+    assert at.told == [line.label.text()]
+    again = manager_of(qtbot, settings)  # the next start: still there, the system not told
+    again.display.follow(None)  # sync off, even
+    assert not again.window.sync_secrets_line.isHidden()
+    assert not again.told
+    again.window.sync_secrets_line.ok_button.click()
+    assert again.window.sync_secrets_line.isHidden()
+    assert settings.get(SYNC_SECRETS_RESEALED) is False
+
+
+def test_the_secret_notes_sealed_again_are_told_in_korean(
+    qtbot: QtBot, settings: Settings, translations: Translations
+) -> None:
+    translations.apply("ko")
+    at = manager_of(qtbot, settings)
+    at.window.show()
+
+    at.display.secrets_resealed()
+
+    assert at.window.sync_secrets_line.label.text() == (
+        "이제 이 PC의 비밀 메모도 다른 PC와 같은 복구 키로 엽니다. 옛 복구 키는 버려도 됩니다."
+    )
+    assert not at.told  # the window open: the system is not told

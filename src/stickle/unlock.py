@@ -23,7 +23,7 @@ from typing import Literal
 import apsw
 
 from stickle.core.clock import Clock, utc_now
-from stickle.crypto import secret_notes
+from stickle.crypto import following, secret_notes
 from stickle.crypto.key_files import A, C, KeyFiles
 from stickle.crypto.keyfile import (
     MEMLIMIT,
@@ -43,6 +43,7 @@ from stickle.crypto.master import OPSLIMIT as MASTER_OPSLIMIT
 from stickle.crypto.master import change_master, open_with_master, read_master, set_master
 from stickle.crypto.recovery import (
     WrongRecoveryKeyError,
+    canonical,
     make_recovery_slot,
     open_recovery_pair,
     pair_for_export,
@@ -404,13 +405,41 @@ class Unlock:
     def open_secret_notes_with_recovery_key(self, typed: str) -> bytes:
         """The secret notes' key through the recovery key: RecoveryKeyTypoError,
         WrongRecoveryKeyError, or NotKeptForRecoveryKeyError if they are not
-        sealed for the one these notes have now. Nothing is written."""
+        sealed for the one these notes have now. Sealed for a pair kept aside
+        (the recovery key this computer had before it took the one of the
+        computers it syncs with), that one's recovery key opens them. Nothing
+        is written."""
+        if secret_notes.pair_aside(self.files) is not None:
+            try:
+                return secret_notes.open_with_pair_aside(self.files, canonical(typed))
+            except WrongPasswordError:
+                pass  # not that one: perhaps the one these notes have now
         pair = self._recovery_pair()
         if pair is None:
             raise secret_notes.NotKeptForRecoveryKeyError("no recovery key pair")
         return secret_notes.open_with_recovery_key(
             self.files, open_recovery_pair(pair, typed), pair.public
         )
+
+    @property
+    def secret_notes_pair_aside(self) -> bool | None:
+        """Whether the secret notes are still sealed for a recovery key B no longer
+        has (kept aside when this computer took another's): None if not; else
+        whether it is the one this computer had before it joined the others."""
+        try:
+            return secret_notes.pair_aside(self.files)
+        except OSError:
+            return None
+
+    def secret_notes_kept_for(self, public: bytes) -> bool:
+        """Whether the secret notes open with the recovery key of that pair (True
+        without secret notes, or with their key file out of reach: nothing to tell)."""
+        if not self.has_secret_notes:
+            return True
+        try:
+            return secret_notes.recovery_public(self.files) == public
+        except KeyFileError, OSError:
+            return True
 
     @property
     def secret_notes_kept_for_recovery_key(self) -> bool:
@@ -452,6 +481,17 @@ class Unlock:
             return None if raw is None else parse_document(raw)
         except KeyFileError, OSError:
             return None
+
+    def follow(self, kind: str, pair: SealedSlot, seen: str | None, before_sync: bool) -> bool:
+        """The vault's pair of kind taken for these notes' own (stickle.crypto.
+        following.follow), if theirs is still the one seen; False if not."""
+        assert self.opened_key is not None
+        return following.follow(self.files, kind, pair, self.opened_key, seen, before_sync)
+
+    def stamp_with(self, clock: Clock) -> None:
+        """When what is set from now on is said to be set (the cloud's time, as a
+        run that syncs stamps it)."""
+        self._clock = clock
 
     def vault_pairs(self) -> dict[str, SealedSlot]:
         """What a new vault's data key is sealed for: the recovery key's pair and

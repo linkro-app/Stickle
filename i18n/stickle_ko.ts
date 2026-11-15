@@ -943,6 +943,10 @@ These files are not encrypted: keep them somewhere safe.</source>
         <translation>예비 암호로 열기(&amp;P)</translation>
     </message>
     <message>
+        <source>Enter the recovery key this computer used before you turned on sync.</source>
+        <translation>이 PC가 동기화를 켜기 전에 쓰던 복구 키를 넣으세요.</translation>
+    </message>
+    <message>
         <source>This is not a recovery key as written: a character may be missing, extra or mistyped. Please check it again.</source>
         <translation>복구 키 형식이 맞지 않습니다. 빠지거나 더 들어가거나 잘못 적은 글자가 있을 수 있습니다. 다시 확인해 주세요.</translation>
     </message>
@@ -3823,6 +3827,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         </translation>
     </message>
     <message>
+        <source>another computer</source>
+        <translation>다른 PC</translation>
+    </message>
+    <message>
         <source>On %1 a new recovery key was made on this computer.</source>
         <translation>%1에 이 PC에서 새 복구 키를 만들었습니다.</translation>
     </message>
@@ -3841,6 +3849,26 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>On %1 the secret notes&apos; password was set anew with the recovery key on this computer.</source>
         <translation>%1에 이 PC에서 복구 키로 비밀 메모 암호를 새로 정했습니다.</translation>
+    </message>
+    <message>
+        <source>On %1 sync was turned on at this computer, so it now opens with the same recovery key as your other computers.</source>
+        <translation>%1에 이 PC에서 동기화를 켜, 이제 다른 PC와 같은 복구 키로 엽니다.</translation>
+    </message>
+    <message>
+        <source>On %1 a new recovery key was made on %2. All your computers now open with the new recovery key.</source>
+        <translation>%1에 %2에서 새 복구 키를 만들었습니다. 이제 모든 PC에서 새 복구 키로 엽니다.</translation>
+    </message>
+    <message>
+        <source>You can throw the old one away.</source>
+        <translation>옛 복구 키는 버려도 됩니다.</translation>
+    </message>
+    <message>
+        <source>On %1 a spare password was set on %2. All your computers now use the new spare password.</source>
+        <translation>%1에 %2에서 예비 암호를 새로 정했습니다. 이제 모든 PC에서 새 예비 암호를 씁니다.</translation>
+    </message>
+    <message>
+        <source>On %1 the spare password was changed on %2. All your computers now use the new spare password.</source>
+        <translation>%1에 %2에서 예비 암호를 바꿨습니다. 이제 모든 PC에서 새 예비 암호를 씁니다.</translation>
     </message>
     <message>
         <source>If it was not you, set it again in the settings.</source>
@@ -3949,6 +3977,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Every computer that syncs went back to the backup from %1.</source>
         <translation>동기화하는 모든 PC를 %1 백업으로 되돌렸습니다.</translation>
+    </message>
+    <message>
+        <source>This computer&apos;s secret notes now open with the same recovery key as your other computers too. You can throw the old one away now.</source>
+        <translation>이제 이 PC의 비밀 메모도 다른 PC와 같은 복구 키로 엽니다. 옛 복구 키는 버려도 됩니다.</translation>
     </message>
 </context>
 <context>
@@ -4816,6 +4848,22 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Couldn&apos;t make the backup, so the notes on this computer weren&apos;t deleted. Check that the disk has room, then try again.</source>
         <translation>백업을 만들지 못해 이 PC의 메모를 지우지 않았습니다. 디스크 공간을 확인하고 다시 해 보세요.</translation>
+    </message>
+    <message>
+        <source>This computer now opens with the same recovery key as your other computers. Until you next open its secret notes, though, they still open with the old recovery key, so don&apos;t throw it away yet.</source>
+        <translation>이제 이 PC도 다른 PC와 같은 복구 키로 엽니다. 다만 이 PC의 비밀 메모는 다음에 열 때까지 옛 복구 키로 엽니다. 그때까지 옛 복구 키를 버리지 마세요.</translation>
+    </message>
+    <message>
+        <source>This computer now opens with the same recovery key as your other computers, so you can throw its old one away.</source>
+        <translation>이제 이 PC도 다른 PC와 같은 복구 키로 엽니다. 이 PC의 옛 복구 키는 버려도 됩니다.</translation>
+    </message>
+    <message>
+        <source>It also uses the same spare password as your other computers.</source>
+        <translation>예비 암호도 다른 PC와 같은 것을 씁니다.</translation>
+    </message>
+    <message>
+        <source>Your other computers now use this computer&apos;s spare password too.</source>
+        <translation>이 PC의 예비 암호를 이제 모든 PC에서 씁니다.</translation>
     </message>
     <message>
         <source>Downloading your notes. You can close this window; it carries on.</source>

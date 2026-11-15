@@ -65,7 +65,13 @@ from stickle.app.shortcut_guide import KEYS as GUIDE_KEYS
 from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
-from stickle.app.sync_display import SyncGoneBackLine, SyncLine, SyncStopLine, SyncTrashLine
+from stickle.app.sync_display import (
+    SyncGoneBackLine,
+    SyncLine,
+    SyncResealedLine,
+    SyncStopLine,
+    SyncTrashLine,
+)
 from stickle.app.sync_setup import SyncSetup
 from stickle.app.times import local_time
 from stickle.app.titles import shown_title
@@ -203,6 +209,10 @@ class StickleWindow(QWidget):
         self.sync_stop_line = SyncStopLine(self)
         self.sync_trash_line = SyncTrashLine(self)
         self.sync_gone_back_line = SyncGoneBackLine(self)
+        self.sync_secrets_line = SyncResealedLine(self)
+        # Whether the secret notes open with the recovery key the notes have now
+        # (or there are none): only then is the old one said to be done with.
+        self.secret_notes_kept: Callable[[], bool] = lambda: True
         # Where the lines saying how sync stands lead (SyncDisplay says, once sync runs).
         self.open_standing: Callable[[], None] = self.open_connections
 
@@ -333,6 +343,7 @@ class StickleWindow(QWidget):
         layout.addLayout(changes_buttons)
         layout.addWidget(self.cloud_folder_line)
         layout.addWidget(self.sync_gone_back_line)
+        layout.addWidget(self.sync_secrets_line)
         layout.addWidget(self.sync_stop_line)
         layout.addWidget(self.sync_trash_line)
         missed = QHBoxLayout()
@@ -462,6 +473,7 @@ class StickleWindow(QWidget):
             self.cloud_folder_line.ok_button,
             self.sync_gone_back_line.action_button,
             self.sync_gone_back_line.ok_button,
+            self.sync_secrets_line.ok_button,
             self.sync_stop_line.action_button,
             self.sync_stop_line.ok_button,
             self.sync_trash_line.action_button,
@@ -659,6 +671,9 @@ class StickleWindow(QWidget):
 
     def change_text(self, change: Change) -> str:
         when = local_time(change.at)
+        if change.elsewhere:  # the time first: a computer's name is as it is, "%1" and all
+            by = change.by or self.tr("another computer")
+            return self._elsewhere_text(change).replace("%1", when).replace("%2", by)
         texts = {
             "recovery_key": self.tr("On %1 a new recovery key was made on this computer."),
             "master_password_set": self.tr("On %1 a spare password was set on this computer."),
@@ -672,8 +687,33 @@ class StickleWindow(QWidget):
                 "On %1 the secret notes' password was set anew with the recovery key"
                 " on this computer."
             ),
+            "sync_joined": self.tr(
+                "On %1 sync was turned on at this computer, so it now opens with the same"
+                " recovery key as your other computers."
+            ),
         }
         return texts[change.what].replace("%1", when)
+
+    def _elsewhere_text(self, change: Change) -> str:
+        """Made on another computer that syncs, and so on this one too."""
+        if change.what == "recovery_key":
+            text = self.tr(
+                "On %1 a new recovery key was made on %2. All your computers now open with"
+                " the new recovery key."
+            )
+            if self.secret_notes_kept():
+                text += " " + self.tr("You can throw the old one away.")
+        elif change.what == "master_password_set":
+            text = self.tr(
+                "On %1 a spare password was set on %2. All your computers now use the new"
+                " spare password."
+            )
+        else:
+            text = self.tr(
+                "On %1 the spare password was changed on %2. All your computers now use the"
+                " new spare password."
+            )
+        return text
 
     def changes_told(self) -> str:
         """What is being told, with what to do if it was not the user; "" if nothing."""

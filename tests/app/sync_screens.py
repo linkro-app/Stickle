@@ -19,7 +19,8 @@ from stickle.app.conflict_bar import CopyOf
 from stickle.app.i18n import Translations
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
-from stickle.app.recovery_key_dialog import RecoveryKeys
+from stickle.app.protection_changes import Change, ProtectionChanges
+from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, RecoveryKeys
 from stickle.app.settings_window import SettingsWindow
 from stickle.app.stickle_window import StickleWindow
 from stickle.app.sync_display import SyncDisplay
@@ -29,7 +30,7 @@ from stickle.app.sync_status import WEBDAV_NAME, SyncStatus
 from stickle.app.sync_stopped import SyncStopped
 from stickle.app.syncing import BigChange, Ended, Syncing
 from stickle.app.tray import Tray
-from stickle.app.turn_on_sync import TurnOnSync
+from stickle.app.turn_on_sync import MINE, THEIRS, TurnOnSync, _Taken
 from stickle.crypto.recovery import RecoveryKeyTypoError
 from stickle.data.colors import OwnColor
 from stickle.data.sync_connection import WEBDAV, Login
@@ -48,6 +49,8 @@ PASSWORD = "not a real password"
 THIS_PC = "DESKTOP-7GQ2K1F"
 A_CERTIFICATE = bytes(range(64))
 A_RECOVERY_KEY = "K7QM-2HXP-9RTV-4WJD-8FNB-3YCS-6GKA-M2Q7"
+ELSEWHERE_AT = "2026-11-05T05:03:00.000Z"
+ELSEWHERE_LATER = "2026-11-05T05:10:00.000Z"
 _LONG_AGO = QDateTime(QDate(2024, 3, 14), QTime(9, 30))  # never today, nor this year
 LONG_NAME = "거실에 있는 아주 오래된 데스크톱 컴퓨터의 이름을 끝까지 길게 적어 본 것입니다 끝"
 LONG_ADDRESS = "https://a-rather-long-name-of-a-server.some-subdomain.example.com:5006/dav/stickle"
@@ -366,6 +369,23 @@ def _last_ended(outcome: Outcome, joining: bool = False) -> Callable[[Stage], QW
     return build
 
 
+def _joined_taking(taken: _Taken) -> Callable[[Stage], QWidget]:
+    """Joined: what became of this computer's recovery key and spare password."""
+
+    def build(stage: Stage) -> QWidget:
+        window = _turn_on(stage)
+        window._taken = taken
+        window._joining = True
+        window.keys_line.setText(window._keys_told())
+        window.keys_line.setVisible(True)
+        window._set_line(window._going_on)
+        window._show(window.last_page)
+        window._round_shown(Ended(Report(), Outcome()))
+        return window
+
+    return build
+
+
 def _again(window: TurnOnSync) -> TurnOnSync:
     """As going on again from the server as kept (without reaching it)."""
     window._again = Login(VAULT, WEBDAV, ADDRESS, USER, PASSWORD, {})
@@ -576,6 +596,46 @@ def _manager_trashed(make: Callable[[], FakeSyncing]) -> Callable[[Stage], QWidg
     return build
 
 
+class _Told:
+    """Changes to what protects the notes, as Stickle Manager is given them."""
+
+    def __init__(self, changes: list[Change]) -> None:
+        self._changes = changes
+
+    def to_tell(self) -> list[Change]:
+        return self._changes
+
+    def seen(self) -> None:
+        self._changes = []
+
+
+def _manager_changed_elsewhere(*changes: Change, kept: bool = True) -> Callable[[Stage], QWidget]:
+    """Made on another computer that syncs, and taken here."""
+
+    def build(stage: Stage) -> QWidget:
+        manager = stage.keep(NoteManager())
+        told = cast("ProtectionChanges", _Told(list(changes)))
+        window = stage.keep(StickleWindow(manager, stage.translations, lambda: None, changes=told))
+        window.secret_notes_kept = lambda: kept
+        window.refresh_changes()
+        return window
+
+    return build
+
+
+def _manager_resealed(stage: Stage) -> QWidget:
+    _tray, window, display = _displayed(stage, _synced())
+    display.secrets_resealed()
+    return window
+
+
+def _recovery_key_before_sync(stage: Stage) -> QWidget:
+    """The secret notes' recovery key asked for, before they are sealed for the others'."""
+    dialog = stage.keep(EnterRecoveryKeyDialog(lambda _typed: None))
+    dialog.ask_for_the_one_before_sync()
+    return dialog
+
+
 def _menu(make: Callable[[], FakeSyncing]) -> Callable[[Stage], QWidget]:
     def build(stage: Stage) -> QMenu:
         menu = shown_by(stage, make())[0].contextMenu()
@@ -730,6 +790,12 @@ SCENES: list[Scene] = [
     Scene("turn-on-5-done-joined", _last_ended(Outcome(), True)),
     Scene("turn-on-5-stopped", _last_ended(Outcome(Stopped.NO_ACCESS))),
     Scene("turn-on-5-full", _last_ended(Outcome(full=True))),
+    Scene("turn-on-5-joined-keys", _joined_taking(_Taken(recovery=True, master=THEIRS))),
+    Scene(
+        "turn-on-5-joined-keys-secret-notes",
+        _joined_taking(_Taken(recovery=True, secrets_wait=True)),
+    ),
+    Scene("turn-on-5-joined-spare-password-mine", _joined_taking(_Taken(master=MINE))),
     Scene("connections-off", lambda stage: _page(stage, None)),
     Scene("connections-synced", _page_showing(_synced)),
     Scene("connections-synced-long-ago", _page_showing(_long_ago)),
@@ -756,6 +822,26 @@ SCENES: list[Scene] = [
     Scene("manager-told-full", _manager(_full)),
     Scene("manager-told-trash", _manager_trashed(_synced)),
     Scene("manager-told-trash-and-stopped", _manager_trashed(_stopped(Stopped.SIGN_IN))),
+    Scene(
+        "manager-told-new-recovery-key-elsewhere",
+        _manager_changed_elsewhere(Change("recovery_key", ELSEWHERE_AT, True, "노트북")),
+    ),
+    Scene(
+        "manager-told-new-recovery-key-elsewhere-secret-notes",
+        _manager_changed_elsewhere(
+            Change("recovery_key", ELSEWHERE_AT, True, LONG_NAME), kept=False
+        ),
+    ),
+    Scene(
+        "manager-told-spare-password-elsewhere",
+        _manager_changed_elsewhere(
+            Change("master_password_set", ELSEWHERE_AT, True, None),
+            Change("master_password_changed", ELSEWHERE_LATER, True, "노트북"),
+        ),
+    ),
+    Scene("manager-told-joined", _manager_changed_elsewhere(Change("sync_joined", ELSEWHERE_AT))),
+    Scene("manager-told-secret-notes-resealed", _manager_resealed),
+    Scene("secret-notes-recovery-key-before-sync", _recovery_key_before_sync),
     Scene("turn-on-again-new-folder", _again_absent),
     Scene("turn-on-again-done", _again_done),
     Scene("turn-on-again-password", _again_password),

@@ -2,7 +2,9 @@
 every later version must open them and read what is below. They were made once,
 with write_sample(), and are never made again: made by a later version, they
 would only show that it reads what it writes. A later format piece gets a sample
-of its own beside this one. The keys are this sample's alone.
+of its own beside this one. The keys are this sample's alone. Its keys/ files
+were made again once, before the format was first released, when their check
+came to cover the whole file: the same pairs, the data key sealed anew.
 
     uv run python tests/sync/vault_sample.py <empty folder>
 """
@@ -79,10 +81,10 @@ FILES_SHA256 = {
         "fcda2d2d6bfc3b86d1590b5feb32f5587601789bbb219382a88761023179176b"
     ),
     "keys/76e43236-5b00-4a06-8193-1f8f5555d0ed.json": (
-        "ccc73a58093482185e1ca8de9fdbfc654f97902c435bda2669a15a3e6e3a3e9b"
+        "deb1ef51f89756e6e8d6007a70f72d0d89746815b897fccee335588bfb01a813"
     ),
     "keys/7bb8eb5d-126a-414a-8ac3-848ece721ad4.json": (
-        "1d653f4330a09a595238c67a586686c3675496b041a085529e1a3dabd6d0ba64"
+        "34865dc553c584fa22338ee38fe00bf60a9ccaf64590a0eac5436060f2348a01"
     ),
     "notes/a70a61ea-4ead-4c2a-8970-551edc292be5.json": (
         "b00fb6a7b70ce10d03eeb7dc75e6422f6f3d7f57101a1c6e38f78c57dfcb196b"

@@ -284,6 +284,18 @@ def others(connection: apsw.Connection, vault: str, device: str) -> list[Other]:
     return sorted(found, key=lambda each: each.name.casefold())
 
 
+def name_of(connection: apsw.Connection, vault: str, device: str) -> str | None:
+    """What another device syncing with the vault is called, as it says (None if
+    it does not, or is not known here)."""
+    found = record_state.devices(connection, vault).get(device)
+    contents = None if found is None else _contents(found[0])
+    if contents is None:
+        return None
+    name = contents.fields.get("name")
+    value = None if name is None else name.value
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def _looked(connection: apsw.Connection, vault: str, device: str) -> Looked:
     taken = record_state.taken(connection, vault)
     told: set[str] = set()

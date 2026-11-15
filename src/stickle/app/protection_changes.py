@@ -8,6 +8,10 @@ Stickle Manager until the user says it is fine, or, with the window closed,
 one notification of the system. It is never told again after that, and never
 on a schedule (no reminders). Changes made at the first start or when the
 recovery key is offered once more are the user's own setting up: not noted.
+
+On a computer that syncs, a new recovery key or spare password made on another
+is taken here too (stickle.crypto.following), and told at once: whoever is at
+this screen did not make it. Who did is told with it, the one it was made on.
 """
 
 import logging
@@ -25,6 +29,8 @@ log = logging.getLogger(__name__)
 class Change:
     what: str  # one of CHANGE_KINDS
     at: str  # when (UTC)
+    elsewhere: bool = False  # made on another computer that syncs
+    by: str | None = None  # that computer's name, if known
 
 
 class ProtectionChanges:
@@ -46,6 +52,13 @@ class ProtectionChanges:
         assert what in CHANGE_KINDS
         self._keep([*self._entries(), {"what": what, "at": self._clock(), "told": False}])
 
+    def note_elsewhere(self, what: str, by: str | None, at: str | None) -> None:
+        """A change made on another computer that syncs (by: its name, if known;
+        at: when, if known), just taken here: told now."""
+        assert what in CHANGE_KINDS
+        entry: dict[str, object] = {"what": what, "at": at or self._clock(), "told": True}
+        self._keep([*self._entries(), entry | {"by": by}])
+
     def due(self) -> bool:
         """Changes are to be told from now on (a start, an unlock): True if any
         were not before."""
@@ -56,12 +69,15 @@ class ProtectionChanges:
         return True
 
     def to_tell(self) -> list[Change]:
-        """The changes being told, the latest of each kind, oldest first."""
-        latest: dict[str, Change] = {}
+        """The changes being told, the latest of each kind (and of each computer
+        it was made on), oldest first."""
+        latest: dict[tuple[str, bool, str | None], Change] = {}
         for entry in self._entries():
             if entry["told"]:
                 what, at = str(entry["what"]), str(entry["at"])
-                latest[what] = Change(what, at)
+                by = entry.get("by")
+                change = Change(what, at, "by" in entry, by if isinstance(by, str) else None)
+                latest[what, change.elsewhere, change.by] = change
         return sorted(latest.values(), key=lambda change: change.at)
 
     def seen(self) -> None:

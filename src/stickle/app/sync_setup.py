@@ -45,6 +45,10 @@ class SyncSetup:
     # Connected to a vault there before, keeping only its notes: this computer's
     # go first, after a backup (if that fails, nothing is kept or let go of).
     connect_cloud_only: Callable[[Login], Syncing] | None = None
+    # Whether the secret notes open with the recovery key of that pair (or there are none).
+    secret_notes_kept_for: Callable[[bytes], bool] = lambda _public: True
+    # Joined with the recovery key of that pair, typed: the user has it.
+    keep_recovery_key: Callable[[bytes], None] = lambda _public: None
 
 
 class SyncGuideLine(QWidget):

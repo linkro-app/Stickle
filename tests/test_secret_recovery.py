@@ -10,6 +10,7 @@ from test_unlock import FAST, Store
 
 from stickle.app import application
 from stickle.crypto import recovery
+from stickle.crypto.following import digest_of
 from stickle.crypto.key_files import B, C
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError, encode_slot, wrap_with_password
 from stickle.crypto.recovery import (
@@ -19,10 +20,19 @@ from stickle.crypto.recovery import (
     canonical,
     generate,
 )
+from stickle.crypto.sealed import SealedSlot
 from stickle.crypto.secret_notes import NotKeptForRecoveryKeyError
+from stickle.crypto.vault_keys import RECOVERY_KEY
 from stickle.data.schema import open_store
 from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.unlock import Unlock
+
+
+def master_passwords(unlock: Unlock) -> application.MasterPasswords:
+    found = application.master_passwords(unlock)
+    assert found is not None
+    return found
+
 
 KEY = secrets.token_bytes(32)
 SECRET = "secret notes 1"
@@ -230,3 +240,111 @@ def test_the_recovery_key_slot_stays_as_recovery_makes_it(tmp_path: Path) -> Non
     recovery_key = unlock.make_recovery_key(KEY)
     slot = recovery.read_recovery(unlock.files)
     assert slot is not None and recovery.unwrap(slot, recovery_key) == KEY
+
+
+# Sync: the recovery key of the computers this one syncs with taken for its own
+
+
+def the_vaults_pair() -> tuple[SealedSlot, str]:
+    typed = generate()
+    return recovery.make_recovery_slot(
+        secrets.token_bytes(32), typed, "2026-11-15T00:00:00Z"
+    ), typed
+
+
+def taken_from_the_vault(unlock: Unlock, before_sync: bool = True) -> str:
+    pair = recovery.read_recovery(unlock.files)
+    assert isinstance(pair, SealedSlot)
+    theirs, typed = the_vaults_pair()
+    assert unlock.follow(RECOVERY_KEY, theirs, digest_of(pair), before_sync)
+    return typed
+
+
+def test_taken_from_the_vault_the_old_recovery_key_opens_the_secret_notes_until_opened(
+    tmp_path: Path,
+) -> None:
+    unlock = unlocked(tmp_path)
+    own = unlock.make_recovery_key(KEY)
+    key = unlock.turn_on_secret_notes(SECRET)
+    told: list[str] = []
+    passwords = application.secret_passwords(
+        unlock, master_passwords(unlock), resealed=lambda: told.append("resealed")
+    )
+    assert passwords is not None
+
+    theirs = taken_from_the_vault(unlock)
+
+    assert unlock.open_with_recovery_key(theirs) == KEY  # the notes, with the others' key
+    assert passwords.before_sync()
+    assert passwords.open_with_recovery_key(own) == key  # the secret notes, with the old one
+    assert told == ["resealed"]  # and from then on with the others'
+    assert not passwords.before_sync()
+    assert unlock.open_secret_notes_with_recovery_key(theirs) == key
+    with pytest.raises((WrongRecoveryKeyError, NotKeptForRecoveryKeyError)):
+        unlock.open_secret_notes_with_recovery_key(own)
+
+
+def test_opened_with_their_password_they_are_sealed_for_the_others_key_and_told_once(
+    tmp_path: Path,
+) -> None:
+    unlock = unlocked(tmp_path)
+    unlock.make_recovery_key(KEY)
+    key = unlock.turn_on_secret_notes(SECRET)
+    told: list[str] = []
+    passwords = application.secret_passwords(
+        unlock, master_passwords(unlock), resealed=lambda: told.append("resealed")
+    )
+    assert passwords is not None
+    theirs = taken_from_the_vault(unlock)
+    with pytest.raises(NotKeptForRecoveryKeyError):  # the others' key: not yet
+        unlock.open_secret_notes_with_recovery_key(theirs)
+
+    passwords.open(SECRET)
+    passwords.open(SECRET)
+
+    assert told == ["resealed"]
+    assert unlock.open_secret_notes_with_recovery_key(theirs) == key
+
+
+def test_sealed_again_for_another_reason_nothing_is_told(tmp_path: Path) -> None:
+    unlock = unlocked(tmp_path)
+    unlock.make_recovery_key(KEY)
+    unlock.turn_on_secret_notes(SECRET)
+    unlock.make_recovery_key(KEY)  # made without their key, as an earlier build did
+    told: list[str] = []
+    passwords = application.secret_passwords(
+        unlock, master_passwords(unlock), resealed=lambda: told.append("resealed")
+    )
+    assert passwords is not None
+
+    passwords.open(SECRET)
+
+    assert unlock.secret_notes_kept_for_recovery_key
+    assert told == []
+
+
+def test_the_secret_notes_kept_for_tells_the_pair_they_open_with(tmp_path: Path) -> None:
+    unlock = unlocked(tmp_path)
+    unlock.make_recovery_key(KEY)
+    pair = recovery.read_recovery(unlock.files)
+    assert isinstance(pair, SealedSlot)
+    assert unlock.secret_notes_kept_for(b"any")  # none yet: nothing to tell
+    unlock.turn_on_secret_notes(SECRET)
+
+    assert unlock.secret_notes_kept_for(pair.public)
+    assert not unlock.secret_notes_kept_for(the_vaults_pair()[0].public)
+
+
+def test_taken_from_another_computer_the_old_one_is_not_this_computers_from_before(
+    tmp_path: Path,
+) -> None:
+    unlock = unlocked(tmp_path)
+    unlock.make_recovery_key(KEY)
+    unlock.turn_on_secret_notes(SECRET)
+    passwords = application.secret_passwords(unlock, master_passwords(unlock))
+    assert passwords is not None
+
+    taken_from_the_vault(unlock, before_sync=False)
+
+    assert unlock.secret_notes_pair_aside is False
+    assert not passwords.before_sync()

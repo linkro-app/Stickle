@@ -65,6 +65,9 @@ class SecretPasswords:
     master: MasterPasswords  # told apart from theirs
     recovery: RecoveryKeys | None = None  # what opens them when the password is forgotten
     set_at: Callable[[], str | None] = lambda: None  # when their password was set (UTC)
+    # Whether they still open with the recovery key this computer had before it
+    # turned sync on (until opened with their password, then that of the others).
+    before_sync: Callable[[], bool] = lambda: False
 
 
 def _password_field() -> QLineEdit:
@@ -483,6 +486,8 @@ class OpenSecretDialog(_PasswordWindow):
             return None
 
         dialog = EnterRecoveryKeyDialog(submit, self)
+        if self._passwords.before_sync():
+            dialog.ask_for_the_one_before_sync()
         if not ask_recovery_key(dialog) or not opened:
             return
         key = opened.pop()

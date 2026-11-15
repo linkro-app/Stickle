@@ -75,6 +75,9 @@ class NoWayInError(VaultError):
 class Vault:
     vault: str
     keys: DataKeys
+    # keys/ as it was when joined (stickle.sync.keys.newest: the pairs this device takes).
+    receivers: tuple[Receiver, ...] = ()
+    opened_by: bytes | None = None  # the public key of the pair what was typed opened
 
 
 def confirm(target: Target, vault: str) -> VaultInfo:
@@ -183,11 +186,14 @@ def join(target: Target, kind: str, typed: str) -> Vault:
         raise VaultGoneError() from error
     if kind == RECOVERY_KEY:
         typed = canonical(typed)
-    for receiver in receivers(target):
+    found = receivers(target)
+    for receiver in found:
         if receiver.kind != kind:
             continue
         try:
-            return Vault(info.vault, open_receiver(receiver, typed))
+            keys = open_receiver(receiver, typed)
+            public = None if receiver.slot is None else receiver.slot.public
+            return Vault(info.vault, keys, tuple(found), public)
         except WrongPasswordError, AlteredReceiverError:
             continue  # not this one: the next, if there is one
     raise NoWayInError()

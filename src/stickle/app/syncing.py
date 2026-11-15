@@ -9,7 +9,7 @@ first needs it, so a start is not held up by it.
 
 import gc
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +27,9 @@ from stickle.core.clock import Clocks, millis_at
 from stickle.core.cloud_time import CloudTime
 from stickle.core.labels import Mark
 from stickle.core.markdown import note_title
+from stickle.crypto.following import kept_pairs
+from stickle.crypto.key_files import KeyFiles
+from stickle.crypto.sealed import SealedSlot
 from stickle.crypto.vault_keys import DataKeys
 from stickle.data import sync_connection, sync_held, sync_state
 from stickle.data.backups import take
@@ -46,6 +49,7 @@ from stickle.sync.engine import (
     sync_vault,
 )
 from stickle.sync.format import DEVICES, item_path
+from stickle.sync.keys import Follow
 from stickle.sync.outcome import LONGEST_WAIT, Outcome, Stopped, after
 from stickle.sync.runner import Runner, Until
 from stickle.sync.schedule import START_WAIT, Schedule
@@ -78,6 +82,8 @@ SYNCED = frozenset(
         "deletion_records",
     }
 )
+# Taking the vault's pairs in the key file B, on the app's thread (the vault, them).
+type TakeKeys = Callable[[str, Sequence[Follow]], object]
 # Those looked at again when the app starts: it may have been dealt with since.
 LOOKED_AT_AGAIN = {Stopped.BIG_CHANGE.value, Stopped.NEWER.value}
 
@@ -161,6 +167,11 @@ class _Rounds:
     _backed_up: bool = False  # this round, to take in what it stopped for
     _stopped: str | None = None
     _offset: int = 0
+
+    def pairs(self) -> Mapping[str, SealedSlot]:
+        """The key file B's pairs as they are now (looked at, never written: the
+        app's thread writes it)."""
+        return kept_pairs(KeyFiles(self.store.parent))
 
     def database(self) -> apsw.Connection:
         if self._db is None:
@@ -277,6 +288,7 @@ class _Rounds:
                 progress=self.progress,
                 editing=self.editing,
                 again=self.held,
+                pairs=self.pairs,
             )
         except Exception as failed:  # told apart below, whatever it was
             error = failed
@@ -383,14 +395,17 @@ class Syncing(QObject):
         make_target: Callable[[Callable[[int, int], None], Callable[[], None]], Target]
         | None = None,
         start_wait: float = START_WAIT,
+        take_keys: TakeKeys | None = None,
     ) -> None:
         """store, key: the notes database. make_target: how to reach the cloud,
         if not as login says (given the two things to tell of what it hears).
-        start_wait: seconds from now to the first round of its own."""
+        start_wait: seconds from now to the first round of its own. take_keys:
+        what takes the vault's recovery key or master password here."""
         super().__init__()
         self._connection = connection
         self._manager = manager
         self._reminders = reminders
+        self._take_keys = take_keys
         self._rounds = _Rounds(store, key, login, cloud, make_target)
         self._rounds.progress = self.moving.emit  # sent from sync's thread: heard on this one
         self._rounds.editing = manager.editing
@@ -593,6 +608,8 @@ class Syncing(QObject):
         if self._finished:  # sent before it ended, and the app is ending too
             return
         report = ended.report
+        if report.follows and self._take_keys is not None:
+            self._take_keys(self.login.vault, report.follows)
         changed = list(dict.fromkeys(report.changed))
         if report.device and self._reminders is not None:
             self._reminders.use_device(report.device)

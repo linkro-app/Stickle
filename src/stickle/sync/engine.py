@@ -89,7 +89,7 @@ of what it would bring were not among it. Notes not here, texts changed, notes
 taken out of the trash or emptied from it are not counted.
 """
 
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass, field, replace
 
@@ -98,7 +98,8 @@ import apsw
 from stickle.core import made_notes
 from stickle.core.being_edited import Editing, nobody_editing
 from stickle.core.markdown import note_title
-from stickle.data import record_state, sync_held, sync_staged, sync_state
+from stickle.crypto.sealed import SealedSlot
+from stickle.data import record_state, sync_held, sync_keys, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.reminders import TEXT_FIELD
@@ -109,8 +110,9 @@ from stickle.data.sync_staged import Staged
 from stickle.data.sync_state import NoteState
 from stickle.sync import local, local_reminders
 from stickle.sync.contents import ReadOnlyItemError
-from stickle.sync.devices import About, Looked, sync_devices, tell
+from stickle.sync.devices import About, Looked, name_of, sync_devices, tell
 from stickle.sync.format import (
+    KEYS,
     NOTES,
     RECORDS,
     FormatError,
@@ -122,6 +124,7 @@ from stickle.sync.format import (
     open_envelope,
     seal,
 )
+from stickle.sync.keys import Follow, sync_keys_of
 from stickle.sync.left import Leaving
 from stickle.sync.local_records import Shown, own_name
 from stickle.sync.merge import (
@@ -193,6 +196,8 @@ class Report:
     held: list[str] = field(default_factory=list[str])
     records: RecordReport = field(default_factory=RecordReport)
     device: str = ""  # the id the device went on as (a new one if its old one was taken)
+    # The vault's recovery key or master password, for this device to take (stickle.sync.keys).
+    follows: list[Follow] = field(default_factory=list[Follow])
 
 
 @dataclass(frozen=True)
@@ -292,9 +297,11 @@ def _writable(note: NoteFile) -> bool:
 
 def joined(connection: apsw.Connection, vault: str) -> None:
     """This device has just joined the vault, which was there before it: until
-    a round with it is through, its rounds merge as a first connection does."""
+    a round with it is through, its rounds merge as a first connection does,
+    and it takes the vault's recovery key and master password for its own."""
     with writing(connection):
         sync_state.set_joining(connection, vault, True)
+        sync_keys.forget(connection, vault)
 
 
 def first_look(
@@ -333,6 +340,7 @@ def cloud_only(
         for note in gone:
             notes.drop(note.id)
         sync_state.set_joining(connection, vault, True)
+        sync_keys.forget(connection, vault)
         if along is not None:
             along()
     return len(gone)
@@ -366,11 +374,14 @@ def sync_vault(
     progress: Progress | None = None,
     editing: Editing | None = None,
     again: Collection[str] = (),
+    pairs: Callable[[], Mapping[str, SealedSlot]] | None = None,
 ) -> Report:
     """One round of the whole vault: vault.json first, the vault still the one
     it was (stickle.sync.vault.confirm: VaultError, else nothing is done); this
     device's own file (about: what it says of itself; None: not now) and the
-    others'; a look at the notes (what changed there, read); the records, so
+    others'; the recovery key and the master password (pairs: those of this
+    device's key file B, as they are; None: not looked at), what this device is
+    to take in Report.follows; a look at the notes (what changed there, read); the records, so
     that the categories and marks notes name are here when the notes are taken
     in; then the notes, and again those that name a category
     or mark that came, a field of theirs perhaps not taken before for want of
@@ -407,6 +418,15 @@ def sync_vault(
     )
     told = frozenset[str]() if looked is None else looked.told
     listing = looked is None or full or not looked.enough or notes_round.first
+    if pairs is not None:
+        report.follows = sync_keys_of(
+            connection,
+            place,
+            pairs,
+            bool(_items(told, KEYS)),
+            listing,
+            lambda device: name_of(connection, place.vault, device),
+        )
     notes_round.look(_items(told, NOTES) | set(again), listing)
     records = RecordRound(connection, place, cloud_now, shown=shown, report=report.records).run(
         told=_items(told, RECORDS), listing=listing

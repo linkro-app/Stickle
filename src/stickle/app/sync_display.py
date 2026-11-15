@@ -3,8 +3,10 @@ Manager, and each note that has not reached the cloud. Sync stopped, or its
 uploads with the cloud full, is told once: a line at the top of Stickle Manager
 until the user says OK and, with that window closed, one notification of the
 system. So are notes put in the trash here, deleted on the other computers
-while this one was away for more than a year, and going back to a backup on
-every computer that syncs (in the run after it only). The lines that say how sync
+while this one was away for more than a year, going back to a backup on
+every computer that syncs (in the run after it only), and the secret notes
+sealed for the recovery key of the computers this one syncs with, once they
+opened (until then, the old one of this computer opened them). The lines that say how sync
 stands, the button beside what tells of a stop and a click on its notification
 lead to what is to be done: the window that asks, the server password, the new
 version, or the connection settings.
@@ -21,7 +23,7 @@ from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, override
 
 import apsw
-from PySide6.QtCore import QEvent, QObject, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
@@ -34,6 +36,7 @@ from stickle.core.clock import moment_of
 from stickle.data.settings import (
     CLOUD_FULL,
     SYNC_GONE_BACK,
+    SYNC_SECRETS_RESEALED,
     SYNC_STOP_SEEN,
     SYNC_STOP_TOLD,
     SYNC_TRASHED,
@@ -141,6 +144,15 @@ class SyncGoneBackLine(SyncNoticeLine):
         return self.tr("&Undo")
 
 
+class SyncResealedLine(SyncNoticeLine):
+    """The secret notes sealed for the recovery key of the computers this one
+    syncs with: told with OK alone."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.action_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # never shown
+
+
 class SyncLine(QWidget):
     """The line at the foot of Stickle Manager. Pressed, it opens the connection
     settings. Out of sight on a computer that does not sync."""
@@ -238,6 +250,8 @@ class SyncDisplay(QObject):
             QTimer.singleShot(0, self._tell_gone_back_once)
         window.sync_gone_back_line.acted.connect(self._undo_going_back)
         window.sync_gone_back_line.seen.connect(self._gone_back_seen)
+        self._resealed = settings is not None and settings.get(SYNC_SECRETS_RESEALED)
+        window.sync_secrets_line.seen.connect(self._resealed_seen)
 
     def follow(self, syncing: Syncing | None) -> None:
         """This run's sync from now on; None: it has stopped, or there is none."""
@@ -434,6 +448,34 @@ class SyncDisplay(QObject):
         self._gone_back = None
         self._tell_gone_back()
 
+    # The secret notes sealed for the recovery key of the computers this one syncs with
+
+    def _resealed_text(self) -> str:
+        return self.tr(
+            "This computer's secret notes now open with the same recovery key as your other"
+            " computers too. You can throw the old one away now."
+        )
+
+    def secrets_resealed(self) -> None:
+        """Told at the top until OK; the system told once, with the window closed."""
+        self._resealed = True
+        self._set(SYNC_SECRETS_RESEALED, True)
+        self._tell_resealed()
+        if self._notify is not None and not self._window.isVisible():
+            self._notify(self._resealed_text(), self._window.open)
+
+    def _resealed_seen(self) -> None:
+        self._resealed = False
+        self._set(SYNC_SECRETS_RESEALED, False)
+        self._tell_resealed()
+
+    def _tell_resealed(self) -> None:
+        line = self._window.sync_secrets_line
+        if self._resealed:
+            line.tell(self._resealed_text(), "")
+        else:
+            line.hide()
+
     def _unsent(self, note_ids: Collection[str]) -> None:
         self._manager.show_unsent(note_ids)
 
@@ -441,6 +483,7 @@ class SyncDisplay(QObject):
         self._tell_stop()
         self._tell_trashed()
         self._tell_gone_back()
+        self._tell_resealed()
         if self._syncing is None:
             self._tray.set_sync(None)
             self._window.sync_line.show_status("", False)

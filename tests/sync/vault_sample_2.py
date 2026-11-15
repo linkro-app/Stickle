@@ -4,7 +4,8 @@ trash, one emptied, a conflict copy; categories, two of one name become one;
 marks, a built-in one renamed and one of the user's own become the built-in
 one; colours, two alike; a note brought in; the devices' own files. Every
 later version must take it in as test_vault_sample_2 says. Made once with
-write_sample() and never again (vault_sample_1 is the container's sample).
+write_sample() and never again (vault_sample_1 is the container's sample),
+but for its keys/ file, as vault_sample_1's.
 
     uv run python tests/sync/vault_sample_2.py <empty folder>
 """
@@ -58,7 +59,7 @@ FILES_SHA256: dict[str, str] = {
         "f8a9b118b993fdd9de62a55e72e5dbc07bd62f7bdba6fd7718544b19a26ccd83"
     ),
     "keys/2280ea5f-7be7-4353-95f9-286921dc26e2.json": (
-        "a5a6a7ddffe4d5195b4c008dd8de356f869906d70922aab7748e9629ae18b4b1"
+        "2789f11cd9466504254c3f53f95224a9d56d41c0758c5b3bb23b47d86064641c"
     ),
     "notes/0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d.json": (
         "1052d6a1bdb5d808c1b2b40f7118e1b6bc8e36ec1125f08fd29f1658ecdae32c"

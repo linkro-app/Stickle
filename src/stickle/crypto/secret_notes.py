@@ -12,6 +12,17 @@ notes database (its key, the master password) still cannot read a secret note.
 
 Each note's text is encrypted on its own with that key (XChaCha20-Poly1305),
 bound to the note's id: moved onto another note, it does not open.
+
+A device that syncs takes the recovery key of the computers it syncs with for
+its own (stickle.crypto.following): its pair in B is replaced, and the key sealed
+for the old one could no longer be opened by the old recovery key. So the pair
+it is sealed for is kept beside it first, its secret key as wrapped with the old
+recovery key ("pair"), and "before_sync" if that was the recovery key of this
+computer before it joined the others; once the key is sealed for the new pair
+(keep_for_recovery_key), the old one is no longer kept.
+
+    "recovery_key": {"public": ..., "sealed": ..., "pair": <a password slot>,
+                     "before_sync": true}
 """
 
 import base64
@@ -31,10 +42,12 @@ from stickle.crypto.keyfile import (
     unwrap_with_password,
     wrap_with_password,
 )
-from stickle.crypto.sealed import seal, unseal
+from stickle.crypto.sealed import SealedSlot, open_pair, seal, unseal
 
 PASSWORD_SLOT = "secret_password"
 RECOVERY_SLOT = "recovery_key"
+ASIDE = "pair"  # the pair the key is sealed for, kept once B no longer has it
+BEFORE_SYNC = "before_sync"  # that pair was this computer's before it joined
 # Sealed for the master password while it opened them too (before 0.6 was out):
 # no longer read, and left out whenever C is written again.
 OLD_MASTER_SLOT = "master_password"
@@ -203,7 +216,57 @@ def change_password(
 
 def keep_for_recovery_key(files: KeyFiles, key: bytes, recovery_public: bytes) -> None:
     """The key sealed for a recovery key's pair, in place of any earlier one
-    (the key known)."""
+    (the key known): a pair kept aside is no longer."""
     slots = _slots(files)
     slots[RECOVERY_SLOT] = _recovery_seal(recovery_public, key)
     _save(files, slots)
+
+
+def _recovery_fields(files: KeyFiles) -> dict[str, object] | None:
+    slots = files.load(C)
+    if slots is None or not isinstance(slots.get(RECOVERY_SLOT), dict):
+        return None
+    return dict(cast(dict[str, object], slots[RECOVERY_SLOT]))
+
+
+def keep_pair_aside(files: KeyFiles, pair: SealedSlot, before_sync: bool) -> None:
+    """Before the recovery key's pair in B is replaced by another (sync): the
+    key, if sealed for that pair, keeps it beside it, so that its recovery key
+    still opens the secret notes. before_sync: it is this computer's own, from
+    before it joined the computers it syncs with. Nothing without secret notes,
+    or with the key sealed for another pair (one kept aside already stays)."""
+    if files.raw(C) is None:
+        return
+    fields = _recovery_fields(files)
+    if fields is None or b64_field(fields.get("public")) != pair.public or ASIDE in fields:
+        return
+    fields[ASIDE] = encode_slot(pair.secret)
+    if before_sync:
+        fields[BEFORE_SYNC] = True
+    slots = _slots(files)
+    slots[RECOVERY_SLOT] = fields
+    _save(files, slots)
+
+
+def pair_aside(files: KeyFiles) -> bool | None:
+    """Whether the key is sealed for a pair kept aside (no longer B's): None if
+    not; else whether it is the one from before this computer joined the others."""
+    try:
+        fields = _recovery_fields(files)
+    except KeyFileError:
+        return None
+    if fields is None or ASIDE not in fields:
+        return None
+    return fields.get(BEFORE_SYNC) is True
+
+
+def open_with_pair_aside(files: KeyFiles, typed: str) -> bytes:
+    """The key, through the pair kept aside, by the recovery key it was made
+    with (canonical); NotKeptForRecoveryKeyError if none is, WrongPasswordError
+    if typed is not that recovery key."""
+    fields = _recovery_fields(files)
+    if fields is None or ASIDE not in fields:
+        raise NotKeptForRecoveryKeyError("no pair kept aside")
+    public = b64_field(fields.get("public"))
+    secret = open_pair(SealedSlot(decode_slot(fields[ASIDE]), public, b""), typed, RECOVERY_SLOT)
+    return unseal(secret, b64_field(fields.get("sealed")))

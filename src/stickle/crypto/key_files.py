@@ -199,6 +199,19 @@ class KeyFiles:
                 return kept
         return None
 
+    def peek(self, name: str) -> dict[str, object] | None:
+        """The file's slots as they are, read and nothing else: never written,
+        put back or set aside, so another thread may look while the app's
+        writes (KeyFileError if no copy reads now: gone, damaged, or being
+        replaced at that moment; None only with no file at all)."""
+        found = [_read(self.path(name)), _read(self.second_path(name))]
+        for data in found:
+            if data is not None and _sound(data):
+                return slots_of(parse_document(data))
+        if all(data is None for data in found):
+            return None
+        raise KeyFileError("no copy reads now")
+
     def load(self, name: str) -> dict[str, object] | None:
         """The file's slots, None without one, KeyFileError if it cannot be read."""
         data = self.raw(name)

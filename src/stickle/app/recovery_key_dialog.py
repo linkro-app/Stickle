@@ -75,6 +75,10 @@ class EnterRecoveryKeyDialog(QDialog):
         self.use_master = False
         self.intro = QLabel()
         self.intro.setWordWrap(True)
+        self.note = QLabel()  # which recovery key, where that is not the usual one
+        self.note.setWordWrap(True)
+        self.note.hide()
+        self._before_sync = False
         self.label = QLabel()
         self.key = QLineEdit()
         self.key.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
@@ -94,6 +98,7 @@ class EnterRecoveryKeyDialog(QDialog):
         self.master_button.clicked.connect(self._use_master)
         layout = QVBoxLayout(self)
         layout.addWidget(self.intro)
+        layout.addWidget(self.note)
         layout.addWidget(self.label)
         layout.addWidget(self.key)
         layout.addWidget(self.error)
@@ -115,6 +120,7 @@ class EnterRecoveryKeyDialog(QDialog):
         self.ok_button.setText(self.tr("Open notes"))
         self.cancel_button.setText(self.tr("Back"))
         self.master_button.setText(self.tr("Use the s&pare password instead"))
+        self._tell_which()
 
     @override
     def done(self, result: int, /) -> None:
@@ -132,6 +138,22 @@ class EnterRecoveryKeyDialog(QDialog):
     def _use_master(self) -> None:
         self.use_master = True
         self.reject()
+
+    def ask_for_the_one_before_sync(self) -> None:
+        """Said under the intro: the recovery key asked for is the one this
+        computer had before it took that of the computers it syncs with."""
+        self._before_sync = True
+        self._tell_which()
+
+    def _tell_which(self) -> None:
+        text = (
+            self.tr("Enter the recovery key this computer used before you turned on sync.")
+            if self._before_sync
+            else ""
+        )
+        self.note.setText(text)
+        self.note.setVisible(bool(text))
+        self.key.setAccessibleDescription(text)
 
     def typo(self) -> str:
         return self.tr(

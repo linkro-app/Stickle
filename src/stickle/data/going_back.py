@@ -67,6 +67,7 @@ SYNC_TABLES = (
     "sync_staged",
     "sync_held",
     "sync_untold",
+    "sync_keys",
 )
 SYNC_SETTINGS: tuple[Setting[object], ...] = (
     DEVICE_ID,  # pyright: ignore[reportAssignmentType]

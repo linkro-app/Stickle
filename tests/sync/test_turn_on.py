@@ -3,6 +3,7 @@ the first step to the first round, and every way it can stop on the way. Nothing
 is kept before the Stickle folder is made or opened, and a password goes only to
 a server the user chose to trust."""
 
+import dataclasses
 import gc
 import shutil
 import ssl
@@ -1510,7 +1511,7 @@ def test_connecting_keeps_the_login_and_starts_at_once(
     calls: list[str] = []
 
     class Started:
-        def __init__(self, *_args: object) -> None:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
             calls.append("made")
 
         def start(self) -> None:
@@ -1957,3 +1958,124 @@ def test_on_a_real_server_a_password_typed_anew_carries_on(
         ended = first_said(told)
         assert isinstance(ended, Ended) and ended.outcome.stopped is None
         pc.end()
+
+
+OWN_RECOVERY = recovery.generate()
+OWN_PAIRS = {
+    RECOVERY_KEY: recovery.make_recovery_slot(DB_KEY, OWN_RECOVERY, "2026-11-01T00:00:00Z"),
+}
+
+
+def join_with_pairs(
+    qtbot: QtBot,
+    second: Pc,
+    keys: Keys,
+    server: Server,
+    pairs: dict[str, SealedSlot],
+    kept_for: Callable[[bytes], bool] = lambda _public: True,
+    by_key: bool = True,
+) -> tuple[TurnOnSync, list[bytes]]:
+    """The second computer, with pairs of its own, joins the folder: its last page."""
+    kept: list[bytes] = []
+    setup = dataclasses.replace(
+        second.setup(keys),
+        pairs=lambda: pairs,
+        secret_notes_kept_for=kept_for,
+        keep_recovery_key=kept.append,
+    )
+    window = TurnOnSync(setup)
+    window.show()
+    bench = Bench(window, qtbot, [], FakeSyncing())
+    bench.connect(on_server(server))
+    bench.page(window.present_page)
+    bench.idle()
+    if not by_key:
+        window.by_password.setChecked(True)
+    window.way_in.setText(RECOVERY if by_key else SPARE)
+    bench.press()
+    bench.page(window.last_page)
+    return window, kept
+
+
+def test_joining_says_this_computer_now_opens_with_the_others_recovery_key(
+    qtbot: QtBot, tmp_path: Path, share: Path, keys: Keys
+) -> None:
+    first, second = make_pc(tmp_path, "first"), make_pc(tmp_path, "second")
+    with webdav(share, PASSWORD) as server:
+        first_has_made_the_folder(qtbot, first, keys, server)
+        window, kept = join_with_pairs(qtbot, second, keys, server, OWN_PAIRS)
+
+        said = window.keys_line.text()
+        assert window.keys_line.isVisible()
+        assert said == (
+            "This computer now opens with the same recovery key as your other computers, so"
+            " you can throw its old one away. It also uses the same spare password as your"
+            " other computers."
+        )
+        assert kept == [PAIRS[RECOVERY_KEY].public]  # typed: the user has it
+        window.reject()
+        first.end()
+        second.end()
+
+
+def test_joining_with_secret_notes_says_to_keep_the_old_recovery_key(
+    qtbot: QtBot, tmp_path: Path, share: Path, keys: Keys
+) -> None:
+    first, second = make_pc(tmp_path, "first"), make_pc(tmp_path, "second")
+    with webdav(share, PASSWORD) as server:
+        first_has_made_the_folder(qtbot, first, keys, server)
+        own = {RECOVERY_KEY: OWN_PAIRS[RECOVERY_KEY], MASTER_PASSWORD: PAIRS[MASTER_PASSWORD]}
+        window, _kept = join_with_pairs(
+            qtbot, second, keys, server, own, lambda public: public != PAIRS[RECOVERY_KEY].public
+        )
+
+        assert window.keys_line.text() == (
+            "This computer now opens with the same recovery key as your other computers."
+            " Until you next open its secret notes, though, they still open with the old"
+            " recovery key, so don't throw it away yet."
+        )  # the spare password the same: not told
+        window.reject()
+        first.end()
+        second.end()
+
+
+def test_joining_with_the_spare_password_marks_no_recovery_key_kept(
+    qtbot: QtBot, tmp_path: Path, share: Path, keys: Keys
+) -> None:
+    first, second = make_pc(tmp_path, "first"), make_pc(tmp_path, "second")
+    with webdav(share, PASSWORD) as server:
+        first_has_made_the_folder(qtbot, first, keys, server)
+        window, kept = join_with_pairs(qtbot, second, keys, server, PAIRS, by_key=False)
+
+        assert kept == []
+        assert window.keys_line.text() == "" and not window.keys_line.isVisible()  # the same
+        window.reject()
+        first.end()
+        second.end()
+
+
+def test_a_spare_password_only_this_computer_has_is_said_to_be_everyones(
+    qtbot: QtBot, tmp_path: Path, share: Path, keys: Keys
+) -> None:
+    first, second = make_pc(tmp_path, "first"), make_pc(tmp_path, "second")
+    only_recovery = {RECOVERY_KEY: PAIRS[RECOVERY_KEY]}
+    with webdav(share, PASSWORD) as server:
+        window = TurnOnSync(dataclasses.replace(first.setup(keys), pairs=lambda: only_recovery))
+        window.show()
+        bench = Bench(window, qtbot, [], FakeSyncing())
+        bench.connect(on_server(server))
+        bench.page(window.absent_page)
+        bench.idle()
+        bench.press()
+        qtbot.waitUntil(lambda: "On your other" in window.last_line.text(), timeout=MS)
+        assert not window.keys_line.isVisible()  # made, not joined: nothing taken
+        window.reject()
+
+        joined, _ = join_with_pairs(qtbot, second, keys, server, PAIRS)
+
+        assert joined.keys_line.text() == (
+            "Your other computers now use this computer's spare password too."
+        )
+        joined.reject()
+        first.end()
+        second.end()

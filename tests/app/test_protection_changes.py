@@ -277,3 +277,98 @@ def test_windows_tells_of_the_lock_and_the_unlock() -> None:
         session_filter.nativeEventFilter(b"windows_generic_MSG", ctypes.addressof(message))
     assert heard == ["lock", "unlock"]
     assert screen_saver_running() is False  # asked of Windows: not while tests run
+
+
+def test_a_change_made_on_another_computer_is_told_at_once_with_its_name(
+    qtbot: QtBot, changes: ProtectionChanges, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shown: list[str] = []
+    window = window_with(changes)
+    tray = Tray(lambda: None, lambda: None, Translations())
+
+    def show_message(_title: str, text: str) -> None:
+        shown.append(text)
+
+    monkeypatch.setattr(tray, "showMessage", show_message)
+    try:
+        changes.note("recovery_key")  # made here: told later
+        changes.note_elsewhere("recovery_key", "Laptop", "2026-11-05T05:03:00.000Z")
+        changes.note_elsewhere("master_password_changed", None, "2026-11-05T05:04:00.000Z")
+
+        application.tell_changes_now(window, tray)
+
+        told = window.changes_told()
+        assert "a new recovery key was made on Laptop" in told
+        assert "All your computers now open with the new recovery key." in told
+        assert "You can throw the old one away." in told
+        assert "spare password was changed on another computer" in told
+        assert "on this computer" not in told  # the one made here waits for its time
+        assert told.endswith("If it was not you, set it again in the settings.")
+        assert shown == [told]  # closed: the system tells it once
+        assert [(c.what, c.elsewhere, c.by) for c in changes.to_tell()] == [
+            ("recovery_key", True, "Laptop"),
+            ("master_password_changed", True, None),
+        ]
+        changes.due()
+        assert len(changes.to_tell()) == 3  # this computer's own, told apart from the other's
+    finally:
+        tray.hide()
+        close(window)
+
+
+def test_the_old_recovery_key_is_not_said_to_be_done_with_while_it_opens_the_secret_notes(
+    qtbot: QtBot, changes: ProtectionChanges
+) -> None:
+    window = window_with(changes)
+    try:
+        window.secret_notes_kept = lambda: False
+        changes.note_elsewhere("recovery_key", "Laptop", "2026-11-05T05:03:00.000Z")
+        window.refresh_changes()
+
+        assert "the new recovery key." in window.changes_label.text()
+        assert "throw" not in window.changes_label.text()
+    finally:
+        close(window)
+
+
+def test_a_computers_name_is_told_as_it_is(qtbot: QtBot, changes: ProtectionChanges) -> None:
+    window = window_with(changes)
+    try:
+        changes.note_elsewhere("master_password_set", "PC %1 <b>", "2026-11-05T05:03:00.000Z")
+        window.refresh_changes()
+
+        assert "a spare password was set on PC %1 <b>." in window.changes_told()
+    finally:
+        close(window)
+
+
+def test_joining_others_is_told_later_as_a_change_made_here(
+    qtbot: QtBot, changes: ProtectionChanges
+) -> None:
+    window = window_with(changes)
+    try:
+        changes.note("sync_joined")
+        assert changes.to_tell() == []
+        changes.due()
+        window.refresh_changes()
+
+        assert (
+            "sync was turned on at this computer, so it now opens with the same recovery key"
+            in (window.changes_label.text())
+        )
+    finally:
+        close(window)
+
+
+def test_who_did_it_is_kept_only_as_a_name(connection: apsw.Connection) -> None:
+    settings = Settings(connection)
+    entry: dict[str, object] = {
+        "what": "recovery_key",
+        "at": "2026-11-05T05:03:00.000Z",
+        "told": True,
+    }
+    settings.set(PROTECTION_CHANGES, [entry | {"by": "Laptop"}, entry | {"by": None}])
+    wrongs: list[dict[str, object]] = [{"by": 3}, {"by": ""}, {"who": "Laptop"}]
+    for wrong in wrongs:
+        with pytest.raises(InvalidSettingError):
+            settings.set(PROTECTION_CHANGES, [entry | wrong])

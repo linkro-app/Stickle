@@ -591,10 +591,25 @@ UPDATE sync_notes SET merged_seq = -1 WHERE CASE
 END;
 """
 
+V26 = """
+-- The recovery key's and the master password's pairs as this device and the
+-- vault last agreed on them (kind: as in keys/), what tells one changed on
+-- either side since: its digest (NULL: none of that kind), when it was set and
+-- by which device. This device's alone, never in an export.
+CREATE TABLE sync_keys (
+    vault TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    digest TEXT,
+    set_at TEXT NOT NULL,
+    device TEXT,
+    PRIMARY KEY (vault, kind)
+) WITHOUT ROWID;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20, V21, V22, V23, V24, V25),
+    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26),
 ]
 BACKUPS_KEPT = 3
 

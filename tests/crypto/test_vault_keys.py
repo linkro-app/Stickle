@@ -28,6 +28,7 @@ from stickle.crypto.vault_keys import (
     new_data_key,
     open_with_master_password,
     open_with_recovery_key,
+    pair_digest,
     read_key_file,
     receiver_id,
 )
@@ -202,3 +203,45 @@ def test_only_a_pair_makes_a_keys_file() -> None:
         key_file(KEYS, "device", RECOVERY_PAIR)
     assert isinstance(RECOVERY_PAIR, SealedSlot)
     assert derive(KEYS.key(1), b"stickle-keys") != derive(KEYS.key(1), b"stickle-items")
+
+
+def test_the_check_holds_the_whole_file() -> None:
+    """Nothing of it changes without the data key: when it was set, by which
+    device, what opens its secret key, a field put beside the others."""
+    file_id, data = key_file(KEYS, RECOVERY_KEY, RECOVERY_PAIR, "device-1")
+    receiver = read_key_file(file_id, data)
+    assert is_trusted(receiver, KEYS)
+    assert (receiver.device, receiver.set_at) == ("device-1", "2026-11-07T00:00:00Z")
+    other = make_sealed_slot(DATABASE_KEY, RECOVERY, 1, 8192, recovery.SLOT, None)
+    for changed in (
+        {"set_at": "2099-01-01T00:00:00Z"},
+        {"device": "device-2"},
+        {"box": encode_sealed_slot(other)["box"], "salt": encode_sealed_slot(other)["salt"]},
+        {"opslimit": 1},
+        {"more": "beside the others"},
+    ):
+        assert not is_trusted(read_key_file(file_id, as_bytes(written(data) | changed)), KEYS)
+    without = {name: value for name, value in written(data).items() if name != "device"}
+    assert not is_trusted(read_key_file(file_id, as_bytes(without)), KEYS)
+
+
+def test_a_file_without_its_device_holds_and_says_none() -> None:
+    receiver = read_key_file(*key_file(KEYS, MASTER_PASSWORD, MASTER_PAIR))
+
+    assert is_trusted(receiver, KEYS)
+    assert receiver.device is None and receiver.set_at == ""  # set when not known: earliest
+
+
+def test_a_pairs_digest_tells_it_wrapped_anew() -> None:
+    rewrapped = SealedSlot(
+        make_sealed_slot(DATABASE_KEY, "another", 1, 8192, master.SLOT, None).secret,
+        MASTER_PAIR.public,
+        MASTER_PAIR.sealed,
+    )
+    resealed = SealedSlot(
+        MASTER_PAIR.secret, MASTER_PAIR.public, seal(MASTER_PAIR.public, KEYS.key(1))
+    )
+
+    assert pair_digest(MASTER_PAIR) != pair_digest(rewrapped)  # its password changed
+    assert pair_digest(MASTER_PAIR) == pair_digest(resealed)  # what is sealed for it is not it
+    assert len(pair_digest(MASTER_PAIR)) == 64

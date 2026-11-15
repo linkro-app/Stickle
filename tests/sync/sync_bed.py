@@ -35,8 +35,12 @@ from fake_cloud import FakeCloud
 from stickle.core.being_edited import Editing
 from stickle.core.clock import stamp_of
 from stickle.core.hlc import Hlc
-from stickle.crypto.vault_keys import DataKeys
-from stickle.data import record_state, stamps, sync_state
+from stickle.crypto import following, recovery
+from stickle.crypto.following import kept_pairs
+from stickle.crypto.key_files import KeyFiles
+from stickle.crypto.sealed import SealedSlot
+from stickle.crypto.vault_keys import DataKeys, key_file
+from stickle.data import record_state, stamps, sync_keys, sync_state
 from stickle.data.colors import ColorRepository
 from stickle.data.imports import ImportRecords
 from stickle.data.labels import LabelRepository, become
@@ -54,10 +58,13 @@ from stickle.sync.format import (
     Json,
     VaultInfo,
     item_at,
+    item_path,
     json_bytes,
     open_envelope,
     vault_file,
 )
+from stickle.sync.format import KEYS as KEYS_FOLDER
+from stickle.sync.keys import Follow
 from stickle.sync.merge import COPY_OF
 from stickle.sync.note_file import NoteFile
 
@@ -98,10 +105,14 @@ class Device:
         whole: bool = False,
         names: dict[str, str] | None = None,
         aside: Path | None = None,
+        keyed: bool = False,
     ) -> None:
         """whole: syncs the whole vault, records and its own file too (else its
         notes only); names: what its built-in marks show as, in its language;
-        aside: where it keeps files it sets aside (None: it sets none aside)."""
+        aside: where it keeps files it sets aside (None: it sets none aside);
+        keyed: it has key files of its own (a recovery key made for it), whose
+        pairs its rounds keep with the vault's, taking what they bring as the
+        app does (unless taking is False)."""
         self.name = name
         self.id = device_id(name)
         self.path = folder / f"{name}.db"
@@ -122,6 +133,34 @@ class Device:
         self._repositories()
         if whole and VAULT_FILE not in cloud.files():
             cloud.put_by_hand(VAULT_FILE, vault_file(VaultInfo(VAULT)), long_ago=True)
+        self.files: KeyFiles | None = None
+        self.recovery_key = ""
+        self.taking = True
+        self.follows: list[Follow] = []  # what the last round brought for its key file B
+        if keyed:
+            self.files = KeyFiles(folder / f"{name}-keys")
+            self.files.folder.mkdir(exist_ok=True)
+            self.recovery_key = recovery.generate()
+            recovery.write_recovery(self.files, KEY, self.recovery_key, self.stamp())
+
+    def pairs(self) -> dict[str, SealedSlot]:
+        assert self.files is not None
+        return kept_pairs(self.files)
+
+    def made_the_vault(self) -> None:
+        """Its pairs in keys/, as the device that made the vault leaves them."""
+        for kind, pair in self.pairs().items():
+            file_id, data = key_file(KEYS, kind, pair)
+            self.cloud.put_by_hand(item_path(KEYS_FOLDER, file_id), data)
+
+    def take(self, follows: list[Follow]) -> None:
+        """What a round brought for B, taken as the app takes it (stickle.app.
+        application.KeysHere): B written, then agreed on."""
+        assert self.files is not None
+        for each in follows:
+            if following.follow(self.files, each.kind, each.pair, KEY, each.seen, each.joining):
+                with self.db:
+                    sync_keys.agree(self.db, VAULT, each.kind, each.agreed)
 
     def _repositories(self) -> None:
         stamp, millis = self.stamp, self.millis
@@ -188,9 +227,13 @@ class Device:
                 accept,
                 editing=self.editing,
                 again=again,
+                pairs=None if self.files is None else self.pairs,
             )
             if report.device != self.id:  # another device had its id: a copy of its disk
                 self._renewed(report.device)
+            self.follows = report.follows
+            if self.taking and report.follows:
+                self.take(report.follows)
             return report
         return sync_notes(self.db, self.place, self.clock, self.notes, accept, self.editing)
 
