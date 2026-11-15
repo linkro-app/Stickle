@@ -31,6 +31,19 @@ computer before it joined the others; once the key is sealed for the new pair
 
     "recovery_key": {"public": ..., "sealed": ..., "pair": <a password slot>,
                      "before_sync": true}
+
+A computer that had secret notes of its own before it synced with others that
+have theirs keeps its key until the two passwords are matched: the others' key
+waits beside it, by its number, as its slots are in the vault ("others"), so
+that their notes open here with their password too. Matched, the others' key is
+this computer's: its slots take the place of the old ones, and the old key goes
+among the old keys, encrypted with the key of now ("old_keys"), with any that
+were there before: earlier texts, old backups and exports sealed with it open
+still, with the password of now.
+
+    "others": {"<number>": {"secret_password": <a password slot>,
+                            "recovery_key": {"public": ..., "sealed": ...}}},
+    "old_keys": {"<number>": "<that key, encrypted with this one>"}
 """
 
 import base64
@@ -38,7 +51,7 @@ import hashlib
 import json
 import secrets
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
 from stickle.core.note import SealedText
@@ -65,6 +78,9 @@ BEFORE_SYNC = "before_sync"  # that pair was this computer's before it joined
 # first starts), the same on every computer that has it, so that a key file of
 # another computer is taken only for the same key (stickle.sync.secret_key).
 KEY_NUMBER = "key_number"
+# The others' key, while this computer keeps its own; the keys sealed with before.
+OTHERS = "others"
+OLD_KEYS = "old_keys"
 # How the password was set, in its slot: changed, or set anew with the recovery key.
 HOW = "how"
 CHANGED = "changed"
@@ -108,6 +124,17 @@ def open_sealed(key: bytes, note_id: str, sealed: SealedText) -> str:
     """The text of the note note_id, sealed as it holds it (bound to it, or to
     the note it says)."""
     return open_text(key, sealed.opens_as(note_id), sealed.data)
+
+
+def open_with_any(keys: Iterable[bytes], note_id: str, sealed: SealedText) -> str:
+    """The text of the note note_id, with the first of keys it opens with (the
+    one it was sealed with first, best): SecretNoteError if none."""
+    for key in keys:
+        try:
+            return open_sealed(key, note_id, sealed)
+        except SecretNoteError:
+            continue
+    raise SecretNoteError(note_id)
 
 
 def has_secret_notes(files: KeyFiles) -> bool:
@@ -402,3 +429,183 @@ def take(
         slots[RECOVERY_SLOT] = taken
     _save(files, slots)
     return True
+
+
+# The others' key, and matching the passwords
+
+
+def others_of(slots: Mapping[str, object] | None) -> dict[str, dict[str, object]]:
+    """The others' keys C keeps beside its own, by number: their slots."""
+    found = None if slots is None else slots.get(OTHERS)
+    if not isinstance(found, dict):
+        return {}
+    return {
+        str(number): dict(cast(dict[str, object], each))
+        for number, each in cast(dict[str, object], found).items()
+        if isinstance(each, dict) and _is_number(str(number))
+    }
+
+
+def others(files: KeyFiles) -> dict[str, dict[str, object]]:
+    """The others' keys C keeps (none without C, or with C damaged)."""
+    try:
+        return others_of(files.load(C))
+    except KeyFileError:
+        return {}
+
+
+def keep_other(
+    files: KeyFiles,
+    number: str,
+    password: Mapping[str, object],
+    recovery: Mapping[str, object],
+) -> bool:
+    """C keeps the slots of the others' key numbered number beside its own,
+    in place of what it kept of it: whether it changed. Not for its own key
+    (False), nor without C. KeyFileError for slots that do not read."""
+    decode_slot(dict(password))
+    b64_field(recovery.get("public"))
+    b64_field(recovery.get("sealed"))
+    slots = _slots(files)
+    if key_number(slots) in (None, number) or not _is_number(number):
+        return False
+    kept = others_of(slots)
+    wanted = {PASSWORD_SLOT: dict(password), RECOVERY_SLOT: dict(recovery)}
+    if kept.get(number) == wanted:
+        return False
+    slots[OTHERS] = kept | {number: wanted}
+    _save(files, slots)
+    return True
+
+
+def _other(files: KeyFiles, number: str) -> dict[str, object]:
+    kept = others(files).get(number)
+    if kept is None:
+        raise KeyFileError("no such key kept")
+    return kept
+
+
+def open_other_with_password(files: KeyFiles, number: str, password: str) -> bytes:
+    """The others' key numbered number; WrongPasswordError if password is not theirs."""
+    slot = decode_slot(_other(files, number).get(PASSWORD_SLOT))
+    return unwrap_with_password(slot, password, PASSWORD_SLOT)
+
+
+def open_other_with_pair(
+    files: KeyFiles, number: str, pair_secret: bytes, pair_public: bytes
+) -> bytes:
+    """The others' key, through the recovery key's pair it is sealed for;
+    NotKeptForRecoveryKeyError if it is sealed for another."""
+    fields = _other(files, number).get(RECOVERY_SLOT)
+    if not isinstance(fields, dict):
+        raise NotKeptForRecoveryKeyError("not kept for a recovery key")
+    sealed = cast(dict[str, object], fields)
+    if b64_field(sealed.get("public")) != pair_public:
+        raise NotKeptForRecoveryKeyError("kept for another recovery key")
+    return unseal(pair_secret, b64_field(sealed.get("sealed")))
+
+
+def _public(sealed: object) -> bytes | None:
+    """The public key a slot sealed for a recovery key is sealed for (None: not one)."""
+    if not isinstance(sealed, dict):
+        return None
+    try:
+        return b64_field(cast(dict[str, object], sealed).get("public"))
+    except KeyFileError:
+        return None
+
+
+def _old_aad(number: str) -> bytes:
+    return f"stickle old secret notes key {number}".encode()
+
+
+def _seal_old(key: bytes, number: str, old: bytes) -> str:
+    from nacl import secret
+
+    return base64.b64encode(secret.Aead(key).encrypt(old, _old_aad(number))).decode("ascii")
+
+
+def old_numbers(slots: Mapping[str, object] | None) -> frozenset[str]:
+    """The numbers of the keys sealed with before that C keeps (nothing opened)."""
+    found = None if slots is None else slots.get(OLD_KEYS)
+    if not isinstance(found, dict):
+        return frozenset()
+    return frozenset(str(number) for number in cast(dict[str, object], found))
+
+
+def old_keys_of(slots: Mapping[str, object] | None, key: bytes) -> dict[str, bytes]:
+    """The keys sealed with before, by number, opened with the key of now (one
+    that does not open with it is left out)."""
+    from nacl import exceptions, secret
+
+    found = None if slots is None else slots.get(OLD_KEYS)
+    if not isinstance(found, dict):
+        return {}
+    opened: dict[str, bytes] = {}
+    for number, sealed in cast(dict[str, object], found).items():
+        try:
+            old = secret.Aead(key).decrypt(b64_field(sealed), _old_aad(str(number)))
+        except KeyFileError, exceptions.CryptoError, ValueError:
+            continue
+        if len(old) == KEY_BYTES:
+            opened[str(number)] = old
+    return opened
+
+
+def old_keys(files: KeyFiles, key: bytes) -> dict[str, bytes]:
+    """The keys C keeps of before, opened with key (its key of now)."""
+    try:
+        return old_keys_of(files.load(C), key)
+    except KeyFileError:
+        return {}
+
+
+def keeps_old_keys(files: KeyFiles) -> bool:
+    """Whether C keeps keys of before (which open only with its key of now)."""
+    try:
+        slots = files.load(C)
+    except KeyFileError:
+        return True  # damaged: not to be written over as if it kept none
+    return slots is not None and isinstance(slots.get(OLD_KEYS), dict)
+
+
+def match(
+    files: KeyFiles,
+    own: bytes | None,
+    number: str,
+    key: bytes,
+    recovery_public: bytes | None = None,
+) -> None:
+    """The passwords matched: the others' key numbered number (key, opened)
+    is this computer's from now on, its slots as the others have them — but
+    sealed for the recovery key of recovery_public (this computer's now) if
+    theirs is sealed for another (one made here since, say: the others' is
+    sealed for it once they follow). This computer's key till now (own; None
+    when nothing was sealed with it) and the ones it kept of before go among
+    the old keys, encrypted with it. The others' key is no longer kept beside it."""
+    slots = _slots(files)
+    kept = others_of(slots)
+    theirs = kept.pop(number, None)
+    mine = key_number(slots)
+    if theirs is None or mine is None or mine == number:
+        raise KeyFileError("no such key to match with")
+    if own is None and OLD_KEYS in slots:
+        raise KeyFileError("the keys of before open only with this computer's")
+    old = {} if own is None else old_keys_of(slots, own)
+    if own is not None:
+        old[mine] = own
+    old.pop(number, None)
+    matched: dict[str, object] = {
+        name: value
+        for name, value in slots.items()
+        if name not in (PASSWORD_SLOT, RECOVERY_SLOT, OTHERS, OLD_KEYS, KEY_NUMBER)
+    }
+    sealed = theirs[RECOVERY_SLOT]
+    if recovery_public is not None and _public(sealed) != recovery_public:
+        sealed = _recovery_seal(recovery_public, key)
+    matched |= {KEY_NUMBER: number, PASSWORD_SLOT: theirs[PASSWORD_SLOT], RECOVERY_SLOT: sealed}
+    if old:
+        matched[OLD_KEYS] = {each: _seal_old(key, each, old_key) for each, old_key in old.items()}
+    if kept:
+        matched[OTHERS] = kept
+    _save(files, matched)

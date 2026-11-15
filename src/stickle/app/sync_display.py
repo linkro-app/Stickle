@@ -36,6 +36,7 @@ from stickle.core.clock import moment_of
 from stickle.data.settings import (
     CLOUD_FULL,
     SYNC_GONE_BACK,
+    SYNC_SECRETS_MATCHED,
     SYNC_SECRETS_RESEALED,
     SYNC_STOP_SEEN,
     SYNC_STOP_TOLD,
@@ -252,20 +253,25 @@ class SyncDisplay(QObject):
         window.sync_gone_back_line.seen.connect(self._gone_back_seen)
         self._resealed = settings is not None and settings.get(SYNC_SECRETS_RESEALED)
         window.sync_secrets_line.seen.connect(self._resealed_seen)
+        self._matched = None if settings is None else settings.get(SYNC_SECRETS_MATCHED)
+        window.sync_matched_line.seen.connect(self._matched_seen)
 
     def follow(self, syncing: Syncing | None) -> None:
         """This run's sync from now on; None: it has stopped, or there is none."""
         if self._syncing is not None:
             self._syncing.status.changed.disconnect(self._show)
             self._syncing.unsent_changed.disconnect(self._unsent)
+            self._syncing.unmatched_changed.disconnect(self._manager.show_unmatched)
             self._syncing.round_shown.disconnect(self._round_shown)
         self._syncing = syncing
         if syncing is not None:
             syncing.status.changed.connect(self._show)
             syncing.unsent_changed.connect(self._unsent)
+            syncing.unmatched_changed.connect(self._manager.show_unmatched)
             syncing.round_shown.connect(self._round_shown)
         else:
             self._manager.show_unsent(frozenset())
+            self._manager.show_unmatched(frozenset())
         if syncing is None:
             self._forget_told()  # a stop of before is over
         elif syncing.status.stopped is None:
@@ -476,6 +482,42 @@ class SyncDisplay(QObject):
         else:
             line.hide()
 
+    # The secret notes' password matched with the others'
+
+    def _matched_text(self) -> str:
+        matched = self._matched or {}
+        count = matched.get("notes")
+        text = self.tr(
+            "%n secret note(s) here now use the same password as your other computers.",
+            "",
+            count if isinstance(count, int) else 0,
+        )
+        if matched.get("old_key") is True:
+            text += " " + self.tr("You can throw the old recovery key away now.")
+        return text
+
+    def secrets_matched(self, count: int, old_key: bool) -> None:
+        """Told at the top until OK; the system told once, with the window closed.
+        old_key: the old recovery key opens none of this computer's secret notes now."""
+        matched: dict[str, object] = {"notes": count, "old_key": old_key}
+        self._matched = matched
+        self._set(SYNC_SECRETS_MATCHED, self._matched)
+        self._tell_matched()
+        if self._notify is not None and not self._window.isVisible():
+            self._notify(self._matched_text(), self._window.open)
+
+    def _matched_seen(self) -> None:
+        self._matched = None
+        self._set(SYNC_SECRETS_MATCHED, None)
+        self._tell_matched()
+
+    def _tell_matched(self) -> None:
+        line = self._window.sync_matched_line
+        if self._matched is not None:
+            line.tell(self._matched_text(), "")
+        else:
+            line.hide()
+
     def _unsent(self, note_ids: Collection[str]) -> None:
         self._manager.show_unsent(note_ids)
 
@@ -484,6 +526,7 @@ class SyncDisplay(QObject):
         self._tell_trashed()
         self._tell_gone_back()
         self._tell_resealed()
+        self._tell_matched()
         if self._syncing is None:
             self._tray.set_sync(None)
             self._window.sync_line.show_status("", False)

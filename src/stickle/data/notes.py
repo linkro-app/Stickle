@@ -9,14 +9,16 @@ each field it changes with when (stickle.data.stamps).
 
 import logging
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 
 import apsw
 
 from stickle.core.clock import Clock, days_before, millis_at, utc_now
 from stickle.core.hlc import wall_millis
 from stickle.core.note import DEFAULT_COLOR, Conflict, Note, SealedText, content_hash
+from stickle.crypto.secret_notes import open_with_any, seal_text
 from stickle.data import record_stamps, stamps, sync_state, versions
 from stickle.data.imports import hide_text_hashes
 from stickle.data.labels import become
@@ -181,6 +183,28 @@ _NOT_SEALED: dict[str, object] = {
     "secret_bound": None,
     "secret_key_number": None,
 }
+
+
+def match_sealed(
+    notes: NoteRepository,
+    own: bytes | None,
+    number: str,
+    key: bytes,
+    old_keys: Callable[[bytes], Mapping[str, bytes]],
+    keep: Callable[[bytes | None, str, bytes], object],
+) -> int:
+    """The secret notes' passwords matched: every note sealed with this
+    computer's key (own; None if nothing is) sealed again with the others' (key,
+    numbered number) first, then keep (stickle.crypto.secret_notes.match: their
+    key this computer's, own kept among the old ones). In that order, so that
+    stopped in between, every note opens and those sealed again go. How many
+    were sealed again."""
+    count = 0
+    if own is not None:
+        keys = [own, *old_keys(own).values()]
+        count = notes.reseal_here(partial(open_with_any, keys), partial(seal_text, key), number)
+    keep(own, number, key)
+    return count
 
 
 class NoteRepository:
@@ -516,11 +540,13 @@ class NoteRepository:
         title: str,
         sealed: bytes,
         seal_earlier: Callable[[str], bytes] | None = None,
+        key_number: str | None = None,
     ) -> Note:
-        """The note's text replaced by sealed (it, encrypted), in one step, and gone
-        from the database: overwritten where it was, out of the search index. Its
-        earlier texts are sealed alike (seal_earlier: text -> encrypted, needed
-        when it has any in the clear)."""
+        """The note's text replaced by sealed (it, encrypted with this computer's
+        key, or the key of key_number), in one step, and gone from the database:
+        overwritten where it was, out of the search index. Its earlier texts are
+        sealed alike (seal_earlier: text -> encrypted, needed when it has any in
+        the clear)."""
         note = self._require_live(note_id)
         if seal_earlier is None and versions.plain_count(self._db, note_id):
             raise ValueError("earlier texts in the clear, and nothing to seal them with")
@@ -529,12 +555,12 @@ class NoteRepository:
                 note_id,
                 {
                     "body": "",
-                    **sealed_columns(note_id, SealedText(sealed)),
+                    **sealed_columns(note_id, SealedText(sealed, None, key_number)),
                     "secret_title": title,
                 },
             )
             if seal_earlier is not None:
-                versions.seal_all(self._db, note_id, seal_earlier)
+                versions.seal_all(self._db, note_id, seal_earlier, key_number)
             sync_state.forget_text(self._db, note_id)
             hide_text_hashes(self._db, note_id, self._millis)  # brought in from another app
             self._owe_clearing()
@@ -578,16 +604,87 @@ class NoteRepository:
             [(note_id, self._clock()) for note_id in note_ids],
         )
 
-    def update_secret_body(self, note_id: str, sealed: bytes, keep_earlier: bool = False) -> Note:
-        """sealed: the note's text sealed here (for the note itself, with this
-        computer's key); keep_earlier: the first save of an edit, which keeps the
-        text it had."""
+    def update_secret_body(
+        self,
+        note_id: str,
+        sealed: bytes,
+        keep_earlier: bool = False,
+        key_number: str | None = None,
+    ) -> Note:
+        """sealed: the note's text sealed here, for the note itself, with this
+        computer's key or (key_number) the key of that number; keep_earlier: the
+        first save of an edit, which keeps the text it had."""
         note = self._require_live(note_id)
         if not note.secret:
             raise NoteNotSecretError(note_id)
         if sealed == note.sealed:
             return note
-        return self._new_text(note_id, sealed_columns(note_id, SealedText(sealed)), keep_earlier)
+        text = SealedText(sealed, None, key_number)
+        return self._new_text(note_id, sealed_columns(note_id, text), keep_earlier)
+
+    def sealed_here(self) -> int:
+        """How many notes (in the trash too) hold a text sealed with this
+        computer's key: theirs now, or an earlier one."""
+        return int(
+            self._db.execute(  # pyright: ignore[reportArgumentType]
+                "SELECT count(*) FROM notes WHERE (secret_body IS NOT NULL"
+                " AND secret_key_number IS NULL) OR id IN (SELECT note_id FROM note_versions"
+                " WHERE sealed IS NOT NULL AND sealed_key_number IS NULL)"
+            ).fetchall()[0][0]
+        )
+
+    def reseal_here(
+        self,
+        open_: Callable[[str, SealedText], str],
+        seal: Callable[[str, str], bytes],
+        number: str,
+    ) -> int:
+        """Every note's text sealed with this computer's key (in the trash too,
+        conflict copies too) sealed again with the key numbered number, for the
+        note itself: open_ (note id, sealed -> text) and seal (note id, text ->
+        encrypted, with that key). In one step, each a change of its text that
+        keeps no earlier one (the text is the same); earlier texts stay as they
+        are sealed. SecretNoteError, nothing changed, for one that does not
+        open. How many."""
+        return self._reseal("secret_key_number IS NULL", (), open_, seal, number)
+
+    def reseal_old(
+        self,
+        numbers: Collection[str],
+        open_: Callable[[str, SealedText], str],
+        seal: Callable[[str, str], bytes],
+    ) -> int:
+        """As reseal_here, every note's text sealed with one of the keys of these
+        numbers (this computer's of before: a backup gone back to) sealed again
+        with this computer's key of now. How many."""
+        if not numbers:
+            return 0
+        listed = sorted(numbers)
+        within = f"secret_key_number IN ({', '.join('?' * len(listed))})"
+        return self._reseal(within, listed, open_, seal, None)
+
+    def _reseal(
+        self,
+        which: str,
+        params: Sequence[str],
+        open_: Callable[[str, SealedText], str],
+        seal: Callable[[str, str], bytes],
+        number: str | None,
+    ) -> int:
+        count = 0
+        with self._db:
+            rows = self._db.execute(
+                f"SELECT {COLUMNS} FROM notes WHERE secret_body IS NOT NULL AND {which}",
+                params,
+            ).fetchall()
+            for row in rows:
+                note = _note(row)
+                sealed = note.sealed_text
+                assert sealed is not None
+                text = SealedText(seal(note.id, open_(note.id, sealed)), None, number)
+                self._change(note.id, sealed_columns(note.id, text), note.updated_at)
+                count += 1
+        return count
 
     def set_secret_title(self, note_id: str, title: str) -> Note:
         if not self._require_live(note_id).secret:

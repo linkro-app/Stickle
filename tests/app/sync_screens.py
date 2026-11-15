@@ -21,6 +21,7 @@ from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.app.protection_changes import Change, ProtectionChanges
 from stickle.app.recovery_key_dialog import EnterRecoveryKeyDialog, RecoveryKeys
+from stickle.app.secret_dialogs import MatchKind, MatchSecretDialog
 from stickle.app.settings_window import SettingsWindow
 from stickle.app.stickle_window import StickleWindow
 from stickle.app.sync_display import SyncDisplay
@@ -31,6 +32,7 @@ from stickle.app.sync_stopped import SyncStopped
 from stickle.app.syncing import BigChange, Ended, Syncing
 from stickle.app.tray import Tray
 from stickle.app.turn_on_sync import MINE, THEIRS, TurnOnSync, _Taken
+from stickle.crypto.keyfile import WrongPasswordError
 from stickle.crypto.recovery import RecoveryKeyTypoError
 from stickle.data.colors import OwnColor
 from stickle.data.sync_connection import WEBDAV, Login
@@ -78,6 +80,7 @@ class FakeSyncing(QObject):
     round_shown = Signal(object)
     moving = Signal(str, int, int)
     unsent_changed = Signal(object)
+    unmatched_changed = Signal(object)
     cloud_name = WEBDAV_NAME
 
     def __init__(
@@ -636,6 +639,58 @@ def _recovery_key_before_sync(stage: Stage) -> QWidget:
     return dialog
 
 
+def _recovery_key_before_new(stage: Stage) -> QWidget:
+    """The secret notes' recovery key asked for, sealed for the one before a new
+    one made on another computer was taken here."""
+    dialog = stage.keep(EnterRecoveryKeyDialog(lambda _typed: None))
+    dialog.ask_for_the_one_before_a_new_one()
+    return dialog
+
+
+def _matching(kind: MatchKind, count: int) -> Callable[[Stage], QWidget]:
+    """The window that matches the secret notes' passwords, one of them opened."""
+
+    def build(stage: Stage) -> QWidget:
+        def never(_typed: str) -> bytes:
+            raise WrongPasswordError
+
+        return stage.keep(MatchSecretDialog(kind, count, never, never))
+
+    return build
+
+
+def _manager_matched(old_key: bool) -> Callable[[Stage], QWidget]:
+    def build(stage: Stage) -> QWidget:
+        _tray, window, display = _displayed(stage, _synced())
+        display.secrets_matched(3, old_key)
+        return window
+
+    return build
+
+
+def _unmatched_note(stage: Stage) -> NoteWindow:
+    """A secret note of this computer's, until its password is matched."""
+    manager = stage.keep(NoteManager())
+    note = stage.keep(manager.new_note())
+    note.resize(260, 120)
+    note.show_secret_locked("은행")
+    note.set_unmatched(True)
+    return note
+
+
+def _note_unmatched(stage: Stage) -> QWidget:
+    return _unmatched_note(stage)
+
+
+def _note_unmatched_tooltip(stage: Stage) -> QWidget:
+    """What its corner says."""
+    note = _unmatched_note(stage)
+    label = stage.keep(QLabel(note.title_bar.category_tag.toolTip()))
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    label.setContentsMargins(6, 4, 6, 4)
+    return label
+
+
 def _menu(make: Callable[[], FakeSyncing]) -> Callable[[Stage], QWidget]:
     def build(stage: Stage) -> QMenu:
         menu = shown_by(stage, make())[0].contextMenu()
@@ -849,6 +904,14 @@ SCENES: list[Scene] = [
     ),
     Scene("manager-told-secret-notes-resealed", _manager_resealed),
     Scene("secret-notes-recovery-key-before-sync", _recovery_key_before_sync),
+    Scene("secret-notes-recovery-key-before-new", _recovery_key_before_new),
+    Scene("secret-notes-match-here", _matching("here", 3)),
+    Scene("secret-notes-match-here-none", _matching("here", 0)),
+    Scene("secret-notes-match-there", _matching("there", 3)),
+    Scene("manager-told-secret-notes-matched", _manager_matched(old_key=True)),
+    Scene("manager-told-secret-notes-matched-kept", _manager_matched(old_key=False)),
+    Scene("note-unmatched", _note_unmatched, keyboard=False),
+    Scene("note-unmatched-tooltip", _note_unmatched_tooltip, keyboard=False),
     Scene("turn-on-again-new-folder", _again_absent),
     Scene("turn-on-again-done", _again_done),
     Scene("turn-on-again-password", _again_password),

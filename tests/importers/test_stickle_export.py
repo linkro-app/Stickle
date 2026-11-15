@@ -1,6 +1,7 @@
 """Stickle's own export brought in again: on a new computer, after a disk failed,
 or from one computer to another before notes are synced."""
 
+import base64
 import json
 import secrets
 from datetime import date, time
@@ -12,7 +13,12 @@ import pytest
 
 from stickle.core.reminders import Rule
 from stickle.crypto.key_files import C, KeyFiles
-from stickle.crypto.keyfile import WrongPasswordError, parse_document
+from stickle.crypto.keyfile import (
+    WrongPasswordError,
+    encode_slot,
+    parse_document,
+    wrap_with_password,
+)
 from stickle.crypto.recovery import (
     WrongRecoveryKeyError,
     generate,
@@ -21,9 +27,13 @@ from stickle.crypto.recovery import (
     read_recovery,
     write_recovery,
 )
-from stickle.crypto.sealed import SealedSlot
+from stickle.crypto.sealed import SealedSlot, seal
 from stickle.crypto.secret_notes import (
+    PASSWORD_SLOT,
     create,
+    keep_other,
+    match,
+    new_key_number,
     open_exported_with_pair,
     open_exported_with_password,
     open_text,
@@ -38,7 +48,10 @@ from stickle.data.schema import latest_version, open_store
 from stickle.importers import sources
 from stickle.importers.stickle_export import (
     NOTE_ID,
+    StickleExport,
     bring_in_export,
+    key_with_password,
+    key_with_recovery_key,
     new_in_export,
     note_id_from,
     read,
@@ -303,6 +316,58 @@ def test_the_key_of_the_day_opens_with_its_password_or_its_recovery_key(tmp_path
         open_exported_with_password(export.secret_key, "not it at all")
     with pytest.raises(WrongRecoveryKeyError):
         open_exported_pair(export.recovery_pair, generate())
+
+
+def test_its_key_opens_the_others_kept_beside_and_its_keys_of_before(tmp_path: Path) -> None:
+    """Exported before the passwords were matched, the others' key goes along in
+    the key's copy (theirs to open with their password); exported after, the
+    keys sealed with before do (opened with the key of now)."""
+    password, theirs_password = "secret notes 1", "the others' one 2"
+    files = KeyFiles(tmp_path / "keys")
+    (tmp_path / "keys").mkdir()
+    recovery_key = generate()
+    write_recovery(files, secrets.token_bytes(32), recovery_key, NOW)
+    slot = read_recovery(files)
+    assert isinstance(slot, SealedSlot)
+    own = create(files, password, slot.public, NOW, FAST)
+    theirs, number = secrets.token_bytes(32), new_key_number()
+    their_slot = wrap_with_password(theirs, theirs_password, *FAST, PASSWORD_SLOT, NOW)
+    sealed: dict[str, object] = {
+        "public": base64.b64encode(slot.public).decode(),
+        "sealed": base64.b64encode(seal(slot.public, theirs)).decode(),
+    }
+    keep_other(files, number, encode_slot(their_slot), sealed)
+    first = computer(tmp_path, "first")
+    mine = secret_note(first, own, "이 PC의 글", "여기")
+    came = note_with(first, "")
+    NoteRepository(first).make_secret(
+        came, "그쪽", seal_text(theirs, came, "그쪽 글"), key_number=number
+    )
+
+    def export_now(name: str) -> StickleExport:
+        raw = files.raw(C)
+        assert raw is not None
+        copies = SecretExport(key_copies=parse_document(raw), recovery_pair=pair_for_export(files))
+        (tmp_path / name).mkdir()
+        return read_export(exported(first, tmp_path / name, copies))
+
+    before = export_now("before")
+    assert len(key_with_password(before, password)) == 1  # theirs needs their password
+    assert key_with_password(before, theirs_password) == [theirs]
+    both = key_with_recovery_key(before, recovery_key)  # sealed for the same recovery key
+    assert set(both) == {own, theirs}
+
+    match(files, own, number, theirs)
+    after = export_now("after")
+    assert set(key_with_password(after, theirs_password)) == {theirs, own}  # and the old one
+    second = computer(tmp_path, "second")
+    here = secrets.token_bytes(32)
+    brought = bring_in_export(after, second, key_with_password(after, theirs_password), here)
+    assert brought.secret == 2
+    for note_id, text in ((mine, "이 PC의 글"), (came, "그쪽 글")):
+        note = NoteRepository(second).get(note_id)
+        assert note is not None and note.sealed is not None
+        assert open_text(here, note_id, note.sealed) == text
 
 
 # Exports of other versions, and what is not an export

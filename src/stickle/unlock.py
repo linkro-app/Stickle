@@ -496,6 +496,66 @@ class Unlock:
         the round saw it, or holds another key."""
         return secret_notes.take(self.files, number, password, recovery, seen)
 
+    @property
+    def secret_notes_number(self) -> str | None:
+        """The number of the secret notes' key here (None without one, or with
+        their key file damaged or out of reach)."""
+        try:
+            return secret_notes.key_number(self.files.load(C))
+        except KeyFileError, OSError:
+            return None
+
+    def keep_other_secret_key(
+        self, number: str, password: Mapping[str, object], recovery: Mapping[str, object]
+    ) -> bool:
+        """The secret notes' key of the computers this one syncs with, another
+        than this one's, kept beside it until the passwords are matched
+        (stickle.crypto.secret_notes.keep_other); whether it changed."""
+        return secret_notes.keep_other(self.files, number, password, recovery)
+
+    def other_secret_keys(self) -> list[str]:
+        """The numbers of the others' keys kept beside this one's."""
+        try:
+            return sorted(secret_notes.others(self.files))
+        except OSError:
+            return []
+
+    def open_other_secret_key(self, number: str, password: str) -> bytes:
+        """The others' key numbered number; WrongPasswordError if password is not theirs."""
+        return secret_notes.open_other_with_password(self.files, number, password)
+
+    def open_other_secret_key_with_recovery_key(self, number: str, typed: str) -> bytes:
+        """The others' key through the recovery key these notes have now (theirs
+        too, synced): RecoveryKeyTypoError, WrongRecoveryKeyError, or
+        NotKeptForRecoveryKeyError if it is sealed for another."""
+        pair = self._recovery_pair()
+        if pair is None:
+            raise secret_notes.NotKeptForRecoveryKeyError("no recovery key pair")
+        return secret_notes.open_other_with_pair(
+            self.files, number, open_recovery_pair(pair, typed), pair.public
+        )
+
+    def match_secret_notes(self, own: bytes | None, number: str, key: bytes) -> None:
+        """The others' key numbered number this one's from now on, the key it had
+        (own, if anything was sealed with it) kept among the old ones, sealed for
+        the recovery key these notes have now."""
+        pair = self._recovery_pair()
+        secret_notes.match(self.files, own, number, key, None if pair is None else pair.public)
+
+    def secret_old_keys(self, key: bytes) -> dict[str, bytes]:
+        """The keys the secret notes were sealed with before, opened with key."""
+        try:
+            return secret_notes.old_keys(self.files, key)
+        except OSError:
+            return {}
+
+    @property
+    def secret_keeps_old_keys(self) -> bool:
+        try:
+            return secret_notes.keeps_old_keys(self.files)
+        except OSError:
+            return True
+
     def secret_key_copies(self) -> dict[str, object] | None:
         """The secret notes' key file as it is (their key, locked), to go out with
         them when they are exported encrypted; None without one."""

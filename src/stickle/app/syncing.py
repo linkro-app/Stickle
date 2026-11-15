@@ -29,7 +29,9 @@ from stickle.core.labels import Mark
 from stickle.core.markdown import note_title
 from stickle.crypto.following import kept_pairs
 from stickle.crypto.key_files import C, KeyFiles
+from stickle.crypto.keyfile import KeyFileError
 from stickle.crypto.sealed import SealedSlot
+from stickle.crypto.secret_notes import key_number, old_numbers
 from stickle.crypto.vault_keys import DataKeys
 from stickle.data import sync_connection, sync_held, sync_state
 from stickle.data.backups import take
@@ -53,7 +55,7 @@ from stickle.sync.keys import Follow
 from stickle.sync.outcome import LONGEST_WAIT, Outcome, Stopped, after
 from stickle.sync.runner import Runner, Until
 from stickle.sync.schedule import START_WAIT, Schedule
-from stickle.sync.secret_key import SecretFollow
+from stickle.sync.secret_key import SecretFollow, SecretOther
 from stickle.sync.targets.base import AsRead, CertificateError, NotThereError, Target
 
 log = logging.getLogger(__name__)
@@ -85,7 +87,7 @@ SYNCED = frozenset(
 )
 # Taking the vault's pairs in the key file B, and its secret notes' key in C, on
 # the app's thread (the vault, them).
-type TakeKeys = Callable[[str, Sequence[Follow], Sequence[SecretFollow]], object]
+type TakeKeys = Callable[[str, Sequence[Follow], Sequence[SecretFollow | SecretOther]], object]
 # Those looked at again when the app starts: it may have been dealt with since.
 LOOKED_AT_AGAIN = {Stopped.BIG_CHANGE.value, Stopped.NEWER.value}
 
@@ -389,6 +391,8 @@ class Syncing(QObject):
     moving = Signal(str, int, int)
     # The notes that, a minute after they changed, are still not in the cloud (ids).
     unsent_changed = Signal(object)
+    # The secret notes that stay here until their password is matched (ids).
+    unmatched_changed = Signal(object)
     _round_ended = Signal(object)
 
     def __init__(
@@ -440,6 +444,7 @@ class Syncing(QObject):
         self._leaving_as = ""
         self._finished = False
         self._unsent: frozenset[str] = frozenset()
+        self._unmatched: frozenset[str] = frozenset()
         self._looks_for_unsent = False  # not before a first round has been through
         self._next_unsent = QTimer(self)
         self._next_unsent.setSingleShot(True)
@@ -514,8 +519,30 @@ class Syncing(QObject):
             return self.login
 
     def to_put(self) -> int:
-        """Notes changed here and not in the cloud yet."""
-        return len(sync_state.changed(self._connection, self.login.vault))
+        """Notes changed here and not in the cloud yet (not those that wait for
+        their secret notes' password to be matched: they wait for the user)."""
+        unmatched = self.unmatched()
+        changed = sync_state.changed(self._connection, self.login.vault)
+        return len([note_id for note_id in changed if note_id not in unmatched])
+
+    def vault_secret_key(self) -> str | None:
+        """The number of the vault's secret notes' key, as a round last saw it."""
+        return sync_state.secret_key(self._connection, self.login.vault)
+
+    def unmatched(self) -> frozenset[str]:
+        """Secret notes sealed with this computer's key while the vault's is
+        another (or not seen yet): they stay here until the passwords are
+        matched; and any sealed with a key of before, until sealed again."""
+        try:
+            slots = self._rounds.secret_key()
+        except KeyFileError, OSError:
+            slots = None
+        number, old = key_number(slots), old_numbers(slots)
+        held = frozenset(sync_state.sealed_here(self._connection, old))
+        if number is not None and number == self.vault_secret_key():
+            # Sealed with this computer's key, they go: not those of a key of before.
+            return held - frozenset(sync_state.sealed_here(self._connection))
+        return held
 
     def last_synced(self) -> QDateTime | None:
         """When a round last went through, by this computer's clock; None: none has."""
@@ -640,7 +667,13 @@ class Syncing(QObject):
         now = self._rounds.cloud.now()
         unsent: set[str] = set()
         soonest: int | None = None
+        unmatched = self.unmatched()
+        if unmatched != self._unmatched:
+            self._unmatched = unmatched
+            self.unmatched_changed.emit(unmatched)
         for note_id, at in sync_state.changed_at(self._connection, self.login.vault):
+            if note_id in unmatched:
+                continue  # told apart: they wait for the user, not the cloud
             try:
                 left = millis_at(at) + UNSENT_AFTER_MS - now
             except ValueError:

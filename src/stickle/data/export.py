@@ -26,6 +26,7 @@ import base64
 import json
 import re
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -34,8 +35,8 @@ from typing import TextIO, cast
 import apsw
 
 from stickle.core.clock import Clock, utc_now
-from stickle.core.note import content_hash
-from stickle.crypto.secret_notes import SecretNoteError, open_text
+from stickle.core.note import SealedText, content_hash
+from stickle.crypto.secret_notes import SecretNoteError, open_with_any
 from stickle.data.database import open_database
 from stickle.data.schema import first_line
 
@@ -61,6 +62,8 @@ class SecretExport:
     """How secret notes go out."""
 
     key: bytes | None = None  # theirs, to open them; None: left encrypted
+    # More keys that open some (the others' kept beside, those of before).
+    more_keys: tuple[bytes, ...] = ()
     locked_line: str = "Locked secret note"  # a locked one's Markdown, below its title
     key_copies: dict[str, object] | None = None  # their key's locked copies, if left so
     # The recovery key's pair, which those copies are sealed for too (see
@@ -252,12 +255,12 @@ def _titled(tables: dict[str, list[dict[str, object]]]) -> dict[str, list[dict[s
 
 
 def _opened(
-    tables: dict[str, list[dict[str, object]]], texts: dict[str, str], key: bytes
+    tables: dict[str, list[dict[str, object]]], texts: dict[str, str], keys: Sequence[bytes]
 ) -> dict[str, list[dict[str, object]]]:
-    """The tables with each secret note's text in place of its encrypted one,
-    and their earlier texts opened too (stickle.data.versions). An earlier text
-    that does not open with the key is left as it is: an export is not refused
-    for one, and an encrypted export keeps it whole."""
+    """The tables with each secret note's text opened in place of its encrypted
+    one, and their earlier texts opened too (stickle.data.versions). A text that
+    does not open with any of the keys is left as it is: an export is not
+    refused for one, and keeps it whole."""
     notes = [
         {**row, "body": texts[str(row["id"])], **_NOT_SEALED}
         if str(row.get("id")) in texts
@@ -266,17 +269,18 @@ def _opened(
     ]
     opened = {**tables, "notes": notes}
     if "note_versions" in tables:
-        opened["note_versions"] = [_opened_version(row, key) for row in tables["note_versions"]]
+        opened["note_versions"] = [_opened_version(row, keys) for row in tables["note_versions"]]
     return opened
 
 
-def _opened_version(row: dict[str, object], key: bytes) -> dict[str, object]:
+def _opened_version(row: dict[str, object], keys: Sequence[bytes]) -> dict[str, object]:
     sealed = row.get("sealed")
     if not isinstance(sealed, dict):
         return row
     try:
         data = base64.b64decode(str(cast(dict[str, object], sealed)["base64"]))
-        text = open_text(key, str(row.get("sealed_bound") or row["note_id"]), data)
+        bound = str(row.get("sealed_bound") or row["note_id"])
+        text = open_with_any(keys, bound, SealedText(data))
     except KeyError, ValueError, SecretNoteError:
         return row
     return {
@@ -298,17 +302,22 @@ def export_all(
 ) -> ExportResult:
     """Write everything into a new folder inside target; nothing is overwritten.
 
-    With secret notes and their key, every one is opened first: SecretNoteError
-    (from stickle.crypto.secret_notes) before anything is written if one does
-    not open with it.
+    With secret notes and their key (and more keys), each is opened with the
+    first that opens it; one that none opens (sealed with another computer's
+    key, say) goes out encrypted, with their key's locked copies if given.
     """
     secret = secret or SecretExport()
     version, tables, rows, secrets = _read_all(connection)
     tables = _titled(tables)
     texts: dict[str, str] = {}
     if secret.key is not None:
-        texts = {i: open_text(secret.key, s.bound, s.sealed) for i, s in secrets.items()}
-        tables = _opened(tables, texts, secret.key)
+        keys = (secret.key, *secret.more_keys)
+        for note_id, each in secrets.items():
+            try:
+                texts[note_id] = open_with_any(keys, each.bound, SealedText(each.sealed))
+            except SecretNoteError:
+                continue  # left encrypted
+        tables = _opened(tables, texts, keys)
     moment = datetime.fromisoformat(clock().replace("Z", "+00:00")).astimezone()
     folder = _free(target / f"Stickle export {moment:%Y-%m-%d %H%M}")
     folder.mkdir(parents=True)
@@ -334,12 +343,12 @@ def export_all(
         "exported_at": clock(),
         "tables": tables,
     }
-    if secrets and secret.key is None and secret.key_copies is not None:
+    sealed = len(secrets) - len(texts)
+    if sealed and secret.key_copies is not None:
         document["secret_notes_key"] = secret.key_copies
         if secret.recovery_pair is not None:
             document["recovery_key_pair"] = secret.recovery_pair
     with (folder / JSON_NAME).open("x", encoding="utf-8", newline="\n") as file:
         json.dump(document, file, ensure_ascii=False, indent=1)
         file.write("\n")
-    still = 0 if secret.key is not None else len(secrets)
-    return ExportResult(folder, len(rows) - deleted_count, deleted_count, still)
+    return ExportResult(folder, len(rows) - deleted_count, deleted_count, sealed)

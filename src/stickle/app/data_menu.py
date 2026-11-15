@@ -6,7 +6,7 @@ neither knows the database or its key.
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,7 +19,6 @@ from stickle.app import file_dialogs
 from stickle.app.backups import BackupAccess
 from stickle.app.import_dialog import ImportAccess
 from stickle.app.secret_dialogs import SecretExportDialog
-from stickle.crypto.secret_notes import SecretNoteError
 from stickle.data.export import ExportResult, SecretExport
 
 log = logging.getLogger(__name__)
@@ -33,7 +32,8 @@ class DataAccess:
     importing: ImportAccess
     secret_notes: Callable[[], int] = lambda: 0  # how many there are, in the trash too
     # Their password: their key (WrongPasswordError), to export them in the clear.
-    open_secret_notes: Callable[[str], bytes] | None = None
+    # Their password: the keys it opens (WrongPasswordError if none).
+    open_secret_notes: Callable[[str], Sequence[bytes]] | None = None
     # Their key file as it is, to go along with them left encrypted.
     secret_key_copies: Callable[[], dict[str, object] | None] = lambda: None
     # The recovery key's pair, which that key is sealed for: the recovery key
@@ -52,12 +52,6 @@ class DataMenu(QObject):
 
     def export_failed(self) -> str:
         return self.tr("The notes could not be exported. Check that the folder can be written to.")
-
-    def secret_not_opened(self) -> str:
-        return self.tr(
-            "A secret note could not be opened with their key, so nothing was exported."
-            " Export them encrypted instead."
-        )
 
     def locked_line(self) -> str:
         """A secret note's Markdown file, left encrypted, below its title."""
@@ -123,18 +117,21 @@ def export_everything(parent: QWidget, access: DataAccess) -> ExportResult | Non
         dialog = SecretExportDialog(count, access.open_secret_notes, parent)
         if not ask_secret_export(dialog):
             return None
-        key = dialog.take_key()
-        if key is not None:
-            secret = SecretExport(key=key)
+        keys = dialog.take_keys()
+        if keys:
+            # What does not open goes out as it is, with its key's copies.
+            secret = SecretExport(
+                key=keys[0],
+                more_keys=keys[1:],
+                locked_line=secret.locked_line,
+                key_copies=secret.key_copies,
+                recovery_pair=secret.recovery_pair,
+            )
     folder = file_dialogs.existing_folder(parent, title)
     if folder is None:
         return None
     try:
         result = access.export(folder, secret)
-    except SecretNoteError:
-        log.error("could not open a secret note to export it")
-        tell_failed(parent, title, words.secret_not_opened())
-        return None
     except (OSError, apsw.Error) as error:
         log.error("could not export the notes: %s", type(error).__name__)
         tell_failed(parent, title, words.export_failed())

@@ -12,7 +12,7 @@ import apsw
 import pytest
 
 from stickle.core.layout import Place, Size
-from stickle.crypto.secret_notes import SecretNoteError, open_text, seal_text
+from stickle.crypto.secret_notes import open_text, seal_text
 from stickle.data.database import KEY_BYTES
 from stickle.data.export import JSON_NAME, SecretExport, export_all
 from stickle.data.labels import LabelRepository
@@ -23,6 +23,8 @@ from stickle.data.settings import DEFAULT_NOTE_COLOR, Settings
 
 KEY = secrets.token_bytes(KEY_BYTES)
 NOW = "2026-10-18T03:15:00.000Z"
+OTHER_KEY = secrets.token_bytes(32)  # the secret notes' key of another computer
+OTHER_NUMBER = "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8"
 
 
 @pytest.fixture
@@ -200,19 +202,32 @@ def test_opened_its_text_is_written_in_the_clear(
     assert row["secret_title"] == "은행"  # it was a secret note
 
 
-def test_with_the_wrong_key_nothing_is_written(connection: apsw.Connection, tmp_path: Path) -> None:
-    with_a_secret_note(connection)
+def test_one_the_keys_do_not_open_goes_out_encrypted_with_its_keys_copies(
+    connection: apsw.Connection, tmp_path: Path
+) -> None:
+    note_id = with_a_secret_note(connection)
+    other = NoteRepository(connection).create("다른 PC의 글")
+    NoteRepository(connection).make_secret(
+        other.id, "그쪽", seal_text(OTHER_KEY, other.id, "다른 PC의 글"), key_number=OTHER_NUMBER
+    )
+    secret = SecretExport(
+        key=secrets.token_bytes(32),  # another key, say: this one's of before
+        more_keys=(SECRET_KEY,),
+        locked_line="잠긴 비밀 메모",
+        key_copies=KEY_COPIES,
+    )
 
-    with pytest.raises(SecretNoteError):
-        export_all(
-            connection,
-            tmp_path / "out",
-            "0.6.0",
-            clock=lambda: NOW,
-            secret=SecretExport(key=secrets.token_bytes(32)),
-        )
+    result = export_all(connection, tmp_path, "0.7.0", clock=lambda: NOW, secret=secret)
 
-    assert not (tmp_path / "out").exists()
+    assert result.still_encrypted == 1  # the other computers' note: their key is not here
+    files = markdown(result.folder)
+    assert files[f"은행 ({note_id[:8]}).md"] == SECRET_TEXT  # opened with one of the keys
+    assert files[f"그쪽 ({other.id[:8]}).md"] == "# 그쪽\n\n잠긴 비밀 메모\n"
+    document = exported(result.folder)
+    assert document["secret_notes_key"] == KEY_COPIES  # to bring it in with, another time
+    rows = {str(r["id"]): r for r in tables_of(document)["notes"]}
+    assert rows[note_id]["body"] == SECRET_TEXT
+    assert rows[other.id]["secret_body"] is not None
 
 
 # Earlier versions (stickle.data.versions): in the JSON, as their notes go

@@ -275,10 +275,10 @@ def test_taken_from_the_vault_the_old_recovery_key_opens_the_secret_notes_until_
     theirs = taken_from_the_vault(unlock)
 
     assert unlock.open_with_recovery_key(theirs) == KEY  # the notes, with the others' key
-    assert passwords.before_sync()
+    assert passwords.aside() is True
     assert passwords.open_with_recovery_key(own) == key  # the secret notes, with the old one
     assert told == ["resealed"]  # and from then on with the others'
-    assert not passwords.before_sync()
+    assert passwords.aside() is None
     assert unlock.open_secret_notes_with_recovery_key(theirs) == key
     with pytest.raises((WrongRecoveryKeyError, NotKeptForRecoveryKeyError)):
         unlock.open_secret_notes_with_recovery_key(own)
@@ -347,4 +347,4 @@ def test_taken_from_another_computer_the_old_one_is_not_this_computers_from_befo
     taken_from_the_vault(unlock, before_sync=False)
 
     assert unlock.secret_notes_pair_aside is False
-    assert not passwords.before_sync()
+    assert passwords.aside() is False

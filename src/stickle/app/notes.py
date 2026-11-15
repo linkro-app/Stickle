@@ -75,7 +75,12 @@ from stickle.core.note import DEFAULT_COLOR, Note, SealedText
 from stickle.core.paste import pasted_text
 from stickle.core.snap import resized, snapped, together
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
-from stickle.crypto.secret_notes import SecretNoteError, open_sealed, seal_text
+from stickle.crypto.secret_notes import (
+    SecretNoteError,
+    open_sealed,
+    open_with_any,
+    seal_text,
+)
 from stickle.data.colors import MAX_OWN_COLORS, ColorRepository, OwnColor, OwnColorsFullError
 from stickle.data.labels import LabelRepository
 from stickle.data.layouts import LayoutRepository
@@ -87,6 +92,7 @@ from stickle.data.notes import (
     NoteNotFoundError,
     NoteNotSecretError,
     NoteRepository,
+    match_sealed,
 )
 from stickle.data.settings import (
     DEFAULT_NOTE_COLOR,
@@ -292,6 +298,8 @@ class NoteManager(QObject):
         self._edit_kept: set[NoteWindow] = set()
         self._saved: dict[NoteWindow, str] = {}
         self._unsent: Collection[str] = frozenset()  # a minute on, not in the cloud
+        # Secret notes that stay here until their password is matched with the others'.
+        self._unmatched: Collection[str] = frozenset()
         self._settings = settings
         self._layouts = layouts
         self._labels = labels
@@ -321,7 +329,13 @@ class NoteManager(QObject):
         # open one, and its text as last stored (saved again only once changed).
         self.secrets: SecretPasswords | None = None
         self._keys: dict[NoteWindow, bytearray] = {}
+        # The number of the key a window holds when it is the others' (while
+        # the passwords are not matched); none: this computer's.
+        self._key_numbers: dict[NoteWindow, str] = {}
         self._stored_secret: dict[NoteWindow, str] = {}
+        # Told once this computer's secret notes were sealed again with the
+        # others' key: how many, and whether the old recovery key opens none now.
+        self.secrets_matched: Callable[[int, bool], object] = lambda _count, _old: None
         self._relock = Relock(lambda: self.relock_minutes, lambda: self.lock_on_leave, self)
         self._relock.lock_due.connect(self.lock_secret)
         self._relock.all_due.connect(self.lock_secret_notes)
@@ -477,6 +491,7 @@ class NoteManager(QObject):
         if note is not None and not note.secret:
             self._saved[window] = note.body
         window.set_unsent(window.note_id in self._unsent)
+        window.set_unmatched(window.note_id in self._unmatched)
         window.has_earlier = lambda: self.has_earlier(window.note_id)
         window.versions_requested.connect(lambda: self.show_versions(window))
         window.new_note_requested.connect(lambda: self.new_note_from(window))
@@ -689,7 +704,9 @@ class NoteManager(QObject):
             first = window not in self._edit_kept
             try:
                 sealed = seal_text(bytes(key), window.note_id, text)
-                self._repository.update_secret_body(window.note_id, sealed, keep_earlier=first)
+                self._repository.update_secret_body(
+                    window.note_id, sealed, first, self._key_numbers.get(window)
+                )
             except (apsw.Error, OSError, NoteNotSecretError) as error:
                 log.error("could not save a secret note: %s", type(error).__name__)
                 window.set_unsaved(True)
@@ -1602,6 +1619,7 @@ class NoteManager(QObject):
         opened = dialog.take_key() if ask_secret(dialog) else None
         if opened is None:
             return
+        number = dialog.key_number if isinstance(dialog, OpenSecretDialog) else None
         key = bytearray(opened)
         titled = SecretTitleDialog(parent=window, making=True)
         if not ask_secret(titled):
@@ -1616,6 +1634,7 @@ class NoteManager(QObject):
                 title,
                 seal_text(bytes(key), note_id, text),
                 partial(seal_text, bytes(key), note_id),  # its earlier texts too
+                key_number=number,
             )
         except (apsw.Error, OSError) as error:
             # Failed only after it was stored secret: the window follows the note,
@@ -1629,9 +1648,11 @@ class NoteManager(QObject):
                 return
             log.warning("made a note secret, then: %s", type(error).__name__)
             assert note_id is not None
-        self._keys[window] = key
+        self._hold(window, key, number)
         self._stored_secret[window] = text
         self._saved.pop(window, None)
+        if number is None:
+            self._renew(bytes(key))
         self._edit_kept.discard(window)
         window.set_secret_title(title)
         self._relock.opened(window)
@@ -1660,7 +1681,7 @@ class NoteManager(QObject):
         opened = dialog.take_key() if ask_secret(dialog) else None
         if opened is None:
             return
-        key = bytearray(opened)
+        key, number = bytearray(opened), dialog.key_number
         if window not in self._windows or not window.secret_locked:
             _wipe(key)  # closed meanwhile (or opened already): nothing to hold it for
             return
@@ -1669,7 +1690,10 @@ class NoteManager(QObject):
             sealed = None if note is None else note.sealed_text
             if note is None or sealed is None:
                 raise SecretNoteError("not a secret note")
-            text = open_sealed(bytes(key), note.id, sealed)
+            if not self._sealed_with(sealed, number):
+                _wipe(key)  # the other key's, left as it is (Later): it stays locked
+                return
+            text = self._open_with(bytes(key), number, note.id, sealed)
         except (SecretNoteError, apsw.Error) as error:
             log.error("could not open a secret note: %s", type(error).__name__)
             _wipe(key)
@@ -1679,9 +1703,11 @@ class NoteManager(QObject):
                 self.tr("This secret note could not be opened. What is stored may be damaged."),
             )
             return
-        self._keys[window] = key
+        self._hold(window, key, number)
         self._stored_secret[window] = text
         window.show_secret_open(text)
+        if number is None:
+            self._renew(bytes(key))
         self._relock.opened(window)
 
     def lock_secret(self, window: NoteWindow) -> bool:
@@ -1704,8 +1730,66 @@ class NoteManager(QObject):
         for window in opened:
             self.lock_secret(window)
 
+    def _hold(self, window: NoteWindow, key: bytearray, number: str | None) -> None:
+        """The key window holds while it is open: this computer's (number None)
+        or the others'."""
+        self._keys[window] = key
+        if number is None:
+            self._key_numbers.pop(window, None)
+        else:
+            self._key_numbers[window] = number
+
+    def _sealed_with(self, sealed: SealedText, number: str | None) -> bool:
+        """Whether a text is sealed with the key numbered number (None: this
+        computer's), as far as it says: one from before it said is taken to be."""
+        matching = None if self.secrets is None else self.secrets.matching
+        if matching is None:
+            return True
+        here = matching.number_here()
+        said = None if sealed.key_number == here else sealed.key_number
+        # One sealed with neither key is tried all the same: it does not open.
+        return said == number or said not in (None, matching.target())
+
+    def _open_with(self, key: bytes, number: str | None, note_id: str, sealed: SealedText) -> str:
+        """A text opened with the key a window holds; with this computer's, the
+        keys it was sealed with before are tried too (an earlier text, one from
+        a backup). SecretNoteError if none opens it."""
+        try:
+            return open_sealed(key, note_id, sealed)
+        except SecretNoteError:
+            if number is not None or self.secrets is None:
+                raise
+            return open_with_any(self.secrets.old_keys(key).values(), note_id, sealed)
+
+    def _opener(self, window: NoteWindow, note_id: str) -> Callable[[SealedText], str] | None:
+        """What opens a note's texts with the key its window holds (None: none)."""
+        key = self._keys.get(window)
+        if key is None:
+            return None
+        return partial(self._open_with, bytes(key), self._key_numbers.get(window), note_id)
+
+    def _renew(self, key: bytes) -> None:
+        """This computer's key open: notes sealed with a key it was before (a
+        backup gone back to) sealed again with it, to go where the others are."""
+        if self._repository is None or self.secrets is None:
+            return
+        old = self.secrets.old_keys(key)
+        if not old:
+            return
+        try:
+            count = self._repository.reseal_old(
+                old.keys(), partial(open_with_any, [*old.values(), key]), partial(seal_text, key)
+            )
+        except (apsw.Error, OSError, SecretNoteError) as error:
+            log.warning("secret notes of an old key not sealed again: %s", type(error).__name__)
+            return
+        if count:
+            log.info("secret notes of an old key sealed again: %d", count)
+            self.note_saved.emit()
+
     def _forget_key(self, window: NoteWindow) -> None:
         key = self._keys.pop(window, None)
+        self._key_numbers.pop(window, None)
         if key is not None:
             _wipe(key)
         self._stored_secret.pop(window, None)
@@ -1748,13 +1832,12 @@ class NoteManager(QObject):
             return
         if not self.flush(window, closing=True):
             return
-        key = self._keys.get(window)
         try:
             self._repository.make_ordinary(
                 window.note_id,
                 window.text,
                 # Its earlier texts opened too: it is not secret any more.
-                None if key is None else partial(open_sealed, bytes(key), window.note_id),
+                self._opener(window, window.note_id),
             )
         except apsw.Error as error:
             log.error("could not make a note ordinary: %s", type(error).__name__)
@@ -1826,8 +1909,7 @@ class NoteManager(QObject):
         """An open secret note's earlier texts opened with its key."""
         if window is None or not window.secret or window.secret_locked or not window.note_id:
             return None
-        key = self._keys.get(window)
-        return None if key is None else partial(open_sealed, bytes(key), window.note_id)
+        return self._opener(window, window.note_id)
 
     def _open_for_versions(self, window: NoteWindow) -> Callable[[SealedText], str] | None:
         """Its text shown with the password (as its own menu asks), for its versions."""
@@ -1848,11 +1930,11 @@ class NoteManager(QObject):
             return
         log.info("a note went back to an earlier version")
         text: str | None = None if note.secret else note.body
-        key = self._keys.get(window) if window is not None else None
+        opener = None if window is None else self._opener(window, note.id)
         sealed = note.sealed_text
-        if key is not None and sealed is not None:
+        if opener is not None and sealed is not None:
             try:
-                text = open_sealed(bytes(key), note.id, sealed)
+                text = opener(sealed)
             except SecretNoteError:
                 text = None  # shown once opened again, as it is stored
         # Covered meanwhile (left alone too long), it shows its new text once opened.
@@ -2004,7 +2086,14 @@ class NoteManager(QObject):
             return True
         try:
             # Sealed with this computer's key: one from elsewhere may be another's.
-            here = (n for n in self._repository.all() if n.secret and n.key_number is None)
+            number = (
+                None
+                if self.secrets is None or self.secrets.matching is None
+                else (self.secrets.matching.number_here())
+            )
+            here = (
+                n for n in self._repository.all() if n.secret and n.key_number in (None, number)
+            )
             stored = next(here, None)
             sealed = None if stored is None else stored.sealed_text
             if stored is None or sealed is None:
@@ -2018,6 +2107,44 @@ class NoteManager(QObject):
     def matching(self, term: str) -> set[str]:
         """Ids of stored notes whose text contains term (as last saved)."""
         return self._repository.matching(term) if self._repository else set()
+
+    def show_unmatched(self, note_ids: Collection[str]) -> None:
+        """These secret notes stay here until their password is matched: their
+        windows say so."""
+        self._unmatched = note_ids
+        for window in self._windows:
+            window.set_unmatched(window.note_id in note_ids)
+
+    def sealed_here(self) -> int:
+        """How many notes hold a text sealed with this computer's key."""
+        return 0 if self._repository is None else self._repository.sealed_here()
+
+    def match_secret_keys(self, own: bytes | None, number: str, key: bytes) -> int:
+        """The secret notes' password matched with the others': every note sealed
+        with this computer's key (own; None if there is none) sealed again with
+        theirs (key, numbered number), first, then their key this computer's,
+        own kept among the old ones. The open ones hold it from then on. How
+        many were sealed again (told, if any)."""
+        matching = None if self.secrets is None else self.secrets.matching
+        if self._repository is None or matching is None or self.secrets is None:
+            raise RuntimeError("nothing to match here")
+        for window in list(self._keys):
+            self.flush(window)  # as typed, sealed again with the rest
+        aside = matching.aside() is not None
+        count = match_sealed(
+            self._repository, own, number, key, self.secrets.old_keys, matching.keep_matched
+        )
+        log.info("secret notes' passwords matched: %d sealed again", count)
+        for window, held in list(self._keys.items()):
+            if self._key_numbers.get(window) in (None, number):
+                _wipe(held)
+                self._hold(window, bytearray(key), None)
+        self.show_unmatched(frozenset())
+        if count:
+            self.secrets_matched(count, aside)
+            self.note_saved.emit()
+        self.changed.emit()
+        return count
 
     def show_unsent(self, note_ids: Collection[str]) -> None:
         """These notes, a minute on, have not reached the cloud: their windows say so."""
@@ -2347,12 +2474,12 @@ class NoteManager(QObject):
     def _opened_text(self, window: NoteWindow, note: Note) -> str | None:
         """An open secret note's text as stored, opened with the key its window
         holds; None if it is locked, or its text does not open with it."""
-        key = self._keys.get(window)
+        opener = self._opener(window, note.id)
         sealed = note.sealed_text
-        if window.secret_locked or key is None or sealed is None:
+        if window.secret_locked or opener is None or sealed is None:
             return None
         try:
-            return open_sealed(bytes(key), note.id, sealed)
+            return opener(sealed)
         except SecretNoteError as error:
             log.warning("a secret note from elsewhere does not open: %s", type(error).__name__)
             return None

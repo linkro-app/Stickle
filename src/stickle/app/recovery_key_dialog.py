@@ -78,7 +78,7 @@ class EnterRecoveryKeyDialog(QDialog):
         self.note = QLabel()  # which recovery key, where that is not the usual one
         self.note.setWordWrap(True)
         self.note.hide()
-        self._before_sync = False
+        self._which = ""  # which old recovery key is asked for, if not the usual one
         self.label = QLabel()
         self.key = QLineEdit()
         self.key.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
@@ -142,15 +142,25 @@ class EnterRecoveryKeyDialog(QDialog):
     def ask_for_the_one_before_sync(self) -> None:
         """Said under the intro: the recovery key asked for is the one this
         computer had before it took that of the computers it syncs with."""
-        self._before_sync = True
+        self._which = "before_sync"
+        self._tell_which()
+
+    def ask_for_the_one_before_a_new_one(self) -> None:
+        """Said under the intro: the recovery key asked for is the one before a
+        new one made on another computer was taken here too."""
+        self._which = "before_new"
         self._tell_which()
 
     def _tell_which(self) -> None:
-        text = (
-            self.tr("Enter the recovery key this computer used before you turned on sync.")
-            if self._before_sync
-            else ""
-        )
+        texts = {
+            "before_sync": self.tr(
+                "Enter the recovery key this computer used before you turned on sync."
+            ),
+            "before_new": self.tr(
+                "Enter the recovery key you used before a new one was made on another computer."
+            ),
+        }
+        text = texts.get(self._which, "")
         self.note.setText(text)
         self.note.setVisible(bool(text))
         self.key.setAccessibleDescription(text)

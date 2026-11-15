@@ -67,7 +67,7 @@ from stickle.sync.format import KEYS as KEYS_FOLDER
 from stickle.sync.keys import Follow
 from stickle.sync.merge import COPY_OF
 from stickle.sync.note_file import NoteFile
-from stickle.sync.secret_key import SecretFollow
+from stickle.sync.secret_key import SecretFollow, SecretOther
 
 KEY = secrets.token_bytes(32)
 KEYS = DataKeys({1: secrets.token_bytes(32)})
@@ -138,7 +138,7 @@ class Device:
         self.recovery_key = ""
         self.taking = True
         self.follows: list[Follow] = []  # what the last round brought for its key file B
-        self.secret: list[SecretFollow] = []  # and for its key file C
+        self.secret: list[SecretFollow | SecretOther] = []  # and for its key file C
         if keyed:
             self.files = KeyFiles(folder / f"{name}-keys")
             self.files.folder.mkdir(exist_ok=True)
@@ -159,7 +159,9 @@ class Device:
             file_id, data = key_file(KEYS, kind, pair)
             self.cloud.put_by_hand(item_path(KEYS_FOLDER, file_id), data)
 
-    def take(self, follows: list[Follow], secret: list[SecretFollow] | None = None) -> None:
+    def take(
+        self, follows: list[Follow], secret: list[SecretFollow | SecretOther] | None = None
+    ) -> None:
         """What a round brought for B and C, taken as the app takes it
         (stickle.app.application.KeysHere): each written, then agreed on."""
         assert self.files is not None
@@ -168,6 +170,9 @@ class Device:
                 with self.db:
                     sync_keys.agree(self.db, VAULT, each.kind, each.agreed)
         for taken in secret or []:
+            if isinstance(taken, SecretOther):
+                secret_notes.keep_other(self.files, taken.number, taken.password, taken.recovery)
+                continue
             if secret_notes.take(
                 self.files, taken.number, taken.password, taken.recovery, taken.seen
             ):

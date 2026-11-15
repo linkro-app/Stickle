@@ -44,6 +44,9 @@ import apsw
 
 from stickle.core.clock import Clock, utc_now
 from stickle.core.note import SealedText
+from stickle.crypto.key_files import C
+from stickle.crypto.keyfile import KeyFileError, parse_document, slots_of
+from stickle.crypto.secret_notes import key_number
 from stickle.data import versions
 from stickle.data.database import WrongKeyError, open_database
 from stickle.data.notes import NoteRepository
@@ -338,10 +341,26 @@ def keep_secret_notes_secret(
         connection.close()
 
 
+def _secret_key_number(db: apsw.Connection) -> str | None:
+    """The number of the secret notes' key in a database's copy of C."""
+    rows = db.execute("SELECT content FROM key_copies WHERE name = ?", (C,)).fetchall()
+    if not rows:
+        return None
+    try:
+        document = parse_document(bytes(rows[0][0]))  # pyright: ignore[reportArgumentType]
+    except KeyFileError, TypeError, ValueError:
+        return None
+    return key_number(slots_of(document))
+
+
 def keep_key_state(database: Path, key: bytes, now: apsw.Connection) -> None:
     """The staged backup given what goes with the key files as it is in now (the
-    database open): their copies, and this computer's settings about them."""
+    database open): their copies, and this computer's settings about them. Its
+    secret notes sealed with the key it had then, if that is not the one of now
+    (the passwords matched since), say so: they open with it, kept among the
+    old ones, and are sealed again with the key of now before they go anywhere."""
     copies = now.execute("SELECT name, content FROM key_copies").fetchall()
+    number_now = _secret_key_number(now)
     device = tuple(s.key for s in KEY_SETTINGS if s.scope == "device")
     shared = tuple(s.key for s in KEY_SETTINGS if s.scope == "shared")
     on_device, in_common = ", ".join("?" * len(device)), ", ".join("?" * len(shared))
@@ -364,6 +383,18 @@ def keep_key_state(database: Path, key: bytes, now: apsw.Connection) -> None:
     connection = open_database(staged, key)
     try:
         with connection:
+            number_then = _secret_key_number(connection)
+            if number_then is not None and number_then != number_now:
+                connection.execute(
+                    "UPDATE notes SET secret_key_number = ?"
+                    " WHERE secret_body IS NOT NULL AND secret_key_number IS NULL",
+                    (number_then,),
+                )
+                connection.execute(
+                    "UPDATE note_versions SET sealed_key_number = ?"
+                    " WHERE sealed IS NOT NULL AND sealed_key_number IS NULL",
+                    (number_then,),
+                )
             connection.execute("DELETE FROM key_copies")
             connection.executemany("INSERT INTO key_copies (name, content) VALUES (?, ?)", copies)
             connection.execute(f"DELETE FROM device_settings WHERE key IN ({on_device})", device)

@@ -332,6 +332,28 @@ SYNC_GONE_BACK = Setting[dict[str, str] | None]("sync_gone_back", "device", None
 # Stickle Manager until the user says OK.
 SYNC_SECRETS_RESEALED = Setting[bool]("sync_secrets_resealed", "device", False, _flag)
 
+
+def _matched(value: object) -> TypeGuard[dict[str, object] | None]:
+    """{"notes": how many were sealed again, "old_key": whether the old recovery
+    key opens none of them any more}."""
+    if value is None:
+        return True
+    if not isinstance(value, dict):
+        return False
+    fields = cast(dict[str, object], value)
+    return (
+        set(fields) == {"notes", "old_key"}
+        and _count(fields["notes"])
+        and isinstance(fields["old_key"], bool)
+    )
+
+
+# The secret notes' password matched with the others' (this computer's notes
+# sealed again with their key): said at the top of Stickle Manager until OK.
+SYNC_SECRETS_MATCHED = Setting[dict[str, object] | None](
+    "sync_secrets_matched", "device", None, _matched
+)
+
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -364,6 +386,7 @@ SETTINGS: dict[str, Setting[object]] = {
         SYNC_TRASHED,
         SYNC_GONE_BACK,
         SYNC_SECRETS_RESEALED,
+        SYNC_SECRETS_MATCHED,
     )
 }
 

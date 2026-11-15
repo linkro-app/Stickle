@@ -1626,6 +1626,10 @@ class NoteWindow(QWidget):
         """A minute on, whether it has not reached the cloud."""
         self.title_bar.category_tag.set_unsent(unsent)
 
+    def set_unmatched(self, unmatched: bool) -> None:
+        """Whether it stays here until its password is matched with the others'."""
+        self.title_bar.category_tag.set_unmatched(unmatched)
+
     # Conflict copies: two texts written apart on two computers, one in each note
 
     @property

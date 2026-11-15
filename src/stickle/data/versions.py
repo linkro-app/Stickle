@@ -127,9 +127,15 @@ def plain_count(db: apsw.Connection, note_id: str) -> int:
     )
 
 
-def seal_all(db: apsw.Connection, note_id: str, seal: Callable[[str], bytes]) -> int:
+def seal_all(
+    db: apsw.Connection,
+    note_id: str,
+    seal: Callable[[str], bytes],
+    key_number: str | None = None,
+) -> int:
     """A note made secret: its earlier texts in the clear sealed as its text is
-    (seal: text -> encrypted, for the note itself with this computer's key).
+    (seal: text -> encrypted, for the note itself with this computer's key, or
+    the key of key_number).
     Their plain text is overwritten once the database clears away what was
     freed (see NoteRepository.forget_old_text). How many."""
     rows = db.execute(
@@ -139,8 +145,8 @@ def seal_all(db: apsw.Connection, note_id: str, seal: Callable[[str], bytes]) ->
         sealed = seal(str(body))
         db.execute(
             "UPDATE note_versions SET body = NULL, sealed = ?, content_hash = ?,"
-            " sealed_bound = NULL, sealed_key_number = NULL WHERE id = ?",
-            (sealed, content_hash(sealed.hex()), version_id),
+            " sealed_bound = NULL, sealed_key_number = ? WHERE id = ?",
+            (sealed, content_hash(sealed.hex()), key_number, version_id),
         )
     return len(rows)
 

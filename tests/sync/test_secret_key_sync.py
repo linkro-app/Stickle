@@ -25,7 +25,13 @@ from stickle.crypto.recovery import open_recovery_pair
 from stickle.crypto.sealed import SealedSlot
 from stickle.data import sync_left
 from stickle.sync.format import RECORDS, item_path, open_envelope
-from stickle.sync.secret_key import CHANGED_TOLD, RESET_TOLD, record_of
+from stickle.sync.secret_key import (
+    CHANGED_TOLD,
+    RESET_TOLD,
+    SecretFollow,
+    SecretOther,
+    record_of,
+)
 
 FAST = (1, 8192)
 PASSWORD = "the secret notes' password"
@@ -96,7 +102,7 @@ def change(device: Device, key: bytes, password: str, how: str = secret_notes.CH
 
 
 def told(device: Device) -> list[tuple[str | None, str | None]]:
-    return [(each.told, each.by) for each in device.secret]
+    return [(each.told, each.by) for each in device.secret if isinstance(each, SecretFollow)]
 
 
 def the_record(cloud: FakeCloud) -> dict[str, object]:
@@ -229,13 +235,18 @@ def test_what_is_sealed_for_an_old_recovery_key_goes_to_the_one_the_others_have(
     joining.close()
 
 
-def test_a_computer_with_a_key_of_its_own_is_left_as_it_is(a: Device, b: Device) -> None:
+def test_a_computer_with_a_key_of_its_own_keeps_the_vaults_beside_it(a: Device, b: Device) -> None:
     own = turn_on(b, "b's own password")
     record = a.cloud.files()[item_path(RECORDS, record_of(KEYS))]
 
     b.sync()
 
-    assert b.secret == []
+    [beside] = b.secret  # the vault's, kept beside b's own until the passwords are matched
+    assert isinstance(beside, SecretOther)
+    assert beside.number == secret_notes.key_number(files(a).peek(secret_notes.C))
+    assert secret_notes.open_other_with_password(files(b), beside.number, PASSWORD) == (
+        key_of(a, PASSWORD)
+    )
     assert key_of(b, "b's own password") == own  # its own, still
     assert a.cloud.files()[item_path(RECORDS, record_of(KEYS))] == record  # nor the vault's
 

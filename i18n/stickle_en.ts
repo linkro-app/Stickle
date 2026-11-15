@@ -176,6 +176,23 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
     </message>
 </context>
 <context>
+    <name>MatchSecretDialog</name>
+    <message numerus="yes">
+        <source>%n secret note(s) on this computer are locked with a different password, so they don&apos;t go to your other computers. Enter it, and they&apos;ll switch to your current password and open everywhere.</source>
+        <translation>
+            <numerusform>%n secret note on this computer is locked with a different password, so it doesn&apos;t go to your other computers. Enter it, and it&apos;ll switch to your current password and open everywhere.</numerusform>
+            <numerusform>%n secret notes on this computer are locked with a different password, so they don&apos;t go to your other computers. Enter it, and they&apos;ll switch to your current password and open everywhere.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Your other computers&apos; secret notes are locked with their password. Enter it, and the %n secret note(s) here will switch to it and open everywhere. This computer will use that password from now on.</source>
+        <translation>
+            <numerusform>Your other computers&apos; secret notes are locked with their password. Enter it, and the %n secret note here will switch to it and open everywhere. This computer will use that password from now on.</numerusform>
+            <numerusform>Your other computers&apos; secret notes are locked with their password. Enter it, and the %n secret notes here will switch to it and open everywhere. This computer will use that password from now on.</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>MissedDialog</name>
     <message numerus="yes">
         <source>%n times since %1</source>
@@ -341,6 +358,13 @@ These files are not encrypted: keep them somewhere safe.</numerusform>
         <translation>
             <numerusform>While this computer wasn&apos;t syncing, %n note was deleted on your other computers, so it&apos;s in the trash here too.</numerusform>
             <numerusform>While this computer wasn&apos;t syncing, %n notes were deleted on your other computers, so they&apos;re in the trash here too.</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n secret note(s) here now use the same password as your other computers.</source>
+        <translation>
+            <numerusform>%n secret note here now uses the same password as your other computers.</numerusform>
+            <numerusform>%n secret notes here now use the same password as your other computers.</numerusform>
         </translation>
     </message>
 </context>

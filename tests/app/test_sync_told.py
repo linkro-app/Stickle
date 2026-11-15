@@ -82,6 +82,7 @@ class FakeSync(QObject):
     """Sync as the lines and the windows they lead to see it."""
 
     unsent_changed = Signal(object)
+    unmatched_changed = Signal(object)
     round_shown = Signal(object)
     moving = Signal(str, int, int)
     cloud_name = "WebDAV"
@@ -475,9 +476,11 @@ def test_the_lines_are_reached_by_the_keyboard_in_their_order(
     at.follow(FakeSync()).ended(Outcome(Stopped.SIGN_IN), trashed=1)
     stop, trash = at.window.sync_stop_line, at.window.sync_trash_line
     gone, sealed = at.window.sync_gone_back_line, at.window.sync_secrets_line
+    matched = at.window.sync_matched_line
     assert gone.action_button.nextInFocusChain() is gone.ok_button
     assert gone.ok_button.nextInFocusChain() is sealed.ok_button
-    assert sealed.ok_button.nextInFocusChain() is stop.action_button
+    assert sealed.ok_button.nextInFocusChain() is matched.ok_button
+    assert matched.ok_button.nextInFocusChain() is stop.action_button
     assert stop.action_button.nextInFocusChain() is stop.ok_button
     assert stop.ok_button.nextInFocusChain() is trash.action_button
     assert trash.action_button.nextInFocusChain() is trash.ok_button

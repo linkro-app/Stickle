@@ -1,5 +1,6 @@
 """Application start-up."""
 
+import contextlib
 import functools
 import logging
 import os
@@ -7,6 +8,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -40,7 +42,7 @@ from stickle.app.protection_changes import ProtectionChanges
 from stickle.app.recovery_key_dialog import RecoveryKeys
 from stickle.app.recovery_offer import RecoveryOffer
 from stickle.app.reminders import ReminderKeeper, system_zone
-from stickle.app.secret_dialogs import SecretPasswords
+from stickle.app.secret_dialogs import Matching, SecretPasswords
 from stickle.app.shortcuts import GlobalShortcuts, no_portal
 from stickle.app.signals import SignalWatcher
 from stickle.app.startup import open_notes
@@ -119,7 +121,7 @@ if TYPE_CHECKING:
     from stickle.app.syncing import Syncing, TakeKeys
     from stickle.sync.engine import FirstLook
     from stickle.sync.keys import Follow
-    from stickle.sync.secret_key import SecretFollow
+    from stickle.sync.secret_key import SecretFollow, SecretOther
 
 APP_ID = "co.linkro.stickle"
 
@@ -245,10 +247,24 @@ def data_access(
             log.warning("could not look into a backup: %s", type(error).__name__)
             return 0
 
-    def open_secret_notes(password: str) -> bytes:
-        if manager.secrets is None:
+    def open_secret_notes(password: str) -> list[bytes]:
+        """Every key the password opens: this computer's and those it was
+        sealed with before, the others' kept beside it (not matched yet)."""
+        secrets = manager.secrets
+        if secrets is None:
             raise WrongPasswordError("no secret notes here")
-        return manager.secrets.open(password)
+        keys: list[bytes] = []
+        with contextlib.suppress(WrongPasswordError):
+            here = secrets.open(password)
+            keys += [here, *secrets.old_keys(here).values()]
+        matching = secrets.matching
+        number = None if matching is None else matching.target()
+        if matching is not None and number is not None:
+            with contextlib.suppress(WrongPasswordError):
+                keys.append(matching.open_other(number, password))
+        if not keys:
+            raise WrongPasswordError("not their password")
+        return keys
 
     def place_for(rect: Rect) -> tuple[int, Place] | None:
         """Where a note brought in goes: where it was, if that is on a screen now."""
@@ -278,11 +294,11 @@ def data_access(
         return new_notes(source.name, result, connection)
 
     def bring_export(
-        export: StickleExport, old_key: bytes | None, new_key: bytes | None
+        export: StickleExport, old_keys: Sequence[bytes], new_key: bytes | None
     ) -> BroughtExport:
         manager.save_all()
         brought = bring_in_export(
-            export, connection, old_key, new_key, clocks.stamp, millis=clocks.millis
+            export, connection, old_keys, new_key, clocks.stamp, millis=clocks.millis
         )
         manager.open_brought_in(brought.note_ids)
         manager.own_colors_changed.emit()  # its own colours may have come too
@@ -587,10 +603,14 @@ class KeysHere:
         self.told: Callable[[], object] = lambda: None
 
     def __call__(
-        self, vault: str, follows: Sequence[Follow], secret: Sequence[SecretFollow] = ()
+        self,
+        vault: str,
+        follows: Sequence[Follow],
+        secret: Sequence[SecretFollow | SecretOther] = (),
     ) -> None:
         from stickle.data import sync_keys
         from stickle.sync.keys import JOINED
+        from stickle.sync.secret_key import SecretOther
 
         told = False
         for each in follows:
@@ -612,6 +632,15 @@ class KeysHere:
                 self._changes.note_elsewhere(each.told, each.by, each.agreed.set_at or None)
                 told = True
         for taken in secret:  # after B: what is sealed for its recovery key, B's
+            if isinstance(taken, SecretOther):
+                try:
+                    if self._unlock.keep_other_secret_key(
+                        taken.number, taken.password, taken.recovery
+                    ):
+                        log.info("sync: the other computers' secret notes' key kept beside")
+                except (KeyFileError, OSError) as error:  # kept at a later round
+                    log.error("sync: their secret notes' key not kept: %s", type(error).__name__)
+                continue
             try:
                 if not self._unlock.take_secret_notes_key(
                     taken.number, taken.password, taken.recovery, taken.seen
@@ -730,12 +759,14 @@ def secret_passwords(
     recovery: RecoveryKeys | None = None,
     fits: Callable[[bytes], bool] = fits_any,
     resealed: Callable[[], object] = lambda: None,
+    matched: MatchedHere | None = None,
 ) -> SecretPasswords | None:
     """The secret notes' key (none in measurement mode); their password changed
     or set anew noted in changes, to be told later. A key from anywhere but
     their password is taken only once fits shows it opens them. resealed: told
     once they open with the recovery key of the computers this one syncs with,
-    sealed until then for the one it had before (its pair kept aside)."""
+    sealed until then for the one it had before (its pair kept aside).
+    matched: what matching their password with the others' does here."""
     if unlock is None or unlock.opened_key is None or master is None:
         return None
 
@@ -778,6 +809,31 @@ def secret_passwords(
         if changes is not None:
             changes.note("secret_password_reset")
 
+    def open_here_with_recovery_key(typed: str) -> bytes:
+        """As open_with_recovery_key, nothing written (they may be matched next)."""
+        key = unlock.open_secret_notes_with_recovery_key(typed)
+        if not fits(key):
+            raise NotKeptForRecoveryKeyError("the key opens no secret note")
+        return key
+
+    matching = (
+        None
+        if matched is None
+        else Matching(
+            target=lambda: match_target(unlock.other_secret_keys(), matched.vault_key()),
+            number_here=lambda: unlock.secret_notes_number,
+            sealed_here=matched.sealed_here,
+            keeps_old_keys=lambda: unlock.secret_keeps_old_keys,
+            open_here=unlock.open_secret_notes,
+            open_here_with_recovery_key=open_here_with_recovery_key,
+            aside=lambda: unlock.secret_notes_pair_aside,
+            open_other=unlock.open_other_secret_key,
+            open_other_with_recovery_key=unlock.open_other_secret_key_with_recovery_key,
+            match=matched.match,
+            not_matched=keep_for_recovery_key,
+            keep_matched=unlock.match_secret_notes,
+        )
+    )
     return SecretPasswords(
         turned_on=lambda: unlock.has_secret_notes,
         turn_on=unlock.turn_on_secret_notes,
@@ -789,8 +845,28 @@ def secret_passwords(
         master=master,
         recovery=recovery,
         set_at=lambda: unlock.secret_password_set_at,
-        before_sync=lambda: unlock.secret_notes_pair_aside is True,
+        aside=lambda: unlock.secret_notes_pair_aside,
+        matching=matching,
+        old_keys=unlock.secret_old_keys,
     )
+
+
+@dataclass(frozen=True)
+class MatchedHere:
+    """What matching the secret notes' passwords with the others' does on this
+    computer (stickle.app.notes.NoteManager.match_secret_keys)."""
+
+    vault_key: Callable[[], str | None]  # the number of the vault's key, if this one syncs
+    sealed_here: Callable[[], int]
+    match: Callable[[bytes | None, str, bytes], int]
+
+
+def match_target(others: Sequence[str], vault_key: str | None) -> str | None:
+    """Which of the others' keys kept here the passwords are matched with: the
+    vault's, or the only one there is."""
+    if vault_key in others:
+        return vault_key
+    return others[0] if len(others) == 1 else None
 
 
 def notifier(tray: Tray, tray_available: bool) -> Callable[[str, str], object] | None:
@@ -1288,6 +1364,16 @@ def run(
             recovery,
             manager.secret_key_fits,
             lambda: sync_display.secrets_resealed(),
+            MatchedHere(
+                lambda: None if syncing is None else syncing.vault_secret_key(),
+                manager.sealed_here,
+                manager.match_secret_keys,
+            )
+            if perf is None
+            else None,
+        )
+        manager.secrets_matched = lambda count, old_key: sync_display.secrets_matched(
+            count, old_key
         )
         stickle_window = StickleWindow(
             manager,

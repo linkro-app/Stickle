@@ -30,7 +30,8 @@ said it put it, when this device's C is not as last agreed on), and:
   recovery key); on both, the later. What is sealed for the recovery key: the
   slot sealed for the vault's recovery key, as this device has agreed on it,
   over one that is not, either way; else as it is;
-- another key: left as it is, both sides (matching the passwords comes later).
+- another key: the vault's kept beside this device's own, in C (SecretOther),
+  until the user matches their passwords (stickle.app.secret_matching).
 
 Only the app's thread writes C: what this device is to take goes back to it
 (SecretFollow), taken only if C is still as the round saw it. The vault's key
@@ -57,6 +58,7 @@ from stickle.crypto.secret_notes import (
     RECOVERY_SLOT,
     RESET,
     key_number,
+    others_of,
     seen_digest,
 )
 from stickle.crypto.vault_keys import RECOVERY_KEY, DataKeys
@@ -109,6 +111,17 @@ class SecretFollow:
     told: str | None  # what to tell of it (CHANGED_TOLD, RESET_TOLD); None: nothing
     by: str | None  # the name of the device that set the password taken
     at: str | None  # when it was set
+
+
+@dataclass(frozen=True)
+class SecretOther:
+    """The vault's key, another than this device's C holds, for C to keep beside
+    its own until the passwords are matched (stickle.crypto.secret_notes.keep_other):
+    its number and slots."""
+
+    number: str
+    password: Mapping[str, object]
+    recovery: Mapping[str, object]
 
 
 @dataclass(frozen=True)
@@ -189,7 +202,7 @@ class _SecretKey:
         self._mine = mine
         self._sealed_for = sealed_for  # the vault's recovery key's pair, as agreed on here
         self._name_of = name_of
-        self.follows: list[SecretFollow] = []
+        self.follows: list[SecretFollow | SecretOther] = []
 
     @property
     def _path(self) -> str:
@@ -240,8 +253,19 @@ class _SecretKey:
             self._follow(theirs, password, recovery, None, told=False)
             return True
         if number is None or number != theirs.current:
-            return True  # another key: matched later, by the user
+            self._other(theirs, mine)  # another key: matched later, by the user
+            return True
         return self._same_key(theirs, number, mine)
+
+    def _other(self, theirs: _Vaults, mine: Mapping[str, object]) -> None:
+        """The vault's key, kept beside this device's own (if it is not as kept)
+        for their passwords to be matched."""
+        password, recovery = theirs.slot(PASSWORD), theirs.slot(RECOVERY)
+        if password is None or recovery is None or not _readable(password, recovery):
+            return
+        wanted = {PASSWORD_SLOT: dict(password), RECOVERY_SLOT: dict(recovery)}
+        if others_of(mine).get(theirs.current) != wanted:
+            self.follows.append(SecretOther(theirs.current, password, recovery))
 
     def _same_key(self, theirs: _Vaults, number: str, mine: Mapping[str, object]) -> bool:
         was = sync_keys.agreed(self._db, self._place.vault)
@@ -437,7 +461,7 @@ def sync_secret_key(
     full: bool,
     name_of: Callable[[str], str | None] = lambda _device: None,
     taking: bytes | None = None,
-) -> list[SecretFollow]:
+) -> list[SecretFollow | SecretOther]:
     """A round's look at the secret notes' key, if it may have changed (told: a
     device said it put the record; full: a full look): what it puts there is
     put, what this device is to take returned. mine: C's slots as they are

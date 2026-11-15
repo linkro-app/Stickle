@@ -8,7 +8,7 @@ Stickle's own export comes in here too (see stickle.importers.stickle_export).
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import override
@@ -56,11 +56,11 @@ class ImportAccess:
     new_notes: Callable[[Source, ImportResult], int]  # not brought in before
     # And show them; the line, if given, ends each note (where it came from).
     bring_in: Callable[[Source, ImportResult, str | None], BroughtIn]
-    # Stickle's own export, the secret notes' keys given: theirs of the day and
-    # theirs here (without both, those exported locked are left out).
-    bring_in_export: Callable[[StickleExport, bytes | None, bytes | None], BroughtExport] | None = (
-        None
-    )
+    # Stickle's own export, the secret notes' keys given: theirs of the day (all
+    # that opened) and theirs here (without both, those exported locked are left out).
+    bring_in_export: (
+        Callable[[StickleExport, Sequence[bytes], bytes | None], BroughtExport] | None
+    ) = None
     # How many of its secret notes, exported locked, have not come in yet.
     secrets_waiting: Callable[[StickleExport], int] = lambda _: 0
     # The secret notes' key here, for that many brought in, in a window over the
@@ -393,7 +393,7 @@ class ImportDialog(QDialog):
         Nothing comes in if either window is cancelled."""
         if self._access.bring_in_export is None:
             return
-        old_key: bytes | None = None
+        old_keys: tuple[bytes, ...] = ()
         new_key: bytes | None = None
         waiting = self._access.secrets_waiting(export)
         if waiting:
@@ -407,13 +407,13 @@ class ImportDialog(QDialog):
             )
             if not ask_exported(asked):
                 return
-            old_key, typed = asked.take_key(), asked.typed
-            if old_key is not None:
+            old_keys, typed = asked.take_keys(), asked.typed
+            if old_keys:
                 new_key = self._access.secret_key_here(self, typed, waiting)
                 if new_key is None:
                     return
         try:
-            brought = self._access.bring_in_export(export, old_key, new_key)
+            brought = self._access.bring_in_export(export, old_keys, new_key)
         except Exception as error:  # nothing was brought in: it is all or nothing
             log.error("could not bring an export in: %s", type(error).__name__)
             self.outcome.setText(self.tr("The notes could not be brought in. Nothing was changed."))

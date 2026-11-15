@@ -107,6 +107,21 @@ def changed(connection: apsw.Connection, vault: str) -> list[str]:
     )
 
 
+def sealed_here(connection: apsw.Connection, old: Iterable[str] = ()) -> list[str]:
+    """Secret notes sealed with this computer's key (in the trash too), or with
+    one of old (the numbers of its keys of before): those go to the vault only
+    while its key is this computer's, these once sealed again (stickle.sync.engine)."""
+    numbers = sorted(old)
+    within = ", ".join("?" * len(numbers))
+    return _ids(
+        connection.execute(
+            "SELECT id FROM notes WHERE secret_body IS NOT NULL AND (secret_key_number IS NULL"
+            f" OR secret_key_number IN ({within})) ORDER BY id",
+            numbers,
+        )
+    )
+
+
 def changed_at(connection: apsw.Connection, vault: str) -> list[tuple[str, str]]:
     """Notes that changed here since they were last merged, or never were: by
     id, with when they last changed."""

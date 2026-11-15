@@ -105,7 +105,7 @@ def test_a_new_password_window_lets_go_of_the_key_it_was_given(
 
 
 def test_the_export_window_keeps_no_password(qtbot: QtBot) -> None:
-    dialog = SecretExportDialog(1, lambda _password: bytes(32))
+    dialog = SecretExportDialog(1, lambda _password: [bytes(32)])
     qtbot.addWidget(dialog)
     dialog.plain.setChecked(True)
     dialog.password.setText(SECRET)
@@ -113,7 +113,7 @@ def test_the_export_window_keeps_no_password(qtbot: QtBot) -> None:
     assert accepted(dialog)
 
     assert typed(dialog) == []
-    assert dialog.take_key() == bytes(32) and dialog.key is None
+    assert dialog.take_keys() == (bytes(32),) and dialog.keys == ()
 
 
 def test_cancelled_a_window_keeps_what_was_typed_no_longer(qtbot: QtBot, tmp_path: Path) -> None:

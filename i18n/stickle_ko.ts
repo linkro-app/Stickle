@@ -529,6 +529,10 @@
         <translation>%1, 알림 %2</translation>
     </message>
     <message>
+        <source>Only on this computer. It won&apos;t go to your other computers until its password is matched.</source>
+        <translation>이 PC에만 있습니다. 암호를 맞추기 전이라 다른 PC로 가지 않습니다.</translation>
+    </message>
+    <message>
         <source>Not in the cloud yet. It&apos;s saved on this computer.</source>
         <translation>아직 클라우드에 올리지 못했습니다. 이 PC에는 저장되어 있습니다.</translation>
     </message>
@@ -751,10 +755,6 @@
         <translation>메모를 내보내지 못했습니다. 그 폴더에 쓸 수 있는지 확인하세요.</translation>
     </message>
     <message>
-        <source>A secret note could not be opened with their key, so nothing was exported. Export them encrypted instead.</source>
-        <translation>비밀 메모 하나를 열지 못해 아무것도 내보내지 않았습니다. 암호화된 채로 내보내 보세요.</translation>
-    </message>
-    <message>
         <source>Encrypted secret note</source>
         <translation>암호화된 비밀 메모</translation>
     </message>
@@ -945,6 +945,10 @@ These files are not encrypted: keep them somewhere safe.</source>
     <message>
         <source>Enter the recovery key this computer used before you turned on sync.</source>
         <translation>이 PC가 동기화를 켜기 전에 쓰던 복구 키를 넣으세요.</translation>
+    </message>
+    <message>
+        <source>Enter the recovery key you used before a new one was made on another computer.</source>
+        <translation>다른 PC에서 새 복구 키를 만들기 전에 쓰던 복구 키를 넣으세요.</translation>
     </message>
     <message>
         <source>This is not a recovery key as written: a character may be missing, extra or mistyped. Please check it again.</source>
@@ -1872,6 +1876,73 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     <message>
         <source>Checking…</source>
         <translation>확인하는 중…</translation>
+    </message>
+</context>
+<context>
+    <name>MatchSecretDialog</name>
+    <message>
+        <source>Match secret note passwords</source>
+        <translation>비밀 메모 암호 맞추기</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n secret note(s) on this computer are locked with a different password, so they don&apos;t go to your other computers. Enter it, and they&apos;ll switch to your current password and open everywhere.</source>
+        <translation>
+            <numerusform>이 PC에서 따로 쓰던 비밀 메모 %n개는 다른 암호로 잠겨 있어 다른 PC로 가지 않습니다. 그 암호를 넣으면 지금 비밀 메모 암호로 바꿔 모든 PC에서 엽니다.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>The &amp;password this computer used for them:</source>
+        <translation>이 PC에서 따로 쓰던 비밀 메모 암호(&amp;P):</translation>
+    </message>
+    <message>
+        <source>The password this computer used for them</source>
+        <translation>이 PC에서 따로 쓰던 비밀 메모 암호</translation>
+    </message>
+    <message numerus="yes">
+        <source>Your other computers&apos; secret notes are locked with their password. Enter it, and the %n secret note(s) here will switch to it and open everywhere. This computer will use that password from now on.</source>
+        <translation>
+            <numerusform>다른 PC의 비밀 메모는 동기화하는 PC의 비밀 메모 암호로 잠겨 있습니다. 그 암호를 넣으면 이 PC의 비밀 메모 %n개도 그 암호로 바꿔 모든 PC에서 엽니다. 이제 이 PC에서도 그 암호를 씁니다.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Your other computers&apos; secret notes are locked with their password. Enter it, and this computer will use that password from now on.</source>
+        <translation>다른 PC의 비밀 메모는 동기화하는 PC의 비밀 메모 암호로 잠겨 있습니다. 그 암호를 넣으면 이제 이 PC에서도 그 암호를 씁니다.</translation>
+    </message>
+    <message>
+        <source>Secret notes&apos; &amp;password of the computers that already sync:</source>
+        <translation>동기화하는 PC의 비밀 메모 암호(&amp;P):</translation>
+    </message>
+    <message>
+        <source>Secret notes&apos; password of the computers that already sync</source>
+        <translation>동기화하는 PC의 비밀 메모 암호</translation>
+    </message>
+    <message>
+        <source>I &amp;forgot</source>
+        <translation>잊었어요(&amp;F)</translation>
+    </message>
+    <message>
+        <source>&amp;Switch</source>
+        <translation>바꾸기(&amp;S)</translation>
+    </message>
+    <message>
+        <source>&amp;Later</source>
+        <translation>나중에(&amp;L)</translation>
+    </message>
+    <message>
+        <source>This recovery key does not open those secret notes.</source>
+        <translation>이 복구 키로는 그 비밀 메모를 열 수 없습니다.</translation>
+    </message>
+    <message>
+        <source>The secret notes&apos; key could not be used (%1).</source>
+        <translation>비밀 메모를 열지 못했습니다(%1).</translation>
+    </message>
+    <message>
+        <source>The password is not correct.</source>
+        <translation>암호가 맞지 않습니다.</translation>
+    </message>
+    <message>
+        <source>The secret notes&apos; passwords could not be matched (%1).</source>
+        <translation>비밀 메모 암호를 맞추지 못했습니다(%1).</translation>
     </message>
 </context>
 <context>
@@ -3989,6 +4060,16 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>This computer&apos;s secret notes now open with the same recovery key as your other computers too. You can throw the old one away now.</source>
         <translation>이제 이 PC의 비밀 메모도 다른 PC와 같은 복구 키로 엽니다. 옛 복구 키는 버려도 됩니다.</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n secret note(s) here now use the same password as your other computers.</source>
+        <translation>
+            <numerusform>이 PC의 비밀 메모 %n개를 다른 PC와 같은 암호로 맞췄습니다.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>You can throw the old recovery key away now.</source>
+        <translation>이제 옛 복구 키는 버려도 됩니다.</translation>
     </message>
 </context>
 <context>

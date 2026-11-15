@@ -331,3 +331,108 @@ def test_a_pair_kept_aside_stays_only_while_what_is_taken_is_sealed_for_it(tmp_p
     }
     assert secret_notes.take(files, number, None, theirs, secret_notes.seen_digest(files.load(C)))
     assert secret_notes.pair_aside(files) is None
+
+
+# The others' key kept beside, and matching the passwords
+
+
+def theirs_of(
+    files: KeyFiles, key: bytes, password: str
+) -> tuple[dict[str, object], dict[str, object]]:
+    """The slots of the others' key (key), as the vault has them: sealed for the
+    recovery key these notes have (synced)."""
+    public = pair(files).public
+    recovery: dict[str, object] = {
+        "public": base64.b64encode(public).decode(),
+        "sealed": base64.b64encode(seal(public, key)).decode(),
+    }
+    return changed_elsewhere(key, password), recovery
+
+
+def test_the_others_key_is_kept_beside_and_opens_with_their_password_or_recovery_key(
+    tmp_path: Path,
+) -> None:
+    files = with_recovery_key(tmp_path)
+    own = create(files, PASSWORD, pair(files).public, NOW, FAST)
+    theirs = secrets.token_bytes(32)
+    number = secret_notes.new_key_number()
+
+    slots = theirs_of(files, theirs, "theirs")
+    assert secret_notes.keep_other(files, number, *slots)
+    assert not secret_notes.keep_other(files, number, *slots)  # the same again: nothing written
+
+    assert list(secret_notes.others(files)) == [number]
+    assert secret_notes.open_other_with_password(files, number, "theirs") == theirs
+    with pytest.raises(WrongPasswordError):
+        secret_notes.open_other_with_password(files, number, PASSWORD)
+    slot = pair(files)
+    secret = open_recovery_pair(slot, RECOVERY_KEY)
+    assert secret_notes.open_other_with_pair(files, number, secret, slot.public) == theirs
+    assert open_with_password(files, PASSWORD) == own  # its own stays as it was
+    own_number = secret_notes.key_number(files.load(C))
+    assert own_number is not None
+    assert not secret_notes.keep_other(files, own_number, *theirs_of(files, theirs, "x"))
+    with pytest.raises(KeyFileError):
+        secret_notes.keep_other(files, number, {"kdf": "nothing"}, {})
+
+
+def test_matched_their_key_is_this_ones_and_its_own_is_kept_among_the_old(tmp_path: Path) -> None:
+    files = with_recovery_key(tmp_path)
+    own = create(files, PASSWORD, pair(files).public, NOW, FAST)
+    own_number = secret_notes.key_number(files.load(C))
+    theirs = secrets.token_bytes(32)
+    number = secret_notes.new_key_number()
+    secret_notes.keep_other(files, number, *theirs_of(files, theirs, "theirs"))
+
+    secret_notes.match(files, own, number, theirs)
+
+    assert secret_notes.key_number(files.load(C)) == number
+    assert open_with_password(files, "theirs") == theirs
+    with pytest.raises(WrongPasswordError):
+        open_with_password(files, PASSWORD)
+    assert open_with(files, RECOVERY_KEY) == theirs
+    assert secret_notes.others(files) == {}
+    assert secret_notes.old_keys(files, theirs) == {own_number: own}
+    assert secret_notes.old_numbers(files.load(C)) == {own_number}
+    assert secret_notes.old_keys(files, own) == {}  # only the key of now opens them
+    with pytest.raises(KeyFileError):  # no other key to match with any more
+        secret_notes.match(files, theirs, number, theirs)
+
+
+def test_matched_again_every_old_key_is_kept_with_the_newest(tmp_path: Path) -> None:
+    files = with_recovery_key(tmp_path)
+    first = create(files, PASSWORD, pair(files).public, NOW, FAST)
+    first_number = secret_notes.key_number(files.load(C))
+    second, second_number = secrets.token_bytes(32), secret_notes.new_key_number()
+    secret_notes.keep_other(files, second_number, *theirs_of(files, second, "second"))
+    secret_notes.match(files, first, second_number, second)
+    third, third_number = secrets.token_bytes(32), secret_notes.new_key_number()
+    secret_notes.keep_other(files, third_number, *theirs_of(files, third, "third"))
+
+    with pytest.raises(KeyFileError):  # the old ones open only with the key of now
+        secret_notes.match(files, None, third_number, third)
+    secret_notes.match(files, second, third_number, third)
+
+    assert secret_notes.old_keys(files, third) == {first_number: first, second_number: second}
+
+
+def test_nothing_sealed_with_its_own_their_key_is_taken_without_it(tmp_path: Path) -> None:
+    files = with_recovery_key(tmp_path)
+    create(files, PASSWORD, pair(files).public, NOW, FAST)
+    theirs, number = secrets.token_bytes(32), secret_notes.new_key_number()
+    secret_notes.keep_other(files, number, *theirs_of(files, theirs, "theirs"))
+
+    secret_notes.match(files, None, number, theirs)
+
+    assert open_with_password(files, "theirs") == theirs
+    assert secret_notes.old_keys(files, theirs) == {}
+    assert not secret_notes.keeps_old_keys(files)
+
+
+def test_a_text_opens_with_whichever_key_it_was_sealed_with(tmp_path: Path) -> None:
+    one, two = secrets.token_bytes(32), secrets.token_bytes(32)
+    sealed = secret_notes.SealedText(seal_text(two, "note", "글"))
+
+    assert secret_notes.open_with_any([one, two], "note", sealed) == "글"
+    with pytest.raises(SecretNoteError):
+        secret_notes.open_with_any([one], "note", sealed)

@@ -670,7 +670,9 @@ def test_a_note_that_cannot_be_saved_stays_open(
     repository = manager._repository  # pyright: ignore[reportPrivateUsage]
     assert repository is not None
 
-    def full(note_id: str, sealed: bytes, keep_earlier: bool = False) -> Note:
+    def full(
+        note_id: str, sealed: bytes, keep_earlier: bool = False, key_number: str | None = None
+    ) -> Note:
         raise apsw.FullError("database or disk is full")
 
     monkeypatch.setattr(repository, "update_secret_body", full)
@@ -1890,7 +1892,7 @@ def test_without_secret_notes_nothing_is_asked(
 
 def test_enter_on_a_choice_goes_on_to_next(qtbot: QtBot) -> None:
     # Some desktops (GNOME) have Enter press the focused button instead.
-    dialog = SecretExportDialog(2, lambda _password: b"")
+    dialog = SecretExportDialog(2, lambda _password: [b""])
     qtbot.addWidget(dialog)
     dialog.show()
     qtbot.waitExposed(dialog)

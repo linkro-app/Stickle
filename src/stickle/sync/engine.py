@@ -110,7 +110,7 @@ from stickle.core.being_edited import Editing, nobody_editing
 from stickle.core.markdown import note_title
 from stickle.core.note import Note
 from stickle.crypto.sealed import SealedSlot
-from stickle.crypto.secret_notes import key_number
+from stickle.crypto.secret_notes import key_number, old_numbers
 from stickle.crypto.vault_keys import RECOVERY_KEY
 from stickle.data import record_state, sync_held, sync_keys, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
@@ -153,7 +153,7 @@ from stickle.sync.merge import (
 from stickle.sync.note_file import NoteFile, Step
 from stickle.sync.place import Place, writing
 from stickle.sync.records import RecordReport, RecordRound
-from stickle.sync.secret_key import SecretFollow, record_of, sync_secret_key
+from stickle.sync.secret_key import SecretFollow, SecretOther, record_of, sync_secret_key
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
@@ -215,7 +215,9 @@ class Report:
     # The vault's recovery key or master password, for this device to take (stickle.sync.keys).
     follows: list[Follow] = field(default_factory=list[Follow])
     # The vault's secret notes' key, for this device to take (stickle.sync.secret_key).
-    secret: list[SecretFollow] = field(default_factory=list[SecretFollow])
+    secret: list[SecretFollow | SecretOther] = field(
+        default_factory=list[SecretFollow | SecretOther]
+    )
 
 
 @dataclass(frozen=True)
@@ -371,13 +373,17 @@ def sync_notes(
     accept: Callable[[], object] | None = None,
     editing: Editing | None = None,
     key: str | None = None,
+    old: frozenset[str] = frozenset(),
 ) -> Report:
     """One round; cloud_now: the time by the cloud's clock (stickle.core.cloud_time);
     accept: what a round stopped for taken in after all, after this is called
     (to back up); editing: the notes being edited on screen; key: the number of
-    this device's secret notes' key (None: it has none)."""
+    this device's secret notes' key (None: it has none), old: of those it had
+    before."""
     notes = notes or NoteRepository(connection)
-    return _Round(connection, notes, place, cloud_now, accept, editing=editing, key=key).run()
+    return _Round(
+        connection, notes, place, cloud_now, accept, editing=editing, key=key, old=old
+    ).run()
 
 
 def sync_vault(
@@ -438,6 +444,7 @@ def sync_vault(
         progress=progress,
         editing=editing,
         key=_number_here(secret_key),
+        old=_old_here(secret_key),
     )
     told = frozenset[str]() if looked is None else looked.told
     listing = looked is None or full or not looked.enough or notes_round.first
@@ -484,6 +491,18 @@ def sync_vault(
     return report
 
 
+def _old_here(secret_key: Callable[[], Mapping[str, object] | None] | None) -> frozenset[str]:
+    """The numbers of the keys this device's was before (its notes sealed with
+    one go nowhere until they are sealed again with it)."""
+    if secret_key is None:
+        return frozenset()
+    try:
+        return old_numbers(secret_key())
+    except Exception as error:  # the app's: looked at again next round
+        log.warning("sync: the secret notes' key does not read now: %s", type(error).__name__)
+        return frozenset()
+
+
 def _number_here(secret_key: Callable[[], Mapping[str, object] | None] | None) -> str | None:
     """The number of this device's secret notes' key, None if it has none or
     its key file C does not read now (its notes sealed here go nowhere then)."""
@@ -509,11 +528,14 @@ class _Round:
         progress: Progress | None = None,
         editing: Editing | None = None,
         key: str | None = None,
+        old: frozenset[str] = frozenset(),
     ) -> None:
         """joining: None, as the vault was joined or not (stickle.sync.engine.joined);
-        key: the number of this device's secret notes' key."""
+        key: the number of this device's secret notes' key, old: of the keys it
+        had before (stickle.crypto.secret_notes.OLD_KEYS)."""
         self._db = connection
         self._key = key
+        self._old = old
         self._vault_key = sync_state.secret_key(connection, place.vault)
         self._editing = editing
         self._accept = accept
@@ -614,9 +636,12 @@ class _Round:
 
     def _goes(self, note: Note | None) -> bool:
         """Whether the note is merged and put: all but a secret note sealed here
-        with a key other than the vault's (or one with the vault's not known yet)."""
-        if note is None or not note.secret or note.key_number is not None:
+        with a key other than the vault's (or one with the vault's not known
+        yet), or with one this device's was before (sealed again first)."""
+        if note is None or not note.secret:
             return True
+        if note.key_number is not None:
+            return note.key_number not in self._old
         return self._key is not None and self._key == self._vault_key
 
     def _mine(self, at: local.Here, state: NoteState | None) -> NoteFile | None:

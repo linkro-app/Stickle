@@ -9,17 +9,20 @@ master password, taking the recovery key or spare password of the computers
 this one syncs with and their secret notes' password and what is sealed for
 the recovery key, taking in what sync brings (a secret note's text sealed on
 another computer, a conflict copy sealed for its note, a note made secret or
-ordinary there), bringing notes in from another app, exporting, taking a
-backup and going back to one. In between, copies of the key files are lost
-or damaged (each where it is kept: the data folder, its backups folder, the
-database), and Stickle is started again. Any step can be stopped at any
+ordinary there), keeping beside this computer's key the others' key of their
+own, their notes sealed with it, and matching the two passwords, bringing
+notes in from another app, exporting, taking a backup and going back to one.
+In between, copies of the key files are lost or damaged (each where it is
+kept: the data folder, its backups folder, the database), and Stickle is
+started again. Any step can be stopped at any
 write on the way, as if the computer went off, or have that write fail.
 
 After every step, Stickle started again from what is on disk (on a copy, so
 that looking changes nothing) opens the notes, each as the user left it, and
 
 - every secret note opens with a password the user has: the one set last,
-  or, after a change that stopped or failed on the way, the one before;
+  or, after a change that stopped or failed on the way, the one before (or,
+  the others' key kept beside, theirs; matched, with a key of before too);
 - while Stickle says the recovery key was kept, the one the user was shown
   last opens the notes and the secret notes;
 - where there is a master password, the user's opens the notes;
@@ -40,6 +43,7 @@ import contextlib
 import errno
 import json
 import os
+import secrets
 import shutil
 import tempfile
 from collections.abc import Callable, Generator
@@ -107,7 +111,7 @@ from stickle.crypto.secret_notes import (
     NotKeptForRecoveryKeyError,
     SecretNoteError,
     open_sealed,
-    open_text,
+    open_with_any,
     seal_text,
 )
 from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY
@@ -125,7 +129,7 @@ from stickle.data.backups import (
 from stickle.data.export import JSON_NAME, SecretExport, export_all
 from stickle.data.imports import SECRET_MARK
 from stickle.data.key_copies import KeyCopies
-from stickle.data.notes import NoteRepository
+from stickle.data.notes import NoteRepository, match_sealed
 from stickle.data.schema import open_store
 from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.importers.base import ImportedNote, ImportResult
@@ -289,6 +293,9 @@ SWARM = (
     "copy_from_another",
     "made_secret_elsewhere",
     "made_ordinary_elsewhere",
+    "keep_theirs",
+    "take_from_theirs",
+    "match",
     "lose_copies",
     "lose_files",
     "take_backup",
@@ -363,6 +370,10 @@ class SecretNotesMachine(RuleBasedStateMachine):
         self.masters: list[str] = []
         self.typed_masters: list[str] = []
         self.secret_key: bytes | None = None
+        # Keys C may hold besides (one being matched with, or matched from).
+        self.other_keys: set[bytes] = set()
+        # The others' key kept beside this computer's: it, its number, their password.
+        self.their: tuple[bytes, str, str] | None = None
         self.old_recovery_key = False
         self.taken: list[Taken] = []
         self.opened: dict[tuple[bytes, str], bytes | None] = {}  # slots tried before
@@ -405,7 +416,8 @@ class SecretNotesMachine(RuleBasedStateMachine):
 
     def fits(self, key: bytes) -> bool:
         """As NoteManager.secret_key_fits: whether key opens a stored secret note."""
-        here = (n for n in self.notes.all() if n.secret and n.key_number is None)
+        number = self.unlock.secret_notes_number
+        here = (n for n in self.notes.all() if n.secret and n.key_number in (None, number))
         stored = next(here, None)
         sealed = None if stored is None else stored.sealed_text
         if stored is None or sealed is None:
@@ -578,7 +590,9 @@ class SecretNotesMachine(RuleBasedStateMachine):
             key = self.key(forgot, password, writes)
             if key is None:
                 return
-            self.notes.update_secret_body(note_id, seal_text(key, note_id, text))
+            held, number = self.held_key(note_id, key)
+            sealed = seal_text(held, note_id, text)
+            self.notes.update_secret_body(note_id, sealed, key_number=number)
             self.expected[note_id] = replace(self.expected[note_id], text=text)
 
     @precondition(swarm("make_ordinary", having(secret=True, deleted=False)))
@@ -594,7 +608,8 @@ class SecretNotesMachine(RuleBasedStateMachine):
             note = self.notes.get(note_id)
             sealed = None if note is None else note.sealed_text
             assert sealed is not None
-            text = open_sealed(key, note_id, sealed)  # what its window shows
+            # What its window shows, opened as NoteManager opens it.
+            text = open_with_any(self.keys_here(self.unlock, key), note_id, sealed)
             self.notes.make_ordinary(note_id, text)
             self.expected[note_id] = Expected(text)
 
@@ -858,6 +873,103 @@ class SecretNotesMachine(RuleBasedStateMachine):
         self.notes.take_in(note_id, text, LAPTOP, {"secret_title": None}, {}, {})
         self.expected[note_id] = Expected(text)
 
+    # The others' key, another than this computer's, and matching the passwords
+
+    @precondition(
+        swarm("keep_theirs", lambda self: self.unlock.has_secret_notes and self.their is None)
+    )
+    @rule(password=PASSWORDS, stop=STOPS)
+    def keep_theirs(self, password: str, stop: Stop | None) -> None:
+        """Syncing with computers that turned secret notes on apart (their own
+        key and password): their key kept beside this computer's, as a round
+        brings it, sealed for the recovery key they share."""
+        if self.unlock.secret_notes_number is None:
+            return
+        try:
+            pair = following.pairs_in(self.unlock.files.load(B)).get(RECOVERY_KEY)
+        except KeyFileError:
+            return
+        if pair is None:
+            return
+        key, number = secrets.token_bytes(32), secret_notes.new_key_number()
+        slot = wrap_with_password(key, password, *FAST, PASSWORD_SLOT, self.clock())
+        sealed: dict[str, object] = {
+            "public": base64.b64encode(pair.public).decode(),
+            "sealed": base64.b64encode(seal(pair.public, key)).decode(),
+        }
+        with self.writing(stop), contextlib.suppress(KeyFileError, OSError):
+            self.unlock.keep_other_secret_key(number, encode_slot(slot), sealed)
+        if number in self.unlock.other_secret_keys():
+            self.their = (key, number, password)
+
+    @precondition(
+        swarm("take_from_theirs", lambda self: self.their is not None and self.secret_count())
+    )
+    @rule(pick=PICKS, text=TEXTS)
+    def take_from_theirs(self, pick: int, text: str) -> None:
+        """A secret note's text edited on one of those computers: sealed with their key."""
+        note_id = self.picked(pick, secret=True, deleted=False)
+        if note_id is None or self.their is None:
+            return
+        key, number, _password = self.their
+        sealed = SealedText(seal_text(key, note_id, text), note_id, number)
+        self.notes.take_in(note_id, sealed, LAPTOP, {}, {}, {})
+        self.expected[note_id] = replace(self.expected[note_id], text=text)
+
+    @precondition(swarm("match", lambda self: self.their is not None))
+    @rule(stop=STOPS)
+    def match(self, stop: Stop | None) -> None:
+        """The two passwords matched, as NoteManager.match_secret_keys does: this
+        computer's notes sealed again with their key, then their key this
+        computer's, its own kept among the old ones."""
+        assert self.their is not None
+        key, number, password = self.their
+        own = self.with_password()  # as the user opens one with this computer's
+        self.other_keys |= {own, key}
+        # Their password the user has, and this computer's until matched for certain.
+        self.typed_passwords.append(password)
+        self.passwords.append(password)
+        with self.writing(stop) as writes:
+            try:
+                match_sealed(
+                    self.notes,
+                    own,
+                    number,
+                    key,
+                    self.unlock.secret_old_keys,
+                    self.unlock.match_secret_notes,
+                )
+            except KeyFileError, OSError, SecretNoteError:
+                pass
+            else:
+                if writes.clean:
+                    self.passwords = [password]
+        if number not in self.unlock.other_secret_keys():  # matched, if only on the way
+            self.their = None
+            self.secret_key = key
+
+    def held_key(self, note_id: str, key: bytes) -> tuple[bytes, str | None]:
+        """The key a note's window holds, opened with key (this computer's): the
+        others' for one sealed with their key kept beside (the passwords not
+        matched: Later), its number then; else key."""
+        note = self.notes.get(note_id)
+        if self.their is not None and note is not None and note.key_number == self.their[1]:
+            return self.their[0], self.their[1]
+        return key, None
+
+    def secret_count(self) -> int:
+        return sum(note.secret and not note.deleted for note in self.expected.values())
+
+    def keys_here(self, unlock: Unlock, key: bytes) -> list[bytes]:
+        """What opens a secret note here, the key of now opened: it, the keys it
+        was sealed with before, and the others' key kept beside (their password)."""
+        keys = [key, *unlock.secret_old_keys(key).values()]
+        if self.their is not None:
+            for number in unlock.other_secret_keys():
+                with contextlib.suppress(WrongPasswordError, KeyFileError):
+                    keys.append(unlock.open_other_secret_key(number, self.their[2]))
+        return keys
+
     @precondition(swarm("lose_copies"))
     @rule(
         name=st.sampled_from([B, C]),
@@ -975,12 +1087,15 @@ class SecretNotesMachine(RuleBasedStateMachine):
         """A full export: the secret notes in it open as they do in Stickle."""
         with self.writing(stop):
             key = None if encrypted or not self.secrets.turned_on() else self.with_password()
+            keys = () if key is None else tuple(self.keys_here(self.unlock, key))
             result = export_all(
                 self.connection,
                 self.root / "exports",
                 "test",
                 self.clock,
-                SecretExport(key=key, key_copies=self.unlock.secret_key_copies()),
+                SecretExport(
+                    key=key, more_keys=keys[1:], key_copies=self.unlock.secret_key_copies()
+                ),
             )
             document = json.loads((result.folder / JSON_NAME).read_text("utf-8"))
             rows = {str(row["id"]): row for row in document["tables"]["notes"]}
@@ -989,10 +1104,18 @@ class SecretNotesMachine(RuleBasedStateMachine):
                 row = rows[note_id]
                 if expected.secret and key is None:
                     sealed = base64.b64decode(row["secret_body"]["base64"])
-                    exported = self.password_key(json.dumps(document["secret_notes_key"]).encode())
+                    carried = json.dumps(document["secret_notes_key"]).encode()
+                    exported = self.password_key(carried)
                     assert exported is not None, "no password the user has opens the export"
-                    bound = row.get("secret_bound") or note_id
-                    assert open_text(exported, bound, sealed) == expected.text
+                    slots = slots_of(parse_document(carried))
+                    opened = [exported, *secret_notes.old_keys_of(slots, exported).values()]
+                    for other in secret_notes.others_of(slots).values():
+                        if self.their is not None:
+                            slot = decode_slot(other[PASSWORD_SLOT])
+                            found = self.try_password(slot, self.their[2], PASSWORD_SLOT)
+                            opened += [found] if found is not None else []
+                    bound = str(row.get("secret_bound") or note_id)
+                    assert open_with_any(opened, bound, SealedText(sealed)) == expected.text
                 else:
                     assert row["body"] == expected.text
 
@@ -1036,7 +1159,8 @@ class SecretNotesMachine(RuleBasedStateMachine):
             assert key is not None, "none of the user's passwords opens the secret notes"
             if self.secret_key is None:
                 self.secret_key = key
-            assert key == self.secret_key
+            assert key == self.secret_key or key in self.other_keys
+        keys = [] if key is None else self.keys_here(unlock, key)
         for note_id, expected in self.expected.items():
             note = stored[note_id]
             assert (note.deleted, note.secret) == (expected.deleted, expected.secret)
@@ -1045,7 +1169,7 @@ class SecretNotesMachine(RuleBasedStateMachine):
                 assert key is not None and sealed is not None
                 assert note.body == ""
                 assert note.secret_title == expected.title
-                assert open_sealed(key, note_id, sealed) == expected.text
+                assert open_with_any(keys, note_id, sealed) == expected.text
             else:
                 assert note.body == expected.text
         once = {str(row[0]) for row in connection.execute("SELECT note_id FROM once_secret")}
@@ -1118,7 +1242,7 @@ class SecretNotesMachine(RuleBasedStateMachine):
             assert key is not None, "no password set opens a copy of C"
             if self.secret_key is None:
                 self.secret_key = key
-            assert key == self.secret_key
+            assert key == self.secret_key or key in self.other_keys
             behind = place == "database" and C in self.behind
             assert behind or self.password_key(data) is not None, (
                 f"the {place} copy of C opens only with an older password"
@@ -1294,4 +1418,34 @@ def test_secret_notes_are_never_sealed_for_a_key_file_written_halfway(
         state.type_old_recovery_key(stop=(failing, "fail"))
         state.make_secret(pick=0, title="", forgot=False, password="first secret", stop=None)
         state.lose_files(B, damage=False)
+        holds(state)
+
+
+@pytest.mark.parametrize("stop", [None, (8, "stop")])
+def test_matched_after_a_new_recovery_key_they_open_with_that_one(
+    qapp: QApplication, stop: Stop | None
+) -> None:
+    # The others' key kept beside was sealed for the recovery key of before:
+    # matched as it was, the one the user was shown last opened no secret note.
+    with machine() as state:
+        state.first_start(old=False)
+        state.write_note("")
+        state.make_secret(pick=0, title="", forgot=False, password="first secret", stop=None)
+        state.keep_theirs(password="first secret", stop=None)
+        state.make_recovery_key(forgot=False, password="first secret", stop=stop)
+        state.match(stop=None)
+        holds(state)
+
+
+def test_a_note_sealed_with_the_others_key_is_opened_with_theirs(qapp: QApplication) -> None:
+    # Not matched (Later), its window holds the others' key, not this computer's.
+    with machine() as state:
+        state.first_start(old=False)
+        state.bring_in_notes([""])
+        state.make_secret(pick=19, title="", forgot=False, password="first secret", stop=None)
+        state.keep_theirs(password="first secret", stop=None)
+        state.start_again(stop=None)
+        state.take_from_theirs(pick=0, text="")
+        state.bring_in_notes([""])
+        state.make_ordinary(pick=0, forgot=False, password="first secret", stop=None)
         holds(state)

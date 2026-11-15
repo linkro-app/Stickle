@@ -8,12 +8,15 @@ typed once first, or one is made where there is none. Each secret note opens
 on its own, with the password.
 """
 
+import contextlib
 import itertools
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Literal, override
 
+import apsw
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtGui import QGuiApplication, QKeyEvent
 from PySide6.QtWidgets import (
@@ -43,10 +46,40 @@ from stickle.app.typed import forget_typed
 from stickle.core.passwords import guessable
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
-from stickle.crypto.secret_notes import MIN_PASSWORD_LENGTH, NotKeptForRecoveryKeyError
+from stickle.crypto.secret_notes import (
+    MIN_PASSWORD_LENGTH,
+    NotKeptForRecoveryKeyError,
+    SecretNoteError,
+)
 from stickle.unlock import password_length
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Matching:
+    """This computer's secret notes' key, and the others' kept beside it until
+    their passwords are matched (stickle.crypto.secret_notes)."""
+
+    target: Callable[[], str | None]  # the others' key's number; None: nothing to match
+    number_here: Callable[[], str | None]  # this computer's key's
+    sealed_here: Callable[[], int]  # notes holding a text sealed with this computer's key
+    keeps_old_keys: Callable[[], bool]  # whether this computer's key carries keys of before
+    # This computer's key, nothing written: by its password (WrongPasswordError),
+    # by the recovery key it is sealed for (as SecretPasswords.open_with_recovery_key).
+    open_here: Callable[[str], bytes]
+    open_here_with_recovery_key: Callable[[str], bytes]
+    # Whether this computer's key is sealed for a recovery key B no longer has:
+    # None if not, else whether it is the one from before sync was turned on.
+    aside: Callable[[], bool | None]
+    open_other: Callable[[str, str], bytes]  # their number and password: their key
+    open_other_with_recovery_key: Callable[[str, str], bytes]  # their number, the recovery key
+    # Matched: this computer's key (None: nothing is sealed with it), their number
+    # and key; how many notes were sealed again.
+    match: Callable[[bytes | None, str, bytes], int]
+    not_matched: Callable[[bytes], object]  # this computer's key opened, kept as it is
+    # Their key this computer's in its key file, this computer's kept among the old.
+    keep_matched: Callable[[bytes | None, str, bytes], object] = lambda _own, _number, _key: None
 
 
 @dataclass(frozen=True)
@@ -65,9 +98,28 @@ class SecretPasswords:
     master: MasterPasswords  # told apart from theirs
     recovery: RecoveryKeys | None = None  # what opens them when the password is forgotten
     set_at: Callable[[], str | None] = lambda: None  # when their password was set (UTC)
-    # Whether they still open with the recovery key this computer had before it
-    # turned sync on (until opened with their password, then that of the others).
-    before_sync: Callable[[], bool] = lambda: False
+    # Whether they still open with a recovery key this computer no longer has
+    # (until opened with their password, then sealed for the one it has): None
+    # if not, else whether it is the one from before sync was turned on (False:
+    # the one before a new one made on another computer was taken).
+    aside: Callable[[], bool | None] = lambda: None
+    matching: Matching | None = None  # on a computer that syncs, once it has one
+    # The keys they were sealed with before (matched since), opened with theirs of now.
+    old_keys: Callable[[bytes], Mapping[str, bytes]] = lambda _key: {}
+
+
+@dataclass(frozen=True)
+class Opened:
+    """A secret notes' key opened: this computer's (number None), or the others'
+    while the passwords are not matched (its number)."""
+
+    key: bytes
+    number: str | None = None
+
+
+# The windows that open them to do something with them match the passwords
+# first; going back to a backup and bringing notes in use this computer's key.
+MATCHED: frozenset[str] = frozenset({"open", "make", "change", "recovery"})
 
 
 def _password_field() -> QLineEdit:
@@ -385,7 +437,13 @@ class OpenSecretDialog(_PasswordWindow):
     to go back to a backup holding the earlier text of count of them (accepted
     without it, they stay as they are now). Forgotten, the recovery key opens
     them and a new password is set (recovered). key holds the key once accepted
-    with it."""
+    with it, key_number which one it is (None: this computer's).
+
+    With the others' key kept beside this computer's (Matching), the password
+    is tried on both: both open, the passwords are matched at once; one only,
+    the other is asked for (MatchSecretDialog). Later, the one that opened is
+    held, this computer's or theirs (only to open or make a note: changing the
+    password or making a new recovery key needs this computer's)."""
 
     def __init__(
         self,
@@ -401,6 +459,7 @@ class OpenSecretDialog(_PasswordWindow):
         self._count = count
         self.purpose: Purpose = purpose
         self.recovered = False
+        self.key_number: str | None = None
         self.password = _password_field()
         self.password_label = QLabel()
         self.password_label.setBuddy(self.password)
@@ -463,15 +522,53 @@ class OpenSecretDialog(_PasswordWindow):
         self.key = None
         QDialog.accept(self)
 
+    def _matching(self) -> tuple[Matching, str] | None:
+        """The others' key to match with, if there is one and this window matches."""
+        matching = self._passwords.matching
+        if matching is None or self.purpose not in MATCHED:
+            return None
+        number = matching.target()
+        return None if number is None else (matching, number)
+
+    def _take(self, opened: Opened) -> bool:
+        """Whether this window can do what it is for with the key opened."""
+        if opened.number is not None and self.purpose not in ("open", "make"):
+            return False  # their key alone: this computer's is the one changed
+        self.key, self.key_number = opened.key, opened.number
+        return True
+
     def use_recovery_key(self) -> None:
         """Forgotten: the recovery key opens them, and a new password is set
         before anything else (the old one no longer opens them)."""
         opened: list[bytearray] = []
+        both: list[tuple[bytes | None, bytes | None]] = []
+        matching = self._matching()
         dialog: EnterRecoveryKeyDialog
+
+        def open_both(typed: str) -> None:
+            assert matching is not None
+            with_it, number = matching
+            here = there = None
+            refused: Exception | None = None
+            try:
+                here = with_it.open_here_with_recovery_key(typed)
+            except (WrongRecoveryKeyError, NotKeptForRecoveryKeyError) as error:
+                refused = error
+            try:
+                there = with_it.open_other_with_recovery_key(number, typed)
+            except (WrongRecoveryKeyError, NotKeptForRecoveryKeyError) as error:
+                refused = refused or error
+            if here is None and there is None:
+                assert refused is not None
+                raise refused
+            both.append((here, there))
 
         def submit(typed: str) -> str | None:
             try:
-                opened.append(bytearray(self._passwords.open_with_recovery_key(typed)))
+                if matching is None:
+                    opened.append(bytearray(self._passwords.open_with_recovery_key(typed)))
+                else:
+                    open_both(typed)
             except RecoveryKeyTypoError:
                 return dialog.typo()
             except WrongRecoveryKeyError:
@@ -486,9 +583,20 @@ class OpenSecretDialog(_PasswordWindow):
             return None
 
         dialog = EnterRecoveryKeyDialog(submit, self)
-        if self._passwords.before_sync():
-            dialog.ask_for_the_one_before_sync()
-        if not ask_recovery_key(dialog) or not opened:
+        ask_for_the_old_one(dialog, self._passwords.aside())
+        if not ask_recovery_key(dialog):
+            return
+        if matching is not None:
+            if not both:
+                return
+            here, there = both.pop()
+            settled = settle(self, self._passwords, *matching, here, there, recovered=True)
+            if settled is None or not self._take(settled):
+                return
+            self.recovered = True
+            QDialog.accept(self)
+            return
+        if not opened:
             return
         key = opened.pop()
         try:
@@ -502,12 +610,33 @@ class OpenSecretDialog(_PasswordWindow):
             _wipe(key)
         QDialog.accept(self)
 
+    def _open_both(self, typed: str, matching: Matching, number: str) -> Opened | None:
+        """This computer's key and theirs, by the password typed (WrongPasswordError
+        if it is neither's): what the passwords came to (None: nothing to hold)."""
+        here = there = None
+        with contextlib.suppress(WrongPasswordError):
+            here = matching.open_here(typed)
+        with contextlib.suppress(WrongPasswordError):
+            there = matching.open_other(number, typed)
+        if here is None and there is None:
+            raise WrongPasswordError("neither's password")
+        QGuiApplication.restoreOverrideCursor()
+        try:
+            return settle(self, self._passwords, matching, number, here, there)
+        finally:
+            QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
     @override
     def accept(self) -> None:
         self.working()
+        matching = self._matching()
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        settled: Opened | None = None
         try:
-            key = self._passwords.open(self.password.text())
+            if matching is None:
+                settled = Opened(self._passwords.open(self.password.text()))
+            else:
+                settled = self._open_both(self.password.text(), *matching)
         except WrongPasswordError:
             self.password.clear()
             self.show_error(self.tr("The password is not correct."), self.password)
@@ -523,7 +652,9 @@ class OpenSecretDialog(_PasswordWindow):
             return
         finally:
             QGuiApplication.restoreOverrideCursor()
-        self.key = key
+        if settled is None or not self._take(settled):
+            self.reject()
+            return
         super().accept()
 
 
@@ -537,12 +668,13 @@ class ExportedSecretsDialog(_PasswordWindow):
     def __init__(
         self,
         count: int,
-        with_password: Callable[[str], bytes],
-        with_recovery_key: Callable[[str], bytes] | None,
+        with_password: Callable[[str], Sequence[bytes]],
+        with_recovery_key: Callable[[str], Sequence[bytes]] | None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._count = count
+        self.keys: tuple[bytes, ...] = ()  # every key opened, the first in key
         self._with_password = with_password
         self._with_recovery_key = with_recovery_key
         self.left_out = False
@@ -588,12 +720,12 @@ class ExportedSecretsDialog(_PasswordWindow):
         if self._with_recovery_key is None:
             return
         opened = self._with_recovery_key
-        found: list[bytes] = []
+        found: list[tuple[bytes, ...]] = []
         dialog: EnterRecoveryKeyDialog
 
         def submit(typed: str) -> str | None:
             try:
-                found.append(opened(typed))
+                found.append(tuple(opened(typed)))
             except RecoveryKeyTypoError:
                 return dialog.typo()
             except WrongRecoveryKeyError:
@@ -610,7 +742,8 @@ class ExportedSecretsDialog(_PasswordWindow):
         dialog = EnterRecoveryKeyDialog(submit, self)
         if not ask_recovery_key(dialog) or not found:
             return
-        self.key = found.pop()
+        self.keys = found.pop()
+        self.key = self.keys[0]
         QDialog.accept(self)
 
     @override
@@ -619,7 +752,7 @@ class ExportedSecretsDialog(_PasswordWindow):
         self.working()
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            key = self._with_password(typed)
+            keys = tuple(self._with_password(typed))
         except WrongPasswordError:
             self.password.clear()
             self.show_error(self.tr("The password is not correct."), self.password)
@@ -635,8 +768,14 @@ class ExportedSecretsDialog(_PasswordWindow):
             return
         finally:
             QGuiApplication.restoreOverrideCursor()
-        self.key, self.typed = key, typed
+        self.keys, self.typed = keys, typed
+        self.key = keys[0]
         super().accept()
+
+    def take_keys(self) -> tuple[bytes, ...]:
+        """The keys opened, handed over once."""
+        keys, self.keys, self.key = self.keys, (), None
+        return keys
 
 
 class NewSecretPasswordDialog(_PasswordWindow):
@@ -791,11 +930,15 @@ class SecretExportDialog(_PasswordWindow):
     their key once accepted that way."""
 
     def __init__(
-        self, count: int, open_notes: Callable[[str], bytes], parent: QWidget | None = None
+        self,
+        count: int,
+        open_notes: Callable[[str], Sequence[bytes]],
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._count = count
         self._open = open_notes
+        self.keys: tuple[bytes, ...] = ()
         self.encrypted = _Choice()
         self.encrypted.setChecked(True)  # what they are: chosen until the user says otherwise
         self.encrypted_note = QLabel()
@@ -856,7 +999,7 @@ class SecretExportDialog(_PasswordWindow):
         self.working()
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            key = self._open(self.password.text())
+            keys = tuple(self._open(self.password.text()))
         except WrongPasswordError:
             self.password.clear()
             self.show_error(self.tr("The password is not correct."), self.password)
@@ -872,8 +1015,226 @@ class SecretExportDialog(_PasswordWindow):
             return
         finally:
             QGuiApplication.restoreOverrideCursor()
+        self.keys = keys
+        super().accept()
+
+    def take_keys(self) -> tuple[bytes, ...]:
+        """The keys opened, handed over once."""
+        keys, self.keys = self.keys, ()
+        return keys
+
+
+type MatchKind = Literal["here", "there"]
+
+
+class MatchSecretDialog(_PasswordWindow):
+    """One password opened, the other asked for, to match them: here, this
+    computer's opened, the others' is asked for; there, theirs opened, this
+    computer's (count: the notes sealed with it). Switched, key holds the key
+    the password (or, recovered, the recovery key) opened; Later, none."""
+
+    def __init__(
+        self,
+        kind: MatchKind,
+        count: int,
+        with_password: Callable[[str], bytes],
+        with_recovery_key: Callable[[str], bytes],
+        aside: bool | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.kind: MatchKind = kind
+        self._count = count
+        self._with_password = with_password
+        self._with_recovery_key = with_recovery_key
+        self._aside = aside  # there: which recovery key this computer's key is sealed for
+        self.recovered = False
+        self.password = _password_field()
+        self.password_label = QLabel()
+        self.password_label.setBuddy(self.password)
+        self.form.addRow(self.password_label, self.password)
+        self.forgot_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
+        self.forgot_button.clicked.connect(self.use_recovery_key)
+        self.finish_layout()
+        self.retranslate()
+        self.password.setFocus()
+
+    @override
+    def retranslate(self) -> None:
+        super().retranslate()
+        self.setWindowTitle(self.tr("Match secret note passwords"))
+        if self.kind == "there":
+            intro = self.tr(
+                "%n secret note(s) on this computer are locked with a different password, so"
+                " they don't go to your other computers. Enter it, and they'll switch to your"
+                " current password and open everywhere.",
+                "",
+                self._count,
+            )
+            label = self.tr("The &password this computer used for them:")
+            name = self.tr("The password this computer used for them")
+        else:
+            intro = (
+                self.tr(
+                    "Your other computers' secret notes are locked with their password. Enter"
+                    " it, and the %n secret note(s) here will switch to it and open everywhere."
+                    " This computer will use that password from now on.",
+                    "",
+                    self._count,
+                )
+                if self._count
+                else self.tr(
+                    "Your other computers' secret notes are locked with their password. Enter"
+                    " it, and this computer will use that password from now on."
+                )
+            )
+            label = self.tr("Secret notes' &password of the computers that already sync:")
+            name = self.tr("Secret notes' password of the computers that already sync")
+        self.intro.setText(intro)
+        self.password_label.setText(label)
+        self.password.setAccessibleName(name)
+        self.forgot_button.setText(self.tr("I &forgot"))
+        self.ok_button.setText(self.tr("&Switch"))
+        self.cancel_button.setText(self.tr("&Later"))
+
+    def use_recovery_key(self) -> None:
+        """Forgotten: the recovery key it is sealed for opens it."""
+        found: list[bytes] = []
+        dialog: EnterRecoveryKeyDialog
+
+        def submit(typed: str) -> str | None:
+            try:
+                found.append(self._with_recovery_key(typed))
+            except RecoveryKeyTypoError:
+                return dialog.typo()
+            except WrongRecoveryKeyError:
+                return dialog.wrong_key()
+            except NotKeptForRecoveryKeyError:
+                return self.tr("This recovery key does not open those secret notes.")
+            except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
+                log.error("secret notes not opened to match: %s", type(error).__name__)
+                return self.tr("The secret notes' key could not be used (%1).").replace(
+                    "%1", type(error).__name__
+                )
+            return None
+
+        dialog = EnterRecoveryKeyDialog(submit, self)
+        if self.kind == "there":
+            ask_for_the_old_one(dialog, self._aside)
+        if not ask_recovery_key(dialog) or not found:
+            return
+        self.key = found.pop()
+        self.recovered = True
+        QDialog.accept(self)
+
+    @override
+    def accept(self) -> None:
+        self.working()
+        QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            key = self._with_password(self.password.text())
+        except WrongPasswordError:
+            self.password.clear()
+            self.show_error(self.tr("The password is not correct."), self.password)
+            return
+        except (KeyFileError, OSError, RuntimeError, MemoryError) as error:
+            log.error("secret notes not opened to match: %s", type(error).__name__)
+            self.show_error(
+                self.tr("The secret notes' key could not be used (%1).").replace(
+                    "%1", type(error).__name__
+                ),
+                self.password,
+            )
+            return
+        finally:
+            QGuiApplication.restoreOverrideCursor()
         self.key = key
         super().accept()
+
+
+def ask_for_the_old_one(dialog: EnterRecoveryKeyDialog, aside: bool | None) -> None:
+    """The recovery key window says which, for a key sealed for an old one."""
+    if aside is True:
+        dialog.ask_for_the_one_before_sync()
+    elif aside is False:
+        dialog.ask_for_the_one_before_a_new_one()
+
+
+def settle(
+    parent: QWidget,
+    passwords: SecretPasswords,
+    matching: Matching,
+    number: str,
+    here: bytes | None,
+    there: bytes | None,
+    recovered: bool = False,
+) -> Opened | None:
+    """What a password (or, recovered, the recovery key) opened comes to, this
+    computer's key (here) and the others' numbered number (there): both, the
+    passwords are matched; one, the other is asked for, and they are matched
+    once it is given — or theirs is taken at once when nothing is sealed with
+    this computer's. Recovered, a new password is set for the key held then,
+    if it is this computer's (None if it was not: nothing to hold yet)."""
+    count = matching.sealed_here()
+    held: Opened
+    try:
+        if here is not None and there is not None:
+            matching.match(here, number, there)
+            held = Opened(there)
+        elif there is not None:
+            if count == 0 and not matching.keeps_old_keys():
+                matching.match(None, number, there)
+                held = Opened(there)
+            else:
+                dialog = MatchSecretDialog(
+                    "there",
+                    count,
+                    matching.open_here,
+                    matching.open_here_with_recovery_key,
+                    matching.aside(),
+                    parent,
+                )
+                mine = dialog.take_key() if ask_match(dialog) else None
+                if mine is not None:
+                    matching.match(mine, number, there)
+                    held = Opened(there)
+                else:
+                    held = Opened(there, number)
+        else:
+            assert here is not None
+            dialog = MatchSecretDialog(
+                "here",
+                count,
+                partial(matching.open_other, number),
+                partial(matching.open_other_with_recovery_key, number),
+                None,
+                parent,
+            )
+            theirs = dialog.take_key() if ask_match(dialog) else None
+            if theirs is not None:
+                recovered = recovered or dialog.recovered
+                matching.match(here, number, theirs)
+                held = Opened(theirs)
+            else:
+                matching.not_matched(here)
+                held = Opened(here)
+    except (KeyFileError, OSError, RuntimeError, SecretNoteError, apsw.Error) as error:
+        log.error("secret notes' passwords not matched: %s", type(error).__name__)
+        QMessageBox.warning(
+            parent,
+            "Stickle",
+            QCoreApplication.translate(
+                "MatchSecretDialog", "The secret notes' passwords could not be matched (%1)."
+            ).replace("%1", type(error).__name__),
+        )
+        held = Opened(here) if here is not None else Opened(there or b"", number)
+    if (
+        recovered
+        and held.number is None
+        and not ask_new_password(NewSecretPasswordDialog(passwords, held.key, parent, reset=True))
+    ):
+        return None  # opened only once a new password is set
+    return held
 
 
 def _exec(dialog: QDialog) -> bool:
@@ -881,6 +1242,7 @@ def _exec(dialog: QDialog) -> bool:
 
 
 ask_new_password: Callable[[NewSecretPasswordDialog], bool] = _exec  # replaced in tests
+ask_match: Callable[[MatchSecretDialog], bool] = _exec  # replaced in tests
 ask_recovery_key: Callable[[EnterRecoveryKeyDialog], bool] = _exec  # replaced in tests
 show_recovery_key: Callable[[RecoveryKeyDialog], bool] = _exec  # replaced in tests
 

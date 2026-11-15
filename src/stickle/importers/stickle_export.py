@@ -22,7 +22,7 @@ import base64
 import json
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
@@ -33,12 +33,25 @@ from stickle.core.clock import Clock, utc_now
 from stickle.core.colors import DEFAULT_COLOR, PALETTE, is_hex
 from stickle.core.hlc import wall_millis
 from stickle.core.labels import BUILT_IN_MARKS, DEFAULT_ICON, LABEL_ICONS
+from stickle.core.note import SealedText
+from stickle.crypto.keyfile import (
+    KeyFileError,
+    WrongPasswordError,
+    decode_slot,
+    unwrap_with_password,
+)
 from stickle.crypto.recovery import open_exported_pair
+from stickle.crypto.sealed import unseal
 from stickle.crypto.secret_notes import (
+    PASSWORD_SLOT,
+    RECOVERY_SLOT,
+    NotKeptForRecoveryKeyError,
     SecretNoteError,
+    old_keys_of,
     open_exported_with_pair,
     open_exported_with_password,
-    open_text,
+    open_with_any,
+    others_of,
     seal_text,
 )
 from stickle.data.colors import ColorRepository, OwnColorsFullError
@@ -429,7 +442,7 @@ def _own_colors(export: StickleExport, colors: ColorRepository) -> int:
 def bring_in_export(
     export: StickleExport,
     connection: apsw.Connection,
-    old_key: bytes | None = None,
+    old_key: bytes | Sequence[bytes] | None = None,
     new_key: bytes | None = None,
     clock: Clock = utc_now,
     on_note: Callable[[str], None] = lambda _: None,
@@ -437,10 +450,13 @@ def bring_in_export(
 ) -> BroughtExport:
     """Every note of the export not here yet, all at once or not at all.
 
-    old_key: the secret notes' key of the export's day; new_key: theirs here.
-    Without both, secret notes exported encrypted are left out (to come in
-    another time). on_note: told of each note brought in, by its id.
+    old_key: the secret notes' key of the export's day (or the keys that
+    opened, keys_with_password); new_key: theirs here. Without both, secret
+    notes exported encrypted are left out (to come in another time), and so is
+    one that none of the keys opens. on_note: told of each note brought in, by
+    its id.
     """
+    old_keys = [old_key] if isinstance(old_key, bytes) else list(old_key or ())
     notes = NoteRepository(connection, clock, millis)
     labels = LabelRepository(connection, clock, millis)
     records = ImportRecords(connection, clock, millis)
@@ -456,11 +472,11 @@ def bring_in_export(
                 continue
             sealed: bytes | None = None
             if note.sealed is not None:
-                if old_key is None or new_key is None:
+                if not old_keys or new_key is None:
                     brought.secret_left += 1
                     continue
                 try:
-                    text = open_text(old_key, note.sealed_for, note.sealed)
+                    text = open_with_any(old_keys, note.sealed_for, SealedText(note.sealed))
                     sealed = seal_text(new_key, note.id, text)
                 except SecretNoteError:
                     brought.secret_left += 1
@@ -507,14 +523,59 @@ def secrets_waiting(export: StickleExport, connection: apsw.Connection) -> int:
     )
 
 
-def key_with_password(export: StickleExport, password: str) -> bytes:
-    """Its secret notes' key of the day, by their password then (WrongPasswordError,
-    or KeyFileError if the export holds no copy of the key)."""
-    return open_exported_with_password(export.secret_key, password)
+def _carried(export: StickleExport) -> dict[str, object]:
+    """The slots of the secret notes' key the export carries ({} without)."""
+    document = export.secret_key
+    if not isinstance(document, dict):
+        return {}
+    slots = cast(dict[str, object], document).get("slots")
+    return cast(dict[str, object], slots) if isinstance(slots, dict) else {}
 
 
-def key_with_recovery_key(export: StickleExport, typed: str) -> bytes:
-    """Its secret notes' key of the day, by the recovery key then
-    (RecoveryKeyTypoError, WrongRecoveryKeyError, NotKeptForRecoveryKeyError)."""
+def key_with_password(export: StickleExport, password: str) -> list[bytes]:
+    """Its secret notes' keys of the day that their password then opens: their
+    key and those it was sealed with before, and the others' it kept beside
+    (not matched yet) if it is theirs too. WrongPasswordError if none, or
+    KeyFileError if the export holds no copy of the key."""
+    keys: list[bytes] = []
+    try:
+        key = open_exported_with_password(export.secret_key, password)
+        keys += [key, *old_keys_of(_carried(export), key).values()]
+    except WrongPasswordError:
+        pass
+    for other in others_of(_carried(export)).values():
+        try:
+            keys.append(
+                unwrap_with_password(decode_slot(other.get(PASSWORD_SLOT)), password, PASSWORD_SLOT)
+            )
+        except WrongPasswordError, KeyFileError:
+            continue
+    if not keys:
+        raise WrongPasswordError("not their password then")
+    return keys
+
+
+def key_with_recovery_key(export: StickleExport, typed: str) -> list[bytes]:
+    """Its secret notes' keys of the day, by the recovery key then (and the
+    others' kept beside, sealed for it too): RecoveryKeyTypoError,
+    WrongRecoveryKeyError, NotKeptForRecoveryKeyError."""
     secret, public = open_exported_pair(export.recovery_pair, typed)
-    return open_exported_with_pair(export.secret_key, secret, public)
+    keys: list[bytes] = []
+    try:
+        key = open_exported_with_pair(export.secret_key, secret, public)
+        keys += [key, *old_keys_of(_carried(export), key).values()]
+    except NotKeptForRecoveryKeyError:
+        pass
+    for other in others_of(_carried(export)).values():
+        sealed = other.get(RECOVERY_SLOT)
+        if not isinstance(sealed, dict):
+            continue
+        fields = cast(dict[str, object], sealed)
+        try:
+            if base64.b64decode(str(fields.get("public"))) == public:
+                keys.append(unseal(secret, base64.b64decode(str(fields.get("sealed")))))
+        except ValueError, KeyFileError:
+            continue
+    if not keys:
+        raise NotKeptForRecoveryKeyError("not kept for that recovery key")
+    return keys
