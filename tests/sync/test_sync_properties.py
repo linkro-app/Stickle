@@ -701,6 +701,12 @@ def test_devices_agree_with_the_model_and_lose_nothing(kind: Kind, data: st.Data
             ]
             assert copies == [], "copies under other names left"  # but damaged ones
             ids = [each.id for each in bed.devices]
+            if len(set(ids)) != len(ids):
+                # A copy is told once one of the two writes its own file: as it
+                # puts something, else a day after it last said it synced.
+                bed.clock.tick(DAY)
+                settle(bed.devices, tick=6 * MINUTE)
+                ids = [each.id for each in bed.devices]
             assert len(set(ids)) == len(ids), "a copied device kept the id it was copied with"
             records_agree(bed.devices, bed.records)
             texts = {f"text {i}": text for i, (_, text) in enumerate(bed.model.written)}
