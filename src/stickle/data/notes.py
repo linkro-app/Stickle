@@ -207,6 +207,21 @@ def match_sealed(
     return count
 
 
+def adopt_sealed(
+    notes: NoteRepository,
+    own: bytes,
+    number: str,
+    key: bytes,
+    keep: Callable[[bytes, str, bytes], object],
+) -> int:
+    """The notes sealed with a key another computer used apart (key, numbered
+    number) sealed again with this computer's (own) first, then keep
+    (stickle.crypto.secret_notes.adopt: that key among the old ones). How many."""
+    count = notes.reseal_old([number], partial(open_with_any, [key]), partial(seal_text, own))
+    keep(own, number, key)
+    return count
+
+
 class NoteRepository:
     def __init__(
         self,
@@ -655,8 +670,8 @@ class NoteRepository:
         seal: Callable[[str, str], bytes],
     ) -> int:
         """As reseal_here, every note's text sealed with one of the keys of these
-        numbers (this computer's of before: a backup gone back to) sealed again
-        with this computer's key of now. How many."""
+        numbers (this computer's of before: a backup gone back to; one another
+        computer used apart) sealed again with this computer's key of now. How many."""
         if not numbers:
             return 0
         listed = sorted(numbers)

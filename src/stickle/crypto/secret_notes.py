@@ -42,8 +42,17 @@ were there before: earlier texts, old backups and exports sealed with it open
 still, with the password of now.
 
     "others": {"<number>": {"secret_password": <a password slot>,
-                            "recovery_key": {"public": ..., "sealed": ...}}},
+                            "recovery_key": {"public": ..., "sealed": ...},
+                            "vault": false, "by": "<a computer's name>"}},
     "old_keys": {"<number>": "<that key, encrypted with this one>"}
+
+Another key may wait there too: one another computer sealed its own secret
+notes with apart, which went to the vault all the same (a server that does not
+keep to conditional writes let two computers make the vault's key at once).
+It is kept only by a computer that holds notes sealed with it, marked as not
+the vault's ("vault": false), with the name of the computer that used it. It is
+never matched with: its password typed, the notes sealed with it are sealed
+again with this computer's key, and it goes among the old keys (adopt).
 """
 
 import base64
@@ -81,6 +90,10 @@ KEY_NUMBER = "key_number"
 # The others' key, while this computer keeps its own; the keys sealed with before.
 OTHERS = "others"
 OLD_KEYS = "old_keys"
+# In an entry of OTHERS: whether it is the vault's key (else one used apart, by
+# the computer named "by"). An entry without it is the vault's.
+VAULT = "vault"
+BY = "by"
 # How the password was set, in its slot: changed, or set anew with the recovery key.
 HOW = "how"
 CHANGED = "changed"
@@ -454,15 +467,36 @@ def others(files: KeyFiles) -> dict[str, dict[str, object]]:
         return {}
 
 
+def kept_entry(
+    password: Mapping[str, object],
+    recovery: Mapping[str, object],
+    vault: bool = True,
+    by: str | None = None,
+) -> dict[str, object]:
+    """An entry of OTHERS as C keeps it: the vault's key (vault), or one another
+    computer (named by) used apart."""
+    entry: dict[str, object] = {PASSWORD_SLOT: dict(password), RECOVERY_SLOT: dict(recovery)}
+    if not vault:
+        entry |= {VAULT: False, BY: by}
+    return entry
+
+
+def is_the_vaults(entry: Mapping[str, object]) -> bool:
+    return entry.get(VAULT) is not False
+
+
 def keep_other(
     files: KeyFiles,
     number: str,
     password: Mapping[str, object],
     recovery: Mapping[str, object],
+    vault: bool = True,
+    by: str | None = None,
 ) -> bool:
     """C keeps the slots of the others' key numbered number beside its own,
-    in place of what it kept of it: whether it changed. Not for its own key
-    (False), nor without C. KeyFileError for slots that do not read."""
+    in place of what it kept of it: the vault's (vault), or one the computer
+    named by used apart. Whether it changed. Not for its own key (False), nor
+    without C. KeyFileError for slots that do not read."""
     decode_slot(dict(password))
     b64_field(recovery.get("public"))
     b64_field(recovery.get("sealed"))
@@ -470,12 +504,31 @@ def keep_other(
     if key_number(slots) in (None, number) or not _is_number(number):
         return False
     kept = others_of(slots)
-    wanted = {PASSWORD_SLOT: dict(password), RECOVERY_SLOT: dict(recovery)}
+    wanted = kept_entry(password, recovery, vault, by)
     if kept.get(number) == wanted:
         return False
     slots[OTHERS] = kept | {number: wanted}
     _save(files, slots)
     return True
+
+
+def adopt(files: KeyFiles, own: bytes, number: str, key: bytes) -> None:
+    """A key another computer used apart (numbered number, opened: key) no
+    longer kept beside: the notes sealed with it are sealed with this computer's
+    (own) now, and it goes among the old keys, encrypted with own."""
+    slots = _slots(files)
+    kept = others_of(slots)
+    if kept.pop(number, None) is None or key_number(slots) in (None, number):
+        raise KeyFileError("no such key kept")
+    found = slots.get(OLD_KEYS)
+    old = dict(cast(dict[str, object], found)) if isinstance(found, dict) else {}
+    old[number] = _seal_old(own, number, key)
+    slots[OLD_KEYS] = old
+    if kept:
+        slots[OTHERS] = kept
+    else:
+        slots.pop(OTHERS, None)
+    _save(files, slots)
 
 
 def _other(files: KeyFiles, number: str) -> dict[str, object]:
@@ -587,7 +640,7 @@ def match(
     kept = others_of(slots)
     theirs = kept.pop(number, None)
     mine = key_number(slots)
-    if theirs is None or mine is None or mine == number:
+    if theirs is None or not is_the_vaults(theirs) or mine is None or mine == number:
         raise KeyFileError("no such key to match with")
     if own is None and OLD_KEYS in slots:
         raise KeyFileError("the keys of before open only with this computer's")

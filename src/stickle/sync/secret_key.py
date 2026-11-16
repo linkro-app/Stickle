@@ -31,7 +31,15 @@ said it put it, when this device's C is not as last agreed on), and:
   slot sealed for the vault's recovery key, as this device has agreed on it,
   over one that is not, either way; else as it is;
 - another key: the vault's kept beside this device's own, in C (SecretOther),
-  until the user matches their passwords (stickle.app.secret_matching).
+  until the user matches their passwords (stickle.app.secret_dialogs.settle);
+  and if notes sealed with this device's own went to the vault already (two
+  devices made the vault's key at once, on a server that does not keep to
+  conditional writes), its own slots put in the record, by its number, so
+  that they open without it.
+
+A key another device used apart, whose slots are in the record, is kept beside
+C too by a device that holds notes sealed with it (not as the vault's: their
+notes are sealed again with this device's key once its password is typed).
 
 Only the app's thread writes C: what this device is to take goes back to it
 (SecretFollow), taken only if C is still as the round saw it. The vault's key
@@ -57,6 +65,7 @@ from stickle.crypto.secret_notes import (
     PASSWORD_SLOT,
     RECOVERY_SLOT,
     RESET,
+    kept_entry,
     key_number,
     others_of,
     seen_digest,
@@ -122,6 +131,8 @@ class SecretOther:
     number: str
     password: Mapping[str, object]
     recovery: Mapping[str, object]
+    vault: bool = True  # the vault's key; else one another device used apart
+    by: str | None = None  # the name of the device that used it apart
 
 
 @dataclass(frozen=True)
@@ -138,6 +149,18 @@ class _Vaults:
 
     def field(self, prefix: str) -> Field | None:
         return self.contents.fields.get(prefix + self.current)
+
+    def slot_of(self, prefix: str, number: str) -> Mapping[str, object] | None:
+        found = self.contents.fields.get(prefix + number)
+        if found is None or not isinstance(found.value, dict):
+            return None
+        return cast(dict[str, object], found.value)
+
+    def numbers(self) -> list[str]:
+        """The numbers of the keys whose password slot the record has."""
+        return sorted(
+            name[len(PASSWORD) :] for name in self.contents.fields if name.startswith(PASSWORD)
+        )
 
 
 def _digest(number: str | None, slot: Mapping[str, object] | None) -> str | None:
@@ -252,10 +275,15 @@ class _SecretKey:
                 return True  # not one to take
             self._follow(theirs, password, recovery, None, told=False)
             return True
+        if number is not None:
+            self._apart(theirs, number, mine)
         if number is None or number != theirs.current:
             self._other(theirs, mine)  # another key: matched later, by the user
-            return True
+            return number is None or self._own_apart(theirs, number, mine)
         return self._same_key(theirs, number, mine)
+
+    def _keeping(self, number: str) -> bool:
+        return any(isinstance(each, SecretOther) and each.number == number for each in self.follows)
 
     def _other(self, theirs: _Vaults, mine: Mapping[str, object]) -> None:
         """The vault's key, kept beside this device's own (if it is not as kept)
@@ -263,9 +291,42 @@ class _SecretKey:
         password, recovery = theirs.slot(PASSWORD), theirs.slot(RECOVERY)
         if password is None or recovery is None or not _readable(password, recovery):
             return
-        wanted = {PASSWORD_SLOT: dict(password), RECOVERY_SLOT: dict(recovery)}
-        if others_of(mine).get(theirs.current) != wanted:
+        wanted = kept_entry(password, recovery)
+        if others_of(mine).get(theirs.current) != wanted and not self._keeping(theirs.current):
             self.follows.append(SecretOther(theirs.current, password, recovery))
+
+    def _apart(self, theirs: _Vaults, number: str, mine: Mapping[str, object]) -> None:
+        """Keys other devices used apart, whose slots the record has, that notes
+        here are sealed with: kept beside this device's (if not as kept), with
+        the name of the device that put them."""
+        kept = others_of(mine)
+        for other in theirs.numbers():
+            if other in (number, theirs.current) or not sync_state.sealed_with(self._db, other):
+                continue
+            password, recovery = theirs.slot_of(PASSWORD, other), theirs.slot_of(RECOVERY, other)
+            if password is None or recovery is None or not _readable(password, recovery):
+                continue
+            field = theirs.contents.fields.get(PASSWORD + other)
+            by = None if field is None else self._name_of(field.device)
+            wanted = kept_entry(password, recovery, vault=False, by=by)
+            if kept.get(other) != wanted and not self._keeping(other):
+                self.follows.append(SecretOther(other, password, recovery, vault=False, by=by))
+
+    def _own_apart(self, theirs: _Vaults, number: str, mine: Mapping[str, object]) -> bool:
+        """This device's own key, another than the vault's: its slots put in the
+        record (if not there as they are) once notes sealed with it are in the
+        vault, for them to open without this device. False to read it again."""
+        if not sync_state.sealed_here_in_vault(self._db, self._place.vault):
+            return True
+        ours, ours_sealed = mine_password(mine), _recovery(mine)
+        if ours is None or ours_sealed is None:
+            return True
+        there, there_sealed = theirs.slot_of(PASSWORD, number), theirs.slot_of(RECOVERY, number)
+        if _digest(number, ours) == _digest(number, there) and _recovery_digest(
+            number, ours_sealed
+        ) == _recovery_digest(number, there_sealed):
+            return True
+        return self._put(theirs, number, ours, ours_sealed, AsRead(theirs.tag))
 
     def _same_key(self, theirs: _Vaults, number: str, mine: Mapping[str, object]) -> bool:
         was = sync_keys.agreed(self._db, self._place.vault)

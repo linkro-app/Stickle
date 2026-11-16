@@ -9,7 +9,13 @@ it is sealed again with the key of now. Stopped halfway, every note opens.
 
 Two computers that sync already and each turn secret notes on while offline
 come to the same: the first to put its key makes the vault's, the other
-matches. The cloud and the logs never hold a secret note's text in the clear."""
+matches. On a server that does not keep to conditional writes both may make
+it, the notes of the one that lost going to the vault sealed with its own key
+all the same: that one puts its key's slots in the vault (a computer whose
+notes never went there does not), so that the others keep it beside theirs
+and open those notes with its password, or with the recovery key they share
+once it is gone; its password typed, they seal its notes again with theirs.
+The cloud and the logs never hold a secret note's text in the clear."""
 
 import logging
 from collections.abc import Iterator
@@ -29,9 +35,12 @@ from stickle.crypto.secret_notes import open_sealed, open_with_any, seal_text
 from stickle.data import backups, sync_state
 from stickle.data.database import open_database
 from stickle.data.key_copies import KeyCopies
-from stickle.data.notes import NoteRepository, match_sealed
+from stickle.data.notes import NoteRepository, adopt_sealed, match_sealed
 from stickle.data.versions import VersionRepository
-from stickle.sync.format import NOTES, RECORDS, item_at, json_bytes, open_envelope
+from stickle.sync.format import NOTES, RECORDS, item_at, item_path, json_bytes, open_envelope
+from stickle.sync.note_file import Secret
+from stickle.sync.record_file import RecordFile
+from stickle.sync.secret_key import record_of
 
 FAST = (1, 8192)
 THEIRS = "the secret notes' password"  # of the computers that sync
@@ -142,6 +151,13 @@ def matched(device: Device, own: bytes | None, theirs: bytes) -> int:
     )
 
 
+def record_fields(cloud: FakeCloud) -> dict[str, object]:
+    """The fields of the vault's record of the secret notes' key."""
+    data = cloud.files()[item_path(RECORDS, record_of(KEYS))]
+    _head, value = open_envelope(KEYS, data, VAULT, RECORDS)
+    return dict(RecordFile.from_json(value).contents.fields)
+
+
 def cloud_holds(cloud: FakeCloud, word: str) -> bool:
     """Whether a vault's file holds word, as it is or opened with the data key."""
     needle = word.encode("utf-8")
@@ -166,6 +182,7 @@ def test_its_own_notes_stay_and_the_others_key_waits_beside_its_own(a: Device, c
 
     assert number_of(c) != number_of(a)
     assert their_number(c) == number_of(a)  # their key, kept beside, as the vault has it
+    assert f"password.{number_of(c)}" not in record_fields(a.cloud)  # none of c's went: not put
     assert sync_state.sealed_here(c.db) == [own]  # what stays here
     assert own not in cloud_notes(a.cloud) and a.notes.get(own) is None
     # Their notes open here with their password, by their key kept beside.
@@ -356,6 +373,107 @@ def test_two_computers_turning_them_on_offline_match_like_any_other(
     finally:
         y.close()
         x.close()
+
+
+# A key used apart: two computers made the vault's key at once
+
+
+APART = "x's own password"
+
+
+@pytest.fixture
+def apart(tmp_path: Path, cloud: FakeCloud, clock: Clock) -> Iterator[tuple[Device, Device, str]]:
+    """x and y sync; each turned secret notes on offline; x's note went to the
+    vault sealed with its key, then y made the vault's key over x's (as on a
+    server that does not keep to conditional writes). x's note's id."""
+    x = Device("x", tmp_path, cloud, clock, whole=True, keyed=True)
+    x.made_the_vault()
+    x.sync()
+    y = Device("y", tmp_path, cloud, clock, whole=True, keyed=True)
+    try:
+        settle(x, y)
+        turn_on(x, APART)
+        turn_on(y, THEIRS)
+        from_x = made_secret(x, SECRET, APART)
+        x.sync()  # the vault's key x's, as x saw it: its note goes
+        assert from_x in cloud_notes(cloud)
+        cloud.remove_by_hand(item_path(RECORDS, record_of(KEYS)))
+        made_secret(y, "y의 비밀", THEIRS)
+        y.sync()  # y's key made the vault's, over x's
+        settle(x, y)
+        yield x, y, from_x
+    finally:
+        y.close()
+        x.close()
+
+
+def test_a_key_used_apart_is_put_in_the_vault_and_kept_beside_by_who_holds_its_notes(
+    apart: tuple[Device, Device, str],
+) -> None:
+    x, y, from_x = apart
+    x_number = number_of(x)
+    assert x_number is not None and x_number != number_of(y)
+
+    fields = record_fields(x.cloud)
+    assert f"password.{x_number}" in fields and f"recovery.{x_number}" in fields
+    assert note_of(y, from_x).key_number == x_number  # came as it went, sealed with x's key
+    kept = secret_notes.others(files(y))[x_number]
+    assert not secret_notes.is_the_vaults(kept)
+    x_key = key_of(x, APART)
+    assert secret_notes.open_other_with_password(files(y), x_number, APART) == x_key
+    assert opened_with(x_key, y, from_x) == SECRET
+    assert their_number(x) == number_of(y)  # and x keeps y's, the vault's, to match with
+
+
+def test_without_that_computer_the_recovery_key_opens_its_notes_and_they_move(
+    apart: tuple[Device, Device, str],
+) -> None:
+    x, y, from_x = apart
+    x_number = number_of(x) or ""
+    x_key = key_of(x, APART)
+    x.close()  # lost
+
+    pair = recovery.read_recovery(files(y))
+    assert isinstance(pair, SealedSlot)
+    secret = recovery.open_recovery_pair(pair, x.recovery_key)  # the one they share
+    found = secret_notes.open_other_with_pair(files(y), x_number, secret, pair.public)
+    assert found == x_key
+
+    own = key_of(y, THEIRS)
+    moved = adopt_sealed(y.notes, own, x_number, found, partial(secret_notes.adopt, files(y)))
+    assert moved == 1
+    assert note_of(y, from_x).key_number is None and opened_with(own, y, from_x) == SECRET
+    assert x_number not in secret_notes.others(files(y))
+    assert secret_notes.old_keys(files(y), own) == {x_number: x_key}
+    y.clock.tick()
+    y.sync()
+    [file] = [each for path, each in cloud_notes(y.cloud).items() if path == from_x]
+    assert isinstance(file.body.text, Secret) and file.body.text.key == number_of(y)
+    assert not cloud_holds(y.cloud, SECRET)
+
+
+def test_moved_on_one_and_matched_on_the_other_no_text_is_lost(
+    apart: tuple[Device, Device, str],
+) -> None:
+    x, y, from_x = apart
+    x_number = number_of(x) or ""
+    own = key_of(y, THEIRS)
+    x_key = secret_notes.open_other_with_password(files(y), x_number, APART)
+    adopt_sealed(y.notes, own, x_number, x_key, partial(secret_notes.adopt, files(y)))
+    matched(
+        x,
+        key_of(x, APART),
+        secret_notes.open_other_with_password(files(x), their_number(x), THEIRS),
+    )
+
+    settle(x, y, x, y)
+
+    for device in (x, y):
+        assert opened_with(key_of(device, THEIRS), device, from_x) == SECRET
+        copies = [each for each in device.notes.copies() if each.conflict.note == from_x]
+        for copy in copies:  # sealed again on both: a copy may come, the same text
+            assert opened_with(key_of(device, THEIRS), device, copy.id) == SECRET
+    assert number_of(x) == number_of(y)
 
 
 # Nothing in the clear

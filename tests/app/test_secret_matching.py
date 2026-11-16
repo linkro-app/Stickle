@@ -60,18 +60,18 @@ type Told = list[tuple[int, bool]]
 
 
 def their_slots(
-    unlock: Unlock, password: str = THEIRS
+    unlock: Unlock, password: str = THEIRS, key: bytes = THEIR_KEY
 ) -> tuple[dict[str, object], dict[str, object]]:
     """The slots of the others' key, as the vault has them (sealed for the
     recovery key these notes have: synced, it is theirs too)."""
-    slot = wrap_with_password(THEIR_KEY, password, *FAST, PASSWORD_SLOT, "2026-11-15T09:00:00.000Z")
+    slot = wrap_with_password(key, password, *FAST, PASSWORD_SLOT, "2026-11-15T09:00:00.000Z")
     pair = read_recovery(unlock.files)
     assert isinstance(pair, SealedSlot)
     import base64
 
     recovery: dict[str, object] = {
         "public": base64.b64encode(pair.public).decode(),
-        "sealed": base64.b64encode(seal(pair.public, THEIR_KEY)).decode(),
+        "sealed": base64.b64encode(seal(pair.public, key)).decode(),
     }
     return encode_slot(slot), recovery
 
@@ -89,7 +89,7 @@ def matching_on(
         application.recovery_keys(unlock, Settings(connection)),
         manager.secret_key_fits,
         matched=application.MatchedHere(
-            lambda: vault, manager.sealed_here, manager.match_secret_keys
+            lambda: vault, manager.sealed_here, manager.match_secret_keys, manager.adopt_apart_key
         ),
     )
     manager.secrets_matched = lambda count, old_key: told.append((count, old_key))
@@ -161,10 +161,16 @@ def own_note(
     return window
 
 
-def their_note(manager: NoteManager, connection: apsw.Connection, text: str) -> NoteWindow:
+def their_note(
+    manager: NoteManager,
+    connection: apsw.Connection,
+    text: str,
+    key: bytes = THEIR_KEY,
+    number: str = THEIR_NUMBER,
+) -> NoteWindow:
     """A secret note sync brought, sealed with the others' key: shown locked."""
     note_id = str(uuid.uuid4())
-    sealed = SealedText(seal_text(THEIR_KEY, note_id, text), note_id, THEIR_NUMBER)
+    sealed = SealedText(seal_text(key, note_id, text), note_id, number)
     NoteRepository(connection).take_in(note_id, sealed, None, {"secret_title": "그쪽"}, {}, {})
     manager.take_in([note_id])
     window = manager.window_for(note_id)
@@ -409,3 +415,127 @@ def test_matched_a_note_open_already_is_saved_with_the_key_of_now(
     assert manager.flush(first)
     assert sealed_with_theirs(connection, first) == "첫째 비밀 고침"
     assert stored(connection, first).key_number is None  # this computer's key, theirs now
+
+
+# A key another computer used apart
+
+
+APART = "the laptop's own password"
+APART_KEY = secrets.token_bytes(32)
+APART_NUMBER = str(uuid.uuid4())
+
+
+def apart_kept(unlock: Unlock, password: str = APART, by: str | None = "노트북") -> None:
+    """A round brought a key another computer used apart, which a note here is sealed with."""
+    slots = their_slots(unlock, password, APART_KEY)
+    assert unlock.keep_other_secret_key(APART_NUMBER, *slots, vault=False, by=by)
+
+
+def apart_note(manager: NoteManager, connection: apsw.Connection) -> NoteWindow:
+    return their_note(manager, connection, "노트북의 비밀", APART_KEY, APART_NUMBER)
+
+
+def sealed_here(unlock: Unlock, connection: apsw.Connection, window: NoteWindow) -> str:
+    note = stored(connection, window)
+    assert note.sealed_text is not None and note.key_number is None
+    return open_sealed(unlock.open_secret_notes(SECRET), note.id, note.sealed_text)
+
+
+@pytest.fixture
+def warned(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    said: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: said.append(str(args[2])))  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
+    return said
+
+
+def test_its_password_moves_its_notes_to_this_computers_key(
+    manager: NoteManager, asked: Answers, unlock: Unlock, connection: apsw.Connection
+) -> None:
+    unlock.turn_on_secret_notes(SECRET)
+    matching_on(manager, unlock, connection, unlock.secret_notes_number)
+    apart_kept(unlock)
+    window = apart_note(manager, connection)
+
+    asked.queue += [password(SECRET), switch("not it", APART)]
+    window.open_secret_requested.emit()
+
+    [dialog] = [each for each in asked.asked if isinstance(each, MatchSecretDialog)]
+    assert dialog.kind == "apart"
+    assert dialog.intro.text().startswith(
+        "This secret note is locked with the password 노트북 used for its own secret notes."
+    )
+    assert window.text == "노트북의 비밀"
+    assert sealed_here(unlock, connection, window) == "노트북의 비밀"
+    assert unlock.apart_secret_keys() == {}
+    assert unlock.secret_old_keys(unlock.open_secret_notes(SECRET)) == {APART_NUMBER: APART_KEY}
+
+
+def test_later_it_stays_locked_unsaid_and_is_asked_again(
+    manager: NoteManager,
+    asked: Answers,
+    unlock: Unlock,
+    connection: apsw.Connection,
+    warned: list[str],
+) -> None:
+    unlock.turn_on_secret_notes(SECRET)
+    matching_on(manager, unlock, connection, unlock.secret_notes_number)
+    apart_kept(unlock, by=None)
+    window = apart_note(manager, connection)
+
+    asked.queue += [password(SECRET), cancel, password(SECRET), cancel]
+    window.open_secret_requested.emit()
+    window.open_secret_requested.emit()
+
+    dialogs = [each for each in asked.asked if isinstance(each, MatchSecretDialog)]
+    assert len(dialogs) == 2 and "another computer" in dialogs[0].intro.text()
+    assert window.secret_locked and warned == []
+    assert stored(connection, window).key_number == APART_NUMBER
+
+
+def test_its_password_alone_opens_the_note_and_moves_nothing(
+    manager: NoteManager, asked: Answers, unlock: Unlock, connection: apsw.Connection
+) -> None:
+    unlock.turn_on_secret_notes(SECRET)
+    matching_on(manager, unlock, connection, unlock.secret_notes_number)
+    apart_kept(unlock)
+    window = apart_note(manager, connection)
+
+    asked.queue += [password(APART)]
+    window.open_secret_requested.emit()
+
+    assert window.text == "노트북의 비밀"
+    assert not any(isinstance(each, MatchSecretDialog) for each in asked.asked)
+    assert stored(connection, window).key_number == APART_NUMBER
+    assert APART_NUMBER in unlock.apart_secret_keys()
+
+
+def test_one_password_for_both_moves_them_at_once(
+    manager: NoteManager, asked: Answers, unlock: Unlock, connection: apsw.Connection
+) -> None:
+    unlock.turn_on_secret_notes(SECRET)
+    matching_on(manager, unlock, connection, unlock.secret_notes_number)
+    apart_kept(unlock, SECRET)
+    window = apart_note(manager, connection)
+
+    asked.queue += [password(SECRET)]
+    window.open_secret_requested.emit()
+
+    assert not any(isinstance(each, MatchSecretDialog) for each in asked.asked)
+    assert sealed_here(unlock, connection, window) == "노트북의 비밀"
+
+
+def test_forgotten_the_recovery_key_opens_it_and_no_password_is_set(
+    manager: NoteManager, asked: Answers, unlock: Unlock, connection: apsw.Connection
+) -> None:
+    recovery_key = kept_new_recovery_key(unlock, connection)
+    unlock.turn_on_secret_notes(SECRET)
+    matching_on(manager, unlock, connection, unlock.secret_notes_number)
+    apart_kept(unlock)
+    window = apart_note(manager, connection)
+
+    asked.queue += [password(SECRET), forgot, recovery_typed(recovery_key)]
+    window.open_secret_requested.emit()
+
+    assert window.text == "노트북의 비밀"
+    assert not any(isinstance(each, secret_dialogs.NewSecretPasswordDialog) for each in asked.asked)
+    assert sealed_here(unlock, connection, window) == "노트북의 비밀"

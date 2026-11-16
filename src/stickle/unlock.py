@@ -506,19 +506,45 @@ class Unlock:
             return None
 
     def keep_other_secret_key(
-        self, number: str, password: Mapping[str, object], recovery: Mapping[str, object]
+        self,
+        number: str,
+        password: Mapping[str, object],
+        recovery: Mapping[str, object],
+        vault: bool = True,
+        by: str | None = None,
     ) -> bool:
         """The secret notes' key of the computers this one syncs with, another
-        than this one's, kept beside it until the passwords are matched
-        (stickle.crypto.secret_notes.keep_other); whether it changed."""
-        return secret_notes.keep_other(self.files, number, password, recovery)
+        than this one's, kept beside it until the passwords are matched; or
+        (not vault) one the computer named by used apart, until the notes sealed
+        with it are sealed again here (stickle.crypto.secret_notes.keep_other).
+        Whether it changed."""
+        return secret_notes.keep_other(self.files, number, password, recovery, vault, by)
 
     def other_secret_keys(self) -> list[str]:
-        """The numbers of the others' keys kept beside this one's."""
+        """The numbers of the vault's keys kept beside this one's."""
         try:
-            return sorted(secret_notes.others(self.files))
+            kept = secret_notes.others(self.files)
         except OSError:
             return []
+        return sorted(n for n, entry in kept.items() if secret_notes.is_the_vaults(entry))
+
+    def apart_secret_keys(self) -> dict[str, str | None]:
+        """The keys other computers used apart kept beside this one's: by number,
+        the name of the computer that used each (None: not known)."""
+        try:
+            kept = secret_notes.others(self.files)
+        except OSError:
+            return {}
+        return {
+            number: by if isinstance(by := entry.get(secret_notes.BY), str) else None
+            for number, entry in kept.items()
+            if not secret_notes.is_the_vaults(entry)
+        }
+
+    def adopt_secret_key(self, own: bytes, number: str, key: bytes) -> None:
+        """A key another computer used apart among the old ones, its notes
+        sealed with this computer's (own) since (stickle.crypto.secret_notes.adopt)."""
+        secret_notes.adopt(self.files, own, number, key)
 
     def open_other_secret_key(self, number: str, password: str) -> bytes:
         """The others' key numbered number; WrongPasswordError if password is not theirs."""

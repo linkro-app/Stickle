@@ -10,7 +10,8 @@ this one syncs with and their secret notes' password and what is sealed for
 the recovery key, taking in what sync brings (a secret note's text sealed on
 another computer, a conflict copy sealed for its note, a note made secret or
 ordinary there), keeping beside this computer's key the others' key of their
-own, their notes sealed with it, and matching the two passwords, bringing
+own, their notes sealed with it, and matching the two passwords, a key
+another computer used apart, its notes and moving them to this one's, bringing
 notes in from another app, exporting, taking a backup and going back to one.
 In between, copies of the key files are lost or damaged (each where it is
 kept: the data folder, its backups folder, the database), and Stickle is
@@ -129,7 +130,7 @@ from stickle.data.backups import (
 from stickle.data.export import JSON_NAME, SecretExport, export_all
 from stickle.data.imports import SECRET_MARK
 from stickle.data.key_copies import KeyCopies
-from stickle.data.notes import NoteRepository, match_sealed
+from stickle.data.notes import NoteRepository, adopt_sealed, match_sealed
 from stickle.data.schema import open_store
 from stickle.data.settings import RECOVERY_KEY_KEPT, Settings
 from stickle.importers.base import ImportedNote, ImportResult
@@ -296,6 +297,9 @@ SWARM = (
     "keep_theirs",
     "take_from_theirs",
     "match",
+    "keep_apart",
+    "take_from_apart",
+    "move_apart",
     "lose_copies",
     "lose_files",
     "take_backup",
@@ -374,6 +378,8 @@ class SecretNotesMachine(RuleBasedStateMachine):
         self.other_keys: set[bytes] = set()
         # The others' key kept beside this computer's: it, its number, their password.
         self.their: tuple[bytes, str, str] | None = None
+        # A key another computer used apart kept beside: it, its number, its password.
+        self.apart: tuple[bytes, str, str] | None = None
         self.old_recovery_key = False
         self.taken: list[Taken] = []
         self.opened: dict[tuple[bytes, str], bytes | None] = {}  # slots tried before
@@ -953,9 +959,66 @@ class SecretNotesMachine(RuleBasedStateMachine):
         others' for one sealed with their key kept beside (the passwords not
         matched: Later), its number then; else key."""
         note = self.notes.get(note_id)
-        if self.their is not None and note is not None and note.key_number == self.their[1]:
-            return self.their[0], self.their[1]
+        for kept in (self.their, self.apart):
+            if kept is not None and note is not None and note.key_number == kept[1]:
+                return kept[0], kept[1]
         return key, None
+
+    @precondition(
+        swarm("keep_apart", lambda self: self.unlock.has_secret_notes and self.apart is None)
+    )
+    @rule(password=PASSWORDS, stop=STOPS)
+    def keep_apart(self, password: str, stop: Stop | None) -> None:
+        """A key another computer used apart, whose notes went to the vault too:
+        kept beside this computer's, as a round brings it, sealed for the
+        recovery key they share."""
+        if self.unlock.secret_notes_number is None:
+            return
+        try:
+            pair = following.pairs_in(self.unlock.files.load(B)).get(RECOVERY_KEY)
+        except KeyFileError:
+            return
+        if pair is None:
+            return
+        key, number = secrets.token_bytes(32), secret_notes.new_key_number()
+        slot = wrap_with_password(key, password, *FAST, PASSWORD_SLOT, self.clock())
+        sealed: dict[str, object] = {
+            "public": base64.b64encode(pair.public).decode(),
+            "sealed": base64.b64encode(seal(pair.public, key)).decode(),
+        }
+        with self.writing(stop), contextlib.suppress(KeyFileError, OSError):
+            self.unlock.keep_other_secret_key(
+                number, encode_slot(slot), sealed, vault=False, by="노트북"
+            )
+        if number in self.unlock.apart_secret_keys():
+            self.apart = (key, number, password)
+
+    @precondition(
+        swarm("take_from_apart", lambda self: self.apart is not None and self.secret_count())
+    )
+    @rule(pick=PICKS, text=TEXTS)
+    def take_from_apart(self, pick: int, text: str) -> None:
+        """A secret note's text as that computer sealed it, with its key used apart."""
+        note_id = self.picked(pick, secret=True, deleted=False)
+        if note_id is None or self.apart is None:
+            return
+        key, number, _password = self.apart
+        sealed = SealedText(seal_text(key, note_id, text), note_id, number)
+        self.notes.take_in(note_id, sealed, LAPTOP, {}, {}, {})
+        self.expected[note_id] = replace(self.expected[note_id], text=text)
+
+    @precondition(swarm("move_apart", lambda self: self.apart is not None))
+    @rule(stop=STOPS)
+    def move_apart(self, stop: Stop | None) -> None:
+        """Its password typed (NoteManager.adopt_apart_key): its notes sealed again
+        with this computer's key, then it kept among the old ones."""
+        assert self.apart is not None
+        key, number, _password = self.apart
+        own = self.with_password()
+        with self.writing(stop), contextlib.suppress(KeyFileError, OSError, SecretNoteError):
+            adopt_sealed(self.notes, own, number, key, self.unlock.adopt_secret_key)
+        if number not in self.unlock.apart_secret_keys():  # moved, if only on the way
+            self.apart = None
 
     def secret_count(self) -> int:
         return sum(note.secret and not note.deleted for note in self.expected.values())
@@ -968,6 +1031,10 @@ class SecretNotesMachine(RuleBasedStateMachine):
             for number in unlock.other_secret_keys():
                 with contextlib.suppress(WrongPasswordError, KeyFileError):
                     keys.append(unlock.open_other_secret_key(number, self.their[2]))
+        if self.apart is not None:
+            for number in unlock.apart_secret_keys():
+                with contextlib.suppress(WrongPasswordError, KeyFileError):
+                    keys.append(unlock.open_other_secret_key(number, self.apart[2]))
         return keys
 
     @precondition(swarm("lose_copies"))

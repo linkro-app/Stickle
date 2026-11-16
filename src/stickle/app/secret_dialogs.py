@@ -80,6 +80,14 @@ class Matching:
     not_matched: Callable[[bytes], object]  # this computer's key opened, kept as it is
     # Their key this computer's in its key file, this computer's kept among the old.
     keep_matched: Callable[[bytes | None, str, bytes], object] = lambda _own, _number, _key: None
+    # Keys other computers used apart kept beside: by number, the name of the
+    # one that used it (None: not known).
+    apart: Callable[[], Mapping[str, str | None]] = lambda: {}
+    # This computer's key, the number of one used apart and that key: the notes
+    # sealed with it sealed again with this computer's; how many.
+    adopt: Callable[[bytes, str, bytes], int] = lambda _own, _number, _key: 0
+    # That key among the old ones in the key file, no longer kept beside.
+    keep_adopted: Callable[[bytes, str, bytes], object] = lambda _own, _number, _key: None
 
 
 @dataclass(frozen=True)
@@ -443,7 +451,12 @@ class OpenSecretDialog(_PasswordWindow):
     is tried on both: both open, the passwords are matched at once; one only,
     the other is asked for (MatchSecretDialog). Later, the one that opened is
     held, this computer's or theirs (only to open or make a note: changing the
-    password or making a new recovery key needs this computer's)."""
+    password or making a new recovery key needs this computer's).
+
+    Opening a note sealed with a key another computer used apart (sealed_with,
+    kept beside), that key is asked for next, its notes then sealed again with
+    this computer's; or, the password typed being that key's only, the note
+    opens with it (key_number its number)."""
 
     def __init__(
         self,
@@ -452,9 +465,11 @@ class OpenSecretDialog(_PasswordWindow):
         parent: QWidget | None = None,
         purpose: Purpose = "open",
         count: int = 0,
+        sealed_with: str | None = None,
     ) -> None:
         super().__init__(parent)
         self._passwords = passwords
+        self._sealed_with = sealed_with
         self._title = title
         self._count = count
         self.purpose: Purpose = purpose
@@ -530,6 +545,53 @@ class OpenSecretDialog(_PasswordWindow):
         number = matching.target()
         return None if number is None else (matching, number)
 
+    def _apart(self) -> tuple[Matching, str, str | None] | None:
+        """The key used apart the note being opened is sealed with, if it is kept
+        beside: with the name of the computer that used it."""
+        matching = self._passwords.matching
+        number = self._sealed_with
+        if matching is None or number is None or self.purpose != "open":
+            return None
+        apart = matching.apart()
+        return None if number not in apart else (matching, number, apart[number])
+
+    def _move_apart(self, typed: str | None, own: bytes) -> None:
+        """The notes sealed with the key used apart sealed again with this
+        computer's (own): by the password typed, if it is that key's too, else
+        by the one (or the recovery key) asked for. Later, they stay as they are."""
+        apart = self._apart()
+        if apart is None:
+            return
+        matching, number, by = apart
+        key = None
+        if typed:
+            with contextlib.suppress(WrongPasswordError, KeyFileError):
+                key = matching.open_other(number, typed)
+        if key is None:
+            dialog = MatchSecretDialog(
+                "apart",
+                0,
+                partial(matching.open_other, number),
+                partial(matching.open_other_with_recovery_key, number),
+                None,
+                self,
+                by,
+            )
+            key = dialog.take_key() if ask_match(dialog) else None
+        if key is None:
+            return
+        try:
+            matching.adopt(own, number, key)
+        except (KeyFileError, OSError, RuntimeError, SecretNoteError, apsw.Error) as error:
+            log.error("secret notes of a key used apart not moved: %s", type(error).__name__)
+            QMessageBox.warning(
+                self,
+                "Stickle",
+                QCoreApplication.translate(
+                    "MatchSecretDialog", "The secret notes' passwords could not be matched (%1)."
+                ).replace("%1", type(error).__name__),
+            )
+
     def _take(self, opened: Opened) -> bool:
         """Whether this window can do what it is for with the key opened."""
         if opened.number is not None and self.purpose not in ("open", "make"):
@@ -594,6 +656,8 @@ class OpenSecretDialog(_PasswordWindow):
             if settled is None or not self._take(settled):
                 return
             self.recovered = True
+            if settled.number is None:
+                self._move_apart(None, settled.key)
             QDialog.accept(self)
             return
         if not opened:
@@ -608,6 +672,7 @@ class OpenSecretDialog(_PasswordWindow):
             self.key = bytes(key)
         finally:
             _wipe(key)
+        self._move_apart(None, self.key)
         QDialog.accept(self)
 
     def _open_both(self, typed: str, matching: Matching, number: str) -> Opened | None:
@@ -629,14 +694,21 @@ class OpenSecretDialog(_PasswordWindow):
     @override
     def accept(self) -> None:
         self.working()
-        matching = self._matching()
+        matching, apart = self._matching(), self._apart()
+        typed = self.password.text()
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         settled: Opened | None = None
         try:
-            if matching is None:
-                settled = Opened(self._passwords.open(self.password.text()))
-            else:
-                settled = self._open_both(self.password.text(), *matching)
+            try:
+                if matching is None:
+                    settled = Opened(self._passwords.open(typed))
+                else:
+                    settled = self._open_both(typed, *matching)
+            except WrongPasswordError:
+                if apart is None:
+                    raise
+                # That key's password alone: the note opens with it, nothing moved.
+                settled = Opened(apart[0].open_other(apart[1], typed), apart[1])
         except WrongPasswordError:
             self.password.clear()
             self.show_error(self.tr("The password is not correct."), self.password)
@@ -655,6 +727,8 @@ class OpenSecretDialog(_PasswordWindow):
         if settled is None or not self._take(settled):
             self.reject()
             return
+        if settled.number is None:
+            self._move_apart(typed, settled.key)
         super().accept()
 
 
@@ -1024,14 +1098,15 @@ class SecretExportDialog(_PasswordWindow):
         return keys
 
 
-type MatchKind = Literal["here", "there"]
+type MatchKind = Literal["here", "there", "apart"]
 
 
 class MatchSecretDialog(_PasswordWindow):
     """One password opened, the other asked for, to match them: here, this
     computer's opened, the others' is asked for; there, theirs opened, this
-    computer's (count: the notes sealed with it). Switched, key holds the key
-    the password (or, recovered, the recovery key) opened; Later, none."""
+    computer's (count: the notes sealed with it); apart, a note sealed with a
+    key the computer named by used apart, that key's. Switched, key holds the
+    key the password (or, recovered, the recovery key) opened; Later, none."""
 
     def __init__(
         self,
@@ -1041,9 +1116,11 @@ class MatchSecretDialog(_PasswordWindow):
         with_recovery_key: Callable[[str], bytes],
         aside: bool | None = None,
         parent: QWidget | None = None,
+        by: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.kind: MatchKind = kind
+        self._by = by
         self._count = count
         self._with_password = with_password
         self._with_recovery_key = with_recovery_key
@@ -1052,7 +1129,11 @@ class MatchSecretDialog(_PasswordWindow):
         self.password = _password_field()
         self.password_label = QLabel()
         self.password_label.setBuddy(self.password)
-        self.form.addRow(self.password_label, self.password)
+        # Above its field, across the window, wrapped if need be: a computer's
+        # name may be long.
+        self.password_label.setWordWrap(True)
+        self.form.addRow(self.password_label)
+        self.form.addRow(self.password)
         self.forgot_button = self.buttons.addButton("", QDialogButtonBox.ButtonRole.ActionRole)
         self.forgot_button.clicked.connect(self.use_recovery_key)
         self.finish_layout()
@@ -1063,7 +1144,16 @@ class MatchSecretDialog(_PasswordWindow):
     def retranslate(self) -> None:
         super().retranslate()
         self.setWindowTitle(self.tr("Match secret note passwords"))
-        if self.kind == "there":
+        if self.kind == "apart":
+            by = self._by or self.tr("another computer")
+            intro = self.tr(
+                "This secret note is locked with the password %1 used for its own secret"
+                " notes. Enter it, and every secret note locked with it switches to your"
+                " current password and opens everywhere."
+            ).replace("%1", by)
+            label = self.tr("The &password %1 used for its secret notes:").replace("%1", by)
+            name = self.tr("The password %1 used for its secret notes").replace("%1", by)
+        elif self.kind == "there":
             intro = self.tr(
                 "%n secret note(s) on this computer are locked with a different password, so"
                 " they don't go to your other computers. Enter it, and they'll switch to your"

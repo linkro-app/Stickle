@@ -171,7 +171,9 @@ class Device:
                     sync_keys.agree(self.db, VAULT, each.kind, each.agreed)
         for taken in secret or []:
             if isinstance(taken, SecretOther):
-                secret_notes.keep_other(self.files, taken.number, taken.password, taken.recovery)
+                secret_notes.keep_other(
+                    self.files, taken.number, taken.password, taken.recovery, taken.vault, taken.by
+                )
                 continue
             if secret_notes.take(
                 self.files, taken.number, taken.password, taken.recovery, taken.seen

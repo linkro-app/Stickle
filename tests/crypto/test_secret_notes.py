@@ -436,3 +436,27 @@ def test_a_text_opens_with_whichever_key_it_was_sealed_with(tmp_path: Path) -> N
     assert secret_notes.open_with_any([one, two], "note", sealed) == "글"
     with pytest.raises(SecretNoteError):
         secret_notes.open_with_any([one], "note", sealed)
+
+
+def test_a_key_used_apart_is_kept_as_not_the_vaults_and_moved_among_the_old(
+    tmp_path: Path,
+) -> None:
+    files = with_recovery_key(tmp_path)
+    own = create(files, PASSWORD, pair(files).public, NOW, FAST)
+    apart, number = secrets.token_bytes(32), secret_notes.new_key_number()
+
+    assert secret_notes.keep_other(
+        files, number, *theirs_of(files, apart, "theirs"), vault=False, by="노트북"
+    )
+    entry = secret_notes.others(files)[number]
+    assert not secret_notes.is_the_vaults(entry) and entry[secret_notes.BY] == "노트북"
+    with pytest.raises(KeyFileError):  # never matched with: it is not the vault's
+        secret_notes.match(files, own, number, apart)
+
+    secret_notes.adopt(files, own, number, apart)
+
+    assert secret_notes.others(files) == {}
+    assert secret_notes.old_keys(files, own) == {number: apart}
+    assert open_with_password(files, PASSWORD) == own  # this computer's key stays its own
+    with pytest.raises(KeyFileError):
+        secret_notes.adopt(files, own, number, apart)

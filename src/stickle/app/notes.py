@@ -92,6 +92,7 @@ from stickle.data.notes import (
     NoteNotFoundError,
     NoteNotSecretError,
     NoteRepository,
+    adopt_sealed,
     match_sealed,
 )
 from stickle.data.settings import (
@@ -1677,7 +1678,12 @@ class NoteManager(QObject):
             or window.note_id is None
         ):
             return
-        dialog = OpenSecretDialog(passwords, window.secret_name, window)
+        try:
+            shown = self._repository.get(window.note_id)
+        except apsw.Error:
+            shown = None
+        sealed_with = None if shown is None else shown.key_number
+        dialog = OpenSecretDialog(passwords, window.secret_name, window, sealed_with=sealed_with)
         opened = dialog.take_key() if ask_secret(dialog) else None
         if opened is None:
             return
@@ -1747,8 +1753,8 @@ class NoteManager(QObject):
             return True
         here = matching.number_here()
         said = None if sealed.key_number == here else sealed.key_number
-        # One sealed with neither key is tried all the same: it does not open.
-        return said == number or said not in (None, matching.target())
+        # One sealed with none of the keys here is tried all the same: it does not open.
+        return said == number or said not in (None, matching.target(), *matching.apart())
 
     def _open_with(self, key: bytes, number: str | None, note_id: str, sealed: SealedText) -> str:
         """A text opened with the key a window holds; with this computer's, the
@@ -2142,6 +2148,27 @@ class NoteManager(QObject):
         self.show_unmatched(frozenset())
         if count:
             self.secrets_matched(count, aside)
+            self.note_saved.emit()
+        self.changed.emit()
+        return count
+
+    def adopt_apart_key(self, own: bytes, number: str, key: bytes) -> int:
+        """The notes sealed with a key another computer used apart (key, numbered
+        number) sealed again with this computer's (own), first, then that key
+        kept among the old ones. The open ones that hold it hold own from then
+        on. How many were sealed again."""
+        matching = None if self.secrets is None else self.secrets.matching
+        if self._repository is None or matching is None:
+            raise RuntimeError("nothing to move here")
+        for window in list(self._keys):
+            self.flush(window)  # as typed, sealed again with the rest
+        count = adopt_sealed(self._repository, own, number, key, matching.keep_adopted)
+        log.info("secret notes of a key used apart sealed again: %d", count)
+        for window, held in list(self._keys.items()):
+            if self._key_numbers.get(window) == number:
+                _wipe(held)
+                self._hold(window, bytearray(own), None)
+        if count:
             self.note_saved.emit()
         self.changed.emit()
         return count

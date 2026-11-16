@@ -122,6 +122,27 @@ def sealed_here(connection: apsw.Connection, old: Iterable[str] = ()) -> list[st
     )
 
 
+def sealed_with(connection: apsw.Connection, number: str) -> bool:
+    """Whether a note here (in the trash too) is sealed with the key numbered number."""
+    rows = connection.execute(
+        "SELECT 1 FROM notes WHERE secret_body IS NOT NULL AND secret_key_number = ? LIMIT 1",
+        (number,),
+    ).fetchall()
+    return bool(rows)
+
+
+def sealed_here_in_vault(connection: apsw.Connection, vault: str) -> bool:
+    """Whether a secret note sealed with this computer's key is in the vault
+    (went there while its key was the vault's, as this computer saw it)."""
+    rows = connection.execute(
+        "SELECT 1 FROM notes JOIN sync_notes ON sync_notes.vault = ?"
+        " AND sync_notes.note_id = notes.id"
+        " WHERE notes.secret_body IS NOT NULL AND notes.secret_key_number IS NULL LIMIT 1",
+        (vault,),
+    ).fetchall()
+    return bool(rows)
+
+
 def changed_at(connection: apsw.Connection, vault: str) -> list[tuple[str, str]]:
     """Notes that changed here since they were last merged, or never were: by
     id, with when they last changed."""

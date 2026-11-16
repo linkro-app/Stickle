@@ -1884,6 +1884,22 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <source>Match secret note passwords</source>
         <translation>비밀 메모 암호 맞추기</translation>
     </message>
+    <message>
+        <source>another computer</source>
+        <translation>다른 PC</translation>
+    </message>
+    <message>
+        <source>This secret note is locked with the password %1 used for its own secret notes. Enter it, and every secret note locked with it switches to your current password and opens everywhere.</source>
+        <translation>이 비밀 메모는 %1에서 따로 쓰던 암호로 잠겨 있습니다. 그 암호를 넣으면 그 암호로 잠긴 비밀 메모를 모두 지금 비밀 메모 암호로 바꿔 모든 PC에서 엽니다.</translation>
+    </message>
+    <message>
+        <source>The &amp;password %1 used for its secret notes:</source>
+        <translation>%1에서 따로 쓰던 비밀 메모 암호(&amp;P):</translation>
+    </message>
+    <message>
+        <source>The password %1 used for its secret notes</source>
+        <translation>%1에서 따로 쓰던 비밀 메모 암호</translation>
+    </message>
     <message numerus="yes">
         <source>%n secret note(s) on this computer are locked with a different password, so they don&apos;t go to your other computers. Enter it, and they&apos;ll switch to your current password and open everywhere.</source>
         <translation>

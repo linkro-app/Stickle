@@ -635,7 +635,7 @@ class KeysHere:
             if isinstance(taken, SecretOther):
                 try:
                     if self._unlock.keep_other_secret_key(
-                        taken.number, taken.password, taken.recovery
+                        taken.number, taken.password, taken.recovery, taken.vault, taken.by
                     ):
                         log.info("sync: the other computers' secret notes' key kept beside")
                 except (KeyFileError, OSError) as error:  # kept at a later round
@@ -832,6 +832,9 @@ def secret_passwords(
             match=matched.match,
             not_matched=keep_for_recovery_key,
             keep_matched=unlock.match_secret_notes,
+            apart=unlock.apart_secret_keys,
+            adopt=matched.adopt,
+            keep_adopted=unlock.adopt_secret_key,
         )
     )
     return SecretPasswords(
@@ -859,6 +862,9 @@ class MatchedHere:
     vault_key: Callable[[], str | None]  # the number of the vault's key, if this one syncs
     sealed_here: Callable[[], int]
     match: Callable[[bytes | None, str, bytes], int]
+    # The notes of a key another computer used apart sealed with this one's
+    # (stickle.app.notes.NoteManager.adopt_apart_key).
+    adopt: Callable[[bytes, str, bytes], int]
 
 
 def match_target(others: Sequence[str], vault_key: str | None) -> str | None:
@@ -1368,6 +1374,7 @@ def run(
                 lambda: None if syncing is None else syncing.vault_secret_key(),
                 manager.sealed_here,
                 manager.match_secret_keys,
+                manager.adopt_apart_key,
             )
             if perf is None
             else None,

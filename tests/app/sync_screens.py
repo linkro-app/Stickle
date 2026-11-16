@@ -647,14 +647,15 @@ def _recovery_key_before_new(stage: Stage) -> QWidget:
     return dialog
 
 
-def _matching(kind: MatchKind, count: int) -> Callable[[Stage], QWidget]:
-    """The window that matches the secret notes' passwords, one of them opened."""
+def _matching(kind: MatchKind, count: int, by: str | None = None) -> Callable[[Stage], QWidget]:
+    """The window that matches the secret notes' passwords, one of them opened
+    (apart: a note sealed with a key the computer named by used apart)."""
 
     def build(stage: Stage) -> QWidget:
         def never(_typed: str) -> bytes:
             raise WrongPasswordError
 
-        return stage.keep(MatchSecretDialog(kind, count, never, never))
+        return stage.keep(MatchSecretDialog(kind, count, never, never, None, None, by))
 
     return build
 
@@ -908,6 +909,9 @@ SCENES: list[Scene] = [
     Scene("secret-notes-match-here", _matching("here", 3)),
     Scene("secret-notes-match-here-none", _matching("here", 0)),
     Scene("secret-notes-match-there", _matching("there", 3)),
+    Scene("secret-notes-match-apart", _matching("apart", 0, "노트북")),
+    Scene("secret-notes-match-apart-unknown", _matching("apart", 0)),
+    Scene("secret-notes-match-apart-long-name", _matching("apart", 0, LONG_NAME)),
     Scene("manager-told-secret-notes-matched", _manager_matched(old_key=True)),
     Scene("manager-told-secret-notes-matched-kept", _manager_matched(old_key=False)),
     Scene("note-unmatched", _note_unmatched, keyboard=False),
