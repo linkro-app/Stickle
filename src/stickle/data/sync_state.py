@@ -28,9 +28,12 @@ class NoteState:
     merged_seq: int = 0  # the note's change number when last merged
     deleted: bool = False  # its text is at a version that deletes it
     gone: bool = False  # its file went from the vault: kept here only, not looked for
+    # A deletion came for it while it was being edited here, and waits: its file
+    # gone later is that deletion's year in the vault over, not the vault gone back.
+    held_gone: bool = False
 
 
-_COLUMNS = "seen, tag, outbox, merged_seq, deleted, gone"
+_COLUMNS = "seen, tag, outbox, merged_seq, deleted, gone, held_gone"
 
 
 def _text(value: object) -> str | None:
@@ -38,7 +41,7 @@ def _text(value: object) -> str | None:
 
 
 def _state(row: apsw.SQLiteValues) -> NoteState:
-    seen, tag, outbox, seq, deleted, gone = row
+    seen, tag, outbox, seq, deleted, gone, held_gone = row
     return NoteState(
         _text(seen),
         _text(tag),
@@ -46,6 +49,7 @@ def _state(row: apsw.SQLiteValues) -> NoteState:
         int(seq),  # pyright: ignore[reportArgumentType]
         bool(deleted),
         bool(gone),
+        bool(held_gone),
     )
 
 
@@ -58,10 +62,11 @@ def get(connection: apsw.Connection, vault: str, note_id: str) -> NoteState | No
 
 def put(connection: apsw.Connection, vault: str, note_id: str, state: NoteState) -> None:
     connection.execute(
-        "INSERT INTO sync_notes (vault, note_id, seen, tag, outbox, merged_seq, deleted, gone)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (vault, note_id) DO UPDATE SET"
-        " seen = excluded.seen, tag = excluded.tag, outbox = excluded.outbox,"
-        " merged_seq = excluded.merged_seq, deleted = excluded.deleted, gone = excluded.gone",
+        "INSERT INTO sync_notes (vault, note_id, seen, tag, outbox, merged_seq, deleted, gone,"
+        " held_gone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (vault, note_id) DO UPDATE"
+        " SET seen = excluded.seen, tag = excluded.tag, outbox = excluded.outbox,"
+        " merged_seq = excluded.merged_seq, deleted = excluded.deleted, gone = excluded.gone,"
+        " held_gone = excluded.held_gone",
         (
             vault,
             note_id,
@@ -71,6 +76,7 @@ def put(connection: apsw.Connection, vault: str, note_id: str, state: NoteState)
             state.merged_seq,
             int(state.deleted),
             int(state.gone),
+            int(state.held_gone),
         ),
     )
 

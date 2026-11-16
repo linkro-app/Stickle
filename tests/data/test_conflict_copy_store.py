@@ -24,7 +24,6 @@ from stickle.data.notes import (
     NoteRepository,
 )
 from stickle.data.schema import MIGRATIONS, open_store
-from stickle.data.sync_state import NoteState
 from stickle.data.versions import VersionRepository
 from stickle.importers.stickle_export import bring_in_export, read_export
 
@@ -195,7 +194,11 @@ def test_the_upgrade_has_copies_made_before_merged_again(tmp_path: Path) -> None
             " '2026-11-01T00:00:00.000Z', '', 5)",
             (note_id,),
         )
-        sync_state.put(connection, "vault", note_id, NoteState(seen, "tag", None, 5))
+        connection.execute(  # as version 24 keeps it
+            "INSERT INTO sync_notes (vault, note_id, seen, tag, merged_seq)"
+            " VALUES ('vault', ?, ?, 'tag', 5)",
+            (note_id, seen),
+        )
     connection.close()
 
     connection = open_store(path, KEY)

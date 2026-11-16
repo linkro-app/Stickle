@@ -13,6 +13,8 @@ from fake_cloud import DROPBOX, FakeCloud
 from sync_bed import Clock, Device, cloud_notes, settle
 
 from stickle.core.being_edited import Editing
+from stickle.sync.format import NOTES, item_path
+from stickle.sync.merge import YEAR
 
 
 @pytest.fixture
@@ -204,3 +206,40 @@ def test_what_was_told_of_a_note_held_is_told_again(pair: tuple[Device, Device])
     a.sync()
 
     assert a.notes.get(note_id).body == "회의 10시"  # pyright: ignore[reportOptionalMemberAccess]
+
+
+@pytest.mark.parametrize("typed", [False, True])
+def test_emptied_elsewhere_while_edited_here_for_a_year_and_more_it_never_comes_back(
+    pair: tuple[Device, Device], cloud: FakeCloud, typed: bool
+) -> None:
+    # The deletion waits here for the edit to end, and its year in the vault is
+    # over meanwhile (its file gone): that is not the vault gone back. Its text
+    # goes to the trash, as one emptied elsewhere while edited here does.
+    a, b = pair
+    note_id = shared(a, b)
+    a.editing.begin(note_id)
+    b.notes.delete(note_id)
+    b.notes.purge(note_id)
+    b.sync()
+    assert a.sync().held == [note_id]
+    for _ in range(3):  # a year and more on: a syncs on all the while
+        a.clock.tick(YEAR // 2 + 24 * 60 * 60 * 1000)
+        b.sync()
+        a.sync()
+    assert item_path(NOTES, note_id) not in cloud.files()  # the deletion's year is over
+    if typed:
+        a.notes.update_body(note_id, "회의 9시 반")
+
+    a.editing.end(note_id)
+    report = a.sync()
+    b.sync()
+
+    assert report.trashed == []  # not one told of as emptied while away
+    note = a.notes.get(note_id)
+    assert note is not None and note.deleted_at is not None  # in the trash here
+    there = b.notes.get(note_id)
+    if typed:  # what was typed goes to the others, in the trash
+        assert there is not None and there.deleted_at is not None
+        assert there.body == "회의 9시 반"
+    else:
+        assert there is None and item_path(NOTES, note_id) not in cloud.files()

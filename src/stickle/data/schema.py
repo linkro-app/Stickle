@@ -627,10 +627,17 @@ V28 = """
 ALTER TABLE note_versions ADD COLUMN boxed INTEGER NOT NULL DEFAULT 0;
 """
 
+V29 = """
+-- A deletion came for the note while it was being edited here (what came
+-- waited for the edit to end, and was not seen): its file gone later is the
+-- deletion's year in the vault over, not the vault gone back.
+ALTER TABLE sync_notes ADD COLUMN held_gone INTEGER NOT NULL DEFAULT 0;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27, V28),
+    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27, V28, V29),
 ]
 BACKUPS_KEPT = 3
 

@@ -803,7 +803,8 @@ class _Round:
             if state is None or state.seen is None or state.gone or state.deleted:
                 return []
             away = self._last is not None and self._now() - self._last > YEAR
-            if away and at.note.deleted_at is None:  # emptied elsewhere and cleared since
+            # Emptied elsewhere and cleared since.
+            if (away or state.held_gone) and at.note.deleted_at is None:
                 out.append(Held(note_id, sync_held.TRASH))
             return out
         if cloud is not None:
@@ -1233,6 +1234,12 @@ class _Round:
         if at.note is not None and seq != at.note.change_seq:
             self._report.changed.append(note_id)
         self._report.held.append(note_id)
+        # A deletion waiting is noted: should its file go meanwhile (its year in
+        # the vault over), that is not taken for the vault gone back (_lost).
+        state = sync_state.get(self._db, self._place.vault, note_id)
+        if state is not None and state.held_gone != merged.body.deleted:
+            put = replace(state, held_gone=merged.body.deleted)
+            sync_state.put(self._db, self._place.vault, note_id, put)
 
     def _lost(self, note_id: str, state: NoteState, seen: NoteFile) -> bool:
         """Its file read, and none there: True to put this device's back; False,
@@ -1254,8 +1261,12 @@ class _Round:
                 sync_state.drop(self._db, vault, note_id)
                 self._notes.forget_deletion(note_id)
             return False
-        if self._last is None or now - self._last <= YEAR:
-            return True  # it cannot have been cleared: the vault went back, or it was deleted
+        # It cannot have been cleared (the vault went back, or it was deleted)
+        # unless this device was away for more than a year, or a deletion of it
+        # waited here for an edit to end.
+        away = self._last is not None and now - self._last > YEAR
+        if not (away or state.held_gone):
+            return True
         mine = self._mine(at, state)
         if at.note is not None and at.note.deleted_at is None:
             with self._taking() as edited:
@@ -1263,7 +1274,8 @@ class _Round:
                     self._report.held.append(note_id)
                     return False  # in the trash once its edit is over
                 self._notes.delete(note_id)
-            self._report.trashed.append(note_id)
+            if away:  # told once (a deletion that waited for an edit is not)
+                self._report.trashed.append(note_id)
             self._report.changed.append(note_id)
         if mine is not None and mine.body.id != seen.body.id:
             return True  # edited here since: put in the trash, with its text
