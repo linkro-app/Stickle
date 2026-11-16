@@ -195,6 +195,7 @@ class Device:
         self.colors = ColorRepository(self.db, clock=stamp, millis=millis)
         self.reminders = ReminderRepository(self.db, clock=stamp, device=self.id, millis=millis)
         self.imports = ImportRecords(self.db, clock=stamp, millis=millis)
+        self.settings = Settings(self.db, clock=stamp, millis=millis)
 
     def mark_name(self, mark_id: str, name: str | None) -> str:
         return name or self.names.get(mark_id, mark_id)
@@ -502,6 +503,7 @@ _TABLES = {
     "marks": "id, name, icon, position, created_at, deleted_at, merged_into",
     "custom_colors": "id, hex, position, created_at, deleted_at",
     "import_records": "source, source_id, content_hash, note_id, imported_at",
+    "shared_settings": "key, value",
     _REMINDERS: "note_id, kind, calendar, start_day, at_time,"
     " time_zone, repeat, weekdays, hide_note, first_day, next_day, snoozed_until, acked_at,"
     " acked_device",
@@ -516,7 +518,8 @@ def _rows(device: Device, table: str, columns: str) -> list[tuple[object, ...]]:
 
 def records_agree(devices: list[Device], made: dict[str, set[str]]) -> None:
     """Every device has the records alike: categories, marks, colours, notes
-    brought in, reminders; of those not deleted nor become one with another, one
+    brought in, reminders, the settings that follow the user; of those not
+    deleted nor become one with another, one
     of each name (a mark's, as it is stored; a colour's value); and every one
     made (made: table -> ids) is there."""
     first = devices[0]

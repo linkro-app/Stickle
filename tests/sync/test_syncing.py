@@ -37,7 +37,7 @@ from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import open_store
-from stickle.data.settings import Settings
+from stickle.data.settings import MAGNET, Settings
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.data.versions import VersionRepository
 from stickle.sync import schedule as schedule_module
@@ -418,6 +418,26 @@ def test_a_category_both_know_given_elsewhere_shows(pc: Pc) -> None:
     window = pc.window_of(note_id)
     assert window is not None and window.category is not None
     assert window.category.id == category.id
+
+
+def test_a_setting_changed_elsewhere_is_in_use_here_at_once(pc: Pc) -> None:
+    pc.other.settings.set(MAGNET, False)
+    pc.other_syncs()
+
+    with pc.qtbot.waitSignal(pc.manager.settings_taken, timeout=ROUND_MS):
+        pc.round()
+
+    assert pc.manager.magnet is False
+
+
+def test_a_setting_changed_here_goes_a_moment_later(
+    pc: Pc, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(schedule_module, "EDIT_WAIT", 0.05)
+    with pc.qtbot.waitSignal(pc.syncing.round_shown, timeout=ROUND_MS):
+        pc.manager.set_magnet(False)
+    pc.other_syncs()
+    assert pc.other.settings.get(MAGNET) is False
 
 
 def test_a_change_here_goes_a_moment_later(pc: Pc, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,10 +1,11 @@
 """Settings, in two kinds.
 
-Device settings belong to this computer only (autostart, ...; the language,
-needed before the database opens, is in stickle.data.startup).
-Shared settings will follow the user to every device once sync exists
-(default colour, categories, ...); each records when and on which device it
-last changed, so sync can later pick the newest per setting.
+Device settings belong to this computer only (autostart, shortcuts, ...; the
+language, needed before the database opens, is in stickle.data.startup).
+Shared settings follow the user to every device that syncs (the magnet, the
+morning of reminders, ...): each is a record (stickle.data.record_stamps,
+SETTING) whose one field is stamped when it changes here, so that sync keeps
+the later change of each (stickle.sync.local_records).
 
 Every setting is declared once here, with its kind, default and allowed
 values; reads and writes are checked against that declaration.
@@ -12,16 +13,18 @@ values; reads and writes are checked against that declaration.
 
 import json
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Literal, TypeGuard, cast
 
 import apsw
 
-from stickle.core.clock import Clock, utc_now
+from stickle.core.clock import Clock, millis_at, utc_now
 from stickle.core.colors import is_hex
 from stickle.core.note import DEFAULT_COLOR
 from stickle.core.updates import version_key
+from stickle.data import record_stamps
+from stickle.data.record_stamps import SETTING, VALUE
 
 type Scope = Literal["device", "shared"]
 
@@ -376,6 +379,7 @@ def _let_go(value: object) -> TypeGuard[list[dict[str, str | None]]]:
 # of Stickle Manager, one at a time, until OK.
 SYNC_LET_GO = Setting[list[dict[str, str | None]]]("sync_let_go", "device", [], _let_go)
 
+# Every setting, by its key (a test checks none is left out).
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -399,6 +403,9 @@ SETTINGS: dict[str, Setting[object]] = {
         PROTECTION_CHANGES,
         MORNING,
         SNOOZE_MINUTES,
+        RECENT_CALENDARS,
+        SYNC_EVERY,
+        DEVICE_NAME,
         HIDE_FOR_FULL_SCREEN,
         FULL_SCREEN_EXCEPTIONS,
         CLOUD_FOLDER_TOLD,
@@ -412,12 +419,38 @@ SETTINGS: dict[str, Setting[object]] = {
         SYNC_LET_GO,
     )
 }
+# Those that follow the user to every device.
+SHARED = tuple(key for key, each in SETTINGS.items() if each.scope == "shared")
+
+
+def _decoded(text: object) -> object:
+    try:
+        return json.loads(str(text))
+    except ValueError:
+        return None
+
+
+def let_go(connection: apsw.Connection, keys: Iterable[str] = SHARED) -> None:
+    """These shared settings as never changed here, whatever they hold: the
+    value another device gave one comes in its place (this one's stays where
+    none did)."""
+    for key in keys:
+        if connection.execute("SELECT 1 FROM shared_settings WHERE key = ?", (key,)).fetchall():
+            record_stamps.let_go(connection, SETTING, key, [VALUE])
 
 
 class Settings:
-    def __init__(self, connection: apsw.Connection, clock: Clock = utc_now) -> None:
+    def __init__(
+        self,
+        connection: apsw.Connection,
+        clock: Clock = utc_now,
+        millis: Callable[[], int] | None = None,
+    ) -> None:
+        """millis: the time a shared setting changed is stamped with (as notes
+        are: the cloud's, while syncing); by default, the clock's."""
         self._db = connection
         self._clock = clock
+        self._millis = millis or (lambda: millis_at(self._clock()))
 
     def get[T](self, setting: Setting[T]) -> T:
         table = "device_settings" if setting.scope == "device" else "shared_settings"
@@ -442,16 +475,25 @@ class Settings:
                     (setting.key, encoded),
                 )
             else:
+                rows = self._db.execute(
+                    "SELECT value FROM shared_settings WHERE key = ?", (setting.key,)
+                ).fetchall()
+                if rows and _decoded(rows[0][0]) == value:
+                    return  # as it is: no change for the other devices
                 self._db.execute(
                     "INSERT INTO shared_settings (key, value, updated_at, updated_by)"
                     " VALUES (?, ?, ?, ?) ON CONFLICT (key) DO UPDATE SET"
                     " value = excluded.value, updated_at = excluded.updated_at,"
                     " updated_by = excluded.updated_by",
-                    (setting.key, encoded, self._clock(), self.device_id()),
+                    # Not made here if there is none yet: sync goes by this device's id.
+                    (setting.key, encoded, self._clock(), self.get(DEVICE_ID) or ""),
                 )
+                record_stamps.changed(self._db, SETTING, setting.key, [VALUE], self._millis())
 
     def clear[T](self, setting: Setting[T]) -> None:
-        """Back to its default, its row gone."""
+        """Back to its default, its row gone: a device's own setting (a shared
+        one is set to its default, for the other devices to follow)."""
+        assert setting.scope == "device", setting.key
         table = "device_settings" if setting.scope == "device" else "shared_settings"
         with self._db:
             self._db.execute(f"DELETE FROM {table} WHERE key = ?", (setting.key,))

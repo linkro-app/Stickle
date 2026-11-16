@@ -2,9 +2,11 @@
 every computer at the next round, as any change made there; a note emptied
 since comes back; the notes made since stay; what did not change since goes
 nowhere; a text changed elsewhere meanwhile is kept in a conflict copy; going
-back again to the notes as they were before brings every computer back. One
-that does not sync goes back alone, and the cloud gives back what was made
-since once it syncs again."""
+back again to the notes as they were before brings every computer back. The
+settings that follow the user go back on every computer too, but which
+recovery key was said kept, as the key files are not gone back to. One that
+does not sync goes back alone, and the cloud gives back what was made since
+once it syncs again."""
 
 from collections.abc import Iterator
 from datetime import date, time
@@ -15,9 +17,10 @@ from fake_cloud import DROPBOX, FakeCloud
 from sync_bed import KEY, KEYS, VAULT, Clock, Device, settle
 
 from stickle.core.reminders import Rule
-from stickle.data import backups, sync_connection
+from stickle.data import backups, record_stamps, sync_connection
 from stickle.data.going_back import GoneBack, keep_sync_state
-from stickle.data.settings import SYNC_GONE_BACK, Settings
+from stickle.data.record_stamps import SETTING
+from stickle.data.settings import MORNING, RECOVERY_KEY_KEPT, SYNC_GONE_BACK, Settings
 from stickle.data.versions import VersionRepository
 
 DAY = 24 * 60 * 60 * 1000
@@ -279,3 +282,44 @@ def test_a_category_renamed_since_goes_back_everywhere(pair: tuple[Device, Devic
     for device in pair:
         names = {each.id: each.name for each in device.labels.categories()}
         assert names[category.id] == "회사"
+
+
+def test_a_setting_gone_back_to_goes_to_every_computer(pair: tuple[Device, Device]) -> None:
+    a, b = pair
+    a.settings.set(MORNING, "07:00")
+    settle([a, b])
+    backup = back_up(a)
+    b.clock.tick()
+    b.settings.set(MORNING, "09:30")
+    settle([a, b])
+
+    go_back(a, backup)
+    settle([a, b])
+
+    for device in pair:
+        assert device.settings.get(MORNING) == "07:00"
+
+
+def test_which_recovery_key_was_said_kept_is_not_gone_back_on(pair: tuple[Device, Device]) -> None:
+    a, b = pair
+    a.settings.set(RECOVERY_KEY_KEPT, "a" * 64)
+    settle([a, b])
+    backup = back_up(a)
+    b.clock.tick()
+    b.settings.set(RECOVERY_KEY_KEPT, "b" * 64)
+    settle([a, b])
+    stamped = record_stamps.of(a.db, SETTING, RECOVERY_KEY_KEPT.key)
+
+    a.clock.tick()  # as Stickle does it, the key files' state kept first
+    backups.stage_restore(a.path, backup)
+    backups.keep_key_state(a.path, KEY, a.db)
+    keep_sync_state(a.path, KEY, a.db, a.millis())
+    a.db.close()
+    assert backups.finish_restore(a.path)
+    a.reopen()
+
+    assert a.settings.get(RECOVERY_KEY_KEPT) == "b" * 64
+    assert record_stamps.of(a.db, SETTING, RECOVERY_KEY_KEPT.key) == stamped  # no change
+    settle([a, b])
+    for device in pair:
+        assert device.settings.get(RECOVERY_KEY_KEPT) == "b" * 64

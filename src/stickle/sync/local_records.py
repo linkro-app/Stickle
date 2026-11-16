@@ -1,6 +1,6 @@
 """A record here (a category, a mark, a colour of the user's own, a note of
-another app brought in) as a record file (stickle.sync.record_file), and a
-record file taken in.
+another app brought in, a setting that follows the user to every device) as a
+record file (stickle.sync.record_file), and a record file taken in.
 
 The fields are the row's columns, by their names below: a category's and a
 mark's name, colour, icon, place in the order, when it was made, when it was
@@ -8,7 +8,9 @@ deleted (or null) and the one of the same name it became one with (or null);
 a colour's value as #rrggbb, place, when made and deleted. A note brought in
 has a field for each note it became here, "note:<id>", whose value is the hash
 of its text as it came and when ({"text": "<sha256>", "at": "<time>"}), or the
-mark "secret" for its text once that note was made secret. A field never
+mark "secret" for its text once that note was made secret. A setting has
+one field, "value", as stickle.data.settings keeps it; one of a key this version
+does not know, or kept on each device alone, is not taken. A field never
 changed here goes as changed at the earliest time of all, by this device;
 fields this version does not keep go as last seen in the vault.
 
@@ -16,6 +18,7 @@ As for notes, a value this version cannot take (one of another shape) is left
 in the file and not taken here.
 """
 
+import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -29,7 +32,16 @@ from stickle.core.labels import BUILT_IN_MARKS
 from stickle.data import record_stamps
 from stickle.data.imports import SECRET_MARK
 from stickle.data.labels import become
-from stickle.data.record_stamps import CATEGORY, COLOR, IMPORT, MARK, imported_field
+from stickle.data.record_stamps import (
+    CATEGORY,
+    COLOR,
+    IMPORT,
+    MARK,
+    SETTING,
+    VALUE,
+    imported_field,
+)
+from stickle.data.settings import SETTINGS
 from stickle.data.stamps import Stamp
 from stickle.sync.contents import Contents, Field
 from stickle.sync.format import Json, is_id
@@ -60,6 +72,7 @@ COLUMNS: dict[str, dict[str, str]] = {
         MERGED_INTO: "merged_into",
     },
     COLOR: {"hex": "hex", "position": "position", MADE: "created_at", DELETED: "deleted_at"},
+    SETTING: {VALUE: "value"},
 }
 TABLES = {CATEGORY: "categories", MARK: "marks", COLOR: "custom_colors"}
 _IMPORTED = imported_field("")
@@ -95,10 +108,30 @@ def _imported(connection: apsw.Connection, item: str) -> dict[str, Json] | None:
     return values
 
 
+def _shared(item: str) -> bool:
+    """Whether a setting of this key follows the user to every device."""
+    setting = SETTINGS.get(item)
+    return setting is not None and setting.scope == "shared"
+
+
+def _setting(connection: apsw.Connection, item: str) -> dict[str, Json] | None:
+    if not _shared(item):
+        return None
+    rows = connection.execute("SELECT value FROM shared_settings WHERE key = ?", (item,)).fetchall()
+    if not rows:
+        return None
+    try:
+        return {VALUE: cast(Json, json.loads(str(rows[0][0])))}
+    except ValueError:  # not ours to read: as none here
+        return None
+
+
 def here(connection: apsw.Connection, kind: str, item: str) -> HereRecord:
     values: dict[str, Json] | None
     if kind == IMPORT:
         values = _imported(connection, item)
+    elif kind == SETTING:
+        values = _setting(connection, item)
     else:
         columns = COLUMNS[kind]
         listed = ", ".join(columns.values())
@@ -139,6 +172,8 @@ def mine(
 
 
 def _ours(kind: str, name: str) -> bool:
+    if kind == SETTING:
+        return name == VALUE
     if kind == IMPORT:
         return name.startswith(_IMPORTED) and is_id(name.removeprefix(_IMPORTED))
     return name in COLUMNS[kind]
@@ -150,8 +185,10 @@ def _time(value: Json, empty: bool = False) -> object:
     return value if isinstance(value, str) and _TIMESTAMP.fullmatch(value) else _NOT_TAKEN
 
 
-def _value(kind: str, name: str, value: Json) -> object:
+def _value(kind: str, name: str, value: Json, item: str = "") -> object:
     """value as the column takes it, or _NOT_TAKEN."""
+    if kind == SETTING:
+        return value if _shared(item) and SETTINGS[item].check(value) else _NOT_TAKEN
     if kind == IMPORT:
         if not isinstance(value, dict):
             return _NOT_TAKEN
@@ -267,6 +304,17 @@ def _write_imported(connection: apsw.Connection, item: str, values: Mapping[str,
         )
 
 
+def _write_setting(
+    connection: apsw.Connection, item: str, value: object, by: str, now: str
+) -> None:
+    connection.execute(
+        "INSERT INTO shared_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)"
+        " ON CONFLICT (key) DO UPDATE SET value = excluded.value,"
+        " updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+        (item, json.dumps(value), now, by),
+    )
+
+
 def take(
     connection: apsw.Connection, device: str, record: RecordFile, at: HereRecord, now: str
 ) -> int | None:
@@ -286,7 +334,7 @@ def take(
             and at.sent.get(name) == each.sent
         ):
             continue
-        value = _value(kind, name, each.value)
+        value = _value(kind, name, each.value, item)
         if value is _NOT_TAKEN:
             continue
         values[name] = value
@@ -297,6 +345,10 @@ def take(
         if not values:
             return None
         _write_imported(connection, item, values)
+    elif kind == SETTING:
+        if VALUE not in values:
+            return None
+        _write_setting(connection, item, values[VALUE], record.contents.fields[VALUE].device, now)
     elif not _write_row(connection, kind, item, values, at.values is None, now):
         return None
     for name, (stamp, sent) in stamped.items():

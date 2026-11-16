@@ -1149,7 +1149,7 @@ def run(
 
         manager = NoteManager(
             NoteRepository(connection, clocks.stamp, clocks.millis) if connection else None,
-            settings=Settings(connection) if connection else None,
+            settings=Settings(connection, clocks.stamp, clocks.millis) if connection else None,
             layouts=LayoutRepository(connection) if connection else None,
             labels=LabelRepository(connection, clocks.stamp, clocks.millis) if connection else None,
             colors=ColorRepository(connection, clocks.stamp, clocks.millis) if connection else None,
@@ -1246,7 +1246,7 @@ def run(
                     connection, device=Settings(connection).device_id(), millis=clocks.millis
                 ),
                 manager,
-                Settings(connection),
+                Settings(connection, clocks.stamp, clocks.millis),
                 notify=notifier(tray, tray_available),
                 zone=system_zone(),
             )

@@ -14,7 +14,8 @@ from dataclasses import dataclass
 
 import apsw
 
-from stickle.data.record_stamps import CATEGORY, COLOR, IMPORT, MARK
+from stickle.data.record_stamps import CATEGORY, COLOR, IMPORT, MARK, SETTING
+from stickle.data.settings import SHARED
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,8 @@ _HERE = f"""
     UNION ALL SELECT '{MARK}', id FROM marks
     UNION ALL SELECT '{COLOR}', id FROM custom_colors
     UNION SELECT '{IMPORT}', source || char(10) || source_id FROM import_records
+    UNION ALL SELECT '{SETTING}', key FROM shared_settings
+        WHERE key IN ({", ".join(f"'{key}'" for key in SHARED)})
 """
 
 

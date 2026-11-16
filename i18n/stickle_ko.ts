@@ -968,6 +968,17 @@ These files are not encrypted: keep them somewhere safe.</source>
     </message>
 </context>
 <context>
+    <name>Everywhere</name>
+    <message>
+        <source>All computers</source>
+        <translation>모든 PC</translation>
+    </message>
+    <message>
+        <source>Changes on all your syncing computers.</source>
+        <translation>동기화하는 모든 PC에서 함께 바뀝니다.</translation>
+    </message>
+</context>
+<context>
     <name>ExportedSecretsDialog</name>
     <message>
         <source>Bring in secret notes</source>

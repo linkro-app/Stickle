@@ -634,10 +634,18 @@ V29 = """
 ALTER TABLE sync_notes ADD COLUMN held_gone INTEGER NOT NULL DEFAULT 0;
 """
 
+V30 = f"""
+-- A setting that follows the user to every device (stickle.data.settings) is a
+-- record of kind 'setting', its key the item, with one field, 'value': changed
+-- when its row last was.
+INSERT OR IGNORE INTO record_stamps (kind, item, field, hlc)
+    SELECT 'setting', key, 'value', {_changed_at("updated_at")} FROM shared_settings;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27, V28, V29),
+    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30),
 ]
 BACKUPS_KEPT = 3
 

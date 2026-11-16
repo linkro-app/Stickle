@@ -98,7 +98,9 @@ def give_news(
     notes: NoteRepository, settings: Settings, first_start: bool, version: str = __version__
 ) -> str | None:
     """The note for this version if it is new to this user; its id, or None.
-    At first start the welcome note says it all: only remembered."""
+    At first start the welcome note says it all: only remembered. Not made where
+    it is already, in the trash too, or was emptied from it: given on another
+    device that syncs, it is the same note."""
     try:
         seen = settings.get(NEWS_SEEN)
         if first_start:
@@ -112,7 +114,7 @@ def give_news(
         settings.set(NEWS_SEEN, version)
         text = news(version)
         note_id = news_note_id(version)
-        if text is None or notes.get(note_id) is not None:
+        if text is None or notes.get(note_id) is not None or notes.was_emptied(note_id):
             return None
         notes.create(text, COLOR, note_id)
         log.info("what's new note for %s", release_line(version))

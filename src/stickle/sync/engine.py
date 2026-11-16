@@ -76,9 +76,12 @@ put (stickle.core.made_notes: they can be made again, and the vault stands for
 them); a note of its own with the same text as one of the vault's, both out of
 the trash, is folded into that one, as one note changed on two devices (its
 places on screen, size and earlier texts handed over), and no big change is
-stopped for. What that would make is told before (first_look), nothing of it
-kept but the files read; keeping only the vault's notes instead (cloud_only)
-backs up first and removes this device's without a trace.
+stopped for. Its settings that follow the user merge as any record does, each
+the later change (one never changed here takes the vault's); which recovery
+key its user said they keep, said of its own, is let go of (joined). What that
+would make is told before (first_look), nothing of it kept but the files read;
+keeping only the vault's notes instead (cloud_only) backs up first and removes
+this device's without a trace, and lets go of its settings.
 
 A note being edited on screen (stickle.core.being_edited) keeps what is typed: what
 would change its text, lock it, put it in the trash or empty it, or make a
@@ -112,11 +115,11 @@ from stickle.core.note import Note
 from stickle.crypto.sealed import SealedSlot
 from stickle.crypto.secret_notes import BOX, box_of, key_number, old_numbers, others_of
 from stickle.crypto.vault_keys import RECOVERY_KEY
-from stickle.data import record_state, sync_held, sync_keys, sync_staged, sync_state
+from stickle.data import record_state, settings, sync_held, sync_keys, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import CATEGORY, MARK
 from stickle.data.reminders import TEXT_FIELD
-from stickle.data.settings import DEVICE_ID, Settings
+from stickle.data.settings import DEVICE_ID, RECOVERY_KEY_KEPT, Settings
 from stickle.data.sync_held import Held
 from stickle.data.sync_left import NOT_OURS, READ_ONLY
 from stickle.data.sync_staged import Staged
@@ -334,10 +337,13 @@ def _writable(note: NoteFile) -> bool:
 def joined(connection: apsw.Connection, vault: str) -> None:
     """This device has just joined the vault, which was there before it: until
     a round with it is through, its rounds merge as a first connection does,
-    and it takes the vault's recovery key and master password for its own."""
+    and it takes the vault's recovery key and master password for its own. Which
+    recovery key its user said they keep was said of its own: the vault's word
+    on that comes in its place (the caller says so anew, the vault's key typed)."""
     with writing(connection):
         sync_state.set_joining(connection, vault, True)
         sync_keys.forget(connection, vault)
+        settings.let_go(connection, [RECOVERY_KEY_KEPT.key])
 
 
 def first_look(
@@ -368,7 +374,8 @@ def cloud_only(
     """Only the vault's notes kept, for a vault this device joins: backed up
     first (back_up; if that fails, nothing is removed), then this device's notes
     removed without a trace, in the trash and secret ones too (the vault never
-    had them), and the vault taken as joined; along: done in that same
+    had them), its shared settings as never changed here (the vault's come in
+    their place), and the vault taken as joined; along: done in that same
     transaction. How many were removed."""
     back_up()
     gone = notes.all()
@@ -377,6 +384,7 @@ def cloud_only(
             notes.drop(note.id)
         sync_state.set_joining(connection, vault, True)
         sync_keys.forget(connection, vault)
+        settings.let_go(connection)
         if along is not None:
             along()
     return len(gone)

@@ -6,8 +6,10 @@ round elsewhere stops for it, and its user takes it in), and devices with
 notes of their own joining the vault: once every device has synced, they all
 have the notes the model says, and nothing written is lost (sync_bed.Model).
 They make categories and marks of the same few names apart, colours alike,
-set reminders and deal with them, bring in notes: once synced, they have the
-same records, one of each name (sync_bed.records_agree). Their users edit notes
+set reminders and deal with them, bring in notes, change settings: once synced,
+they have the same records, one of each name, and the same settings that follow
+the user (sync_bed.records_agree), each keeping its own of those kept on each
+device, none of which is in the vault. Their users edit notes
 on screen for a while: no round changes the text being typed, and once the
 edits are over, nothing written is lost either.
 
@@ -38,7 +40,7 @@ from fake_cloud import (
 )
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from sync_bed import VAULT, Clock, Device, Model, cloud_notes, records_agree, settle
+from sync_bed import KEYS, VAULT, Clock, Device, Model, cloud_notes, records_agree, settle
 from test_vault_rules import plain_in
 
 from stickle.core import made_notes
@@ -47,13 +49,25 @@ from stickle.core.text_reminders import due
 from stickle.data.colors import OwnColorsFullError
 from stickle.data.labels import CategoryNameError, MarkNameError
 from stickle.data.notes import NoteRepository
+from stickle.data.settings import (
+    MAGNET,
+    MORNING,
+    RECENT_CALENDARS,
+    SHARED,
+    SNOOZE_CHOICES,
+    SNOOZE_MINUTES,
+    SYNC_EVERY,
+    SYNC_EVERY_CHOICES,
+)
 from stickle.sync.engine import BIG, BigChangeError, joined
 from stickle.sync.format import (
     NOTES,
     VAULT_FILE,
+    FormatError,
     UnreadableError,
     VaultInfo,
     item_at,
+    open_envelope,
     vault_file,
 )
 from stickle.sync.format import RECORDS as RECORDS_FOLDER
@@ -133,6 +147,7 @@ class Bed:
         self.full_looks = True  # False: never (no round makes up for one not told)
         self.done: list[str] = []  # what was done, for a test that failed
         self.typing: dict[str, set[str]] = {}  # by device: the notes its user is editing
+        self.own: dict[str, int] = {}  # by device: a setting of its own, as last set there
 
     def typed_on(self, device: Device) -> dict[str, str | None]:
         """The texts of the notes the device's user is editing, as they are."""
@@ -230,6 +245,7 @@ ACTIONS = (
     + ["mark", "marked", "colour", "uncolour", "remind", "remind", "import"]
     + ["full", "many", "spree", "join", "resolve", "resolve"]
     + ["type", "type", "typed"]
+    + ["setting", "setting"]
 )
 # What no device tells the others of: done to the folder from outside, a copy of
 # a disk; and what has every device look at everything anyway.
@@ -401,6 +417,45 @@ def _colour(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> N
         return
     bed.records["custom_colors"].add(made.id)
     bed.did(device, f"colour {made.hex}")
+
+
+def _setting(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    """A setting that follows the user changed, or one kept on each device."""
+    what = data.draw(st.sampled_from(("magnet", "morning", "snooze", "calendars", "own")))
+    settings_here = device.settings
+    if what == "magnet":
+        settings_here.set(MAGNET, data.draw(st.booleans()))
+    elif what == "morning":
+        settings_here.set(MORNING, data.draw(st.sampled_from(("07:00", "09:00", "21:30"))))
+    elif what == "snooze":
+        settings_here.set(SNOOZE_MINUTES, data.draw(st.sampled_from(SNOOZE_CHOICES)))
+    elif what == "calendars":
+        chosen = data.draw(st.sampled_from(([], ["korean"], ["korean", "chinese"])))
+        settings_here.set(RECENT_CALENDARS, chosen)
+    else:
+        every = data.draw(st.sampled_from(SYNC_EVERY_CHOICES))
+        settings_here.set(SYNC_EVERY, every)
+        bed.own[device.name] = every
+    bed.did(device, f"setting {what}")
+
+
+def own_settings_kept(bed: Bed) -> None:
+    """Each device keeps its own of the settings kept on each device, and the
+    vault has none of those."""
+    for device in bed.devices:
+        if device.name in bed.own:
+            assert device.settings.get(SYNC_EVERY) == bed.own[device.name], device.name
+    for path, data in bed.cloud.files().items():
+        found = item_at(path)
+        if found is None or found[0] != RECORDS_FOLDER or data.startswith(DAMAGED):
+            continue
+        try:
+            value = open_envelope(KEYS, data, VAULT, RECORDS_FOLDER)[1]
+        except FormatError:  # damaged, or another vault's
+            continue
+        assert isinstance(value, dict)
+        if value.get("record") == "setting":
+            assert value.get("item") in SHARED, f"{value.get('item')} in the vault"
 
 
 def _uncolour(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
@@ -628,6 +683,7 @@ RECORDS = {
     "remind": _remind,
     "import": _import,
     "resolve": _resolve,
+    "setting": _setting,
 }
 
 
@@ -663,6 +719,7 @@ def test_what_devices_tell_one_another_is_enough(kind: Kind, data: st.DataObject
             settle(bed.devices, tick=6 * MINUTE, full=False)
             bed.model.check(bed.devices, bed.cloud)
             records_agree(bed.devices, bed.records)
+            own_settings_kept(bed)
         except BaseException:
             print("\n".join(bed.done))
             print(bed.cloud.describe())
@@ -709,6 +766,7 @@ def test_devices_agree_with_the_model_and_lose_nothing(kind: Kind, data: st.Data
                 ids = [each.id for each in bed.devices]
             assert len(set(ids)) == len(ids), "a copied device kept the id it was copied with"
             records_agree(bed.devices, bed.records)
+            own_settings_kept(bed)
             texts = {f"text {i}": text for i, (_, text) in enumerate(bed.model.written)}
             said = (
                 *CATEGORIES[:2],

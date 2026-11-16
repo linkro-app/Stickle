@@ -10,14 +10,18 @@ place of what was gone back to: going back would be undone without a word.
 
 What changed since the backup was taken is changed again, here and now: each
 field of a note or of a record (a category, a mark, a colour of the user's
-own, a note brought in) whose time is not the one it has now is stamped anew
+own, a note brought in, a setting that follows the user) whose time is not the
+one it has now is stamped anew
 (stickle.data.stamps), and a text that is not the one now becomes this
 computer's, of now. So the next round takes what was gone back to to every
 computer that syncs, as any change made here; what did not change since goes
 nowhere. The text a note has now is kept among its earlier ones
 (stickle.data.versions), as put aside by going back.
 
-How a reminder was dealt with is not gone back on: one set as it is now keeps
+The settings about the key files (which recovery key the user said they keep)
+are as now, and so is what sync knows of them: the key files are not gone back
+to (stickle.data.backups.KEY_SETTINGS). How a reminder was dealt with is not
+gone back on: one set as it is now keeps
 how it was dealt with, so that none rings again on every computer for what
 was dealt with already. A note secret then and not now, or the other way, does
 not keep its text of now among its earlier ones: in the clear beside a secret
@@ -38,8 +42,9 @@ import apsw
 from stickle.core.clock import stamp_at
 from stickle.core.hlc import Hlc, after
 from stickle.data import stamps, versions
+from stickle.data.backups import KEY_SETTINGS
 from stickle.data.database import open_database
-from stickle.data.record_stamps import CATEGORY, COLOR, IMPORT, MARK, imported_field
+from stickle.data.record_stamps import CATEGORY, COLOR, IMPORT, MARK, SETTING, imported_field
 from stickle.data.reminders import NOTE, RULE_FIELD, STATE_FIELD, TEXT, text_field
 from stickle.data.schema import latest_version, schema_version, upgrade
 from stickle.data.settings import (
@@ -89,7 +94,10 @@ RECORDS = {
     MARK: ("marks", "id"),
     COLOR: ("custom_colors", "id"),
     IMPORT: ("import_records", "source || char(10) || source_id"),
+    SETTING: ("shared_settings", "key"),
 }
+# Records kept as they are now, with what sync knows of them.
+AS_NOW = {(SETTING, each.key) for each in KEY_SETTINGS if each.scope == "shared"}
 
 type StampRow = tuple[str, str | None, int | None]  # time, device (None: here), sent
 
@@ -353,6 +361,15 @@ def _move_item(copy: apsw.Connection, now: apsw.Connection, kind: str, item: str
     _copy_rows(now, copy, "record_changes", where, (kind, item))
 
 
+def _item_as_now(copy: apsw.Connection, now: apsw.Connection, kind: str, item: str) -> None:
+    """A record as it is now, all of it (none of it, if it is not here now)."""
+    table, named = RECORDS[kind]
+    copy.execute(f"DELETE FROM {table} WHERE {named} = ?", (item,))
+    for each in ("record_stamps", "record_changes"):
+        copy.execute(f"DELETE FROM {each} WHERE kind = ? AND item = ?", (kind, item))
+    _move_item(copy, now, kind, item)
+
+
 def _change_number(db: apsw.Connection, kind: str, item: str) -> int | None:
     rows = db.execute(
         "SELECT change_seq FROM record_changes WHERE kind = ? AND item = ?", (kind, item)
@@ -449,8 +466,12 @@ def _keep(copy: apsw.Connection, now: apsw.Connection, millis: int, told: GoneBa
     there = then_notes | moved | _ids(copy, "SELECT note_id FROM deletion_records")
     for note_id in sorted(_ids(now, "SELECT note_id FROM deletion_records") - there):
         _copy_rows(now, copy, "deletion_records", "note_id = ?", (note_id,))
+    for kind, item in sorted(AS_NOW):
+        _item_as_now(copy, now, kind, item)
     for kind in RECORDS:
         then_items, now_items = _items(copy, kind), _items(now, kind)
+        as_now = {item for each, item in AS_NOW if each == kind}
+        then_items, now_items = then_items - as_now, now_items - as_now
         for item in sorted(now_items - then_items) if syncs else ():
             _move_item(copy, now, kind, item)
         for item in sorted(then_items & now_items):

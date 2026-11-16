@@ -511,6 +511,24 @@ def _page_showing(make: Callable[[], FakeSyncing]) -> Callable[[Stage], QWidget]
     return lambda stage: _page(stage, make())
 
 
+def _settings_everywhere(page: str) -> Callable[[Stage], QWidget]:
+    """A page of the settings, sync on: beside each setting that follows the
+    user, that it changes on every computer."""
+
+    def build(stage: Stage) -> QWidget:
+        syncing = stage.keep(_synced())
+        window = stage.keep(
+            SettingsWindow(NoteManager(), stage.translations, sync_setup=_setup(syncing))
+        )
+        window.tabs.setTabVisible(window.tabs.indexOf(window.reminders_page), True)
+        window.tabs.setCurrentWidget(getattr(window, page))
+        window.refresh()
+        window.morning_edit.setTime(QTime(9, 0))  # as the reminders keep it (none here)
+        return window
+
+    return build
+
+
 def _synced() -> FakeSyncing:
     return FakeSyncing(_others())
 
@@ -920,6 +938,8 @@ SCENES: list[Scene] = [
     ),
     Scene("turn-on-5-joined-spare-password-mine", _joined_taking(_Taken(master=MINE))),
     Scene("connections-off", lambda stage: _page(stage, None)),
+    Scene("settings-notes-all-computers", _settings_everywhere("notes_page")),
+    Scene("settings-reminders-all-computers", _settings_everywhere("reminders_page")),
     Scene("connections-synced", _page_showing(_synced)),
     Scene("connections-synced-long-ago", _page_showing(_long_ago)),
     Scene("connections-uploading", _page_showing(_moving(PUTTING))),

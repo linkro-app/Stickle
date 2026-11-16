@@ -1,12 +1,14 @@
-"""When each field of a category, a mark, a colour of the user's own and a
-note brought in from another app was last changed, and where: as
-stickle.data.stamps for notes' fields, what sync goes by to keep the later of
-two changes to a field. A field never changed has no stamp, the earliest time
-of all. Each item changed here also keeps the change number it was last
-changed at (the notes' counter), so that sync knows what changed since.
+"""When each field of a category, a mark, a colour of the user's own, a note
+brought in from another app and a setting that follows the user to every
+device was last changed, and where: as stickle.data.stamps for notes' fields,
+what sync goes by to keep the later of two changes to a field. A field never
+changed has no stamp, the earliest time of all. Each item changed here also
+keeps the change number it was last changed at (the notes' counter), so that
+sync knows what changed since.
 
 An item is known by its kind and its id here: a category's, a mark's, a
-colour's; one brought in, by its app and its id there (import_item).
+colour's; one brought in, by its app and its id there (import_item); a
+setting, by its key (its one field: VALUE).
 """
 
 from collections.abc import Iterable
@@ -20,7 +22,9 @@ CATEGORY = "category"
 MARK = "mark"
 COLOR = "color"
 IMPORT = "import"  # a note of another app, brought in: one field for each note it became
-KINDS = (CATEGORY, MARK, COLOR, IMPORT)
+SETTING = "setting"  # one that follows the user to every device (stickle.data.settings)
+KINDS = (CATEGORY, MARK, COLOR, IMPORT, SETTING)
+VALUE = "value"  # a setting's one field
 _IMPORTED = "note:"
 
 
@@ -101,6 +105,15 @@ def sent_of(connection: apsw.Connection, kind: str, item: str) -> dict[str, int]
             (kind, item),
         )
     }
+
+
+def let_go(connection: apsw.Connection, kind: str, item: str, fields: Iterable[str]) -> None:
+    """These fields of the item as never changed here, whatever they hold: any
+    change of another device's is later. The item counts as changed, for sync to
+    merge it again."""
+    for name in fields:
+        put(connection, kind, item, name, (Hlc(0), None), None)
+    touched(connection, kind, item)
 
 
 def put(

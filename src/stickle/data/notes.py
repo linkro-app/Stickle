@@ -1108,6 +1108,14 @@ class NoteRepository:
         )
         return [(str(a), str(b), str(c)) for a, b, c in rows]
 
+    def was_emptied(self, note_id: str) -> bool:
+        """Whether the note was emptied from the trash (here, or on a device that
+        syncs): its deletion record is kept."""
+        rows = self._db.execute(
+            "SELECT 1 FROM deletion_records WHERE note_id = ?", (note_id,)
+        ).fetchall()
+        return bool(rows)
+
     def live(self) -> list[Note]:
         """Every note not deleted, shown or hidden; most recently changed first."""
         return self._list("deleted_at IS NULL", "change_seq DESC")

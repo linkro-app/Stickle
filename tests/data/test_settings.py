@@ -3,23 +3,33 @@ import secrets
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import apsw
 import pytest
 
-from stickle.data import schema
+from stickle.core.clock import millis_at
+from stickle.core.hlc import Hlc
+from stickle.data import record_stamps, record_state, schema
+from stickle.data import settings as settings_module
 from stickle.data.database import KEY_BYTES
+from stickle.data.record_stamps import SETTING, VALUE
 from stickle.data.schema import open_store
 from stickle.data.settings import (
     DEFAULT_NOTE_COLOR,
     DEVICE_ID,
+    MAGNET,
     NEWS_SEEN,
     RECOVERY_KEY_KEPT,
     RECOVERY_KEY_KEPT_UNTIL_0_6,
     SETTINGS,
+    SHARED,
+    SYNC_EVERY,
     InvalidSettingError,
     KeptRecoveryKey,
+    Setting,
     Settings,
+    let_go,
 )
 
 KEY = secrets.token_bytes(KEY_BYTES)
@@ -66,10 +76,13 @@ def test_device_and_shared_settings_are_kept_apart(db: apsw.Connection) -> None:
 
 def test_shared_settings_record_when_and_where_they_changed(db: apsw.Connection) -> None:
     settings = Settings(db, clock=lambda: NOW)
-    settings.set(DEFAULT_NOTE_COLOR, "pink")
+    settings.set(DEFAULT_NOTE_COLOR, "pink")  # before this device has its id: none made
+    assert settings.get(DEVICE_ID) is None
+    settings.set(DEVICE_ID, AN_ID)
+    settings.set(DEFAULT_NOTE_COLOR, "blue")
 
     rows = db.execute("SELECT updated_at, updated_by FROM shared_settings").fetchall()
-    assert rows == [(NOW, settings.device_id())]
+    assert rows == [(NOW, AN_ID)]
 
 
 def test_invalid_values_are_refused(db: apsw.Connection) -> None:
@@ -109,7 +122,96 @@ def test_the_device_id_is_a_device_setting() -> None:
 
 def test_every_setting_is_registered_under_its_key() -> None:
     assert all(key == setting.key for key, setting in SETTINGS.items())
-    assert {DEVICE_ID.key, DEFAULT_NOTE_COLOR.key} <= SETTINGS.keys()
+    declared: list[Setting[object]] = [
+        cast(Setting[object], each)
+        for each in vars(settings_module).values()
+        if isinstance(each, Setting)
+    ]
+    assert {each.key for each in declared} == SETTINGS.keys()  # sync takes only those listed
+
+
+def settings_changed(db: apsw.Connection) -> list[str]:
+    """The settings sync would merge with a vault, changed here since."""
+    return [item for kind, item in record_state.changed(db, "vault") if kind == SETTING]
+
+
+def test_a_shared_setting_changed_is_a_change_for_the_other_devices(db: apsw.Connection) -> None:
+    settings = Settings(db, clock=lambda: NOW, millis=lambda: 1_800_000_000_000)
+    settings.set(MAGNET, False)
+    settings.set(SYNC_EVERY, 60)  # this device's own: nothing for the others
+
+    assert record_stamps.of(db, SETTING, MAGNET.key) == {VALUE: (Hlc(1_800_000_000_000), None)}
+    assert settings_changed(db) == [MAGNET.key]
+    assert record_stamps.of(db, SETTING, SYNC_EVERY.key) == {}
+
+
+def test_set_as_it_is_a_shared_setting_does_not_change(db: apsw.Connection) -> None:
+    times = iter([1_800_000_000_000, 1_800_000_001_000, 1_800_000_002_000])
+    settings = Settings(db, clock=lambda: NOW, millis=lambda: next(times))
+    settings.set(MAGNET, False)
+    seq = record_stamps.change_seq(db, SETTING, MAGNET.key)
+
+    settings.set(MAGNET, False)
+    assert record_stamps.change_seq(db, SETTING, MAGNET.key) == seq
+    assert record_stamps.of(db, SETTING, MAGNET.key)[VALUE][0] == Hlc(1_800_000_000_000)
+    settings.set(MAGNET, True)
+    assert record_stamps.of(db, SETTING, MAGNET.key)[VALUE][0] == Hlc(1_800_000_001_000)
+
+
+def test_a_shared_setting_is_set_to_its_default_not_cleared(db: apsw.Connection) -> None:
+    with pytest.raises(AssertionError):
+        Settings(db).clear(MAGNET)
+
+
+def test_let_go_it_is_as_never_changed_here_and_merged_again(db: apsw.Connection) -> None:
+    settings = Settings(db, millis=lambda: 1_800_000_000_000)
+    settings.set(MAGNET, False)
+    seq = record_stamps.change_seq(db, SETTING, MAGNET.key)
+
+    let_go(db)
+
+    assert settings.get(MAGNET) is False  # until the vault's comes
+    assert record_stamps.of(db, SETTING, MAGNET.key) == {VALUE: (Hlc(0), None)}
+    assert record_stamps.change_seq(db, SETTING, MAGNET.key) > seq
+    assert record_stamps.of(db, SETTING, DEFAULT_NOTE_COLOR.key) == {}  # none here: nothing
+
+
+def test_the_settings_that_follow_the_user() -> None:
+    assert set(SHARED) == {
+        "default_color",
+        "last_used_color",
+        "random_color",
+        "magnet",
+        "morning",
+        "snooze_minutes",
+        "recent_calendars",
+        "relock_minutes",
+        "lock_on_leave",
+        "recovery_key_kept_id",
+    }
+
+
+def test_the_upgrade_stamps_each_shared_setting_when_it_last_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "notes.db"
+    monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS[:29])
+    connection = open_store(path, KEY)
+    with connection:
+        connection.execute(
+            "INSERT INTO shared_settings VALUES ('magnet', 'false', ?, ?)", (NOW, AN_ID)
+        )
+    connection.close()
+    monkeypatch.undo()
+
+    connection = open_store(path, KEY)
+    try:
+        when = Hlc(millis_at(NOW))
+        assert record_stamps.of(connection, SETTING, MAGNET.key) == {VALUE: (when, None)}
+        assert settings_changed(connection) == [MAGNET.key]
+        assert Settings(connection).get(MAGNET) is False
+    finally:
+        connection.close()
 
 
 def test_the_version_of_the_last_whats_new_note_is_a_device_setting() -> None:

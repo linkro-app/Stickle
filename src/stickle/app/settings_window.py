@@ -13,7 +13,7 @@ from datetime import time
 from typing import TYPE_CHECKING, override
 
 from PySide6.QtCore import QEvent, QLocale, QObject, QSize, Qt, QTime, Signal
-from PySide6.QtGui import QFont, QGuiApplication, QKeyEvent
+from PySide6.QtGui import QFont, QGuiApplication, QKeyEvent, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -94,6 +94,34 @@ def _page(parent: QWidget) -> tuple[QWidget, QVBoxLayout]:
     page = QWidget(parent)
     layout = QVBoxLayout(page)
     return page, layout
+
+
+class Everywhere(QLabel):
+    """Beside a setting that changes on every computer that syncs, once sync is
+    on: said so, small and faint, its tooltip saying more."""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        font = QFont(self.font())
+        font.setPointSizeF(font.pointSizeF() * 0.9)
+        self.setFont(font)
+        self.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+        self.hide()
+        self.retranslate()
+
+    def retranslate(self) -> None:
+        self.setText(self.tr("All computers"))
+        self.setToolTip(self.saying())
+        self.setAccessibleName(self.saying())
+
+    def saying(self) -> str:
+        return self.tr("Changes on all your syncing computers.")
+
+    @override
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.LanguageChange:
+            self.retranslate()
+        super().changeEvent(event)
 
 
 def _hint(parent: QWidget) -> QLabel:
@@ -178,12 +206,15 @@ class SettingsWindow(QDialog):
         self.magnet_box.clicked.connect(notes.set_magnet)
         notes.magnet_changed.connect(self.refresh)
         self.magnet_note = _hint(self.notes_page)
-        notes_layout.addWidget(self.magnet_box)
+        # Beside each setting that follows the user: each, and the control it is of.
+        self._everywhere: list[tuple[Everywhere, QWidget]] = []
+        self._described: dict[QWidget, str] = {}
+        notes_layout.addLayout(self._beside(self.magnet_box))
         notes_layout.addWidget(self.magnet_note)
         # New notes' colour at random, and the colours the user added.
         self.random_box = QCheckBox(self.notes_page)
         self.random_box.clicked.connect(notes.set_random_color)
-        notes_layout.addWidget(self.random_box)
+        notes_layout.addLayout(self._beside(self.random_box))
         self.random_note = _hint(self.notes_page)
         notes_layout.addWidget(self.random_note)
         self.own_label = QLabel(self.notes_page)
@@ -202,7 +233,7 @@ class SettingsWindow(QDialog):
         own_buttons.addWidget(self.remove_own_button)
         own_buttons.addStretch(1)
         self.own_note = _hint(self.notes_page)
-        notes_layout.addWidget(self.own_label)
+        notes_layout.addLayout(self._beside(self.own_list, self.own_label))
         notes_layout.addWidget(self.own_list)
         notes_layout.addLayout(own_buttons)
         notes_layout.addWidget(self.own_note)
@@ -248,11 +279,7 @@ class SettingsWindow(QDialog):
             (self.morning_label, self.morning_edit),
             (self.snooze_label, self.snooze_box),
         ):
-            row = QHBoxLayout()
-            row.addWidget(label)
-            row.addWidget(field)
-            row.addStretch(1)
-            reminders_layout.addLayout(row)
+            reminders_layout.addLayout(self._beside(field, label, field))
             if field is self.morning_edit:
                 reminders_layout.addWidget(self.morning_note)
         reminders_layout.addStretch(1)
@@ -292,15 +319,12 @@ class SettingsWindow(QDialog):
         self.relock_before.setBuddy(self.relock_box)
         self.relock_after = QLabel(self.protection)
         self.relock_box.valueChanged.connect(self._set_relock_minutes)
-        relock = QHBoxLayout()
-        relock.addWidget(self.relock_before)
-        relock.addWidget(self.relock_box)
-        relock.addWidget(self.relock_after)
-        relock.addStretch(1)
-        protection.addLayout(relock)
+        protection.addLayout(
+            self._beside(self.relock_box, self.relock_before, self.relock_box, self.relock_after)
+        )
         self.leave_box = QCheckBox(self.protection)
         self.leave_box.clicked.connect(notes.set_lock_on_leave)
-        protection.addWidget(self.leave_box)
+        protection.addLayout(self._beside(self.leave_box))
         for part in (self.relock_before, self.relock_box, self.relock_after, self.leave_box):
             part.setVisible(notes.secrets is not None)
         protection.addStretch(1)
@@ -362,7 +386,32 @@ class SettingsWindow(QDialog):
         self.setMinimumWidth(440)
         self._set_tab_order()
         translations.changed.connect(self.refresh)
+        notes.settings_taken.connect(self.refresh)
         self.retranslate()
+
+    def _beside(self, control: QWidget, *widgets: QWidget) -> QHBoxLayout:
+        """A row of widgets (none: the control alone), then what says that the
+        control's setting changes on every computer that syncs."""
+        row = QHBoxLayout()
+        for widget in widgets or (control,):
+            row.addWidget(widget)
+        everywhere = Everywhere(control.parentWidget() or self)
+        row.addWidget(everywhere)
+        row.addStretch(1)
+        self._everywhere.append((everywhere, control))
+        return row
+
+    def _say_everywhere(self) -> None:
+        """Beside the settings that follow the user, once sync is on (and in what a
+        screen reader says of each)."""
+        setup = self._sync_setup
+        on = setup is not None and setup.current() is not None
+        for everywhere, control in self._everywhere:
+            everywhere.setVisible(on and not control.isHidden())
+            said = self._described.get(control, "")
+            if on:
+                said = f"{said} {everywhere.saying()}".strip()
+            control.setAccessibleDescription(said)
 
     def _set_tab_order(self) -> None:
         """The tabs, then the page shown, top to bottom (Qt passes over the
@@ -503,6 +552,11 @@ class SettingsWindow(QDialog):
             self.tr("Minutes a shown secret note is left alone before it is covered again")
         )
         self.leave_box.setText(self.tr("Also cover it as soon as I &use another window"))
+        for control in (self.snooze_box, self.relock_box, self.leave_box):
+            control.setAccessibleDescription("")
+        self._described = {
+            control: control.accessibleDescription() for _, control in self._everywhere
+        }
         self.refresh()
 
     @override
@@ -563,6 +617,7 @@ class SettingsWindow(QDialog):
         """The Connections page as sync stands: on, off, or with another connection."""
         self.turn_on_sync_button.setText(self.tr("&Turn on sync…"))
         self._show_sync()
+        self._say_everywhere()
         setup = self._sync_setup
         self.turn_on_sync_button.setVisible(setup is not None and self.sync_panel is None)
         if self.sync_panel is not None:

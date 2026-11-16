@@ -100,6 +100,7 @@ from stickle.data.settings import (
     LAST_USED_COLOR,
     LOCK_ON_LEAVE,
     MAGNET,
+    MORNING,
     RANDOM_COLOR,
     RELOCK_MINUTES,
     Settings,
@@ -268,6 +269,8 @@ class NoteManager(QObject):
     magnet_changed = Signal()
     # The user's own colours were added, removed or put in another order.
     own_colors_changed = Signal()
+    # Settings that follow the user to every device came changed from another.
+    settings_taken = Signal()
     # A note asked for the keys at a glance (F1, Ctrl+/, its menu).
     guide_requested = Signal()
     # A note's window opened, about to show (for what dresses it: reminders).
@@ -871,6 +874,18 @@ class NoteManager(QObject):
             log.error("could not keep the magnet setting: %s", type(error).__name__)
             return
         self.magnet_changed.emit()
+
+    def take_settings(self, keys: Iterable[str]) -> None:
+        """Settings that follow the user, changed on another device (by their
+        keys): in use at once, as when changed here."""
+        taken = set(keys)
+        if MAGNET.key in taken:
+            self.magnet_changed.emit()
+        if RELOCK_MINUTES.key in taken:
+            self._relock.restart_all()
+        if MORNING.key in taken and self.reminders is not None:
+            self.reminders.follow_texts()  # a day written without a time rings then
+        self.settings_taken.emit()
 
     def place_all(self) -> None:
         """Monitors were connected, removed or changed: put every note where it belongs."""

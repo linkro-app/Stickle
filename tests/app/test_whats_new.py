@@ -68,6 +68,20 @@ def test_a_deleted_news_note_does_not_come_back(
     assert [n.id for n in notes.visible()] == []
 
 
+def test_a_news_note_emptied_from_the_trash_is_not_made_again(
+    translations: Translations, store: tuple[NoteRepository, Settings]
+) -> None:
+    notes, settings = store
+    note_id = give_news(notes, settings, first_start=False, version="0.5.0")
+    assert note_id is not None
+    notes.delete(note_id)
+    notes.purge(note_id)
+    settings.set(NEWS_SEEN, None)  # given on another computer, emptied there
+
+    assert give_news(notes, settings, first_start=False, version="0.5.0") is None
+    assert notes.get(note_id) is None
+
+
 def test_a_fix_release_brings_nothing_new(
     translations: Translations, store: tuple[NoteRepository, Settings]
 ) -> None:

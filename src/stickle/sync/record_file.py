@@ -1,19 +1,19 @@
 """A record in the vault (records/<id>.json): a category, a mark, a colour of
-the user's own, or a note of another app brought in, with its fields
-(stickle.sync.contents).
+the user's own, a note of another app brought in, or a setting that follows the
+user to every device, with its fields (stickle.sync.contents).
 
     {"record": "category", "item": "<its id here>", "fields": {...}}
 
 What it is and which one it is here never change, so they are beside its
 fields, not among them; both are inside the locked file, never in its name.
 The item is a category's, a mark's or a colour's id; for a note brought in,
-its app and its id there, as ["<app>", "<id>"].
+its app and its id there, as ["<app>", "<id>"]; a setting's key.
 
 The file's name is the item's id where every device has the same random one
 (a category, a mark the user made, a colour); else (a built-in mark, a note
-brought in) a hash of what it is, keyed with the vault's key for ids, the same
-on every device and telling nothing. So a file name does not tell a built-in
-mark from a category.
+brought in, a setting) a hash of what it is, keyed with the vault's key for
+ids, the same on every device and telling nothing. So a file name does not tell
+a built-in mark from a category, nor a setting from either.
 
 A record of a kind this version does not know is read as it is, and left so.
 """

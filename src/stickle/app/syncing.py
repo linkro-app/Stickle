@@ -37,6 +37,7 @@ from stickle.data import sync_connection, sync_held, sync_state
 from stickle.data.backups import take
 from stickle.data.database import open_database
 from stickle.data.notes import NoteRepository
+from stickle.data.record_stamps import SETTING
 from stickle.data.settings import DEVICE_NAME, SYNC_EVERY, Settings
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.platform.clocks import since_start
@@ -648,10 +649,14 @@ class Syncing(QObject):
         changed = list(dict.fromkeys(report.changed))
         if report.device and self._reminders is not None:
             self._reminders.use_device(report.device)
-        if changed or report.records.changed:
-            self._manager.take_in(changed, bool(report.records.changed))
+        records = [each for each in report.records.changed if each[0] != SETTING]
+        if changed or records:
+            self._manager.take_in(changed, bool(records))
             if self._reminders is not None:
                 self._reminders.take_in(changed)
+        taken = [item for kind, item in report.records.changed if kind == SETTING]
+        if taken:
+            self._manager.take_settings(taken)
         if report.held:
             self._manager.show_held(report.held)
         self._looks_for_unsent = True
