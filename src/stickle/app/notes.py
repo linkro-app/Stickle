@@ -595,6 +595,8 @@ class NoteManager(QObject):
                 screen = QGuiApplication.primaryScreen()
                 window.fit_to_text(int(screen.availableGeometry().height() * FIT_AT_MOST))
             window.place(QRect(self._free_cascade_spot(window), window.size()))
+            if note is not None:
+                self._arrange(window)
         if note is not None and note.collapsed:
             window.set_collapsed(True)
             window.mark_placed()
@@ -734,6 +736,22 @@ class NoteManager(QObject):
 
     # Where notes are
 
+    def _arrange(self, window: NoteWindow) -> None:
+        """A stored note never placed, put by the cascade (the note of the first
+        start, one brought in or from another device): kept there for the next
+        start, not as moved here (nothing for sync — another device's place for
+        as many monitors comes in its stead)."""
+        if self._layouts is None or window.note_id is None or not can_place_windows():
+            return
+        where = rect(window.expanded_geometry())
+        current = monitors()
+        try:
+            if not self._layouts.places(window.note_id):
+                place = place_of(where, current)
+                self._layouts.arrange(window.note_id, len(current), place, size_of(where))
+        except apsw.Error as error:
+            log.error("could not keep where a note was put: %s", type(error).__name__)
+
     def _layout(self, window: NoteWindow) -> tuple[dict[int, Place], Size | None]:
         """The note's places, by number of monitors, and its size."""
         if self._layouts is None or window.note_id is None:
@@ -748,7 +766,11 @@ class NoteManager(QObject):
             if size is not None:
                 window.resize(size.width, size.height)
             return False
-        where = restore(places, size or size_of(rect(window.expanded_geometry())), monitors())
+        elsewhere: set[int] = set()
+        if self._layouts is not None and window.note_id is not None:
+            elsewhere = self._layouts.elsewhere(window.note_id)  # found by number alone
+        shown = size or size_of(rect(window.expanded_geometry()))
+        where = restore(places, shown, monitors(), elsewhere)
         if where is None:
             if size is not None:
                 window.resize(size.width, size.height)
@@ -2671,6 +2693,8 @@ class NoteManager(QObject):
             self._take_after.add(window)
         else:
             window.set_collapsed(note.collapsed)
+            if not window.moved_by_user:  # else where the user put it is saved, and goes
+                self._restore_place(window)
 
     def _take_in_secret(self, window: NoteWindow, note: Note) -> None:
         """A secret note's title and text as sync brought them: its text shown if

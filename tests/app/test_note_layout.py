@@ -15,6 +15,7 @@ from stickle.app import notes as notes_module
 from stickle.app.note_window import SETTLE_MS, NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.core.layout import Monitor, Place, Rect, Size
+from stickle.data import stamps
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
@@ -26,6 +27,7 @@ class App:
     """One run of the app against a database."""
 
     def __init__(self, connection: apsw.Connection) -> None:
+        self.connection = connection
         self.notes = NoteRepository(connection)
         self.layouts = LayoutRepository(connection)
         self.manager = NoteManager(self.notes, layouts=self.layouts)
@@ -253,10 +255,13 @@ def shrunk(monitors: list[Monitor]) -> list[Monitor]:
 
 
 def never_placed(app: App) -> NoteWindow:
-    """A note stored but never placed, as the first start's note: no place of its own."""
+    """A note stored but never placed, as the first start's note: no place of its
+    own (the one the app gives it now not kept, as before it was)."""
     note = app.notes.create("# Welcome\n" + "\n".join(f"- [ ] step {n}" for n in range(12)))
     app.manager.open_stored()
     (window,) = app.manager.windows
+    for table in ("note_layouts", "note_sizes"):
+        app.connection.execute(f"DELETE FROM {table} WHERE note_id = ?", (note.id,))
     assert app.layouts.places(note.id) == {}
     area = screen_area()
     window.setGeometry(QRect(area.left() + 80, area.top() + 150, 260, 300))
@@ -298,3 +303,47 @@ def test_moved_by_hand_meanwhile_it_is_not_pulled_back(
     app.manager.place_all()
 
     assert window.geometry() != home
+
+
+def test_notes_never_placed_stay_where_they_were_put(
+    qtbot: QtBot, connection: apsw.Connection
+) -> None:
+    # The first start's note, notes brought in or come from another computer:
+    # put in a cascade, then one moved, the others did not step up a place at
+    # the next start (each run's cascade starts over).
+    notes = NoteRepository(connection)
+    made = [notes.create(f"메모 {n}").id for n in range(3)]
+    app = App(connection)
+    app.manager.open_stored()
+    put = {window.note_id: window.geometry() for window in app.manager.windows}
+    moved = app.manager.window_for(made[0])
+    assert moved is not None
+    target = QRect(screen_area().topLeft() + QPoint(400, 260), moved.size())
+    moved.setGeometry(target)
+    qtbot.waitUntil(lambda: stamps.of(connection, made[0]) != {})
+    app.close()
+
+    again = App(connection)
+    again.manager.open_stored()
+
+    assert {w.note_id: w.geometry() for w in again.manager.windows} == {**put, made[0]: target}
+    # Only arranged here: nothing for the other computers.
+    assert [stamps.of(connection, note_id) for note_id in made[1:]] == [{}, {}]
+    again.close()
+
+
+def test_a_note_arranged_pushed_onto_a_smaller_screen_goes_back(
+    app: App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app.notes.create("환영")
+    app.manager.open_stored()
+    (window,) = app.manager.windows
+    home = window.geometry()
+    real = notes_module.monitors()
+
+    monkeypatch.setattr(notes_module, "monitors", lambda: shrunk(real))
+    app.manager.place_all()
+    monkeypatch.setattr(notes_module, "monitors", lambda: real)
+    app.manager.place_all()
+
+    assert window.geometry() == home

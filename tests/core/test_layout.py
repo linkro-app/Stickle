@@ -229,6 +229,19 @@ def test_another_computer_with_fewer_monitors_uses_the_numbers_it_has() -> None:
     assert on(where, there) == "HP"
 
 
+def test_a_place_another_device_set_goes_by_number_alone() -> None:
+    # Two laptops name their monitors by connector: on another, the same name
+    # is another monitor. Set there, the place goes by its number; set here,
+    # by name (the monitors moved round on the desk).
+    there = [monitor("eDP-1", 0, primary=True), monitor("DP-1", 1920), monitor("HDMI-1", 3840)]
+    here = [monitor("eDP-1", 0, primary=True), monitor("HDMI-1", 1920), monitor("DP-1", 3840)]
+    places = remember({}, at(3840 + 300, 300), there)  # on HDMI-1, number 3
+
+    by_number = restore(places, SIZE, here, elsewhere={3})
+    assert by_number is not None and on(by_number, here) == "DP-1"
+    assert on(shown(places, here), here) == "HDMI-1"
+
+
 def test_twin_monitors_with_the_same_name_go_by_number() -> None:
     twins = [monitor("U2720Q", 0, primary=True), monitor("U2720Q", 1920)]
 

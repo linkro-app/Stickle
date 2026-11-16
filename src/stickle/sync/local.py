@@ -13,6 +13,9 @@ too, but goes only once it was taken in or changed here (it has a stamp): a
 note that never was a copy goes without it, as it always went, and a copy
 made before it was kept here goes as last seen until it is taken in.
 
+Where the note is on screen, for each number of monitors, and its size are
+fields of its own too (stickle.sync.local_layouts), changing apart.
+
 A value taken in is checked first. One this version cannot take (a category
 or a mark this device does not know yet, a value of another shape) is left in
 the file as it is and not taken here: the note keeps what it has, and the
@@ -54,7 +57,7 @@ from stickle.data.record_stamps import MARK as MARKS
 from stickle.data.reminders import TEXT_FIELD
 from stickle.data.stamps import Stamp
 from stickle.data.sync_state import NoteState
-from stickle.sync import local_records, local_reminders
+from stickle.sync import local_layouts, local_records, local_reminders
 from stickle.sync.contents import Contents, Field, is_millis
 from stickle.sync.format import Json, is_id, json_bytes, parse_json
 from stickle.sync.merge import COPY_OF
@@ -87,6 +90,7 @@ def known(contents: Contents) -> set[str]:
         TITLE,
         *(name for name in contents.fields if name.startswith(MARK)),
         *(name for name in contents.fields if local_reminders.is_reminder_field(name)),
+        *(name for name in contents.fields if local_layouts.is_layout_field(name)),
     }
 
 
@@ -122,6 +126,8 @@ class Here:
     text_at: str | None = None  # when its text was last saved
     # Its reminders, as their fields' values (stickle.sync.local_reminders).
     reminders: Mapping[str, Json] = field(default_factory=dict[str, Json])
+    # Its places and size, as their fields' values (stickle.sync.local_layouts).
+    layouts: Mapping[str, Json] = field(default_factory=dict[str, Json])
 
     @property
     def mark(self) -> tuple[int | None, str | None]:
@@ -149,6 +155,7 @@ def here(connection: apsw.Connection, notes: NoteRepository, note_id: str) -> He
         stamps.sent_of(connection, note_id),
         text_at,
         {} if note is None else local_reminders.values(connection, note_id),
+        {} if note is None else local_layouts.values(connection, note_id),
     )
 
 
@@ -248,6 +255,7 @@ def mine(
         fields[name] = _field(at, note, name, device, before.fields.get(name))
     earliest = Field(None, EARLIEST, device)
     fields |= local_reminders.fields(device, at.reminders, at.stamps, at.sent, before, earliest)
+    fields |= local_layouts.fields(device, at.layouts, at.stamps, at.sent, before)
     contents = Contents(fields, before.others)
     text = text_of(note, key, at.reminders)
     if text is None:
@@ -384,7 +392,10 @@ def take(
         copy_of if made_copy and isinstance(copy_of, str) else None,
         body.reminders if isinstance(body, Secret) else None,
     )
-    if reminded:
+    placed = local_layouts.take(
+        connection, device, note_id, note.contents, at.layouts, at.stamps, at.sent
+    )
+    if reminded or placed:
         seq = stamps.touch(connection, note_id)
     return seq
 

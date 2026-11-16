@@ -642,10 +642,22 @@ INSERT OR IGNORE INTO record_stamps (kind, item, field, hlc)
     SELECT 'setting', key, 'value', {_changed_at("updated_at")} FROM shared_settings;
 """
 
+V31 = f"""
+-- Where a note is for each number of monitors, and its size, are fields of
+-- the note (stickle.data.layouts): "place:<n>" and "size", changed when their
+-- rows last were.
+INSERT OR IGNORE INTO note_stamps (note_id, field, hlc)
+    SELECT note_id, 'place:' || CAST(config_key AS INTEGER), {_changed_at("updated_at")}
+    FROM note_layouts
+    WHERE config_key NOT GLOB '*[^0-9]*' AND config_key != '' AND CAST(config_key AS INTEGER) >= 1;
+INSERT OR IGNORE INTO note_stamps (note_id, field, hlc)
+    SELECT note_id, 'size', {_changed_at("updated_at")} FROM note_sizes;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30),
+    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31),
 ]
 BACKUPS_KEPT = 3
 

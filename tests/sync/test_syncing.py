@@ -14,7 +14,7 @@ import apsw
 import pytest
 from fake_cloud import WEBDAV as WEBDAV_KIND
 from fake_cloud import FakeCloud, Request, Trouble
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, Qt
 from pytestqt.qtbot import QtBot
 from sync_bed import KEY, KEYS, VAULT, Clock, Device
 
@@ -23,11 +23,13 @@ from stickle.app.about_dialog import AboutDialog
 from stickle.app.application import login_here, replace_sync
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
+from stickle.app.placement import monitors, qrect, rect
 from stickle.app.reminders import ReminderKeeper
 from stickle.app.syncing import BIG_TEXT, Ended, Syncing, cloud_time, look_first
 from stickle.core.clock import Clocks
 from stickle.core.hlc import wall_millis
 from stickle.core.labels import Mark
+from stickle.core.layout import Rect, Size, place_of
 from stickle.core.reminders import Rule
 from stickle.data import sync_connection
 from stickle.data.backups import backups
@@ -114,7 +116,7 @@ def make_pc(
         idle_ms=10,
         max_ms=50,
         settings=settings,
-        layouts=LayoutRepository(db),
+        layouts=LayoutRepository(db, clocks.stamp, clocks.millis),
         labels=LabelRepository(db, clocks.stamp, clocks.millis),
         colors=ColorRepository(db, clocks.stamp, clocks.millis),
         versions=VersionRepository(db),
@@ -455,13 +457,59 @@ def test_what_sync_itself_writes_starts_no_round(pc: Pc) -> None:
     assert not pc.syncing.runner._schedule.waiting_to_put  # pyright: ignore[reportPrivateUsage]
 
 
-def test_a_change_to_where_a_window_is_starts_no_round(pc: Pc) -> None:
+def test_a_note_moved_here_goes_a_moment_later(pc: Pc, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(schedule_module, "EDIT_WAIT", 0.05)
     note_id = note_of_both(pc)
     window = pc.window_of(note_id)
     assert window is not None
-    pc.manager.save_layout(window, force=True)
-    pc.qtbot.wait(100)
-    assert not pc.syncing.runner._schedule.waiting_to_put  # pyright: ignore[reportPrivateUsage]
+    window.move(window.pos() + QPoint(40, 30))
+    with pc.qtbot.waitSignal(pc.syncing.round_shown, timeout=ROUND_MS):
+        pc.manager.save_layout(window, force=True)
+    pc.other_syncs()
+    count = len(monitors())
+    assert LayoutRepository(pc.other.db).places(note_id) == {
+        count: place_of(rect(window.expanded_geometry()), monitors())
+    }
+
+
+def moved_there(pc: Pc, note_id: str) -> QRect:
+    """The note moved and resized on the other computer, with as many monitors:
+    where it shows here."""
+    current = monitors()
+    area = current[0].available
+    there = Rect(area.x + 120, area.y + 80, 260, 190)
+    placed = len(current), place_of(there, current)
+    LayoutRepository(pc.other.db, pc.other.stamp, pc.other.millis).save(
+        note_id, Size(260, 190), placed
+    )
+    pc.other_syncs()
+    return qrect(there)
+
+
+def test_a_note_moved_elsewhere_moves_here(pc: Pc) -> None:
+    note_id = note_of_both(pc)
+    window = pc.window_of(note_id)
+    assert window is not None
+
+    there = moved_there(pc, note_id)
+    pc.round()
+
+    assert window.geometry() == there
+
+
+def test_a_note_moved_elsewhere_while_edited_here_moves_once_left(pc: Pc) -> None:
+    note_id = note_of_both(pc)
+    window = pc.window_of(note_id)
+    assert window is not None
+    before = window.geometry()
+    window.edit()
+
+    there = moved_there(pc, note_id)
+    pc.round()
+    assert window.geometry() == before
+
+    window.show_formatted()  # the edit is over
+    pc.qtbot.waitUntil(lambda: window.geometry() == there, timeout=ROUND_MS)
 
 
 def test_a_big_note_waits_until_it_is_left(pc: Pc, monkeypatch: pytest.MonkeyPatch) -> None:

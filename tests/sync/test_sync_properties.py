@@ -6,9 +6,10 @@ round elsewhere stops for it, and its user takes it in), and devices with
 notes of their own joining the vault: once every device has synced, they all
 have the notes the model says, and nothing written is lost (sync_bed.Model).
 They make categories and marks of the same few names apart, colours alike,
-set reminders and deal with them, bring in notes, change settings: once synced,
-they have the same records, one of each name, and the same settings that follow
-the user (sync_bed.records_agree), each keeping its own of those kept on each
+set reminders and deal with them, bring in notes, change settings, move notes
+on one monitor or two and resize them: once synced, they have the same
+records, one of each name, the same settings that follow the user and the same
+places and sizes of the notes (sync_bed.records_agree), each keeping its own of those kept on each
 device, none of which is in the vault. Their users edit notes
 on screen for a while: no round changes the text being typed, and once the
 edits are over, nothing written is lost either.
@@ -44,6 +45,7 @@ from sync_bed import KEYS, VAULT, Clock, Device, Model, cloud_notes, records_agr
 from test_vault_rules import plain_in
 
 from stickle.core import made_notes
+from stickle.core.layout import Place, Size
 from stickle.core.reminders import Rule
 from stickle.core.text_reminders import due
 from stickle.data.colors import OwnColorsFullError
@@ -246,6 +248,7 @@ ACTIONS = (
     + ["full", "many", "spree", "join", "resolve", "resolve"]
     + ["type", "type", "typed"]
     + ["setting", "setting"]
+    + ["move", "move"]
 )
 # What no device tells the others of: done to the folder from outside, a copy of
 # a disk; and what has every device look at everything anyway.
@@ -437,6 +440,30 @@ def _setting(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> 
         settings_here.set(SYNC_EVERY, every)
         bed.own[device.name] = every
     bed.did(device, f"setting {what}")
+
+
+PLACES = (
+    Place(1, "eDP-1", 0.1, 0.2, ("eDP-1",)),
+    Place(1, "eDP-1", 0.5, 0.4, ("eDP-1",)),
+    Place(2, "HDMI-1", 0.3, 0.3, ("eDP-1", "HDMI-1")),
+)
+SIZES = (Size(240, 180), Size(320, 260))
+
+
+def _move(bed: Bed, device: Device, data: st.DataObject, live: list[str]) -> None:
+    """A note moved with one monitor or two, or resized."""
+    note_id = _pick(data, live)
+    if note_id is None:
+        return
+    size = data.draw(st.sampled_from(SIZES))
+    if data.draw(st.booleans()):
+        device.layouts.save(note_id, size)
+        bed.did(device, f"resize {note_id[:8]} {size.width}")
+        return
+    count = data.draw(st.sampled_from((1, 2)))
+    place = data.draw(st.sampled_from(PLACES))
+    device.layouts.save(note_id, size, (count, place))
+    bed.did(device, f"move {note_id[:8]} with {count} to {place.rel_x}")
 
 
 def own_settings_kept(bed: Bed) -> None:
@@ -684,6 +711,7 @@ RECORDS = {
     "import": _import,
     "resolve": _resolve,
     "setting": _setting,
+    "move": _move,
 }
 
 

@@ -22,8 +22,9 @@ have what the other has not are both kept:
   the note's, joined with the other, and the other goes to a conflict copy, a
   note of its own whose id comes from the note's and that version's, so that
   two devices seeing the same conflict make one copy. The copy has the note's
-  fields (its colour, where it is: in the trash too) and says which note it is
-  a copy of. A secret note's copy keeps its text as it was sealed, bound to
+  fields (its colour, its size, where it is: in the trash too) but its places
+  on screen, so as to open apart from it, and says which note it is a copy of.
+  A secret note's copy keeps its text as it was sealed, bound to
   the note: it opens as the note's text did.
 
 A what's-new note (stickle.core.made_notes) is made on each device with one
@@ -47,6 +48,7 @@ from stickle.core import made_notes
 from stickle.core.clock import stamp_of
 from stickle.core.hlc import after
 from stickle.crypto.vault_keys import DataKeys
+from stickle.data.layouts import PLACE
 from stickle.sync.contents import Contents, Field
 from stickle.sync.format import Json, json_bytes
 from stickle.sync.note_file import NoteFile, Secret, Step, Version, decide, new_version
@@ -146,7 +148,11 @@ def _copy(keys: DataKeys, note_id: str, fields: Contents, other: Version) -> tup
     marked = Field(of, after(other.edited, None), other.device)
     # The note's own reminder stays with the note; those written in the text
     # the copy makes afresh, on each device (stickle.sync.local_reminders).
-    kept = {name: each for name, each in fields.fields.items() if not _a_reminder(name)}
+    kept = {
+        name: each
+        for name, each in fields.fields.items()
+        if not _a_reminder(name) and not name.startswith(PLACE)
+    }
     copy_fields = replace(fields, fields={**kept, COPY_OF: marked})
     first = new_version(keys, [], other.text, other.edited, other.device)
     return copy_id(keys, note_id, other.id), NoteFile(copy_fields, first)

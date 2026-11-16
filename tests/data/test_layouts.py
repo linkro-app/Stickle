@@ -1,4 +1,6 @@
-"""Storing where notes are on screen, and their size."""
+"""Storing where notes are on screen, and their size: each place and the size
+a field sync takes to the other devices, stamped when it changes; a place the
+app only gave a note never placed kept unstamped."""
 
 import json
 import secrets
@@ -8,10 +10,13 @@ from pathlib import Path
 import apsw
 import pytest
 
+from stickle.core.clock import millis_at
+from stickle.core.hlc import Hlc
 from stickle.core.layout import Place, Size
-from stickle.data import schema
+from stickle.data import schema, stamps, sync_state
 from stickle.data.database import KEY_BYTES
-from stickle.data.layouts import LayoutRepository
+from stickle.data.layouts import LayoutRepository, count_of, place_field
+from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 
 KEY = secrets.token_bytes(KEY_BYTES)
@@ -87,6 +92,92 @@ def test_only_what_changed_takes_a_new_time(db: apsw.Connection) -> None:
     assert (moved["2"], moved["size"]) == (first["2"], first["size"])
     assert resized["size"] != moved["size"]
     assert (resized["1"], resized["2"]) == (moved["1"], moved["2"])
+
+
+def test_each_place_and_the_size_changed_is_stamped_and_the_note_counts_as_changed(
+    db: apsw.Connection,
+) -> None:
+    clock = ticking()
+    note = NoteRepository(db).create("회의")
+    layouts = LayoutRepository(db, lambda: next(clock))
+    seq = note.change_seq
+
+    layouts.save(note.id, SIZE, (2, PLACE))
+    first = stamps.of(db, note.id)
+    assert set(first) == {"place:2", "size"}
+    after = NoteRepository(db).get(note.id)
+    assert after is not None and after.change_seq > seq
+    assert after.updated_at == note.updated_at  # when it last changed, as shown
+    assert sync_state.changed(db, "vault") == [note.id]
+
+    seq = after.change_seq
+    layouts.save(note.id, SIZE, (2, PLACE))  # nothing moved
+    assert stamps.of(db, note.id) == first
+    assert NoteRepository(db).get(note.id).change_seq == seq  # pyright: ignore[reportOptionalMemberAccess]
+
+    layouts.save(note.id, SIZE, (1, ALONE))
+    assert stamps.of(db, note.id)["size"] == first["size"]
+    assert set(stamps.of(db, note.id)) == {"place:1", "place:2", "size"}
+
+
+def test_a_place_only_arranged_is_kept_unstamped_and_kept(db: apsw.Connection) -> None:
+    note = NoteRepository(db).create("환영")
+    layouts = LayoutRepository(db)
+
+    layouts.arrange(note.id, 1, ALONE, SIZE)
+    layouts.arrange(note.id, 1, Place(1, "ELDTV", 0.6, 0.6, ("ELDTV",)), Size(400, 300))
+
+    assert layouts.places(note.id) == {1: ALONE}
+    assert layouts.size(note.id) == SIZE
+    assert stamps.of(db, note.id) == {}
+    assert NoteRepository(db).get(note.id).change_seq == note.change_seq  # pyright: ignore[reportOptionalMemberAccess]
+
+
+def test_which_places_another_device_set(db: apsw.Connection) -> None:
+    layouts = LayoutRepository(db)
+    layouts.save("note", SIZE, (1, ALONE))
+    layouts.take_place("note", 2, PLACE)
+    stamps.put(db, "note", "place:2", (Hlc(1), "another-device"), None)
+
+    assert layouts.elsewhere("note") == {2}
+
+
+@pytest.mark.parametrize(
+    ("field", "count"),
+    [("place:1", 1), ("place:12", 12), ("place:0", None), ("place:02", None), ("size", None)],
+)
+def test_a_place_field_names_its_number_of_monitors(field: str, count: int | None) -> None:
+    assert count_of(field) == count
+    if count is not None:
+        assert place_field(count) == field
+
+
+def test_the_upgrade_stamps_each_place_and_size_when_it_last_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "notes.db"
+    monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS[:30])
+    connection = open_store(path, KEY)
+    then = "2026-11-06T10:00:00.000Z"
+    with connection:  # as version 30 keeps them
+        connection.execute(
+            "INSERT INTO note_layouts VALUES ('note', '2', ?, 0.25, 0.5, ?)",
+            (old_key(2, PLACE.name, list(PLACE.setup)), then),
+        )
+        connection.execute(
+            "INSERT INTO note_layouts VALUES ('note', 'from-a-newer-version', '{}', 0.1, 0.1, ?)",
+            (then,),
+        )
+        connection.execute("INSERT INTO note_sizes VALUES ('note', 260, 240, ?)", (then,))
+    connection.close()
+    monkeypatch.undo()
+
+    connection = open_store(path, KEY)
+    try:
+        when = Hlc(millis_at(then))
+        assert stamps.of(connection, "note") == {"place:2": (when, None), "size": (when, None)}
+    finally:
+        connection.close()
 
 
 @pytest.mark.parametrize(

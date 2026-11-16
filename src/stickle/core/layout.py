@@ -13,11 +13,13 @@ changes only the place for as many monitors as there are now, and computers
 with as many monitors share a place. With no place yet for that many, the
 one for the nearest number (the larger, between two) shows it until it is
 moved. Its size is one, whatever the monitors. Whatever is remembered, a
-note is always put entirely inside a monitor's work area.
+note is always put entirely inside a monitor's work area. A place another
+device set (with as many monitors) is found by its monitor's number alone: a
+name there may be a connector's, the same on any laptop.
 """
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 
 MIN_WIDTH = 120
@@ -121,7 +123,9 @@ def place_of(window: Rect, monitors: Sequence[Monitor]) -> Place:
     )
 
 
-def find_monitor(place: Place, monitors: Sequence[Monitor], same_count: bool) -> Monitor | None:
+def find_monitor(
+    place: Place, monitors: Sequence[Monitor], same_count: bool, own: bool = True
+) -> Monitor | None:
     """The monitor a place belongs to, or None if it is not connected.
 
     By name when exactly one connected monitor has it. same_count: the place
@@ -130,15 +134,17 @@ def find_monitor(place: Place, monitors: Sequence[Monitor], same_count: bool) ->
     by number. Otherwise, on the same computer (a monitor of the remembered
     setup is here) a name not found means its monitor is missing: going by
     number would put it on whichever monitor moved up into that number. On
-    another computer, by number.
+    another computer, by number. own: the place was set on this device (else
+    on another that syncs): one set elsewhere goes by number alone.
     """
     ordered = numbered(monitors)
-    named = [m for m in ordered if place.name and m.name == place.name]
-    if len(named) == 1:
-        return named[0]
-    same_computer = any(m.name and m.name in place.setup for m in ordered)
-    if not same_count and same_computer and place.name and not named:
-        return None
+    if own:
+        named = [m for m in ordered if place.name and m.name == place.name]
+        if len(named) == 1:
+            return named[0]
+        same_computer = any(m.name and m.name in place.setup for m in ordered)
+        if not same_count and same_computer and place.name and not named:
+            return None
     if 1 <= place.monitor <= len(ordered):
         return ordered[place.monitor - 1]
     return None
@@ -173,14 +179,21 @@ def chosen(places: Mapping[int, Place], count: int) -> tuple[int, Place] | None:
     return number, places[number]
 
 
-def restore(places: Mapping[int, Place], size: Size, monitors: Sequence[Monitor]) -> Rect | None:
+def restore(
+    places: Mapping[int, Place],
+    size: Size,
+    monitors: Sequence[Monitor],
+    elsewhere: Collection[int] = (),
+) -> Rect | None:
     """Where to show a note of that size now, or None if no place is remembered.
-    A place whose monitor is missing shows it on monitor 1, as far in."""
+    A place whose monitor is missing shows it on monitor 1, as far in.
+    elsewhere: the numbers of monitors whose place another device set."""
     picked = chosen(places, len(monitors))
     if picked is None:
         return None
     count, place = picked
-    monitor = find_monitor(place, monitors, same_count=count == len(monitors))
+    same_count = count == len(monitors)
+    monitor = find_monitor(place, monitors, same_count, own=count not in elsewhere)
     return on_monitor(place, size, monitor or numbered(monitors)[0])
 
 

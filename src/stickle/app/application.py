@@ -1150,7 +1150,9 @@ def run(
         manager = NoteManager(
             NoteRepository(connection, clocks.stamp, clocks.millis) if connection else None,
             settings=Settings(connection, clocks.stamp, clocks.millis) if connection else None,
-            layouts=LayoutRepository(connection) if connection else None,
+            layouts=LayoutRepository(connection, clocks.stamp, clocks.millis)
+            if connection
+            else None,
             labels=LabelRepository(connection, clocks.stamp, clocks.millis) if connection else None,
             colors=ColorRepository(connection, clocks.stamp, clocks.millis) if connection else None,
             versions=VersionRepository(connection) if connection else None,
