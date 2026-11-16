@@ -352,6 +352,7 @@ class NoteRepository:
         columns: Mapping[str, object],
         marks: Mapping[str, bool],
         stamped: Mapping[str, tuple[stamps.Stamp, int | None]],
+        box: tuple[bytes, str | None] | None = None,
     ) -> int:
         """The note as another device left it (stickle.sync): made here if it is
         not here, back if it was emptied here; text (None: the one it has) in
@@ -361,9 +362,12 @@ class NoteRepository:
         they first reached the cloud), in the trash or not. Its change number now.
 
         A text sealed makes the note secret, one in the clear ordinary. A note
-        made secret so keeps none of its text in the clear, nor its earlier ones
-        in the clear (no key here to seal them with): they go, overwritten once
-        what was freed is cleared away (forget_old_text_left, after)."""
+        made secret so keeps none of its text in the clear: its earlier texts in
+        the clear, and the one it had, are sealed into the box of the key it is
+        sealed with (box: the box's public key, and that key's number, None for
+        this computer's — stickle.data.versions.box_all), and their plain text
+        overwritten once what was freed is cleared away (forget_old_text_left,
+        after). Without a box they go."""
         now = self._clock()
         with self._db:
             note = self.get(note_id)
@@ -379,7 +383,9 @@ class NoteRepository:
                 self._db.execute("DELETE FROM deletion_records WHERE note_id = ?", (note_id,))
             elif text is not None and not _holds(note, text):
                 if isinstance(text, SealedText) and not note.secret:
-                    self._clear_plain(note_id)
+                    if box is not None:
+                        versions.keep(self._db, note_id, now)
+                    self._clear_plain(note_id, box)
                 else:
                     versions.keep(self._db, note_id, now)
                 if isinstance(text, SealedText):
@@ -411,11 +417,15 @@ class NoteRepository:
             (*columns.values(), note_id),  # pyright: ignore[reportArgumentType]
         )
 
-    def _clear_plain(self, note_id: str) -> None:
+    def _clear_plain(self, note_id: str, box: tuple[bytes, str | None] | None) -> None:
         """A note about to be made secret from elsewhere: its text in the clear
-        out of every place but the note (which the caller replaces), and the old
-        text owed a clearing away."""
-        versions.forget_plain(self._db, note_id)
+        out of every place but the note (which the caller replaces), its earlier
+        ones sealed into the box (None: gone), and the old text owed a clearing away."""
+        if box is None:
+            if versions.forget_plain(self._db, note_id):
+                log.warning("earlier texts of a note made secret elsewhere let go: no box here")
+        else:
+            versions.box_all(self._db, note_id, *box)
         sync_state.forget_text(self._db, note_id)
         hide_text_hashes(self._db, note_id, self._millis)
         self._owe_clearing()
@@ -443,13 +453,17 @@ class NoteRepository:
     def restore_version(self, note_id: str, version_id: int) -> Note:
         """Back to an earlier text, as a new edit made here; the text the note had
         kept, marked as put aside by going back. A secret note's earlier text is
-        encrypted for it already: it goes back as it is."""
+        encrypted for it already: it goes back as it is — but for one sealed
+        into its key's box, which is sealed again first, once the key is held
+        (open_earlier: NoteIsSecretError till then)."""
         text = versions.text_of(self._db, note_id, version_id)
         if text is None:
             raise KeyError(version_id)
         note = self._require_live(note_id)
         if isinstance(text, SealedText) != note.secret:
             raise NoteIsSecretError(note_id) if note.secret else NoteNotSecretError(note_id)
+        if isinstance(text, SealedText) and text.boxed:
+            raise NoteIsSecretError(note_id)
         assignments: dict[str, object]
         if isinstance(text, SealedText):
             assignments = sealed_columns(note_id, text)
@@ -700,6 +714,33 @@ class NoteRepository:
                 self._change(note.id, sealed_columns(note.id, text), note.updated_at)
                 count += 1
         return count
+
+    def open_earlier(self, keys: Mapping[str | None, bytes]) -> int:
+        """With these keys held (by number as the texts say it, None: this
+        computer's): the earlier texts of ordinary notes still sealed (made
+        ordinary on another computer while this one did not hold the key) opened,
+        and those of secret notes sealed into a key's box sealed again as any
+        other. In one step; how many. One that does not open stays as it is."""
+        if not keys:
+            return 0
+        count = 0
+        with self._db:
+            for note_id in versions.sealed_of_ordinary(self._db):
+                count += versions.open_all(self._db, note_id, versions.opener_of(keys, note_id))
+            count += versions.unbox_all(self._db, keys)
+        return count
+
+    def sealed_earlier(self, note_id: str) -> bool:
+        """Whether the note keeps earlier texts sealed: an ordinary one's (made
+        ordinary elsewhere), or a secret one's sealed into its key's box, both
+        opened once the key is held here (open_earlier)."""
+        note = self._require(note_id)
+        which = "boxed" if note.secret else "sealed IS NOT NULL"
+        return bool(
+            self._db.execute(
+                f"SELECT 1 FROM note_versions WHERE note_id = ? AND {which} LIMIT 1", (note_id,)
+            ).fetchall()
+        )
 
     def set_secret_title(self, note_id: str, title: str) -> Note:
         if not self._require_live(note_id).secret:

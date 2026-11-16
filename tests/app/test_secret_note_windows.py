@@ -56,7 +56,15 @@ from stickle.crypto.recovery import (
     read_recovery,
 )
 from stickle.crypto.sealed import SealedSlot
-from stickle.crypto.secret_notes import keep_for_recovery_key, open_text, seal_text
+from stickle.crypto.secret_notes import (
+    BOX,
+    box_of,
+    box_public,
+    keep_for_recovery_key,
+    open_sealed,
+    open_text,
+    seal_text,
+)
 from stickle.data.export import ExportResult
 from stickle.data.labels import LabelRepository
 from stickle.data.notes import NoteRepository
@@ -352,6 +360,180 @@ def test_made_ordinary_its_earlier_versions_are_opened_and_it_is_said_first(
 
     assert told == [True] and not window.secret
     assert earlier_rows(connection, window) == [(TEXT, None)]
+
+
+# Made secret, or ordinary, on another computer: its earlier texts here
+
+
+def made_secret_elsewhere(connection: apsw.Connection, unlock: Unlock) -> str:
+    """An ordinary note, edited here, then made secret on another computer:
+    what it held in the clear sealed into its key's box, as sync takes it in."""
+    repository = NoteRepository(connection)
+    note = repository.create("첫 글")
+    repository.update_body(note.id, "둘째 글", keep_earlier=True)
+    key = unlock.open_secret_notes(SECRET)
+    number = unlock.secret_notes_number
+    sealed = SealedText(seal_text(key, note.id, "비밀 글"), note.id, number)
+    columns = {"secret_title": "통장"}
+    repository.take_in(note.id, sealed, "laptop", columns, {}, {}, (box_public(key), None))
+    return note.id
+
+
+def boxed(connection: apsw.Connection, note_id: str) -> int:
+    rows = connection.execute(
+        "SELECT count(*) FROM note_versions WHERE note_id = ? AND boxed", (note_id,)
+    ).fetchall()
+    return int(rows[0][0])  # pyright: ignore[reportArgumentType]
+
+
+def earlier_opened(connection: apsw.Connection, unlock: Unlock, note_id: str) -> list[str]:
+    """Its earlier texts, oldest first, each opened as any other's is."""
+    key = unlock.open_secret_notes(SECRET)
+    rows = connection.execute(
+        "SELECT sealed FROM note_versions WHERE note_id = ? ORDER BY id", (note_id,)
+    ).fetchall()
+    return [
+        open_sealed(key, note_id, SealedText(bytes(row[0])))  # pyright: ignore[reportArgumentType]
+        for row in rows
+    ]
+
+
+def test_made_secret_elsewhere_its_earlier_texts_are_sealed_again_once_it_is_opened(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+) -> None:
+    first = secret_note(qtbot, manager, answers)
+    manager.lock_secret(first)  # no window holds the key
+    note_id = made_secret_elsewhere(connection, unlock)
+
+    manager.take_in([note_id])
+    assert boxed(connection, note_id) == 2  # kept as they were sealed here
+    window = manager.window_for(note_id)
+    assert window is not None and window.secret_locked
+
+    answers.queue.append(password())
+    manager.open_secret(window)
+
+    assert not window.secret_locked
+    assert boxed(connection, note_id) == 0
+    assert earlier_opened(connection, unlock, note_id) == ["첫 글", "둘째 글"]
+
+
+def test_with_its_key_held_they_are_sealed_again_as_they_come(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+) -> None:
+    first = secret_note(qtbot, manager, answers)
+    assert not first.secret_locked  # it holds the key
+    note_id = made_secret_elsewhere(connection, unlock)
+
+    manager.take_in([note_id])
+
+    assert boxed(connection, note_id) == 0
+    assert earlier_opened(connection, unlock, note_id) == ["첫 글", "둘째 글"]
+
+
+def test_one_locked_shows_their_times_and_goes_back_once_its_password_is_typed(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager.lock_secret(secret_note(qtbot, manager, answers))
+    note_id = made_secret_elsewhere(connection, unlock)
+    manager.take_in([note_id])
+    window = manager.window_for(note_id)
+    assert window is not None
+    seen: list[bool] = []
+
+    def show_then_go_back(dialog: QDialog) -> bool:
+        assert isinstance(dialog, EarlierVersionsDialog)
+        dialog.list.setCurrentRow(dialog.list.count() - 1)  # the oldest
+        seen.append(dialog.restore_button.isEnabled())
+        answers.queue.append(password())
+        dialog.show_button.click()
+        dialog.list.setCurrentRow(dialog.list.count() - 1)
+        seen.append(dialog.restore_button.isEnabled())
+        dialog.restore_chosen()
+        return True
+
+    monkeypatch.setattr(notes, "ask_versions", show_then_go_back)
+    manager.show_versions(window)
+
+    assert seen == [False, True]
+    assert window.text == "첫 글" and opened_text(connection, unlock, window) == "첫 글"
+
+
+def test_their_key_made_by_0_6_keeps_its_box_once_opened(
+    qtbot: QtBot, manager: NoteManager, answers: Answers, unlock: Unlock
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    manager.lock_secret(window)
+    slots = dict(unlock.files.load(C) or {})
+    del slots[BOX]
+    unlock.files.save(C, slots)  # as 0.6 left it
+
+    answers.queue.append(password())
+    manager.open_secret(window)
+
+    key = unlock.open_secret_notes(SECRET)
+    assert box_of(unlock.files.load(C)) == box_public(key)  # for the others to seal into
+
+
+def test_made_ordinary_elsewhere_its_earlier_texts_locked_open_with_the_password(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret_note(qtbot, manager, answers)
+    for window in manager.windows:
+        manager.lock_secret(window)
+    repository = NoteRepository(connection)
+    note = repository.create("")
+    key = unlock.open_secret_notes(SECRET)
+    sealed = SealedText(seal_text(key, note.id, "비밀이던 글"), note.id, None)
+    repository.take_in(note.id, sealed, "laptop", {"secret_title": "통장"}, {}, {})
+    repository.take_in(note.id, "이제 보통 글", "laptop", {"secret_title": None}, {}, {})
+    manager.take_in([note.id])
+    window = manager.window_for(note.id)
+    assert window is not None and not window.secret
+    seen: list[tuple[bool, bool, str]] = []
+
+    def show_then_close(dialog: QDialog) -> bool:
+        assert isinstance(dialog, EarlierVersionsDialog)
+        seen.append(
+            (
+                dialog.covered.isVisibleTo(dialog),
+                dialog.show_button.isVisibleTo(dialog),
+                dialog.covered.text(),
+            )
+        )
+        answers.queue.append(password())
+        dialog.show_button.click()
+        rows = [dialog.list.item(row).text() for row in range(dialog.list.count())]
+        seen.append(
+            (dialog.covered.isVisibleTo(dialog), dialog.restore_button.isEnabled(), rows[0])
+        )
+        return False
+
+    monkeypatch.setattr(notes, "ask_versions", show_then_close)
+    manager.show_versions(window)
+
+    assert seen[0][:2] == (True, True)
+    assert seen[0][2].startswith("This version is from when the note was secret")
+    assert seen[1][:2] == (False, True) and seen[1][2].endswith("· 비밀이던 글")
+    assert earlier_rows(connection, window) == [("비밀이던 글", None)]  # opened for good
 
 
 # Making one

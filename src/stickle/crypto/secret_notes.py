@@ -53,6 +53,18 @@ It is kept only by a computer that holds notes sealed with it, marked as not
 the vault's ("vault": false), with the name of the computer that used it. It is
 never matched with: its password typed, the notes sealed with it are sealed
 again with this computer's key, and it goes among the old keys (adopt).
+
+Each key has a public key too, for a computer that does not hold the key to
+seal a text into (libsodium's crypto_box_seal): a note made secret on another
+computer leaves its earlier texts here in the clear, and they are sealed so,
+to open with the key alone. Its pair is made from the key itself (its seed
+derived from the key as each use's key is, stickle.crypto.vault_keys.derive),
+so every computer that has the key makes the same one, and only the public key
+is kept, beside the key's slots and in each entry of the others' keys:
+
+    "box": {"public": "<base64>"}
+
+A key made by 0.6 has none until 0.7 first opens it (keep_box).
 """
 
 import base64
@@ -94,6 +106,9 @@ OLD_KEYS = "old_keys"
 # the computer named "by"). An entry without it is the vault's.
 VAULT = "vault"
 BY = "by"
+# The key's public key (above), in C's slots and in each entry of OTHERS.
+BOX = "box"
+BOX_USE = b"stickle-box"  # the use the seed of the key's box is derived for
 # How the password was set, in its slot: changed, or set anew with the recovery key.
 HOW = "how"
 CHANGED = "changed"
@@ -135,8 +150,76 @@ def open_text(key: bytes, note_id: str, sealed: bytes) -> str:
 
 def open_sealed(key: bytes, note_id: str, sealed: SealedText) -> str:
     """The text of the note note_id, sealed as it holds it (bound to it, or to
-    the note it says)."""
+    the note it says; or sealed into the key's box)."""
+    if sealed.boxed:
+        return _unbox(key, sealed.opens_as(note_id), sealed.data)
     return open_text(key, sealed.opens_as(note_id), sealed.data)
+
+
+# The key's box (above)
+
+
+def _box_pair(key: bytes) -> Any:
+    from nacl.public import PrivateKey
+
+    from stickle.crypto.vault_keys import derive
+
+    return PrivateKey.from_seed(derive(key, BOX_USE))
+
+
+def box_public(key: bytes) -> bytes:
+    """The public key of the key's box: the same wherever the key is."""
+    return bytes(_box_pair(key).public_key)
+
+
+def box_entry(key: bytes) -> dict[str, object]:
+    """The key's box, as C and the vault keep it."""
+    return {"public": base64.b64encode(box_public(key)).decode("ascii")}
+
+
+def box_of(slots: Mapping[str, object] | None) -> bytes | None:
+    """The public key of the box C's slots (or an entry of the others' keys)
+    keep; None if they keep none, or one that is not one."""
+    found = None if slots is None else slots.get(BOX)
+    public = _public(found)
+    return public if public is not None and len(public) == KEY_BYTES else None
+
+
+def box_text(public: bytes, note_id: str, text: str) -> bytes:
+    """The note's text sealed into a key's box (public: its public key), for that
+    note alone: it opens with the key, and says which note it is of."""
+    from nacl.public import PublicKey, SealedBox
+
+    return bytes(SealedBox(PublicKey(public)).encrypt(_boxed(note_id) + text.encode("utf-8")))
+
+
+def _boxed(note_id: str) -> bytes:
+    return _aad(note_id) + b"\n"
+
+
+def _unbox(key: bytes, note_id: str, sealed: bytes) -> str:
+    from nacl import exceptions
+    from nacl.public import SealedBox
+
+    try:
+        held = SealedBox(_box_pair(key)).decrypt(sealed)
+        if not held.startswith(_boxed(note_id)):
+            raise SecretNoteError(note_id)  # another note's
+        return held[len(_boxed(note_id)) :].decode("utf-8")
+    except (exceptions.CryptoError, UnicodeDecodeError) as error:
+        raise SecretNoteError(note_id) from error
+
+
+def keep_box(files: KeyFiles, key: bytes) -> bool:
+    """C keeps the box of its key (key, opened), if it has none yet (made by
+    0.6, or taken from a vault without one); whether it did now. Never one put
+    over another, nor in a C damaged."""
+    slots = _slots(files)
+    if BOX in slots:
+        return False
+    slots[BOX] = box_entry(key)
+    _save(files, slots)
+    return True
 
 
 def open_with_any(keys: Iterable[bytes], note_id: str, sealed: SealedText) -> str:
@@ -183,6 +266,7 @@ def create(
             KEY_NUMBER: new_key_number(),
             PASSWORD_SLOT: encode_slot(slot),
             RECOVERY_SLOT: _recovery_seal(recovery_public, key),
+            BOX: box_entry(key),
         },
     )
     return key
@@ -404,32 +488,42 @@ def take(
     password: Mapping[str, object] | None,
     recovery: Mapping[str, object] | None,
     seen: str | None,
+    box: Mapping[str, object] | None = None,
 ) -> bool:
     """C takes the slots of the computers this one syncs with for the key
     numbered number: its password slot, and what is sealed for the recovery
-    key (None: that one stays). Without C, C is made of them (both given). Only
-    if C is still as seen (seen_digest), and holds that key: False otherwise,
-    nothing written. A pair kept beside the recovery key's slot stays only while
-    the slot taken is sealed for it. KeyFileError for slots that do not read."""
+    key (None: that one stays), and its box if C has none. Without C, C is made
+    of them (both slots given). Only if C is still as seen (seen_digest), and
+    holds that key: False otherwise, nothing written. A pair kept beside the
+    recovery key's slot stays only while the slot taken is sealed for it.
+    KeyFileError for slots that do not read."""
     if password is not None:
         decode_slot(dict(password))
     if recovery is not None:
         b64_field(recovery.get("public"))
         b64_field(recovery.get("sealed"))
+    if box is not None and box_of({BOX: box}) is None:
+        raise KeyFileError("not a box")
     current = files.load(C)
     if seen_digest(current) != seen:
         return False
     if current is None:
         if password is None or recovery is None:
             raise KeyFileError("a new C needs both slots")
-        files.save(
-            C,
-            {KEY_NUMBER: number, PASSWORD_SLOT: dict(password), RECOVERY_SLOT: dict(recovery)},
-        )
+        made: dict[str, object] = {
+            KEY_NUMBER: number,
+            PASSWORD_SLOT: dict(password),
+            RECOVERY_SLOT: dict(recovery),
+        }
+        if box is not None:
+            made[BOX] = dict(box)
+        files.save(C, made)
         return True
     slots = dict(current)
     if key_number(slots) != number:
         return False
+    if box is not None and BOX not in slots:
+        slots[BOX] = dict(box)
     if password is not None:
         slots[PASSWORD_SLOT] = dict(password)
     if recovery is not None:
@@ -472,10 +566,13 @@ def kept_entry(
     recovery: Mapping[str, object],
     vault: bool = True,
     by: str | None = None,
+    box: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """An entry of OTHERS as C keeps it: the vault's key (vault), or one another
-    computer (named by) used apart."""
+    computer (named by) used apart; with its box, if it is known."""
     entry: dict[str, object] = {PASSWORD_SLOT: dict(password), RECOVERY_SLOT: dict(recovery)}
+    if box is not None:
+        entry[BOX] = dict(box)
     if not vault:
         entry |= {VAULT: False, BY: by}
     return entry
@@ -492,19 +589,26 @@ def keep_other(
     recovery: Mapping[str, object],
     vault: bool = True,
     by: str | None = None,
+    box: Mapping[str, object] | None = None,
 ) -> bool:
     """C keeps the slots of the others' key numbered number beside its own,
     in place of what it kept of it: the vault's (vault), or one the computer
-    named by used apart. Whether it changed. Not for its own key (False), nor
-    without C. KeyFileError for slots that do not read."""
+    named by used apart; with its box (None: the one kept, if any). Whether it
+    changed. Not for its own key (False), nor without C. KeyFileError for
+    slots that do not read."""
     decode_slot(dict(password))
     b64_field(recovery.get("public"))
     b64_field(recovery.get("sealed"))
+    if box is not None and box_of({BOX: box}) is None:
+        raise KeyFileError("not a box")
     slots = _slots(files)
     if key_number(slots) in (None, number) or not _is_number(number):
         return False
     kept = others_of(slots)
-    wanted = kept_entry(password, recovery, vault, by)
+    if box is None:
+        found = kept.get(number, {}).get(BOX)
+        box = cast(dict[str, object], found) if isinstance(found, dict) else None
+    wanted = kept_entry(password, recovery, vault, by, box)
     if kept.get(number) == wanted:
         return False
     slots[OTHERS] = kept | {number: wanted}
@@ -651,12 +755,17 @@ def match(
     matched: dict[str, object] = {
         name: value
         for name, value in slots.items()
-        if name not in (PASSWORD_SLOT, RECOVERY_SLOT, OTHERS, OLD_KEYS, KEY_NUMBER)
+        if name not in (PASSWORD_SLOT, RECOVERY_SLOT, OTHERS, OLD_KEYS, KEY_NUMBER, BOX)
     }
     sealed = theirs[RECOVERY_SLOT]
     if recovery_public is not None and _public(sealed) != recovery_public:
         sealed = _recovery_seal(recovery_public, key)
-    matched |= {KEY_NUMBER: number, PASSWORD_SLOT: theirs[PASSWORD_SLOT], RECOVERY_SLOT: sealed}
+    matched |= {
+        KEY_NUMBER: number,
+        PASSWORD_SLOT: theirs[PASSWORD_SLOT],
+        RECOVERY_SLOT: sealed,
+        BOX: box_entry(key),  # the key is open: its box, made here (the others' may not have one)
+    }
     if old:
         matched[OLD_KEYS] = {each: _seal_old(key, each, old_key) for each, old_key in old.items()}
     if kept:

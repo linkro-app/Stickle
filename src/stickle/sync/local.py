@@ -312,9 +312,14 @@ def take(
     note_id: str,
     note: NoteFile,
     at: Here,
+    boxes: Mapping[str, bytes] | None = None,
+    key: str | None = None,
 ) -> int | None:
     """The note as the file has it, here: what is not here already, of what this
-    version can take. Its change number after (None: not here)."""
+    version can take. Its change number after (None: not here). A note made
+    secret so seals what it held in the clear into the box of the key its text
+    is sealed with (boxes: their public keys, by the keys' numbers; key: the
+    number of this device's key — see NoteRepository.take_in)."""
     if note.body.deleted:
         if at.note is not None:
             notes.take_in_emptied(note_id)
@@ -323,6 +328,9 @@ def take(
     text: str | SealedText | None = None
     if body is not None and (at.note is None or not _holds(at.note, body)):
         text = SealedText(body.sealed, body.bound, body.key) if isinstance(body, Secret) else body
+    box: tuple[bytes, str | None] | None = None
+    if isinstance(body, Secret) and boxes is not None and body.key in boxes:
+        box = (boxes[body.key], None if body.key == key else body.key)
     columns: dict[str, object] = {}
     marks: dict[str, bool] = {}
     stamped: dict[str, tuple[Stamp, int | None]] = {}
@@ -362,7 +370,7 @@ def take(
     seq = None if at.note is None else at.note.change_seq
     if at.note is None or text is not None or columns or marks or stamped:
         came_from = None if note.body.device == device else note.body.device
-        seq = notes.take_in(note_id, text, came_from, columns, marks, stamped)
+        seq = notes.take_in(note_id, text, came_from, columns, marks, stamped, box)
     copy = note.contents.fields.get(COPY_OF)
     copy_of = copy.value.get("note") if copy is not None and isinstance(copy.value, dict) else None
     made_copy = at.note is None and isinstance(copy_of, str)

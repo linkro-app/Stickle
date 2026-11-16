@@ -5,7 +5,11 @@ on the others; edited apart, both keep the note and a conflict copy alike,
 which opens as the note did and is sealed for itself once saved, and whose
 text can change places with the note's while both are locked. Made ordinary
 or secret on one, it is so on the others, and one made secret leaves none of
-its text in the clear anywhere. The trash, emptying it, a year in it and a big
+its text in the clear anywhere: what it held in the clear on another computer
+is sealed there into its key's box, which needs no key, its earlier texts kept
+so till the key is held there (sealed again as any other then), and waits for
+a box that is not there yet; made ordinary, its earlier texts sealed open once
+the key is held. The trash, emptying it, a year in it and a big
 change count secret notes too. One sealed with a key of a computer's own
 stays there until its key is matched with the others'.
 
@@ -23,17 +27,29 @@ import pytest
 from fake_cloud import DROPBOX, FakeCloud
 from sync_bed import KEYS, VAULT, Clock, Device, cloud_notes
 
-from stickle.core.note import Note
+from stickle.core.note import Note, SealedText
 from stickle.core.text_reminders import due
 from stickle.crypto import recovery, secret_notes
 from stickle.crypto.key_files import C, KeyFiles
 from stickle.crypto.sealed import SealedSlot
-from stickle.crypto.secret_notes import SecretNoteError, open_sealed, seal_text
+from stickle.crypto.secret_notes import BOX, SecretNoteError, open_sealed, seal_text
 from stickle.data import sync_state, versions
+from stickle.data.notes import NoteIsSecretError
+from stickle.sync.contents import Contents
 from stickle.sync.engine import BigChangeError, cloud_only, first_look, joined
-from stickle.sync.format import NOTES, RECORDS, item_at, json_bytes, open_envelope
+from stickle.sync.format import (
+    NOTES,
+    RECORDS,
+    item_at,
+    item_path,
+    json_bytes,
+    open_envelope,
+    seal,
+)
 from stickle.sync.merge import YEAR
 from stickle.sync.note_file import Secret
+from stickle.sync.record_file import RecordFile
+from stickle.sync.secret_key import BOXES, record_of
 
 FAST = (1, 8192)
 PASSWORD = "the secret notes' password"
@@ -150,6 +166,44 @@ def cloud_holds(cloud: FakeCloud, word: str) -> list[str]:
         if needle in data or needle in opened_too:
             found.append(path)
     return found
+
+
+def earlier_texts(device: Device, note_id: str, key: bytes) -> list[str]:
+    """The note's earlier texts on that computer, each opened with key
+    (sealed as any other, or into the key's box), oldest first; none in the clear."""
+    rows = device.db.execute(
+        "SELECT sealed, boxed FROM note_versions WHERE note_id = ? ORDER BY kept_at, id",
+        (note_id,),
+    ).fetchall()
+    texts: list[str] = []
+    for sealed, boxed in rows:
+        assert sealed is not None, "an earlier text in the clear"
+        held = SealedText(bytes(sealed), boxed=bool(boxed))  # pyright: ignore[reportArgumentType]
+        texts.append(open_sealed(key, note_id, held))
+    return texts
+
+
+def boxed_count(device: Device, note_id: str) -> int:
+    rows = device.db.execute(
+        "SELECT count(*) FROM note_versions WHERE note_id = ? AND boxed", (note_id,)
+    ).fetchall()
+    return int(rows[0][0])  # pyright: ignore[reportArgumentType]
+
+
+def as_0_6_made_it(*devices: Device) -> None:
+    """The secret notes' key without its box, here and in the vault (a key
+    0.6 made, which no computer opened since)."""
+    for device in devices:
+        slots = dict(files(device).load(C) or {})
+        slots.pop(BOX, None)
+        files(device).save(C, slots)
+    cloud = devices[0].cloud
+    path = item_path(RECORDS, record_of(KEYS))
+    _head, value = open_envelope(KEYS, cloud.files()[path], VAULT, RECORDS)
+    record = RecordFile.from_json(value)
+    fields = {n: f for n, f in record.contents.fields.items() if not n.startswith(BOXES)}
+    kept = RecordFile(record.kind, record.item, Contents(fields, record.contents.others))
+    cloud.put_by_hand(path, seal(KEYS, VAULT, RECORDS, record_of(KEYS), kept.to_json()))
 
 
 def settle(*devices: Device) -> None:
@@ -281,6 +335,11 @@ def test_made_ordinary_on_one_is_ordinary_on_the_other(a: Device, b: Device) -> 
     listed = versions.VersionRepository(b.db, clock=b.stamp).listed(note_id)
     assert [v.sealed for v in listed] == [True]
 
+    assert b.notes.sealed_earlier(note_id)
+    assert b.notes.open_earlier({None: key_of(b)}) == 1  # the key held there, at last
+    assert versions.plain_count(b.db, note_id) == 1  # the text it has now: not listed
+    assert not b.notes.sealed_earlier(note_id)
+
 
 def test_made_secret_on_one_leaves_none_of_its_text_in_the_clear_on_the_other(
     a: Device, b: Device
@@ -309,6 +368,92 @@ def test_made_secret_on_one_leaves_none_of_its_text_in_the_clear_on_the_other(
     assert in_the_clear(b, SECRET) == in_the_clear(a, SECRET) == []
     assert b.notes.matching(SECRET) == set()
     assert cloud_holds(a.cloud, SECRET) == []
+    # Its earlier text there, and the one it had, sealed into its key's box: kept, not lost.
+    assert boxed_count(b, note.id) == 2
+    assert earlier_texts(b, note.id, key_of(b)) == [f"{SECRET} 첫 글", f"{SECRET} 둘째 글"]
+
+
+def test_made_secret_elsewhere_its_earlier_texts_are_sealed_as_any_other_once_the_key_is_held(
+    a: Device, b: Device
+) -> None:
+    note = a.notes.create(f"{SECRET} 첫 글")
+    settle(a, b)
+    b.clock.tick()
+    b.notes.update_body(note.id, f"{SECRET} 둘째 글", keep_earlier=True)
+    settle(b, a)
+    key = key_of(a)
+    a.clock.tick()
+    a.notes.make_secret(
+        note.id,
+        "통장",
+        seal_text(key, note.id, f"{SECRET} 둘째 글"),
+        lambda text: seal_text(key, note.id, text),
+    )
+    settle(a, b)
+    assert boxed_count(b, note.id) == 2
+
+    assert b.notes.open_earlier({None: key_of(b)}) == 2
+
+    assert boxed_count(b, note.id) == 0
+    assert earlier_texts(b, note.id, key_of(b)) == [f"{SECRET} 첫 글", f"{SECRET} 둘째 글"]
+    assert in_the_clear(b, SECRET) == []
+    earlier = versions.VersionRepository(b.db, clock=b.stamp).listed(note.id)[-1]  # oldest
+    b.clock.tick()
+    assert opened(b, b.notes.restore_version(note.id, earlier.id).id) == f"{SECRET} 첫 글"
+
+
+def test_a_box_sealed_text_goes_back_only_once_sealed_as_any_other(a: Device, b: Device) -> None:
+    note = a.notes.create("첫 글")
+    settle(a, b)
+    key = key_of(a)
+    a.clock.tick()
+    a.notes.make_secret(note.id, "통장", seal_text(key, note.id, "첫 글 고침"))
+    settle(a, b)
+    earlier = versions.VersionRepository(b.db, clock=b.stamp).listed(note.id)[0]
+
+    with pytest.raises(NoteIsSecretError):  # it would go to the vault sealed so
+        b.notes.restore_version(note.id, earlier.id)
+    assert opened(b, note.id) == "첫 글 고침"
+
+
+def test_made_secret_with_a_key_0_6_made_it_waits_for_the_keys_box(
+    a: Device, b: Device, caplog: pytest.LogCaptureFixture
+) -> None:
+    as_0_6_made_it(a, b)
+    note = a.notes.create(f"{SECRET} 첫 글")
+    settle(a, b)
+    b.clock.tick()
+    b.notes.update_body(note.id, f"{SECRET} 둘째 글", keep_earlier=True)
+    settle(b, a)
+    key = key_of(a)
+    a.clock.tick()
+    a.notes.make_secret(
+        note.id,
+        "통장",
+        seal_text(key, note.id, f"{SECRET} 둘째 글"),
+        lambda text: seal_text(key, note.id, text),
+    )
+    a.sync()
+
+    caplog.set_level(logging.INFO)
+    b.clock.tick()
+    report = b.sync()
+
+    assert note.id in report.left  # nothing of it lost, nothing new shown
+    there = note_of(b, note.id)
+    assert (there.secret, there.body) == (False, f"{SECRET} 둘째 글")
+    assert versions.plain_count(b.db, note.id) == 1
+    assert "waits for its key's box" in caplog.text
+    assert SECRET not in caplog.text
+
+    assert secret_notes.keep_box(files(a), key)  # opened there in 0.7
+    settle(a, b)
+
+    there = note_of(b, note.id)
+    assert there.secret and opened(b, note.id) == f"{SECRET} 둘째 글"
+    assert earlier_texts(b, note.id, key_of(b)) == [f"{SECRET} 첫 글", f"{SECRET} 둘째 글"]
+    assert in_the_clear(b, SECRET) == []
+    assert secret_notes.box_of(files(b).load(C)) == secret_notes.box_public(key)  # taken
 
 
 # The trash

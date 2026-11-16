@@ -7,6 +7,7 @@ from typing import cast
 
 import pytest
 
+from stickle.core.note import SealedText
 from stickle.crypto import secret_notes
 from stickle.crypto.key_files import B, C, KeyFiles
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError, encode_slot, wrap_with_password
@@ -87,7 +88,8 @@ def test_neither_the_notes_key_nor_the_master_password_reaches_it(tmp_path: Path
     for secret in (key, PASSWORD.encode(), MASTER.encode(), RECOVERY_KEY.encode()):
         assert secret not in written
     slots = files.load(C)
-    assert slots is not None and set(slots) == {"key_number", "secret_password", "recovery_key"}
+    assert slots is not None
+    assert set(slots) == {"key_number", "secret_password", "recovery_key", "box"}
     master = read_master(files)
     assert master is not None
     with pytest.raises(KeyFileError):  # not sealed for the master password's pair
@@ -179,7 +181,7 @@ def test_sealed_for_the_master_password_by_an_earlier_build_it_is_dropped(
 
     slots_now = files.load(C)
     assert slots_now is not None
-    assert set(slots_now) == {"key_number", "secret_password", "recovery_key"}
+    assert set(slots_now) == {"key_number", "secret_password", "recovery_key", "box"}
     assert open_with(files, RECOVERY_KEY) == created
 
 
@@ -460,3 +462,79 @@ def test_a_key_used_apart_is_kept_as_not_the_vaults_and_moved_among_the_old(
     assert open_with_password(files, PASSWORD) == own  # this computer's key stays its own
     with pytest.raises(KeyFileError):
         secret_notes.adopt(files, own, number, apart)
+
+
+# The key's box: what a computer without the key seals a text into
+
+
+def test_the_box_is_made_from_the_key_and_opens_with_it_alone(tmp_path: Path) -> None:
+    files = with_recovery_key(tmp_path)
+    key = create(files, PASSWORD, pair(files).public, NOW, FAST)
+    public = secret_notes.box_of(files.load(C))
+
+    assert public is not None
+    assert public == secret_notes.box_public(key)  # the same wherever the key is
+    assert public != secret_notes.box_public(secrets.token_bytes(32))
+    sealed = secret_notes.box_text(public, "note-1", "그때의 글")
+    assert b"\xea\xb7\xb8" not in sealed  # none of it in the clear
+    boxed = SealedText(sealed, None, None, boxed=True)
+    assert secret_notes.open_sealed(key, "note-1", boxed) == "그때의 글"
+    with pytest.raises(SecretNoteError):  # another note's
+        secret_notes.open_sealed(key, "note-2", boxed)
+    with pytest.raises(SecretNoteError):  # another key's
+        secret_notes.open_sealed(secrets.token_bytes(32), "note-1", boxed)
+    with pytest.raises(SecretNoteError):  # sealed as any other, it is not one
+        secret_notes.open_sealed(key, "note-1", SealedText(sealed))
+
+
+def test_a_key_made_by_0_6_keeps_its_box_once_opened_and_never_another(tmp_path: Path) -> None:
+    files = with_recovery_key(tmp_path)
+    key = create(files, PASSWORD, pair(files).public, NOW, FAST)
+    slots = dict(files.load(C) or {})
+    del slots[secret_notes.BOX]
+    files.save(C, slots)  # as 0.6 made it
+
+    assert secret_notes.keep_box(files, key)
+    assert secret_notes.box_of(files.load(C)) == secret_notes.box_public(key)
+    assert not secret_notes.keep_box(files, secrets.token_bytes(32))
+    assert secret_notes.box_of(files.load(C)) == secret_notes.box_public(key)
+    change_password(files, key, "second", NOW, FAST)  # kept as C is written again
+    assert secret_notes.box_of(files.load(C)) == secret_notes.box_public(key)
+
+
+def test_the_others_box_is_taken_where_there_is_none_and_kept_beside(tmp_path: Path) -> None:
+    files = with_recovery_key(tmp_path)
+    key = create(files, PASSWORD, pair(files).public, NOW, FAST)
+    slots = dict(files.load(C) or {})
+    del slots[secret_notes.BOX]
+    files.save(C, slots)
+    number = secret_notes.key_number(slots)
+    assert number is not None
+    box = secret_notes.box_entry(key)
+
+    assert secret_notes.take(files, number, None, None, secret_notes.seen_digest(slots), box)
+    assert secret_notes.box_of(files.load(C)) == secret_notes.box_public(key)
+    with pytest.raises(KeyFileError):
+        secret_notes.take(files, number, None, None, None, {"public": "not one"})
+
+    theirs = secrets.token_bytes(32)
+    other = secret_notes.new_key_number()
+    their_slots = theirs_of(files, theirs, "theirs")
+    assert secret_notes.keep_other(files, other, *their_slots, box=secret_notes.box_entry(theirs))
+    kept = secret_notes.others(files)[other]
+    assert secret_notes.box_of(kept) == secret_notes.box_public(theirs)
+    # Kept again without it (the vault's record had none): the one kept stays.
+    assert not secret_notes.keep_other(files, other, *their_slots)
+    assert secret_notes.box_of(secret_notes.others(files)[other]) == secret_notes.box_public(theirs)
+
+
+def test_matched_the_box_is_the_matched_keys(tmp_path: Path) -> None:
+    files = with_recovery_key(tmp_path)
+    own = create(files, PASSWORD, pair(files).public, NOW, FAST)
+    theirs = secrets.token_bytes(32)
+    number = secret_notes.new_key_number()
+    secret_notes.keep_other(files, number, *theirs_of(files, theirs, "theirs"))
+
+    secret_notes.match(files, own, number, theirs)
+
+    assert secret_notes.box_of(files.load(C)) == secret_notes.box_public(theirs)

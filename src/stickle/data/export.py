@@ -280,10 +280,11 @@ def _opened_version(row: dict[str, object], keys: Sequence[bytes]) -> dict[str, 
     try:
         data = base64.b64decode(str(cast(dict[str, object], sealed)["base64"]))
         bound = str(row.get("sealed_bound") or row["note_id"])
-        text = open_with_any(keys, bound, SealedText(data))
+        boxed = bool(row.get("boxed"))  # sealed into its key's box (stickle.data.versions)
+        text = open_with_any(keys, bound, SealedText(data, boxed=boxed))
     except KeyError, ValueError, SecretNoteError:
         return row
-    return {
+    opened = {
         **row,
         "body": text,
         "sealed": None,
@@ -291,6 +292,9 @@ def _opened_version(row: dict[str, object], keys: Sequence[bytes]) -> dict[str, 
         "sealed_key_number": None,
         "content_hash": content_hash(text),
     }
+    if "boxed" in row:
+        opened["boxed"] = 0
+    return opened
 
 
 def export_all(

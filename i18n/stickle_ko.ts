@@ -850,6 +850,10 @@ These files are not encrypted: keep them somewhere safe.</source>
         <translation>고른 버전</translation>
     </message>
     <message>
+        <source>This version is from when the note was secret, and is still locked. Type the secret notes&apos; password to open it.</source>
+        <translation>이 버전은 비밀 메모였을 때의 것이라 아직 잠겨 있습니다. 비밀 메모 암호를 넣으면 열립니다.</translation>
+    </message>
+    <message>
         <source>This secret note&apos;s text is covered. Show it to read its earlier versions.</source>
         <translation>비밀 메모의 내용이 가려져 있습니다. 내용을 보이면 이전 버전도 읽을 수 있습니다.</translation>
     </message>

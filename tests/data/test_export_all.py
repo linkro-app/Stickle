@@ -12,7 +12,8 @@ import apsw
 import pytest
 
 from stickle.core.layout import Place, Size
-from stickle.crypto.secret_notes import open_text, seal_text
+from stickle.core.note import SealedText
+from stickle.crypto.secret_notes import box_public, open_text, seal_text
 from stickle.data.database import KEY_BYTES
 from stickle.data.export import JSON_NAME, SecretExport, export_all
 from stickle.data.labels import LabelRepository
@@ -285,3 +286,27 @@ def test_opened_a_secret_notes_earlier_versions_are_opened_too(
 
     [opened] = versions_of(exported(result.folder), secret)
     assert (opened["body"], opened["sealed"]) == (f"{SECRET_TEXT} 처음", None)
+
+
+def test_opened_one_sealed_into_its_keys_box_is_opened_too(
+    connection: apsw.Connection, tmp_path: Path
+) -> None:
+    """Made secret on another computer, what it held here in the clear sealed
+    into its key's box (stickle.data.versions): opened as the others are."""
+    notes = NoteRepository(connection)
+    note = notes.create(f"{SECRET_TEXT} 처음")
+    sealed = SealedText(seal_text(SECRET_KEY, note.id, SECRET_TEXT), note.id, None)
+    notes.take_in(note.id, sealed, "laptop", {}, {}, {}, (box_public(SECRET_KEY), None))
+
+    locked = export_all(
+        connection, tmp_path / "a", "0.7.0", clock=lambda: NOW, secret=SecretExport(key=None)
+    )
+    [kept] = versions_of(exported(locked.folder), note.id)
+    assert kept["body"] is None and kept["boxed"] == 1
+    assert "zqxjkv" not in everything_written(locked.folder)
+    result = export_all(
+        connection, tmp_path / "b", "0.7.0", clock=lambda: NOW, secret=SecretExport(key=SECRET_KEY)
+    )
+
+    [opened] = versions_of(exported(result.folder), note.id)
+    assert (opened["body"], opened["sealed"], opened["boxed"]) == (f"{SECRET_TEXT} 처음", None, 0)

@@ -490,11 +490,21 @@ class Unlock:
         password: Mapping[str, object] | None,
         recovery: Mapping[str, object] | None,
         seen: str | None,
+        box: Mapping[str, object] | None = None,
     ) -> bool:
         """The secret notes' key file takes the slots of the computers this one
-        syncs with (stickle.crypto.secret_notes.take); False if it changed since
-        the round saw it, or holds another key."""
-        return secret_notes.take(self.files, number, password, recovery, seen)
+        syncs with, and the box of the key if it has none (stickle.crypto.
+        secret_notes.take); False if it changed since the round saw it, or
+        holds another key."""
+        return secret_notes.take(self.files, number, password, recovery, seen, box)
+
+    def keep_secret_box(self, key: bytes) -> bool:
+        """The secret notes' key file keeps the box of its key (key, opened), if
+        it has none yet; whether it did now. Nothing with it damaged or out of reach."""
+        try:
+            return secret_notes.keep_box(self.files, key)
+        except KeyFileError, OSError:
+            return False
 
     @property
     def secret_notes_number(self) -> str | None:
@@ -512,13 +522,14 @@ class Unlock:
         recovery: Mapping[str, object],
         vault: bool = True,
         by: str | None = None,
+        box: Mapping[str, object] | None = None,
     ) -> bool:
         """The secret notes' key of the computers this one syncs with, another
         than this one's, kept beside it until the passwords are matched; or
         (not vault) one the computer named by used apart, until the notes sealed
-        with it are sealed again here (stickle.crypto.secret_notes.keep_other).
-        Whether it changed."""
-        return secret_notes.keep_other(self.files, number, password, recovery, vault, by)
+        with it are sealed again here (stickle.crypto.secret_notes.keep_other);
+        with its box. Whether it changed."""
+        return secret_notes.keep_other(self.files, number, password, recovery, vault, by, box)
 
     def other_secret_keys(self) -> list[str]:
         """The numbers of the vault's keys kept beside this one's."""

@@ -105,6 +105,7 @@ from stickle.data.settings import (
     Settings,
 )
 from stickle.data.versions import VersionRepository
+from stickle.data.versions import opener_of as versions_opener
 from stickle.platform.linux.x11 import activate
 
 if TYPE_CHECKING:
@@ -1744,6 +1745,52 @@ class NoteManager(QObject):
             self._key_numbers.pop(window, None)
         else:
             self._key_numbers[window] = number
+        self._open_earlier(bytes(key), number)
+
+    def _open_earlier(self, key: bytes, number: str | None) -> None:
+        """A key held (this computer's, number None, or the others'): the earlier
+        texts it opens that wait for it opened, or sealed again as any other —
+        of notes made ordinary, or secret, elsewhere (NoteRepository.open_earlier)."""
+        if self._repository is None:
+            return
+        try:
+            count = self._repository.open_earlier(self._held_keys(key, number))
+        except (apsw.Error, OSError) as error:
+            log.warning("earlier texts not opened: %s", type(error).__name__)
+            return
+        if count:
+            log.info("earlier texts opened or sealed again: %d", count)
+
+    def _held_keys(self, key: bytes, number: str | None) -> dict[str | None, bytes]:
+        """A key held, by the numbers texts sealed with it say (None: this
+        computer's); this computer's with the keys it was before."""
+        keys: dict[str | None, bytes] = {number: key}
+        if number is None and self.secrets is not None:
+            matching = self.secrets.matching
+            here = None if matching is None else matching.number_here()
+            keys |= {**self.secrets.old_keys(key), **({} if here is None else {here: key})}
+        return keys
+
+    def _open_ordinary_earlier(
+        self, note: Note, parent: QWidget | None
+    ) -> Callable[[SealedText], str] | None:
+        """An ordinary note's earlier texts locked from when it was secret,
+        opened with the secret notes' password (asked for): what opens those
+        still locked, None if it was not given."""
+        passwords = self.secrets
+        if passwords is None:
+            return None
+        dialog = OpenSecretDialog(passwords, shown_title(note) or self.tr("Note"), parent)
+        opened = dialog.take_key() if ask_secret(dialog) else None
+        if opened is None:
+            return None
+        key = bytearray(opened)
+        try:
+            keys = self._held_keys(bytes(key), dialog.key_number)
+            self._open_earlier(bytes(key), dialog.key_number)
+            return versions_opener(keys, note.id)
+        finally:
+            _wipe(key)
 
     def _sealed_with(self, sealed: SealedText, number: str | None) -> bool:
         """Whether a text is sealed with the key numbered number (None: this
@@ -1894,6 +1941,11 @@ class NoteManager(QObject):
             return
         if note is None:
             return
+        open_secret: Callable[[], Callable[[SealedText], str] | None] | None = None
+        if window is not None and window.secret:
+            open_secret = partial(self._open_for_versions, window)
+        elif not note.secret and self._ordinary_sealed(note.id):
+            open_secret = partial(self._open_ordinary_earlier, note, window)
         dialog = EarlierVersionsDialog(
             self.versions,
             note.id,
@@ -1901,15 +1953,24 @@ class NoteManager(QObject):
             note.color,
             can_restore=not note.deleted,
             opener=self._secret_opener(window),
-            open_secret=(lambda: self._open_for_versions(window))
-            if window is not None and window.secret
-            else None,
+            open_secret=open_secret,
             device_name=self._device_names,
             parent=window,
+            ordinary=not note.secret,
         )
         ask_versions(dialog)
         if dialog.chosen is not None:
             self._go_back(note.id, dialog.chosen, window)
+
+    def _ordinary_sealed(self, note_id: str) -> bool:
+        """Whether an ordinary note keeps earlier texts locked that the secret
+        notes' password here may open."""
+        if self._repository is None or self.secrets is None or not self.secrets.turned_on():
+            return False
+        try:
+            return self._repository.sealed_earlier(note_id)
+        except apsw.Error:
+            return False
 
     def _secret_opener(self, window: NoteWindow | None) -> Callable[[SealedText], str] | None:
         """An open secret note's earlier texts opened with its key."""
@@ -1923,9 +1984,25 @@ class NoteManager(QObject):
             self.open_secret(window)
         return self._secret_opener(window)
 
+    def _waits_for_key(self, note_id: str, version_id: int) -> bool:
+        """Whether an earlier text is sealed into its key's box (stickle.data.
+        versions): sealed again as any other once the key is held, not before."""
+        if self.versions is None:
+            return False
+        try:
+            text = self.versions.text(note_id, version_id)
+        except apsw.Error:
+            return False
+        return isinstance(text, SealedText) and text.boxed
+
     def _go_back(self, note_id: str, version_id: int, window: NoteWindow | None) -> None:
         """The note's text is the earlier one now, a new edit; the window shows it."""
         assert self._repository is not None
+        locked = window is not None and window.secret_locked
+        if locked and window is not None and self._waits_for_key(note_id, version_id):
+            self.open_secret(window)  # its key held: sealed again as the others
+            if window.secret_locked:
+                return  # the password not given: left as it is
         try:
             note = self._repository.restore_version(note_id, version_id)
         except (apsw.Error, KeyError, NoteIsSecretError, NoteNotSecretError) as error:
@@ -2423,6 +2500,10 @@ class NoteManager(QObject):
                 self._take_in(note_id)
             except apsw.Error as error:
                 log.error("could not show a note sync brought: %s", type(error).__name__)
+        # A note made secret (or ordinary) elsewhere: its earlier texts as any
+        # other's, at once with a key a window holds.
+        for number, key in {self._key_numbers.get(w): k for w, k in self._keys.items()}.items():
+            self._open_earlier(bytes(key), number)
         if records:
             self.refresh_labels()  # says changed
             self.own_colors_changed.emit()

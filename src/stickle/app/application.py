@@ -635,7 +635,12 @@ class KeysHere:
             if isinstance(taken, SecretOther):
                 try:
                     if self._unlock.keep_other_secret_key(
-                        taken.number, taken.password, taken.recovery, taken.vault, taken.by
+                        taken.number,
+                        taken.password,
+                        taken.recovery,
+                        taken.vault,
+                        taken.by,
+                        taken.box,
                     ):
                         log.info("sync: the other computers' secret notes' key kept beside")
                 except (KeyFileError, OSError) as error:  # kept at a later round
@@ -643,7 +648,7 @@ class KeysHere:
                 continue
             try:
                 if not self._unlock.take_secret_notes_key(
-                    taken.number, taken.password, taken.recovery, taken.seen
+                    taken.number, taken.password, taken.recovery, taken.seen, taken.box
                 ):
                     log.info("sync: the secret notes' key changed here meanwhile: kept")
                     continue
@@ -786,9 +791,17 @@ def secret_passwords(
         if aside is not None:
             resealed()
 
+    def keep_box(key: bytes) -> None:
+        """Their key opened here: its box in their key file too, if it has none
+        (made by 0.6): another computer seals into it what a note made secret
+        elsewhere left in the clear there."""
+        if unlock.keep_secret_box(key):
+            log.info("secret notes' box kept")
+
     def open_secret_notes(password: str) -> bytes:
         """With their password, then kept for the recovery key."""
         key = unlock.open_secret_notes(password)
+        keep_box(key)
         keep_for_recovery_key(key)
         return key
 
@@ -796,8 +809,13 @@ def secret_passwords(
         key = unlock.open_secret_notes_with_recovery_key(typed)
         if not fits(key):
             raise NotKeptForRecoveryKeyError("the key opens no secret note")
+        keep_box(key)
         keep_for_recovery_key(key)  # opened with the one kept aside, say
         return key
+
+    def not_matched(key: bytes) -> None:
+        keep_box(key)
+        keep_for_recovery_key(key)
 
     def change_password(key: bytes, password: str) -> None:
         unlock.change_secret_password(key, password)
@@ -830,7 +848,7 @@ def secret_passwords(
             open_other=unlock.open_other_secret_key,
             open_other_with_recovery_key=unlock.open_other_secret_key_with_recovery_key,
             match=matched.match,
-            not_matched=keep_for_recovery_key,
+            not_matched=not_matched,
             keep_matched=unlock.match_secret_notes,
             apart=unlock.apart_secret_keys,
             adopt=matched.adopt,

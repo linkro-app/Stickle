@@ -5,8 +5,12 @@ A scene builds its window in the state it shows and hands it back, not shown yet
 it reaches the state by the same methods the window's own flow calls."""
 # pyright: reportPrivateUsage=false
 
+import secrets
+import shutil
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import cast
 
 from PySide6.QtCore import QDate, QDateTime, QObject, QPoint, Qt, QTime, Signal
@@ -32,10 +36,16 @@ from stickle.app.sync_stopped import SyncStopped
 from stickle.app.syncing import BigChange, Ended, Syncing
 from stickle.app.tray import Tray
 from stickle.app.turn_on_sync import MINE, THEIRS, TurnOnSync, _Taken
+from stickle.app.versions_window import EarlierVersionsDialog
+from stickle.core.note import SealedText
 from stickle.crypto.keyfile import WrongPasswordError
 from stickle.crypto.recovery import RecoveryKeyTypoError
+from stickle.crypto.secret_notes import seal_text
 from stickle.data.colors import OwnColor
+from stickle.data.notes import NoteRepository
+from stickle.data.schema import open_store
 from stickle.data.sync_connection import WEBDAV, Login
+from stickle.data.versions import VersionRepository
 from stickle.sync.devices import Other
 from stickle.sync.engine import GETTING, PUTTING, FirstLook, Report
 from stickle.sync.format import NewerFormatError
@@ -647,6 +657,38 @@ def _recovery_key_before_new(stage: Stage) -> QWidget:
     return dialog
 
 
+def _once_secret(stage: Stage) -> QWidget:
+    """An ordinary note's earlier versions, one locked from when it was secret
+    (made ordinary on another computer while this one held no key)."""
+    folder = Path(tempfile.mkdtemp())
+    connection = open_store(folder / "notes.db", secrets.token_bytes(32))
+
+    def put_away() -> None:
+        connection.close()
+        shutil.rmtree(folder, ignore_errors=True)
+
+    stage.at_end(put_away)
+
+    def then() -> str:
+        return "2026-11-16T05:05:00.000Z"
+
+    notes = NoteRepository(connection, clock=then)
+    note = notes.create("")
+    sealed = SealedText(seal_text(secrets.token_bytes(32), note.id, "통장"), note.id, None)
+    notes.take_in(note.id, sealed, "laptop", {"secret_title": "통장"}, {}, {})
+    notes.take_in(note.id, "장보기: 우유, 빵", "laptop", {"secret_title": None}, {}, {})
+    dialog = EarlierVersionsDialog(
+        VersionRepository(connection, clock=then),
+        note.id,
+        "장보기: 우유, 빵",
+        note.color,
+        open_secret=lambda: None,
+        device_name=lambda _device: "노트북",
+        ordinary=True,
+    )
+    return stage.keep(dialog)
+
+
 def _matching(kind: MatchKind, count: int, by: str | None = None) -> Callable[[Stage], QWidget]:
     """The window that matches the secret notes' passwords, one of them opened
     (apart: a note sealed with a key the computer named by used apart)."""
@@ -912,6 +954,7 @@ SCENES: list[Scene] = [
     Scene("secret-notes-match-apart", _matching("apart", 0, "노트북")),
     Scene("secret-notes-match-apart-unknown", _matching("apart", 0)),
     Scene("secret-notes-match-apart-long-name", _matching("apart", 0, LONG_NAME)),
+    Scene("earlier-versions-once-secret", _once_secret),
     Scene("manager-told-secret-notes-matched", _manager_matched(old_key=True)),
     Scene("manager-told-secret-notes-matched-kept", _manager_matched(old_key=False)),
     Scene("note-unmatched", _note_unmatched, keyboard=False),

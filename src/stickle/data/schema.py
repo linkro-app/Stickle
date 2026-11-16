@@ -619,10 +619,18 @@ ALTER TABLE note_versions ADD COLUMN sealed_key_number TEXT;
 ALTER TABLE sync_vaults ADD COLUMN secret_key TEXT;
 """
 
+V28 = """
+-- An earlier text of a note made secret on another computer, sealed here into
+-- the box of the secret notes' key of sealed_key_number (NULL: this computer's)
+-- by a computer that did not hold that key: it opens with the key alone, and
+-- is sealed again as any other once the key is held here.
+ALTER TABLE note_versions ADD COLUMN boxed INTEGER NOT NULL DEFAULT 0;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
-    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27),
+    *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27, V28),
 ]
 BACKUPS_KEPT = 3
 

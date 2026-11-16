@@ -110,7 +110,7 @@ from stickle.core.being_edited import Editing, nobody_editing
 from stickle.core.markdown import note_title
 from stickle.core.note import Note
 from stickle.crypto.sealed import SealedSlot
-from stickle.crypto.secret_notes import key_number, old_numbers
+from stickle.crypto.secret_notes import BOX, box_of, key_number, old_numbers, others_of
 from stickle.crypto.vault_keys import RECOVERY_KEY
 from stickle.data import record_state, sync_held, sync_keys, sync_staged, sync_state
 from stickle.data.notes import NoteRepository
@@ -150,10 +150,16 @@ from stickle.sync.merge import (
     merge_fields,
     trash_due,
 )
-from stickle.sync.note_file import NoteFile, Step
+from stickle.sync.note_file import NoteFile, Secret, Step
 from stickle.sync.place import Place, writing
 from stickle.sync.records import RecordReport, RecordRound
-from stickle.sync.secret_key import SecretFollow, SecretOther, record_of, sync_secret_key
+from stickle.sync.secret_key import (
+    SecretFollow,
+    SecretOther,
+    record_of,
+    sync_secret_key,
+    vault_boxes,
+)
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
@@ -469,6 +475,7 @@ def sync_vault(
                 lambda device: name_of(connection, place.vault, device),
                 taking[0] if taking else None,
             )
+    notes_round.boxes = _boxes_here(secret_key, report.secret)
     notes_round.look(_items(told, NOTES) | set(again), listing)
     records = RecordRound(
         connection,
@@ -489,6 +496,35 @@ def sync_vault(
                 record_state.set_taken(connection, place.vault, looked.rounds)
         tell(connection, place, cloud_now, about)
     return report
+
+
+def _boxes_here(
+    secret_key: Callable[[], Mapping[str, object] | None] | None,
+    taken: list[SecretFollow | SecretOther],
+) -> dict[str, bytes]:
+    """The boxes of the secret notes' keys this device knows (stickle.crypto.
+    secret_notes): its key file C's, its own and the others' kept beside, and
+    those the round brings for it; by the keys' numbers, their public keys."""
+    found: dict[str, bytes] = {}
+    for each in taken:
+        public = None if each.box is None else box_of({BOX: each.box})
+        if public is not None:
+            found[each.number] = public
+    if secret_key is None:
+        return found
+    try:
+        slots = secret_key()
+    except Exception as error:  # the app's: looked at again next round
+        log.warning("sync: the secret notes' key does not read now: %s", type(error).__name__)
+        return found
+    for number, entry in others_of(slots).items():
+        public = box_of(entry)
+        if public is not None:
+            found[number] = public
+    number, own = key_number(slots), box_of(slots)
+    if number is not None and own is not None:
+        found[number] = own
+    return found
 
 
 def _old_here(secret_key: Callable[[], Mapping[str, object] | None] | None) -> frozenset[str]:
@@ -552,6 +588,10 @@ class _Round:
         self._leaving = Leaving(connection, place, cloud_now)
         self._copies: dict[str, list[str]] = {}  # by note: its copies under other names, kept
         self._last = sync_state.synced_at(connection, place.vault)
+        # The boxes of the secret notes' keys, by number (stickle.crypto.secret_notes):
+        # what a note made secret elsewhere held here in the clear is sealed into one.
+        self.boxes: dict[str, bytes] = {}
+        self._boxes_read = False  # the vault's looked at for one not known here
         self._started = 0
         self._to_read: set[str] | None = None  # None: not looked yet
         self._staged: set[str] = set()  # files kept by the look, not taken in yet
@@ -1073,6 +1113,8 @@ class _Round:
                 )
                 merged = replace(merged, note=replace(merged.note, contents=fitting))
             merged = self._redirected(merged)
+            if self._waits_for_box(at, merged.note):
+                raise _LaterError()
             now = self._now()
             put = None
             if cloud.note is None or not _same(merged.note, cloud.note):
@@ -1093,6 +1135,21 @@ class _Round:
             return put, copies
         raise _LaterError()
 
+    def _waits_for_box(self, at: local.Here, note: NoteFile) -> bool:
+        """Whether a note made secret elsewhere waits for a later round: what it
+        holds here in the clear is sealed into the box of its key, and none is
+        known for it yet (in the vault's record too, looked at once a round)."""
+        text = note.body.text
+        if not isinstance(text, Secret) or at.note is None or at.note.secret:
+            return False
+        if text.key not in self.boxes and not self._boxes_read:
+            self._boxes_read = True
+            self.boxes = vault_boxes(self._db, self._place) | self.boxes
+        if text.key in self.boxes:
+            return False
+        log.info("sync: a note made secret elsewhere waits for its key's box")
+        return True
+
     def _take(
         self,
         note_id: str,
@@ -1107,7 +1164,9 @@ class _Round:
         note's change number after, and the conflict copies made."""
         place = self._place
         kept = put or merged.note
-        seq = local.take(self._db, self._notes, place.device, note_id, kept, at)
+        seq = local.take(
+            self._db, self._notes, place.device, note_id, kept, at, self.boxes, self._key
+        )
         seen = cloud.kept
         if seen is None and cloud.note is not None:
             # Emptied here: no text of it kept, the vault's neither.

@@ -172,11 +172,17 @@ class Device:
         for taken in secret or []:
             if isinstance(taken, SecretOther):
                 secret_notes.keep_other(
-                    self.files, taken.number, taken.password, taken.recovery, taken.vault, taken.by
+                    self.files,
+                    taken.number,
+                    taken.password,
+                    taken.recovery,
+                    taken.vault,
+                    taken.by,
+                    taken.box,
                 )
                 continue
             if secret_notes.take(
-                self.files, taken.number, taken.password, taken.recovery, taken.seen
+                self.files, taken.number, taken.password, taken.recovery, taken.seen, taken.box
             ):
                 with self.db:
                     for kind, agreed in taken.agreed.items():

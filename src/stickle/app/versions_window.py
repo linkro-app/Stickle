@@ -5,7 +5,9 @@ The list reads each one's time, where it came from and its first line, never
 its whole text: that is read for the one picked only. A secret note's are
 encrypted: while it is covered the list has their times alone, and its text
 is shown with the secret notes' password first (as the note's own "Show its
-text…"). Going back is left to the note's owner, which saves what the note
+text…"). An ordinary note may keep some of them locked too, from when it was
+secret (made ordinary on another computer): they open with the password the
+same way. Going back is left to the note's owner, which saves what the note
 held first; this window only says which one.
 """
 
@@ -68,15 +70,18 @@ class EarlierVersionsDialog(QDialog):
         open_secret: Callable[[], Callable[[SealedText], str] | None] | None = None,
         device_name: Callable[[str], str | None] = lambda _: None,
         parent: QWidget | None = None,
+        ordinary: bool = False,
     ) -> None:
         """opener: a secret note's earlier texts opened (None while it is covered,
         or for an ordinary note); open_secret: asks for the password and gives
         the opener (None when it cannot be asked for here, as in the trash);
-        device_name: what a device is called, as it says itself (None: not known)."""
+        device_name: what a device is called, as it says itself (None: not known);
+        ordinary: the note is not secret (those locked are from when it was)."""
         super().__init__(parent)
         self._versions = versions
         self._note_id = note_id
         self._title = title
+        self._ordinary = ordinary
         self._can_restore = can_restore
         self._opener = opener
         self._open_secret = open_secret
@@ -135,7 +140,14 @@ class EarlierVersionsDialog(QDialog):
         self.list.setAccessibleName(self.tr("Earlier versions"))
         self.view.setAccessibleName(self.tr("The version chosen"))
         self.covered.setText(
-            self.tr("This secret note's text is covered. Show it to read its earlier versions.")
+            self.tr(
+                "This version is from when the note was secret, and is still locked. Type the"
+                " secret notes' password to open it."
+            )
+            if self._ordinary
+            else self.tr(
+                "This secret note's text is covered. Show it to read its earlier versions."
+            )
         )
         self.show_button.setText(self.tr("Show its text…"))
         self.note.setText(

@@ -18,11 +18,13 @@ class SealedText:
     """A secret note's text, encrypted (stickle.crypto.secret_notes), as it is
     kept here: bound to the note it was sealed for (None: the one that has it
     — a conflict copy's opens as its original's) and sealed with the key of
-    that number (None: this computer's)."""
+    that number (None: this computer's). An earlier text may be sealed into
+    that key's box instead, here where the key was not held (boxed)."""
 
     data: bytes
     bound_to: str | None = None
     key_number: str | None = None
+    boxed: bool = False
 
     def opens_as(self, note_id: str) -> str:
         """The id it opens with, for the note note_id that has it."""

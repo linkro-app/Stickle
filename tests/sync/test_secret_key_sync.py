@@ -140,7 +140,12 @@ def test_the_cloud_holds_neither_the_key_nor_the_password(a: Device) -> None:
     assert b"secret_password" not in raw and b"public" not in raw  # locked with the data key
     fields = fields_of(the_record(a.cloud))
     number = secret_notes.key_number(files(a).load(C))
-    assert set(fields) == {"current", f"password.{number}", f"recovery.{number}"}
+    assert set(fields) == {
+        "current",
+        f"password.{number}",
+        f"recovery.{number}",
+        f"box.{number}",
+    }
 
 
 def test_a_password_changed_on_one_computer_is_everyones_and_told(a: Device, b: Device) -> None:

@@ -202,7 +202,7 @@ def contents(backup: Path, key: bytes, latest_version: int) -> Contents | None:
 # An earlier text's columns as stickle.data.versions keeps them, its id aside.
 _VERSION_COLUMNS = (
     "body, sealed, content_hash, made_at, made_by, restored, kept_at, sealed_bound,"
-    " sealed_key_number"
+    " sealed_key_number, boxed"
 )
 
 
@@ -283,7 +283,7 @@ def _earlier_as_now(connection: apsw.Connection, note_id: str, secret: SecretNow
     connection.execute("DELETE FROM note_versions WHERE note_id = ?", (note_id,))
     connection.executemany(
         f"INSERT INTO note_versions (note_id, {_VERSION_COLUMNS})"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(note_id, *row) for row in secret.earlier],  # pyright: ignore[reportArgumentType]
     )
 

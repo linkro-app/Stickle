@@ -111,6 +111,8 @@ from stickle.crypto.secret_notes import (
     RECOVERY_SLOT,
     NotKeptForRecoveryKeyError,
     SecretNoteError,
+    box_of,
+    box_public,
     open_sealed,
     open_with_any,
     seal_text,
@@ -294,6 +296,7 @@ SWARM = (
     "copy_from_another",
     "made_secret_elsewhere",
     "made_ordinary_elsewhere",
+    "open_earlier",
     "keep_theirs",
     "take_from_theirs",
     "match",
@@ -322,6 +325,28 @@ def swarm(name: str, also: Callable[[Any], bool] | None = None) -> Callable[[Any
 def having(secret: bool | None, deleted: bool) -> Callable[[Any], bool]:
     """A rule's precondition: a note of that kind is there to pick."""
     return lambda state: state.picked(0, secret, deleted) is not None
+
+
+def earlier_opened(connection: Any, note_id: str, keys: list[bytes]) -> list[str]:
+    """The note's earlier texts, each opened as the app opens them."""
+    rows = connection.execute(
+        "SELECT body, sealed, sealed_bound, sealed_key_number, boxed FROM note_versions"
+        " WHERE note_id = ?",
+        (note_id,),
+    ).fetchall()
+    opened: list[str] = []
+    for body, sealed, bound, number, boxed in rows:
+        if sealed is None:
+            opened.append(str(body))
+            continue
+        held = SealedText(
+            bytes(sealed),
+            None if bound is None else str(bound),
+            None if number is None else str(number),
+            bool(boxed),
+        )
+        opened.append(open_with_any(keys, note_id, held))
+    return opened
 
 
 def sound(data: bytes | None) -> bool:
@@ -858,16 +883,37 @@ class SecretNotesMachine(RuleBasedStateMachine):
     @rule(pick=PICKS, title=TITLES)
     def made_secret_elsewhere(self, pick: int, title: str) -> None:
         """A note made secret on another computer: none of its text left in the
-        clear here."""
+        clear here, what it held sealed into its key's box (C's, or the one the
+        vault brings: the same, made from the key)."""
         note_id, theirs = self.picked(pick, secret=False, deleted=False), self.theirs()
         if note_id is None or theirs is None:
             return
         key, number = theirs
         text = self.expected[note_id].text
         sealed = SealedText(seal_text(key, note_id, text), note_id, number)
-        self.notes.take_in(note_id, sealed, LAPTOP, {"secret_title": title}, {}, {})
+        public = box_of(self.unlock.files.load(C)) or box_public(key)
+        columns = {"secret_title": title}
+        self.notes.take_in(note_id, sealed, LAPTOP, columns, {}, {}, (public, None))
         self.notes.forget_old_text_left()
+        if text.strip():  # the text it had, kept among its earlier ones
+            assert text in earlier_opened(self.connection, note_id, [key])
         self.expected[note_id] = Expected(text, secret=True, title=title)
+
+    @precondition(swarm("open_earlier", lambda self: self.unlock.has_secret_notes))
+    @rule()
+    def open_earlier(self) -> None:
+        """A secret note opened with the password (as a window holds its key):
+        earlier texts sealed into its box sealed as any other, those of notes
+        made ordinary elsewhere opened (stickle.app.notes.NoteManager._hold)."""
+        try:
+            key = self.with_password()
+        except KeyFileError:
+            return  # its key file out of reach: nothing opens till it is back
+        keys: dict[str | None, bytes] = {None: key, **self.unlock.secret_old_keys(key)}
+        number = self.unlock.secret_notes_number
+        if number is not None:
+            keys[number] = key
+        self.notes.open_earlier(keys)
 
     @precondition(swarm("made_ordinary_elsewhere", having(secret=True, deleted=False)))
     @rule(pick=PICKS, text=TEXTS)
@@ -1228,6 +1274,18 @@ class SecretNotesMachine(RuleBasedStateMachine):
                 self.secret_key = key
             assert key == self.secret_key or key in self.other_keys
         keys = [] if key is None else self.keys_here(unlock, key)
+        plain_of_secret = connection.execute(
+            "SELECT count(*) FROM note_versions AS v JOIN notes AS n ON n.id = v.note_id"
+            " WHERE n.secret_body IS NOT NULL AND v.sealed IS NULL"
+        ).fetchall()[0][0]
+        assert plain_of_secret == 0, "a secret note's earlier text in the clear"
+        for (note_id,) in connection.execute(
+            "SELECT DISTINCT note_id FROM note_versions WHERE sealed IS NOT NULL"
+        ).fetchall():
+            try:
+                earlier_opened(connection, str(note_id), keys)
+            except SecretNoteError:
+                raise AssertionError("an earlier text does not open") from None
         for note_id, expected in self.expected.items():
             note = stored[note_id]
             assert (note.deleted, note.secret) == (expected.deleted, expected.secret)
