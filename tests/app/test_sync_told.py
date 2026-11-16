@@ -1,9 +1,11 @@
 """What sync did that the user should know of, told once: stopped for the server
 turning the password down, for access taken away, for a newer Stickle's file
 format; uploads stopped with the cloud full; notes put in the trash after a
-long time away. Each at the top of Stickle Manager until OK, the system told
-once with that window closed, and each leading where it is dealt with. Sync
-here is a stand-in: its rounds are what each test says they were."""
+long time away; a note made secret on another computer while it was edited
+here, what was written here let go of (one note at a time). Each at the top
+of Stickle Manager until OK, the system told once with that window closed,
+and each leading where it is dealt with. Sync here is a stand-in: its rounds
+are what each test says they were."""
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -31,10 +33,13 @@ from stickle.app.syncing import Ended, Syncing
 from stickle.app.tray import Tray
 from stickle.app.turn_on_sync import TurnOnSync
 from stickle.app.update_check import UpdateCheck
+from stickle.core.note import SealedText
 from stickle.core.updates import Release
+from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.settings import (
     SYNC_GONE_BACK,
+    SYNC_LET_GO,
     SYNC_SECRETS_RESEALED,
     SYNC_STOP_SEEN,
     SYNC_STOP_TOLD,
@@ -43,7 +48,7 @@ from stickle.data.settings import (
 )
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.platform.updates import STORE
-from stickle.sync.engine import Report
+from stickle.sync.engine import LetGo, Report
 from stickle.sync.outcome import Outcome, Stopped
 
 KEY = bytes([4]) * 32
@@ -98,8 +103,14 @@ class FakeSync(QObject):
     def kept_login(self) -> Login:
         return self.login
 
-    def ended(self, outcome: Outcome, trashed: int = 0, taken_in: bool = False) -> None:
-        report = Report(trashed=[f"note {n}" for n in range(trashed)])
+    def ended(
+        self,
+        outcome: Outcome,
+        trashed: int = 0,
+        taken_in: bool = False,
+        let_go: list[LetGo] | None = None,
+    ) -> None:
+        report = Report(trashed=[f"note {n}" for n in range(trashed)], let_go=let_go or [])
         self.round_shown.emit(Ended(report, outcome, None, False, taken_in))
 
 
@@ -143,9 +154,14 @@ def setup() -> SyncSetup:
     return SyncSetup(lambda: None, keys, lambda: 0, lambda: {}, unused, lambda: None)
 
 
-def manager_of(qtbot: QtBot, settings: Settings, updates: UpdateCheck | None = None) -> Manager:
+def manager_of(
+    qtbot: QtBot,
+    settings: Settings,
+    updates: UpdateCheck | None = None,
+    notes: NoteManager | None = None,
+) -> Manager:
     translations = Translations()
-    notes = NoteManager()
+    notes = NoteManager() if notes is None else notes
     tray = Tray(lambda: None, lambda: None, translations, notes, updates)
     window = StickleWindow(notes, translations, lambda: None, updates=updates)
     qtbot.addWidget(window)
@@ -476,11 +492,13 @@ def test_the_lines_are_reached_by_the_keyboard_in_their_order(
     at.follow(FakeSync()).ended(Outcome(Stopped.SIGN_IN), trashed=1)
     stop, trash = at.window.sync_stop_line, at.window.sync_trash_line
     gone, sealed = at.window.sync_gone_back_line, at.window.sync_secrets_line
-    matched = at.window.sync_matched_line
+    matched, let_go = at.window.sync_matched_line, at.window.sync_let_go_line
     assert gone.action_button.nextInFocusChain() is gone.ok_button
     assert gone.ok_button.nextInFocusChain() is sealed.ok_button
     assert sealed.ok_button.nextInFocusChain() is matched.ok_button
-    assert matched.ok_button.nextInFocusChain() is stop.action_button
+    assert matched.ok_button.nextInFocusChain() is let_go.action_button
+    assert let_go.action_button.nextInFocusChain() is let_go.ok_button
+    assert let_go.ok_button.nextInFocusChain() is stop.action_button
     assert stop.action_button.nextInFocusChain() is stop.ok_button
     assert stop.ok_button.nextInFocusChain() is trash.action_button
     assert trash.action_button.nextInFocusChain() is trash.ok_button
@@ -632,3 +650,92 @@ def test_the_secret_notes_sealed_again_are_told_in_korean(
         "이제 이 PC의 비밀 메모도 다른 PC와 같은 복구 키로 엽니다. 옛 복구 키는 버려도 됩니다."
     )
     assert not at.told  # the window open: the system is not told
+
+
+# A note made secret on another computer while it was edited here
+
+
+@pytest.fixture
+def with_notes(tmp_path: Path) -> Iterator[tuple[Settings, NoteRepository]]:
+    db = open_store(tmp_path / "with-notes.db", KEY)
+    yield Settings(db), NoteRepository(db)
+    db.close()
+
+
+def secret_one(notes: NoteRepository, title: str) -> str:
+    """A note made secret elsewhere, as sync takes it in."""
+    note = notes.create("장보기")
+    sealed = SealedText(b"sealed bytes", note.id, "5bd21933-4927-4c74-93bd-c3a05759f1d9")
+    notes.take_in(note.id, sealed, "laptop", {"secret_title": title}, {}, {})
+    return note.id
+
+
+def test_a_note_made_secret_elsewhere_while_edited_here_is_told_until_ok_one_at_a_time(
+    qtbot: QtBot, with_notes: tuple[Settings, NoteRepository], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings, notes = with_notes
+    first, second = secret_one(notes, "통장"), secret_one(notes, "일기")
+    manager = NoteManager(notes)
+    at = manager_of(qtbot, settings, notes=manager)
+    shown: list[str] = []
+    monkeypatch.setattr(manager, "show_versions_of", shown.append)
+    sync = at.follow(FakeSync())
+    line = at.window.sync_let_go_line
+    assert line.isHidden()
+
+    sync.ended(Outcome(), let_go=[LetGo(first, "노트북")])
+    said = (
+        "노트북 made “통장” a secret note, so what you changed here wasn't put into it."
+        " It stays in Earlier versions on this computer for 30 days."
+    )
+    assert not line.isHidden() and line.label.text() == said
+    assert line.action_button.text() == "Show &earlier versions…"
+    assert at.told == [said]
+    sync.ended(Outcome(), let_go=[LetGo(second, None)])
+    assert line.label.text() == said and len(at.told) == 1  # the first, till OK
+
+    line.action_button.click()
+    assert shown == [first] and not line.isHidden()  # it stays till OK
+    again = manager_of(qtbot, settings, notes=NoteManager(notes))  # at the next start
+    again.follow(FakeSync())
+    assert again.window.sync_let_go_line.label.text() == said
+    again.window.sync_let_go_line.ok_button.click()
+    assert again.window.sync_let_go_line.label.text().startswith(
+        "another computer made “일기” a secret note"
+    )
+    again.window.sync_let_go_line.ok_button.click()
+    assert again.window.sync_let_go_line.isHidden() and settings.get(SYNC_LET_GO) == []
+
+
+def test_one_gone_since_is_not_told(
+    qtbot: QtBot, with_notes: tuple[Settings, NoteRepository]
+) -> None:
+    settings, notes = with_notes
+    note_id = secret_one(notes, "통장")
+    settings.set(SYNC_LET_GO, [{"note": note_id, "by": "노트북"}, {"note": "gone", "by": None}])
+    notes.delete(note_id)
+
+    at = manager_of(qtbot, settings, notes=NoteManager(notes))
+    at.follow(FakeSync())
+
+    assert at.window.sync_let_go_line.isHidden() and settings.get(SYNC_LET_GO) == []
+
+
+def test_a_note_made_secret_elsewhere_is_told_in_korean(
+    qtbot: QtBot, with_notes: tuple[Settings, NoteRepository], translations: Translations
+) -> None:
+    translations.apply("ko")
+    settings, notes = with_notes
+    note_id = secret_one(notes, "통장")
+    at = manager_of(qtbot, settings, notes=NoteManager(notes))
+
+    at.follow(FakeSync()).ended(Outcome(), let_go=[LetGo(note_id, None)])
+
+    line = at.window.sync_let_go_line
+    quoted = "\N{LEFT SINGLE QUOTATION MARK}%s\N{RIGHT SINGLE QUOTATION MARK}"
+    assert line.label.text() == (
+        f"다른 PC에서 {quoted % '통장'} 메모를 비밀 메모로 바꿔서, 이 PC에서 고친 글은 그"
+        f" 메모에 넣지 않았습니다. 고친 글은 이 PC의 {quoted % '이전 버전'}에 30일 동안"
+        " 남습니다."
+    )
+    assert line.action_button.text() == "이전 버전 보기(&E)…"

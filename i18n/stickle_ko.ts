@@ -4091,6 +4091,18 @@ Your notes as they are now are backed up first, so you can come back to them the
         <source>You can throw the old recovery key away now.</source>
         <translation>이제 옛 복구 키는 버려도 됩니다.</translation>
     </message>
+    <message>
+        <source>another computer</source>
+        <translation>다른 PC</translation>
+    </message>
+    <message>
+        <source>Note</source>
+        <translation>메모</translation>
+    </message>
+    <message>
+        <source>%1 made “%2” a secret note, so what you changed here wasn&apos;t put into it. It stays in Earlier versions on this computer for 30 days.</source>
+        <translation>%1에서 ‘%2’ 메모를 비밀 메모로 바꿔서, 이 PC에서 고친 글은 그 메모에 넣지 않았습니다. 고친 글은 이 PC의 ‘이전 버전’에 30일 동안 남습니다.</translation>
+    </message>
 </context>
 <context>
     <name>SyncGoneBackLine</name>
@@ -4108,6 +4120,13 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Open the sync guide</source>
         <translation>동기화 안내 열기</translation>
+    </message>
+</context>
+<context>
+    <name>SyncLetGoLine</name>
+    <message>
+        <source>Show &amp;earlier versions…</source>
+        <translation>이전 버전 보기(&amp;E)…</translation>
     </message>
 </context>
 <context>

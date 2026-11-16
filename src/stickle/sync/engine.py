@@ -205,6 +205,15 @@ class BigChangeError(Exception):
         self.held = held
 
 
+@dataclass(frozen=True)
+class LetGo:
+    """A note made secret on another device while it was edited here in the
+    clear: what was written here let go of for that (stickle.sync.merge)."""
+
+    note: str
+    by: str | None  # the name of the device that made it secret (None: not known)
+
+
 @dataclass
 class Report:
     changed: list[str] = field(default_factory=list[str])  # notes changed here
@@ -224,6 +233,8 @@ class Report:
     secret: list[SecretFollow | SecretOther] = field(
         default_factory=list[SecretFollow | SecretOther]
     )
+    # Notes whose text written here was let go of, made secret elsewhere meanwhile.
+    let_go: list[LetGo] = field(default_factory=list[LetGo])
 
 
 @dataclass(frozen=True)
@@ -496,6 +507,14 @@ def sync_vault(
                 record_state.set_taken(connection, place.vault, looked.rounds)
         tell(connection, place, cloud_now, about)
     return report
+
+
+def _before_plain(state: NoteState | None) -> bool:
+    """Whether the note's text was ordinary as this device last had it from the
+    vault or put it there: what its next version is made on, in the clear or
+    taken out (made secret here since); not deleted."""
+    head = local.head_of(state)
+    return head is not None and not head.body.deleted and not isinstance(head.body.text, Secret)
 
 
 def _boxes_here(
@@ -776,7 +795,7 @@ class _Round:
         for copy_path in self._copies.get(note_id, []):
             copy = self._kept_copy(copy_path)
             if copy is not None and _writable(copy.note):
-                note = self._joined(note_id, note, copy.note, made)
+                note = self._joined(note_id, note, copy.note, made, state)
                 folded = True
         cloud, none = self._opened(note_id)
         out: list[Held] = []
@@ -788,7 +807,7 @@ class _Round:
                 out.append(Held(note_id, sync_held.TRASH))
             return out
         if cloud is not None:
-            note = self._joined(note_id, note, cloud, made)
+            note = self._joined(note_id, note, cloud, made, state)
         if note is not None and at.note.deleted_at is None:
             trash = note.contents.fields.get(TRASH)
             if note.body.deleted:
@@ -821,12 +840,17 @@ class _Round:
         return note, False
 
     def _joined(
-        self, note_id: str, mine: NoteFile | None, cloud: NoteFile, made: list[str]
+        self,
+        note_id: str,
+        mine: NoteFile | None,
+        cloud: NoteFile,
+        made: list[str],
+        state: NoteState | None = None,
     ) -> NoteFile:
         """The two merged, as the round would merge them; a copy made, in made."""
         if mine is None:
             return cloud
-        merged = merge(self._place.keys, note_id, mine, cloud)
+        merged = merge(self._place.keys, note_id, mine, cloud, _before_plain(state))
         if merged.copy is not None:
             made.append(merged.copy[0])
         return merged.note
@@ -1101,7 +1125,7 @@ class _Round:
             if mine is None and cloud.note is None:
                 return None
             if mine is not None and cloud.note is not None:
-                merged = merge(place.keys, note_id, mine, cloud.note)
+                merged = merge(place.keys, note_id, mine, cloud.note, _before_plain(state))
             elif mine is not None:
                 merged = Merged(mine, Step.SEND)
             else:
@@ -1129,11 +1153,22 @@ class _Round:
                     taken = self._take(note_id, state, cloud, at, merged, put, now)
             if taken is None:
                 raise _HeldError()
+            self._told_let_go(note_id, mine, merged.note)
             seq, copies = taken
             if seq != (None if at.note is None else at.note.change_seq):
                 self._report.changed.append(note_id)
             return put, copies
         raise _LaterError()
+
+    def _told_let_go(self, note_id: str, mine: NoteFile | None, merged: NoteFile) -> None:
+        """The text this device wrote, let go of for the other's, made secret
+        (here, merging, or on the device that merged): told once, as it is taken in."""
+        body = mine.body if mine is not None else None
+        let_go = merged.body.let_go
+        if body is None or let_go is None or let_go != body.id or body.device != self._place.device:
+            return
+        by = name_of(self._db, self._place.vault, merged.body.device)
+        self._report.let_go.append(LetGo(note_id, by))
 
     def _waits_for_box(self, at: local.Here, note: NoteFile) -> bool:
         """Whether a note made secret elsewhere waits for a later round: what it

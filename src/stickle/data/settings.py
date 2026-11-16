@@ -354,6 +354,28 @@ SYNC_SECRETS_MATCHED = Setting[dict[str, object] | None](
     "sync_secrets_matched", "device", None, _matched
 )
 
+
+def _let_go(value: object) -> TypeGuard[list[dict[str, str | None]]]:
+    """Each {"note": its id, "by": the name of the computer that made it secret,
+    or null when it is not known}."""
+    if not isinstance(value, list):
+        return False
+    for each in cast(list[object], value):
+        if not isinstance(each, dict):
+            return False
+        fields = cast(dict[str, object], each)
+        if set(fields) != {"note", "by"} or not isinstance(fields["note"], str):
+            return False
+        if not (fields["by"] is None or isinstance(fields["by"], str)):
+            return False
+    return True
+
+
+# Notes made secret on another computer while they were edited here in the
+# clear, what was written here let go of (stickle.sync.merge): said at the top
+# of Stickle Manager, one at a time, until OK.
+SYNC_LET_GO = Setting[list[dict[str, str | None]]]("sync_let_go", "device", [], _let_go)
+
 SETTINGS: dict[str, Setting[object]] = {
     s.key: s  # pyright: ignore[reportAssignmentType]
     for s in (
@@ -387,6 +409,7 @@ SETTINGS: dict[str, Setting[object]] = {
         SYNC_GONE_BACK,
         SYNC_SECRETS_RESEALED,
         SYNC_SECRETS_MATCHED,
+        SYNC_LET_GO,
     )
 }
 

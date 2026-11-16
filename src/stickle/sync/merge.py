@@ -11,6 +11,13 @@ have what the other has not are both kept:
   its text: the changed text is kept, in the trash: whoever emptied it did not
   see it, and it comes back only when taken out of the trash;
 - both delete it: joined, deleted;
+- one made the note secret, the other edited its text in the clear (the text
+  was ordinary before both, as the device merging last had it: before_plain):
+  the secret one's text, joined with the other, and no copy, so that what was
+  to be secret goes nowhere in the clear; the version says which text it let
+  go of, for the device that wrote it to be told (it keeps it among its
+  earlier texts there, sealed: stickle.data.versions). Made ordinary on one
+  and edited secret on the other, or made secret on both, goes as below;
 - else the text edited later (at the same time: the higher version id) stays
   the note's, joined with the other, and the other goes to a conflict copy, a
   note of its own whose id comes from the note's and that version's, so that
@@ -167,8 +174,20 @@ def _followed(mine: NoteFile, cloud: NoteFile, note_id: str) -> Step | None:
     return Step.RECEIVE if a else Step.SEND
 
 
-def merge(keys: DataKeys, note_id: str, mine: NoteFile, cloud: NoteFile) -> Merged:
-    """mine: the note as this device has it (its text at its head version)."""
+def _made_secret(a: Version, b: Version, before_plain: bool) -> tuple[Version, Version] | None:
+    """(the one made secret, the one edited in the clear) of two texts gone
+    apart from one in the clear; None if they are not that."""
+    if not before_plain or isinstance(a.text, Secret) == isinstance(b.text, Secret):
+        return None
+    return (a, b) if isinstance(a.text, Secret) else (b, a)
+
+
+def merge(
+    keys: DataKeys, note_id: str, mine: NoteFile, cloud: NoteFile, before_plain: bool = False
+) -> Merged:
+    """mine: the note as this device has it (its text at its head version);
+    before_plain: its text was ordinary as this device last had it from the
+    vault, or put it there (where both lines went apart from)."""
     step = decide(mine.body, cloud.body)
     fields = merge_fields(mine.contents, cloud.contents)
     if step is Step.SAME:  # emptied on both, too: the fields merge alike
@@ -191,6 +210,11 @@ def merge(keys: DataKeys, note_id: str, mine: NoteFile, cloud: NoteFile) -> Merg
     if a.text == b.text:
         later, _ = _later_edited(a, b)
         return Merged(NoteFile(fields, _join(keys, a, b, a.text, later)), step)
+    made_secret = _made_secret(a, b, before_plain)
+    if made_secret is not None:
+        secret, plain = made_secret
+        joined = replace(_join(keys, secret, plain, secret.text, secret), let_go=plain.id)
+        return Merged(NoteFile(fields, joined), step)
     stays, other = _later_edited(a, b)
     joined = _join(keys, stays, other, stays.text, stays)
     return Merged(NoteFile(fields, joined), step, _copy(keys, note_id, fields, other))

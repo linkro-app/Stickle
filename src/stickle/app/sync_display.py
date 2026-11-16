@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import html
 import logging
-from collections.abc import Callable, Collection
+import re
+from collections.abc import Callable, Collection, Sequence
 from typing import TYPE_CHECKING, override
 
 import apsw
@@ -31,11 +32,13 @@ from stickle.app.app_icon import SyncSign, halted_pixmap
 from stickle.app.backups import when
 from stickle.app.in_use import call_up
 from stickle.app.link_label import LinkLabel
+from stickle.app.titles import shown_title
 from stickle.app.tray import SyncShown
 from stickle.core.clock import moment_of
 from stickle.data.settings import (
     CLOUD_FULL,
     SYNC_GONE_BACK,
+    SYNC_LET_GO,
     SYNC_SECRETS_MATCHED,
     SYNC_SECRETS_RESEALED,
     SYNC_STOP_SEEN,
@@ -54,12 +57,18 @@ if TYPE_CHECKING:
     from stickle.app.syncing import Ended, Syncing
     from stickle.app.tray import Tray
     from stickle.app.turn_on_sync import TurnOnSync
+    from stickle.sync.engine import LetGo
 
 log = logging.getLogger(__name__)
 
 DOT_SIZE = 12
 # Tells the system once (what it says; what a click on it opens).
 type Notify = Callable[[str, Callable[[], object]], object]
+
+
+def _filled(text: str, first: str, second: str) -> str:
+    """text with %1 and %2 in it as given, in one go (neither read again)."""
+    return re.sub("%([12])", lambda found: first if found.group(1) == "1" else second, text)
 
 
 class SyncNoticeLine(QWidget):
@@ -152,6 +161,16 @@ class SyncResealedLine(SyncNoticeLine):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.action_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # never shown
+
+
+class SyncLetGoLine(SyncNoticeLine):
+    """A note made secret on another computer while it was edited here in the
+    clear, what was written here let go of: told one at a time, with the way to
+    its earlier versions, which keep that."""
+
+    @override
+    def own_way_on(self) -> str:
+        return self.tr("Show &earlier versions…")
 
 
 class SyncLine(QWidget):
@@ -255,6 +274,12 @@ class SyncDisplay(QObject):
         window.sync_secrets_line.seen.connect(self._resealed_seen)
         self._matched = None if settings is None else settings.get(SYNC_SECRETS_MATCHED)
         window.sync_matched_line.seen.connect(self._matched_seen)
+        # Notes made secret elsewhere while edited here, the first one told.
+        self._let_go: list[dict[str, str | None]] = (
+            [] if settings is None else list(settings.get(SYNC_LET_GO))
+        )
+        window.sync_let_go_line.acted.connect(self._show_let_go)
+        window.sync_let_go_line.seen.connect(self._let_go_seen)
 
     def follow(self, syncing: Syncing | None) -> None:
         """This run's sync from now on; None: it has stopped, or there is none."""
@@ -363,6 +388,8 @@ class SyncDisplay(QObject):
         trashed = len(set(ended.report.trashed))
         if trashed and not ended.taken_in:  # that, the user saw before letting it in
             self._more_trashed(trashed)
+        if ended.report.let_go:
+            self._more_let_go(ended.report.let_go)
 
     def _seen(self) -> None:
         syncing = self._syncing
@@ -518,6 +545,57 @@ class SyncDisplay(QObject):
         else:
             line.hide()
 
+    # A note made secret elsewhere while it was edited here
+
+    def _let_go_text(self) -> str | None:
+        """What is said of the first note told of, while it is here (those gone
+        since are let go of); None when there is none."""
+        while self._let_go:
+            first = self._let_go[0]
+            note = self._manager.note(str(first["note"]))
+            if note is not None and not note.deleted:
+                by = first["by"] or self.tr("another computer")
+                title = shown_title(note) or self.tr("Note")
+                said = self.tr(
+                    "%1 made “%2” a secret note, so what you changed here wasn't put into it."
+                    " It stays in Earlier versions on this computer for 30 days."
+                )
+                return _filled(said, by, title)
+            self._let_go.pop(0)
+            self._set(SYNC_LET_GO, self._let_go)
+        return None
+
+    def _more_let_go(self, told: Sequence[LetGo]) -> None:
+        """Told at the top, one at a time, each until OK; the system told once."""
+        first = not self._let_go
+        for each in told:
+            self._let_go = [kept for kept in self._let_go if kept["note"] != each.note]
+            self._let_go.append({"note": each.note, "by": each.by})
+        self._set(SYNC_LET_GO, self._let_go)
+        self._tell_let_go()
+        text = self._let_go_text()
+        if first and text is not None and self._notify is not None and not self._window.isVisible():
+            self._notify(text, self._show_let_go)
+
+    def _show_let_go(self) -> None:
+        """The earlier versions of the note told of (it stays told till OK)."""
+        if self._let_go:
+            self._manager.show_versions_of(str(self._let_go[0]["note"]))
+
+    def _let_go_seen(self) -> None:
+        if self._let_go:
+            self._let_go.pop(0)
+            self._set(SYNC_LET_GO, self._let_go)
+        self._tell_let_go()
+
+    def _tell_let_go(self) -> None:
+        line = self._window.sync_let_go_line
+        text = self._let_go_text()
+        if text is not None:
+            line.tell(text)
+        else:
+            line.hide()
+
     def _unsent(self, note_ids: Collection[str]) -> None:
         self._manager.show_unsent(note_ids)
 
@@ -527,6 +605,7 @@ class SyncDisplay(QObject):
         self._tell_gone_back()
         self._tell_resealed()
         self._tell_matched()
+        self._tell_let_go()
         if self._syncing is None:
             self._tray.set_sync(None)
             self._window.sync_line.show_status("", False)

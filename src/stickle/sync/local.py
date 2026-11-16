@@ -211,7 +211,7 @@ def _field(at: Here, note: Note, name: str, device: str, before: Field | None) -
     return replace(before, value=value, hlc=when, device=by or device, sent=sent)
 
 
-def _head(state: NoteState | None) -> NoteFile | None:
+def head_of(state: NoteState | None) -> NoteFile | None:
     """What the note's next version is made on: the file put and not seen yet,
     else the one last seen."""
     if state is None:
@@ -225,7 +225,7 @@ def mine(
     """The note as this device has it, as a file; None when it has nothing of it.
     key: the number of this device's secret notes' key (ValueError for a secret
     note sealed with it, without one: see text_of)."""
-    head = _head(state)
+    head = head_of(state)
     note = at.note
     if note is None:
         if at.emptied_at is None:

@@ -462,8 +462,10 @@ def test_the_line_is_reached_by_the_keyboard_after_the_lines_before_it(
     following: QWidget | None = at.window.cloud_folder_line.ok_button.nextInFocusChain()
     assert following is gone_back.action_button
     sealed, matched = at.window.sync_secrets_line, at.window.sync_matched_line
+    let_go = at.window.sync_let_go_line
     assert gone_back.ok_button.nextInFocusChain() is sealed.ok_button
     assert sealed.ok_button.nextInFocusChain() is matched.ok_button
-    assert matched.ok_button.nextInFocusChain() is line.action_button
+    assert matched.ok_button.nextInFocusChain() is let_go.action_button
+    assert let_go.ok_button.nextInFocusChain() is line.action_button
     assert line.action_button.nextInFocusChain() is line.ok_button
     assert line.ok_button.accessibleDescription() == line.label.text()

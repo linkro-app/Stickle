@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 
+import apsw
 from PySide6.QtCore import QDate, QDateTime, QObject, QPoint, Qt, QTime, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QLabel, QMenu, QSystemTrayIcon, QWidget
@@ -47,7 +48,7 @@ from stickle.data.schema import open_store
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.data.versions import VersionRepository
 from stickle.sync.devices import Other
-from stickle.sync.engine import GETTING, PUTTING, FirstLook, Report
+from stickle.sync.engine import GETTING, PUTTING, FirstLook, LetGo, Report
 from stickle.sync.format import NewerFormatError
 from stickle.sync.outcome import Outcome, Stopped
 from stickle.sync.targets.base import CertificateError, NoAccessError, SignInNeededError
@@ -579,8 +580,10 @@ def _disconnecting(stage: Stage) -> QWidget:
 # Where it shows outside the settings
 
 
-def _displayed(stage: Stage, syncing: FakeSyncing) -> tuple[Tray, StickleWindow, SyncDisplay]:
-    manager = stage.keep(NoteManager())
+def _displayed(
+    stage: Stage, syncing: FakeSyncing, manager: NoteManager | None = None
+) -> tuple[Tray, StickleWindow, SyncDisplay]:
+    manager = stage.keep(NoteManager() if manager is None else manager)
     stage.keep(syncing)
     tray = stage.keep(Tray(manager.new_note, lambda: None, stage.translations, manager))
     window = stage.keep(StickleWindow(manager, stage.translations, lambda: None))
@@ -657,9 +660,12 @@ def _recovery_key_before_new(stage: Stage) -> QWidget:
     return dialog
 
 
-def _once_secret(stage: Stage) -> QWidget:
-    """An ordinary note's earlier versions, one locked from when it was secret
-    (made ordinary on another computer while this one held no key)."""
+def _then() -> str:
+    return "2026-11-16T05:05:00.000Z"
+
+
+def _scratch(stage: Stage) -> apsw.Connection:
+    """A notes database of the scene's own, put away with it."""
     folder = Path(tempfile.mkdtemp())
     connection = open_store(folder / "notes.db", secrets.token_bytes(32))
 
@@ -668,10 +674,14 @@ def _once_secret(stage: Stage) -> QWidget:
         shutil.rmtree(folder, ignore_errors=True)
 
     stage.at_end(put_away)
+    return connection
 
-    def then() -> str:
-        return "2026-11-16T05:05:00.000Z"
 
+def _once_secret(stage: Stage) -> QWidget:
+    """An ordinary note's earlier versions, one locked from when it was secret
+    (made ordinary on another computer while this one held no key)."""
+    connection = _scratch(stage)
+    then = _then
     notes = NoteRepository(connection, clock=then)
     note = notes.create("")
     sealed = SealedText(seal_text(secrets.token_bytes(32), note.id, "통장"), note.id, None)
@@ -687,6 +697,21 @@ def _once_secret(stage: Stage) -> QWidget:
         ordinary=True,
     )
     return stage.keep(dialog)
+
+
+def _manager_let_go(by: str | None, title: str) -> Callable[[Stage], QWidget]:
+    """A note made secret on another computer (by) while it was edited here."""
+
+    def build(stage: Stage) -> QWidget:
+        notes = NoteRepository(_scratch(stage), clock=_then)
+        note = notes.create("")
+        sealed = SealedText(b"sealed", note.id, "5bd21933-4927-4c74-93bd-c3a05759f1d9")
+        notes.take_in(note.id, sealed, "laptop", {"secret_title": title}, {}, {})
+        _tray, window, display = _displayed(stage, _synced(), NoteManager(notes))
+        display._more_let_go([LetGo(note.id, by)])  # pyright: ignore[reportPrivateUsage]
+        return window
+
+    return build
 
 
 def _matching(kind: MatchKind, count: int, by: str | None = None) -> Callable[[Stage], QWidget]:
@@ -957,6 +982,9 @@ SCENES: list[Scene] = [
     Scene("earlier-versions-once-secret", _once_secret),
     Scene("manager-told-secret-notes-matched", _manager_matched(old_key=True)),
     Scene("manager-told-secret-notes-matched-kept", _manager_matched(old_key=False)),
+    Scene("manager-told-let-go", _manager_let_go("노트북", "통장")),
+    Scene("manager-told-let-go-unknown", _manager_let_go(None, "통장")),
+    Scene("manager-told-let-go-long", _manager_let_go(LONG_NAME, LONG_NAME)),
     Scene("note-unmatched", _note_unmatched, keyboard=False),
     Scene("note-unmatched-tooltip", _note_unmatched_tooltip, keyboard=False),
     Scene("turn-on-again-new-folder", _again_absent),

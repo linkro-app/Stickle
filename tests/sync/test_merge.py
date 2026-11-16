@@ -13,7 +13,7 @@ from stickle.core import made_notes
 from stickle.core.hlc import Hlc
 from stickle.crypto.vault_keys import DataKeys
 from stickle.sync.contents import Contents, Field
-from stickle.sync.format import Json
+from stickle.sync.format import Json, UnreadableError
 from stickle.sync.merge import (
     COPY_OF,
     TRASH,
@@ -25,7 +25,7 @@ from stickle.sync.merge import (
     merge,
     trash_due,
 )
-from stickle.sync.note_file import NoteFile, Step, Version, new_version
+from stickle.sync.note_file import NoteFile, Secret, Step, Version, new_version
 
 KEYS = DataKeys({1: secrets.token_bytes(32)})
 DESKTOP = "7c1d9a52-3e4b-4f60-8a1b-2c3d4e5f6a70"
@@ -51,9 +51,10 @@ def then(parent: Version, text: str | None, device: str = DESKTOP, edited: int =
     return new_version(KEYS, [parent], text, edited, device)
 
 
-def agreed(mine: NoteFile, cloud: NoteFile) -> Merged:
+def agreed(mine: NoteFile, cloud: NoteFile, before_plain: bool = False) -> Merged:
     """The merge as this device makes it, checked to be what the other would."""
-    here, there = merge(KEYS, NOTE, mine, cloud), merge(KEYS, NOTE, cloud, mine)
+    here = merge(KEYS, NOTE, mine, cloud, before_plain)
+    there = merge(KEYS, NOTE, cloud, mine, before_plain)
     assert here.note.to_json() == there.note.to_json()
     assert (here.copy is None) == (there.copy is None)
     if here.copy is not None and there.copy is not None:
@@ -404,3 +405,65 @@ def test_another_note_with_one_id_and_two_first_versions_goes_by_the_usual_rule(
     a, b = made(KOREAN, DESKTOP, sent=NOW), made(ENGLISH, LAPTOP, sent=NOW + 1)
 
     assert both_ways(note(a), note(b), NOTE).copy is not None  # say, brought in on both
+
+
+# Made secret on one, edited in the clear on the other
+
+
+def sealed(data: bytes = b"sealed bytes") -> Secret:
+    return Secret(data, NOTE, "5bd21933-4927-4c74-93bd-c3a05759f1d9")
+
+
+def test_made_secret_on_one_edited_in_the_clear_on_the_other_the_secret_one_stays() -> None:
+    base = first()
+    made = new_version(KEYS, [base], sealed(), NOW + 1, LAPTOP)
+    edited = then(base, "장보기: 우유, 빵", DESKTOP, NOW + 9)  # later, all the same
+
+    merged = agreed(note(edited), note(made), before_plain=True)
+
+    assert merged.step is Step.CONFLICT and merged.copy is None
+    body = merged.note.body
+    assert body.text == sealed() and set(body.parents) == {made.id, edited.id}
+    assert (body.let_go, body.device, body.edited) == (edited.id, LAPTOP, NOW + 1)
+
+
+def test_made_secret_the_same_join_is_one_version_wherever_it_is_made() -> None:
+    base = first()
+    made = new_version(KEYS, [base], sealed(), NOW + 1, LAPTOP)
+    edited = then(base, "장보기: 우유, 빵", DESKTOP, NOW + 9)
+    joined = agreed(note(made), note(edited), before_plain=True).note.body
+
+    again = Version.from_json(KEYS, joined.to_json())
+
+    assert again == joined and again.let_go == edited.id
+    assert "let_go" not in made.to_json()
+
+
+def test_made_ordinary_on_one_edited_secret_on_the_other_goes_as_any_conflict() -> None:
+    base = new_version(KEYS, [], sealed(b"before"), NOW, DESKTOP)
+    ordinary = then(base, "다시 보통 글", LAPTOP, NOW + 1)
+    edited = new_version(KEYS, [base], sealed(b"edited"), NOW + 9, DESKTOP)
+
+    merged = agreed(note(ordinary), note(edited), before_plain=False)
+
+    assert merged.copy is not None and merged.note.body.let_go is None
+    assert merged.note.body.text == sealed(b"edited")  # the later one, as always
+
+
+def test_made_secret_on_both_goes_as_any_conflict() -> None:
+    base = first()
+    one = new_version(KEYS, [base], sealed(b"one"), NOW + 1, LAPTOP)
+    other = new_version(KEYS, [base], sealed(b"other"), NOW + 9, DESKTOP)
+
+    merged = agreed(note(one), note(other), before_plain=True)
+
+    assert merged.copy is not None and merged.note.body.let_go is None
+
+
+def test_a_version_letting_go_of_one_it_was_not_made_from_does_not_read() -> None:
+    base = first()
+    made = new_version(KEYS, [base], sealed(), NOW + 1, LAPTOP)
+    written = {**made.to_json(), "let_go": first("다른 글").id}
+
+    with pytest.raises(UnreadableError):
+        Version.from_json(KEYS, written)

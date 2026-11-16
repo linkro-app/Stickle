@@ -67,6 +67,7 @@ from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
 from stickle.app.sync_display import (
     SyncGoneBackLine,
+    SyncLetGoLine,
     SyncLine,
     SyncResealedLine,
     SyncStopLine,
@@ -211,6 +212,7 @@ class StickleWindow(QWidget):
         self.sync_gone_back_line = SyncGoneBackLine(self)
         self.sync_secrets_line = SyncResealedLine(self)
         self.sync_matched_line = SyncResealedLine(self)
+        self.sync_let_go_line = SyncLetGoLine(self)
         # Whether the secret notes open with the recovery key the notes have now
         # (or there are none): only then is the old one said to be done with.
         self.secret_notes_kept: Callable[[], bool] = lambda: True
@@ -346,6 +348,7 @@ class StickleWindow(QWidget):
         layout.addWidget(self.sync_gone_back_line)
         layout.addWidget(self.sync_secrets_line)
         layout.addWidget(self.sync_matched_line)
+        layout.addWidget(self.sync_let_go_line)
         layout.addWidget(self.sync_stop_line)
         layout.addWidget(self.sync_trash_line)
         missed = QHBoxLayout()
@@ -477,6 +480,8 @@ class StickleWindow(QWidget):
             self.sync_gone_back_line.ok_button,
             self.sync_secrets_line.ok_button,
             self.sync_matched_line.ok_button,
+            self.sync_let_go_line.action_button,
+            self.sync_let_go_line.ok_button,
             self.sync_stop_line.action_button,
             self.sync_stop_line.ok_button,
             self.sync_trash_line.action_button,

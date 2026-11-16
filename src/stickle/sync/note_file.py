@@ -49,6 +49,11 @@ It is BLAKE2b, 16 bytes, written in lower-case hex. When and on which device a
 version was edited are kept beside it, not in its id: two devices making the
 same version make the same one.
 
+A version that joins a note made secret on one line with its text edited in
+the clear on the other takes the secret one's text, and names the other parent,
+whose text it lets go of ("let_go", beside it, not in its id: see stickle.sync.
+merge): the device that wrote that text is told.
+
 The history is the ids of the versions this one holds, its parents' and theirs,
 the highest generation first (the same, by id), 32 at most: a version made by
 joining two lines holds both. It is what tells whether one version came from
@@ -76,6 +81,7 @@ _VERSION_NAMES = (
     "device",
     "edited",
     "history",
+    "let_go",
     "parents",
     "secret",
     "sent",
@@ -186,6 +192,9 @@ class Version:
     # When it first reached the cloud, by the cloud's clock as its sender knew it
     # (stickle.sync.contents): a deletion's year is counted from then.
     sent: int | None = None
+    # Of its parents, the one whose text it let go of for the other's, secret
+    # (stickle.sync.merge); None: none.
+    let_go: str | None = None
 
     @property
     def generation(self) -> int:
@@ -210,6 +219,8 @@ class Version:
             written["secret"] = self.text.to_json()
         if self.sent is not None:
             written["sent"] = self.sent
+        if self.let_go is not None:
+            written["let_go"] = self.let_go
         return written
 
     @classmethod
@@ -254,6 +265,9 @@ class Version:
             raise UnreadableError("a body's versions do not hold together")
         if keys is not None and version_id(keys, parents, held, deleted) != made:
             raise UnreadableError("a body is not what its version says")
+        let_go = value.get("let_go")
+        if let_go is not None and (not isinstance(let_go, str) or let_go not in parents):
+            raise UnreadableError("a body lets go of a version it was not made from")
         others = {name: each for name, each in value.items() if name not in _VERSION_NAMES}
         return cls(
             made,
@@ -265,6 +279,7 @@ class Version:
             device,
             others,
             cast(int | None, sent),
+            let_go,
         )
 
 

@@ -456,6 +456,98 @@ def test_made_secret_with_a_key_0_6_made_it_waits_for_the_keys_box(
     assert secret_notes.box_of(files(b).load(C)) == secret_notes.box_public(key)  # taken
 
 
+# Made secret on one computer while its text was edited on another in the clear
+
+
+def made_secret_meanwhile(a: Device, note_id: str, text: str) -> None:
+    """Made secret on a, offline (its earlier ones sealed too, as the app does)."""
+    key = key_of(a)
+    a.clock.tick()
+    a.notes.make_secret(
+        note_id, "통장", seal_text(key, note_id, text), lambda each: seal_text(key, note_id, each)
+    )
+
+
+def copies_of(device: Device) -> list[Note]:
+    return [note for note in device.notes.all() if note.conflict is not None]
+
+
+def test_made_secret_while_edited_in_the_clear_the_secret_one_stays_and_no_copy_is_made(
+    a: Device, b: Device
+) -> None:
+    note = a.notes.create(f"{SECRET} 첫 글")
+    settle(a, b)
+    made_secret_meanwhile(a, note.id, f"{SECRET} 첫 글")
+    b.clock.tick()
+    b.notes.update_body(note.id, f"{SECRET} 데스크톱에서 고침", keep_earlier=True)
+
+    told_a = a.sync()
+    told_b = b.sync()  # b merges: the secret one stays
+    settle(a, b)
+
+    assert note_of(a, note.id).secret and note_of(b, note.id).secret
+    assert opened(a, note.id) == opened(b, note.id) == f"{SECRET} 첫 글"
+    assert copies_of(a) == copies_of(b) == []
+    assert told_a.let_go == []
+    assert [(each.note, each.by) for each in told_b.let_go] == [(note.id, "A-PC 표식")]
+    # What b wrote stays on b only, among its earlier texts, sealed.
+    assert f"{SECRET} 데스크톱에서 고침" in earlier_texts(b, note.id, key_of(b))
+    assert f"{SECRET} 데스크톱에서 고침" not in earlier_texts(a, note.id, key_of(a))
+    assert in_the_clear(a, SECRET) == in_the_clear(b, SECRET) == []
+    assert cloud_holds(a.cloud, SECRET) == []
+    assert sync_state.get(a.db, VAULT, note.id) is not None and a.notes.get(note.id) is not None
+
+
+def test_the_edit_in_the_clear_put_first_is_let_go_of_all_the_same_and_its_writer_told(
+    a: Device, b: Device, tmp_path: Path, cloud: FakeCloud, clock: Clock
+) -> None:
+    c = Device("c", tmp_path, cloud, clock, whole=True, keyed=True)
+    try:
+        note = a.notes.create(f"{SECRET} 첫 글")
+        settle(a, b, c)
+        made_secret_meanwhile(a, note.id, f"{SECRET} 첫 글")
+        b.clock.tick()
+        b.notes.update_body(note.id, f"{SECRET} 데스크톱에서 고침", keep_earlier=True)
+        b.sync()  # its edit in the vault first
+        c.clock.tick()
+        c.sync()  # and on another computer, in the clear
+
+        told_a = a.sync()  # a merges: the secret one stays
+        told_b = b.sync()
+        told_c = c.sync()
+        settle(a, b, c)
+
+        for device in (a, b, c):
+            assert note_of(device, note.id).secret
+            assert opened(device, note.id) == f"{SECRET} 첫 글"
+            assert copies_of(device) == []
+            assert in_the_clear(device, SECRET) == []
+        assert told_a.let_go == told_c.let_go == []
+        assert [(each.note, each.by) for each in told_b.let_go] == [(note.id, "A-PC 표식")]
+        assert f"{SECRET} 데스크톱에서 고침" in earlier_texts(b, note.id, key_of(b))
+        assert f"{SECRET} 데스크톱에서 고침" in earlier_texts(c, note.id, key_of(c))
+        assert cloud_holds(a.cloud, SECRET) == []
+    finally:
+        c.close()
+
+
+def test_made_ordinary_on_one_while_edited_secret_on_the_other_both_are_kept(
+    a: Device, b: Device
+) -> None:
+    note_id = made_secret(a, "비밀 글")
+    settle(a, b)
+    a.clock.tick()
+    a.notes.make_ordinary(note_id, "이제 보통 글", None)
+    edited(b, note_id, "비밀 글 고침")
+
+    a.sync()
+    told = b.sync()
+    settle(a, b)
+
+    assert told.let_go == []
+    assert len(copies_of(a)) == len(copies_of(b)) == 1  # as any conflict: nothing let go of
+
+
 # The trash
 
 
