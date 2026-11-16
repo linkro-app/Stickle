@@ -277,17 +277,30 @@ class Unlock:
     def make_recovery_key(self, key: bytes, secret_key: bytes | None = None) -> str:
         """A new recovery key for key (known to open the database); the old one
         stops working. With secret notes, their key (known to open them) is
-        sealed for it too, first: should Stickle stop in between, the old pair
-        is still the one in B, and the secret notes are sealed for it again
-        once opened with their password (keep_secret_notes_for_recovery_key)."""
+        sealed for it too, last: the pair of before kept aside by it first, so
+        that should Stickle stop in between, the recovery key of before still
+        opens them (as when another computer's is taken). Should the last write
+        fail, the new one is B's all the same, and is the one to keep: the
+        secret notes are sealed for it once opened with their password
+        (keep_secret_notes_for_recovery_key), the one of before opening them
+        meanwhile."""
         recovery_key = generate_recovery_key()
         slot = make_recovery_slot(key, recovery_key, self._clock())
-        if self.has_secret_notes:
-            if secret_key is not None:
-                secret_notes.keep_for_recovery_key(self.files, secret_key, slot.public)
-            else:
+        if not self.has_secret_notes or secret_key is None:
+            if self.has_secret_notes:
                 log.warning("new recovery key made without the secret notes' key")
+            save_recovery_slot(self.files, slot)
+            return recovery_key
+        before = self._recovery_pair()
+        if before is not None:
+            secret_notes.keep_pair_aside(self.files, before, before_sync=False, made_here=True)
         save_recovery_slot(self.files, slot)
+        try:
+            secret_notes.keep_for_recovery_key(self.files, secret_key, slot.public)
+        except (KeyFileError, OSError) as error:
+            log.warning(
+                "secret notes not kept for the new recovery key yet: %s", type(error).__name__
+            )
         return recovery_key
 
     def _recovery_pair(self) -> SealedSlot | None:
@@ -409,7 +422,7 @@ class Unlock:
         (the recovery key this computer had before it took the one of the
         computers it syncs with), that one's recovery key opens them. Nothing
         is written."""
-        if secret_notes.pair_aside(self.files) is not None:
+        if secret_notes.has_pair_aside(self.files):
             try:
                 return secret_notes.open_with_pair_aside(self.files, canonical(typed))
             except WrongPasswordError:

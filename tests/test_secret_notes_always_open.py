@@ -1574,3 +1574,23 @@ def test_a_note_sealed_with_the_others_key_is_opened_with_theirs(qapp: QApplicat
         state.bring_in_notes([""])
         state.make_ordinary(pick=0, forgot=False, password="first secret", stop=None)
         holds(state)
+
+
+def test_a_new_recovery_key_stopped_halfway_then_the_others_taken_the_one_before_opens_them(
+    qapp: QApplication,
+) -> None:
+    with machine() as state:
+        state.first_start(old=False)
+        state.write_note("x")
+        state.take_the_others(
+            kind=RECOVERY_KEY, password="first master password", before_sync=True, stop=None
+        )
+        holds(state)
+        state.make_secret(pick=0, title="", forgot=False, password="first secret", stop=(2, "fail"))
+        holds(state)
+        state.make_recovery_key(forgot=False, password="first secret", stop=(4, "stop"))
+        holds(state)
+        state.take_the_others(
+            kind=RECOVERY_KEY, password="first master password", before_sync=False, stop=None
+        )
+        holds(state)

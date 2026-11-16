@@ -32,6 +32,11 @@ computer before it joined the others; once the key is sealed for the new pair
     "recovery_key": {"public": ..., "sealed": ..., "pair": <a password slot>,
                      "before_sync": true}
 
+A new recovery key made here goes the same way: the pair of before kept aside
+("made_here": true, nothing told of it), B's pair replaced, and the key sealed
+for the new one, so that whichever write Stickle stops at, a recovery key the
+user has opens the secret notes.
+
 A computer that had secret notes of its own before it synced with others that
 have theirs keeps its key until the two passwords are matched: the others' key
 waits beside it, by its number, as its slots are in the vault ("others"), so
@@ -95,6 +100,7 @@ PASSWORD_SLOT = "secret_password"
 RECOVERY_SLOT = "recovery_key"
 ASIDE = "pair"  # the pair the key is sealed for, kept once B no longer has it
 BEFORE_SYNC = "before_sync"  # that pair was this computer's before it joined
+MADE_HERE = "made_here"  # kept aside while a new recovery key was made here
 # Which key it is: a random id given when it is made (or, made by 0.6, when 0.7
 # first starts), the same on every computer that has it, so that a key file of
 # another computer is taken only for the same key (stickle.sync.secret_key).
@@ -416,18 +422,33 @@ def _recovery_fields(files: KeyFiles) -> dict[str, object] | None:
     return dict(cast(dict[str, object], slots[RECOVERY_SLOT]))
 
 
-def keep_pair_aside(files: KeyFiles, pair: SealedSlot, before_sync: bool) -> None:
-    """Before the recovery key's pair in B is replaced by another (sync): the
-    key, if sealed for that pair, keeps it beside it, so that its recovery key
-    still opens the secret notes. before_sync: it is this computer's own, from
-    before it joined the computers it syncs with. Nothing without secret notes,
-    or with the key sealed for another pair (one kept aside already stays)."""
+def keep_pair_aside(
+    files: KeyFiles, pair: SealedSlot, before_sync: bool, made_here: bool = False
+) -> None:
+    """Before the recovery key's pair in B is replaced by another (sync, or a
+    new recovery key made here: made_here): the key, if sealed for that pair,
+    keeps it beside it, so that its recovery key still opens the secret notes.
+    before_sync: it is this computer's own, from before it joined the
+    computers it syncs with. Nothing without secret notes, or with the key
+    sealed for another pair (one kept aside already stays: one kept while a new
+    recovery key was made here is the one taken from the others' now, so told)."""
     if files.raw(C) is None:
         return
     fields = _recovery_fields(files)
-    if fields is None or b64_field(fields.get("public")) != pair.public or ASIDE in fields:
+    if fields is None:
         return
-    fields[ASIDE] = encode_slot(pair.secret)
+    if ASIDE in fields:
+        if made_here or fields.get(MADE_HERE) is not True:
+            return
+        # The others' taken since (the new one made here perhaps never shown):
+        # the one kept is the one before theirs now, told as such.
+        fields.pop(MADE_HERE)
+    elif b64_field(fields.get("public")) != pair.public:
+        return
+    else:
+        fields[ASIDE] = encode_slot(pair.secret)
+        if made_here:
+            fields[MADE_HERE] = True
     if before_sync:
         fields[BEFORE_SYNC] = True
     slots = _slots(files)
@@ -436,15 +457,26 @@ def keep_pair_aside(files: KeyFiles, pair: SealedSlot, before_sync: bool) -> Non
 
 
 def pair_aside(files: KeyFiles) -> bool | None:
-    """Whether the key is sealed for a pair kept aside (no longer B's): None if
-    not; else whether it is the one from before this computer joined the others."""
+    """Whether the key is sealed for a pair kept aside, the recovery key of the
+    others taken since (no longer B's): None if not; else whether it is the one
+    from before this computer joined the others. One kept while a new recovery
+    key was made here is none of that: None (see has_pair_aside)."""
     try:
         fields = _recovery_fields(files)
     except KeyFileError:
         return None
-    if fields is None or ASIDE not in fields:
+    if fields is None or ASIDE not in fields or fields.get(MADE_HERE) is True:
         return None
     return fields.get(BEFORE_SYNC) is True
+
+
+def has_pair_aside(files: KeyFiles) -> bool:
+    """Whether the key keeps a pair aside, whatever it was kept for."""
+    try:
+        fields = _recovery_fields(files)
+    except KeyFileError:
+        return False
+    return fields is not None and ASIDE in fields
 
 
 def open_with_pair_aside(files: KeyFiles, typed: str) -> bytes:
@@ -529,10 +561,13 @@ def take(
     if recovery is not None:
         before = _recovery_of(slots) or {}
         taken: dict[str, object] = {
-            name: value for name, value in recovery.items() if name not in (ASIDE, BEFORE_SYNC)
+            name: value
+            for name, value in recovery.items()
+            if name not in (ASIDE, BEFORE_SYNC, MADE_HERE)
         }
         if ASIDE in before and before.get("public") == taken.get("public"):
-            taken |= {name: before[name] for name in (ASIDE, BEFORE_SYNC) if name in before}
+            kept = (ASIDE, BEFORE_SYNC, MADE_HERE)
+            taken |= {name: before[name] for name in kept if name in before}
         slots[RECOVERY_SLOT] = taken
     _save(files, slots)
     return True

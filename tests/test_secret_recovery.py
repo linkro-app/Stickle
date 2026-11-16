@@ -9,7 +9,7 @@ import pytest
 from test_unlock import FAST, Store
 
 from stickle.app import application
-from stickle.crypto import recovery
+from stickle.crypto import key_files, recovery, secret_notes
 from stickle.crypto.following import digest_of
 from stickle.crypto.key_files import B, C
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError, encode_slot, wrap_with_password
@@ -148,12 +148,12 @@ def test_made_without_their_key_they_are_kept_for_it_once_opened(tmp_path: Path)
     assert unlock.open_secret_notes_with_recovery_key(second) == key
 
 
-def test_stopped_before_the_new_recovery_key_is_written_the_old_one_still_opens_the_notes(
+def test_the_new_recovery_key_not_written_the_old_one_still_opens_everything(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Their key is sealed for the new pair first, then the pair is written. Cut
-    # off in between, the old recovery key still opens the notes, and once their
-    # password opens them they are sealed for it again.
+    # Their key keeps the pair of before aside first, then the new pair is
+    # written, then their key is sealed for it. Cut off at the pair, the old
+    # recovery key still opens the notes and the secret notes, at once.
     unlock = unlocked(tmp_path)
     first = unlock.make_recovery_key(KEY)
     key = unlock.turn_on_secret_notes(SECRET)
@@ -167,30 +167,111 @@ def test_stopped_before_the_new_recovery_key_is_written_the_old_one_still_opens_
     monkeypatch.undo()
 
     assert unlock.open_with_recovery_key(first) == KEY
-    assert unlock.open_secret_notes(SECRET) == key
-    assert not unlock.secret_notes_kept_for_recovery_key
-    unlock.keep_secret_notes_for_recovery_key(key)
+    assert unlock.secret_notes_kept_for_recovery_key
     assert unlock.open_secret_notes_with_recovery_key(first) == key
+    assert unlock.secret_notes_pair_aside is None  # nothing told of it
 
 
-def test_their_key_not_sealed_for_the_new_one_nothing_changes(
+def test_their_key_not_sealed_for_the_new_one_it_is_the_one_to_keep_all_the_same(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The last write failing, the new pair is B's: it is the one shown and
+    # kept. The old one opens the secret notes till their password does, and
+    # seals them for the new one.
     unlock = unlocked(tmp_path)
     first = unlock.make_recovery_key(KEY)
     key = unlock.turn_on_secret_notes(SECRET)
-    before = (unlock.files.raw(B), unlock.files.raw(C))
 
     def cut_off(*_args: object) -> None:
         raise OSError("disk full")
 
     monkeypatch.setattr("stickle.crypto.secret_notes.keep_for_recovery_key", cut_off)
-    with pytest.raises(OSError):
-        unlock.make_recovery_key(KEY, key)
+    second = unlock.make_recovery_key(KEY, key)
     monkeypatch.undo()
 
-    assert (unlock.files.raw(B), unlock.files.raw(C)) == before
+    assert unlock.open_with_recovery_key(second) == KEY
     assert unlock.open_secret_notes_with_recovery_key(first) == key
+    assert unlock.secret_notes_pair_aside is None
+    unlock.keep_secret_notes_for_recovery_key(unlock.open_secret_notes(SECRET))
+    assert unlock.open_secret_notes_with_recovery_key(second) == key
+    with pytest.raises(WrongRecoveryKeyError):
+        unlock.open_secret_notes_with_recovery_key(first)
+
+
+class _Stopped(BaseException):
+    """Stickle stopped there, as if the computer went off."""
+
+
+def opens_secret(unlock: Unlock, typed: str) -> bytes | None:
+    try:
+        return unlock.open_secret_notes_with_recovery_key(typed)
+    except WrongRecoveryKeyError, NotKeptForRecoveryKeyError:
+        return None
+
+
+def stopping_at(monkeypatch: pytest.MonkeyPatch, stop_at: int) -> None:
+    """Every key file written from now on counted, Stickle stopping at stop_at."""
+    real = key_files.write_bytes
+    done = [0]
+
+    def write_bytes(path: Path, data: bytes) -> None:
+        done[0] += 1
+        if done[0] - 1 == stop_at:
+            raise _Stopped
+        real(path, data)
+
+    monkeypatch.setattr(key_files, "write_bytes", write_bytes)
+
+
+@pytest.mark.parametrize("stop_at", range(7))
+def test_stopped_at_any_write_a_recovery_key_the_user_has_opens_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stop_at: int
+) -> None:
+    unlock = unlocked(tmp_path)
+    first = unlock.make_recovery_key(KEY)
+    key = unlock.turn_on_secret_notes(SECRET)
+    stopping_at(monkeypatch, stop_at)
+    try:
+        made = unlock.make_recovery_key(KEY, key)
+    except _Stopped:
+        made = None  # never shown
+    monkeypatch.undo()
+
+    again = unlocked(tmp_path)  # started again
+    has = [first] if made is None else [made]
+    assert any(opens_secret(again, typed) == key for typed in has)
+
+
+@pytest.mark.parametrize("stop_at", range(7))
+def test_stopped_then_the_others_recovery_key_taken_the_one_before_still_opens_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stop_at: int
+) -> None:
+    # Syncing, the computers' recovery key taken before their password is typed
+    # again: the one the user had before it opens the secret notes meanwhile.
+    unlock = unlocked(tmp_path)
+    first = unlock.make_recovery_key(KEY)
+    key = unlock.turn_on_secret_notes(SECRET)
+    stopping_at(monkeypatch, stop_at)
+    try:
+        made = unlock.make_recovery_key(KEY, key)
+    except _Stopped:
+        made = None
+    monkeypatch.undo()
+    again = unlocked(tmp_path)
+    current = recovery.read_recovery(again.files)
+    assert isinstance(current, SealedSlot)
+    theirs_typed = generate()
+    theirs = recovery.make_recovery_slot(KEY, theirs_typed, "2026-11-16T09:00:00.000Z")
+
+    assert again.follow(RECOVERY_KEY, theirs, digest_of(current), before_sync=False)
+
+    has = [first] if made is None else [first, made]
+    assert any(opens_secret(again, typed) == key for typed in has)
+    if secret_notes.has_pair_aside(again.files):  # told as the one before the others'
+        assert again.secret_notes_pair_aside is False
+    unlock_after = unlocked(tmp_path)
+    unlock_after.keep_secret_notes_for_recovery_key(unlock_after.open_secret_notes(SECRET))
+    assert opens_secret(unlock_after, theirs_typed) == key
 
 
 @pytest.mark.parametrize("secret_notes", [False, True])
