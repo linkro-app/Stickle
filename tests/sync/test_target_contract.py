@@ -15,7 +15,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import real_onedrive
 from fake_cloud import KINDS, FakeCloud, Kind
+from graph_server import CLIENT_ID, FIRST_REFRESH, graph_server
 from real_server import account_given, folder_of_its_own
 from webdav_server import HOST, webdav
 
@@ -29,6 +31,7 @@ from stickle.sync.targets.base import (
     RefusedError,
     Target,
 )
+from stickle.sync.targets.onedrive import OneDrive
 from stickle.sync.targets.webdav import WebDav, parse_address
 
 NOTE = "notes/0f8e6f3c-1d9b-4a63-9c38-3b2a4f2f7d10.json"
@@ -42,9 +45,20 @@ WSGIDAV = Kind("wsgidav", "seconds")
 # The real server of whoever runs this, told it keeps conditions likewise.
 REAL_SERVER = Kind("real-server", "weak")
 
+# Graph in the test, over HTTPS, through the real OneDrive target; and the
+# real OneDrive of whoever runs this.
+GRAPH = Kind("graph", "etag")
+REAL_ONEDRIVE = Kind("real-onedrive", "etag")
+
 
 @pytest.fixture(
-    params=[*KINDS, WSGIDAV, *([REAL_SERVER] if account_given() else [])],
+    params=[
+        *KINDS,
+        WSGIDAV,
+        GRAPH,
+        *([REAL_SERVER] if account_given() else []),
+        *([REAL_ONEDRIVE] if real_onedrive.account_given() else []),
+    ],
     ids=lambda kind: kind.name,
 )
 def kind(request: pytest.FixtureRequest) -> Kind:
@@ -61,6 +75,22 @@ def target(kind: Kind, cloud: FakeCloud, tmp_path: Path) -> Iterator[Target]:
     if kind is REAL_SERVER:
         with folder_of_its_own(keeps_conditions=True) as real:
             yield real
+        return
+    if kind is REAL_ONEDRIVE:
+        with real_onedrive.folder_of_its_own() as real:
+            yield real
+        return
+    if kind is GRAPH:
+        with graph_server() as graph:
+            drive = OneDrive(
+                CLIENT_ID,
+                FIRST_REFRESH,
+                lambda _token: None,
+                place=graph.place,
+                public=graph.context,
+            )
+            yield drive
+            drive.close()
         return
     if kind is not WSGIDAV:
         yield cloud.target("laptop")
