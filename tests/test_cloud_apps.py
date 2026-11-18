@@ -7,8 +7,8 @@ import types
 from pathlib import Path
 
 import pytest
-
 from build import CLOUD_APPS_FILE, ROOT, nuitka_command, write_cloud_apps
+
 from stickle.cloud_apps import BUILT_IN, ONEDRIVE_VARIABLE, is_client_id, onedrive_client_id
 from stickle.selftest import cloud_apps_line
 

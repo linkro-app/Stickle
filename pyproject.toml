@@ -47,6 +47,11 @@ target-version = "py314"
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "PTH", "RUF"]
 
+[tool.ruff.lint.isort]
+# scripts/build.py, as the tests import it: sorted like the other scripts
+# everywhere, though a local build/ folder makes it look like this project's.
+known-third-party = ["build"]
+
 [tool.pyright]
 include = ["src", "tests", "scripts"]
 pythonVersion = "3.14"
