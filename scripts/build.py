@@ -6,6 +6,10 @@ The result is build/stickle.dist/ (on Linux also build/Stickle-x86_64.AppImage).
 The folder is deliberately plain: no self-extracting single file and no
 executable packing, both of which make antivirus products suspicious of
 Python applications.
+
+The identifiers the clouds gave Stickle as an app are taken from the
+environment (STICKLE_ONEDRIVE_CLIENT_ID, see stickle.cloud_apps): a build
+without one does not offer that cloud.
 """
 
 import importlib.util
@@ -14,14 +18,19 @@ import platform
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 from build_appimage import fetch
 
 from stickle import __version__
+from stickle.cloud_apps import BUILT_IN, ONEDRIVE_VARIABLE, is_client_id
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_DIR = ROOT / "build"
+CLOUD_APPS_FILE = ROOT / "src" / "stickle" / "_cloud_apps.py"
+# "true" when the build is of a release: then the app identifiers must be given.
+RELEASE_VARIABLE = "STICKLE_RELEASE_BUILD"
 DIST_DIR = BUILD_DIR / "stickle.dist"
 FONTS_DIR = ROOT / "src" / "stickle" / "fonts"
 ICON_FILE = BUILD_DIR / "stickle.ico"
@@ -162,7 +171,25 @@ def check_winrt_tables() -> None:
         raise SystemExit(f"pywinrt projection tables missing from the build: {', '.join(missing)}")
 
 
-def nuitka_command() -> list[str]:
+def write_cloud_apps(environment: Mapping[str, str], file: Path = CLOUD_APPS_FILE) -> list[str]:
+    """The identifiers the clouds gave Stickle as an app, from the build's
+    environment, into the module the app reads them from (stickle.cloud_apps):
+    Nuitka's options to take it in. A release is not built without them."""
+    given = environment.get(ONEDRIVE_VARIABLE, "").strip()
+    if not given:
+        if environment.get(RELEASE_VARIABLE) == "true":
+            raise SystemExit(f"A release is not built without {ONEDRIVE_VARIABLE}.")
+        return []
+    if not is_client_id(given):
+        raise SystemExit(f"{ONEDRIVE_VARIABLE} is not a Microsoft application (client) ID.")
+    file.write_bytes(
+        f'"""Written by scripts/build.py for the build, and gone after it."""\n\n'
+        f"ONEDRIVE_CLIENT_ID = {given!r}\n".encode()
+    )
+    return [f"--include-module={BUILT_IN}"]
+
+
+def nuitka_command(extra: list[str] | None = None) -> list[str]:
     command = [
         sys.executable,
         "-m",
@@ -241,6 +268,7 @@ def nuitka_command() -> list[str]:
             "--noinclude-qt-plugins=printsupport",
             "--noinclude-dlls=PySide6/qt-plugins/imageformats/libqpdf*",
         ]
+    command += extra or []
     command.append(str(ROOT / "src" / "stickle"))
     return command
 
@@ -256,7 +284,10 @@ def main() -> int:
         write_icon(ICON_FILE, "ICO", 256)
     if sys.platform == "darwin":
         write_mac_icon()
-    subprocess.run(nuitka_command(), check=True, cwd=ROOT)
+    try:
+        subprocess.run(nuitka_command(write_cloud_apps(os.environ)), check=True, cwd=ROOT)
+    finally:
+        CLOUD_APPS_FILE.unlink(missing_ok=True)  # never left where git or a source run sees it
     if sys.platform == "win32":
         check_winrt_tables()
         declare_dpi_awareness()

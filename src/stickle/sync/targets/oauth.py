@@ -70,7 +70,8 @@ def waiting(asked: str | None, date: str | None) -> float | None:
     return None if until is None or now is None else max((until - now) / 1000, 0.0)
 
 
-def _error_code(data: bytes) -> str | None:
+def error_code(data: bytes) -> str | None:
+    """The error a token address answered, by its code alone."""
     try:
         answer = json.loads(data)
     except ValueError:
@@ -155,7 +156,7 @@ class Tokens:
     @staticmethod
     def _error(status: int, data: bytes, wait: float | None) -> TargetError:
         if status in (400, 401):
-            code = _error_code(data)
+            code = error_code(data)
             if code in _SIGN_IN_AGAIN:
                 return SignInNeededError()
             if code in _APP_TURNED_AWAY:
@@ -167,27 +168,35 @@ class Tokens:
     def _post(self, body: bytes) -> tuple[int, bytes, float | None]:
         if self._context is None:
             self._context = self._public()
-        connection = http.client.HTTPSConnection(
-            self._address.host, self._address.port, timeout=self._timeout, context=self._context
+        return post_form(self._address, body, self._context, self._timeout)
+
+
+def post_form(
+    address: TokenAddress, body: bytes, context: ssl.SSLContext, timeout: float
+) -> tuple[int, bytes, float | None]:
+    """A form sent to a token address: its status, what it said, and how many
+    seconds it asked to wait (Retry-After). No redirect is followed."""
+    connection = http.client.HTTPSConnection(
+        address.host, address.port, timeout=timeout, context=context
+    )
+    try:
+        connection.request(
+            "POST",
+            address.path,
+            body=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+                "User-Agent": _USER_AGENT,
+            },
         )
-        try:
-            connection.request(
-                "POST",
-                self._address.path,
-                body=body,
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Accept": "application/json",
-                    "User-Agent": _USER_AGENT,
-                },
-            )
-            response = connection.getresponse()
-            data = response.read(MOST + 1)
-            if len(data) > MOST:
-                raise UnavailableError(answered=True)
-            wait = waiting(response.getheader("Retry-After"), response.getheader("Date"))
-            return response.status, data, wait
-        except OSError, http.client.HTTPException:  # ssl's errors among them
-            raise UnavailableError() from None
-        finally:
-            connection.close()
+        response = connection.getresponse()
+        data = response.read(MOST + 1)
+        if len(data) > MOST:
+            raise UnavailableError(answered=True)
+        wait = waiting(response.getheader("Retry-After"), response.getheader("Date"))
+        return response.status, data, wait
+    except OSError, http.client.HTTPException:  # ssl's errors among them
+        raise UnavailableError() from None
+    finally:
+        connection.close()

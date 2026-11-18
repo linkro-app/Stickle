@@ -58,3 +58,6 @@ desktop.ini
 
 # ── 빌드 때 받아 오는 글꼴 (고정 버전·체크섬, scripts/build.py) ──
 src/stickle/fonts/
+
+# ── 빌드 때만 쓰는 앱 식별값 (scripts/build.py, stickle/cloud_apps.py) ──
+src/stickle/_cloud_apps.py

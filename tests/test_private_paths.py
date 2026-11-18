@@ -19,6 +19,7 @@ PRIVATE_PATHS = [
     ".private/plan/notes.md",
     "nested/.private/notes.md",
     ".Private/notes.md",
+    "src/stickle/_cloud_apps.py",  # the app identifiers a build writes
 ]
 
 

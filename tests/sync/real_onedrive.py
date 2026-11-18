@@ -19,29 +19,36 @@ from typing import cast
 
 from stickle.sync.targets.onedrive import OneDrive
 
+VARIABLE = "STICKLE_TEST_ONEDRIVE"
 
-def _file() -> Path | None:
-    named = os.environ.get("STICKLE_TEST_ONEDRIVE")
+
+def account_file() -> Path | None:
+    named = os.environ.get(VARIABLE)
     return Path(named) if named else None
 
 
 def account_given() -> bool:
-    return _file() is not None
+    return account_file() is not None
+
+
+def keep_account(file: Path, client_id: str, refresh_token: str) -> None:
+    """The file written anew: whole, or not at all."""
+    fresh = file.with_name(f"{file.name}.new")
+    fresh.write_text(json.dumps({"client_id": client_id, "refresh_token": refresh_token}), "utf-8")
+    fresh.replace(file)
 
 
 def signed_in(folder: str = "") -> OneDrive:
     """A target for the test account: in folder, in the app's folder."""
-    file = _file()
+    file = account_file()
     assert file is not None
     written = cast(dict[str, str], json.loads(file.read_text("utf-8-sig")))
+    client_id = written["client_id"]
 
     def renewed(token: str) -> None:
-        written["refresh_token"] = token
-        fresh = file.with_name(f"{file.name}.new")
-        fresh.write_text(json.dumps(written), "utf-8")
-        fresh.replace(file)  # whole, or not at all
+        keep_account(file, client_id, token)
 
-    return OneDrive(written["client_id"], written["refresh_token"], renewed, folder=folder)
+    return OneDrive(client_id, written["refresh_token"], renewed, folder=folder)
 
 
 @contextmanager

@@ -78,6 +78,7 @@ def run_checks() -> list[tuple[str, str]]:
     results.append(time_zone_check())
     results.append(calendar_check())
     results.append(sync_check())
+    results.append(cloud_apps_line())
     results.append(clock_line())
     results += input_method_checks()
     results.append(start_at_login_check())
@@ -330,15 +331,26 @@ def sync_check() -> tuple[str, str]:
         from stickle.app.turn_on_sync import TurnOnSync
         from stickle.platform.tls import https_context
         from stickle.sync.engine import sync_vault
+        from stickle.sync.targets.onedrive import OneDrive
+        from stickle.sync.targets.sign_in import page
         from stickle.sync.targets.webdav import parse_address
 
         https_context()
         ok = fromstring("<a/>").tag == "a" and callable(sync_vault) and callable(Syncing)
-        ok = ok and callable(TurnOnSync) and callable(SyncPanel)
+        ok = ok and callable(TurnOnSync) and callable(SyncPanel) and callable(OneDrive)
         ok = ok and parse_address("https://example.com/a").secure
+        ok = ok and page("en", "a").startswith(b"<!doctype html>")
     except Exception:
         ok = False
     return ("PASS" if ok else "FAIL", name)
+
+
+def cloud_apps_line() -> tuple[str, str]:
+    """Whether the build put in the app's ID for Microsoft (never the ID itself)."""
+    from stickle.cloud_apps import onedrive_client_id
+
+    there = onedrive_client_id() is not None
+    return ("INFO", f"OneDrive app identifier: {'given' if there else 'none'}")
 
 
 def clock_line() -> tuple[str, str]:

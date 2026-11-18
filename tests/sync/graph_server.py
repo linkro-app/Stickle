@@ -8,12 +8,19 @@ upload session made only if the file's eTag is as given, a delete likewise,
 and access tokens from a refresh token (a new refresh token each time, the one
 before still good). Every write gives the file a new eTag.
 
+It also plays the sign-in page, as if the user signed in and allowed the app
+at once (or said no): it sends the browser back with a code, which the token
+address takes once, from the app it was given to, with the PKCE verifier and
+the same redirect address. The test's own code plays the browser.
+
 The test says what goes wrong (an answer for the next requests, tokens turned
 down, the app turned away, no room left) and looks at every request that
 reached it. One server plays all of Microsoft's hosts, told apart by path.
 """
 
+import base64
 import hashlib
+import http.client
 import json
 import secrets
 import ssl
@@ -24,7 +31,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import cast
-from urllib.parse import parse_qs, quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 import trustme
 
@@ -34,6 +41,8 @@ HOST = "127.0.0.1"
 CLIENT_ID = "11111111-2222-3333-4444-555555555555"  # a test's, not the app's
 FIRST_REFRESH = "refresh-token-first-of-a-test"
 TOKEN_PATH = "/consumers/oauth2/v2.0/token"
+AUTHORIZE_PATH = "/consumers/oauth2/v2.0/authorize"
+ACCOUNT = "someone@example.com"  # the account signed in to, as its ID token names it
 APPROOT = "/v1.0/me/drive/special/approot"
 LASTS = 3600  # seconds an access token is good for
 DRIVE = "D0C0FFEE12345678"
@@ -76,6 +85,21 @@ class _Session:
     data: bytearray
 
 
+@dataclass(frozen=True)
+class _Code:
+    client_id: str
+    redirect_uri: str
+    challenge: str
+    scope: str
+
+
+def _id_token(claims: dict[str, object]) -> str:
+    def part(data: dict[str, object]) -> str:
+        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+
+    return f"{part({'alg': 'RS256', 'typ': 'JWT'})}.{part(claims)}.c2lnbmVk"
+
+
 @dataclass
 class Graph:
     """The server's state, which the test reads and changes between requests."""
@@ -101,8 +125,14 @@ class Graph:
     content_port: int | None = None  # in them likewise; None: its own
     next_link_host: str = HOST  # in the links to a listing's next page
     next_link_by_id: bool = False  # in them, the folder by its id, as Graph may give it
+    declining: bool = False  # the user says no to the app on the sign-in page
+    # What the ID token says of the account; None: no ID token.
+    claims: dict[str, object] | None = field(
+        default_factory=lambda: {"preferred_username": ACCOUNT, "name": "Someone"}
+    )
     lock: threading.Lock = field(default_factory=threading.Lock)
     _sessions: dict[str, _Session] = field(default_factory=dict[str, _Session])
+    _codes: dict[str, _Code] = field(default_factory=dict[str, _Code])
     _written: int = 0
 
     @property
@@ -231,7 +261,9 @@ class _Handler(BaseHTTPRequestHandler):
                 )
             )
             parts = urlsplit(self.path)
-            if parts.path == TOKEN_PATH and self.command == "POST":
+            if parts.path == AUTHORIZE_PATH and self.command == "GET":
+                self._authorize(graph, parse_qs(parts.query))
+            elif parts.path == TOKEN_PATH and self.command == "POST":
                 self._token(graph, body)
             elif parts.path.startswith("/download/") and self.command == "GET":
                 self._download(graph, parts.path.removeprefix("/download/"))
@@ -253,6 +285,9 @@ class _Handler(BaseHTTPRequestHandler):
         if graph.app_turned_away or form.get("client_id") != CLIENT_ID:
             self._reply(400, {"error": "unauthorized_client", "error_description": "AADSTS700016"})
             return
+        if form.get("grant_type") == "authorization_code":
+            self._redeem(graph, form)
+            return
         if (
             graph.refusing_refresh
             or form.get("grant_type") != "refresh_token"
@@ -260,21 +295,71 @@ class _Handler(BaseHTTPRequestHandler):
         ):
             self._reply(400, {"error": "invalid_grant", "error_description": "AADSTS70000"})
             return
+        self._reply(200, self._issue(graph, form.get("scope", "")))
+
+    @staticmethod
+    def _issue(graph: Graph, scope: str) -> dict[str, object]:
         access = f"access-{secrets.token_urlsafe(16)}"
         refresh = f"refresh-{secrets.token_urlsafe(16)}"
         graph.access_tokens[access] = time.monotonic() + LASTS
         graph.issued.append(access)
         graph.refresh_tokens.add(refresh)  # the one before still good
-        self._reply(
-            200,
-            {
-                "token_type": "Bearer",
-                "scope": form.get("scope", ""),
-                "expires_in": LASTS,
-                "access_token": access,
-                "refresh_token": refresh,
-            },
+        return {
+            "token_type": "Bearer",
+            "scope": scope,
+            "expires_in": LASTS,
+            "access_token": access,
+            "refresh_token": refresh,
+        }
+
+    def _authorize(self, graph: Graph, query: dict[str, list[str]]) -> None:
+        given = {name: values[0] for name, values in query.items()}
+        redirect = given.get("redirect_uri", "")
+        if not redirect.startswith("http://localhost:"):
+            self._reply(400, b"not a redirect address the app has")  # Microsoft's own page
+            return
+        answer: dict[str, str]
+        if graph.app_turned_away or given.get("client_id") != CLIENT_ID:
+            answer = {"error": "unauthorized_client", "error_description": "<b>AADSTS700016</b>"}
+        elif graph.declining:
+            answer = {"error": "access_denied", "error_description": "<b>The user said no</b>"}
+        elif (
+            given.get("response_type") != "code"
+            or given.get("code_challenge_method") != "S256"
+            or not given.get("code_challenge")
+        ):
+            answer = {"error": "invalid_request", "error_description": "AADSTS900144"}
+        else:
+            code = f"M.C5_{secrets.token_urlsafe(24)}"
+            graph._codes[code] = _Code(  # pyright: ignore[reportPrivateUsage]
+                given["client_id"], redirect, given["code_challenge"], given.get("scope", "")
+            )
+            answer = {"code": code}
+        if "state" in given:
+            answer["state"] = given["state"]
+        self._reply(302, b"", {"Location": f"{redirect}?{urlencode(answer)}"})
+
+    def _redeem(self, graph: Graph, form: dict[str, str]) -> None:
+        given = graph._codes.pop(form.get("code", ""), None)  # pyright: ignore[reportPrivateUsage]
+        verifier = form.get("code_verifier", "")
+        challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+            .rstrip(b"=")
+            .decode()
         )
+        if (
+            given is None
+            or given.client_id != form.get("client_id")
+            or given.redirect_uri != form.get("redirect_uri")
+            or not verifier
+            or given.challenge != challenge
+        ):
+            self._reply(400, {"error": "invalid_grant", "error_description": "AADSTS70008"})
+            return
+        tokens = self._issue(graph, given.scope)
+        if "openid" in given.scope.split() and graph.claims is not None:
+            tokens["id_token"] = _id_token(graph.claims)
+        self._reply(200, tokens)
 
     def _download(self, graph: Graph, key: str) -> None:
         session = graph._sessions.get(f"d:{key}")  # pyright: ignore[reportPrivateUsage]
@@ -426,6 +511,40 @@ class _Handler(BaseHTTPRequestHandler):
             return
         del graph.files[path]
         self._reply(204, b"")
+
+
+# The browser, as the test plays it
+
+
+def to_sign_in_page(graph: Graph, address: str) -> str:
+    """As a browser at the sign-in page: where it is sent back to."""
+    parts = urlsplit(address)
+    connection = http.client.HTTPSConnection(HOST, parts.port, context=graph.context(), timeout=10)
+    try:
+        connection.request("GET", f"{parts.path}?{parts.query}")
+        response = connection.getresponse()
+        response.read()
+        location = response.getheader("Location")
+    finally:
+        connection.close()
+    assert response.status == 302 and location is not None
+    return location
+
+
+def back(
+    location: str, *, via: str = "127.0.0.1", host: str | None = None, method: str = "GET"
+) -> tuple[int, dict[str, str], bytes]:
+    """As a browser sent back to the listener: its status, headers and page."""
+    parts = urlsplit(location)
+    assert parts.scheme == "http" and parts.hostname == "localhost" and parts.port
+    connection = http.client.HTTPConnection(via, parts.port, timeout=10)
+    try:
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        connection.request(method, path, headers={"Host": host or parts.netloc})
+        response = connection.getresponse()
+        return response.status, dict(response.getheaders()), response.read()
+    finally:
+        connection.close()
 
 
 class _Server(ThreadingHTTPServer):

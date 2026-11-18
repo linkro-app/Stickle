@@ -8,7 +8,8 @@ every tracked file).
 import subprocess
 import sys
 
-BLOCKED_NAMES = frozenset({"claude.md", "claude.local.md"})
+# _cloud_apps.py: the app identifiers a build writes for itself (scripts/build.py).
+BLOCKED_NAMES = frozenset({"claude.md", "claude.local.md", "_cloud_apps.py"})
 BLOCKED_DIRS = frozenset({".claude", ".private"})
 
 

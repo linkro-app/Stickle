@@ -18,6 +18,10 @@ Each of the four things a target does takes these requests:
 
 Conditions are kept, and every write leaves the file a new eTag.
 
+The refresh token comes from a sign-in in the browser (sign_in; see
+stickle.sync.targets.sign_in), which asks for no more than the app's folder,
+staying signed in, and the account's name.
+
 Who is talked to, before anything is sent: only Microsoft's own addresses, over
 https, with a certificate a public authority issued for them. Graph alone is
 sent the access token, and the sign-in address alone the refresh token
@@ -56,6 +60,7 @@ from stickle.sync.targets.base import (
     UnavailableError,
 )
 from stickle.sync.targets.oauth import TokenAddress, Tokens, waiting
+from stickle.sync.targets.sign_in import Pages, SignIn
 
 TIMEOUT = 30.0  # seconds, for each step of a request
 PAGE = 200  # files on a page of a listing
@@ -63,6 +68,9 @@ PAGE = 200  # files on a page of a listing
 # as Graph asks, and well under its 60 MiB.
 CHUNK = 32 * 320 * 1024
 SCOPE = "Files.ReadWrite.AppFolder offline_access"
+# At sign-in, also the account's name (in the ID token), for the user to know
+# which account the device syncs with.
+SIGN_IN_SCOPE = f"openid profile {SCOPE}"
 
 # Where Graph's download and upload addresses are: any host under one starting
 # with ".", or that one host.
@@ -104,8 +112,37 @@ class Place:
     def tokens(self) -> TokenAddress:
         return TokenAddress(self.login, f"/{self.tenant}/oauth2/v2.0/token", self.port)
 
+    @property
+    def authorize(self) -> str:
+        port = "" if self.port is None else f":{self.port}"
+        return f"https://{self.login}{port}/{self.tenant}/oauth2/v2.0/authorize"
+
 
 MICROSOFT = Place()
+
+
+def sign_in(
+    client_id: str,
+    pages: Pages,
+    *,
+    place: Place = MICROSOFT,
+    public: Callable[[], ssl.SSLContext] = https_context,
+    timeout: float = TIMEOUT,
+) -> SignIn:
+    """A sign-in to a personal Microsoft account. The user picks the account
+    each time, even when the browser is signed in to one already: else it
+    would be taken without asking, and maybe not the one they meant."""
+    return SignIn(
+        place.authorize,
+        place.tokens,
+        client_id,
+        SIGN_IN_SCOPE,
+        pages,
+        extra={"response_mode": "query", "prompt": "select_account"},
+        redirect_host="localhost",  # as the app is registered: Microsoft takes any port
+        public=public,
+        timeout=timeout,
+    )
 
 
 @dataclass(frozen=True)
