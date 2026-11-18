@@ -1222,11 +1222,14 @@ class SecretNotesMachine(RuleBasedStateMachine):
                     assert exported is not None, "no password the user has opens the export"
                     slots = slots_of(parse_document(carried))
                     opened = [exported, *secret_notes.old_keys_of(slots, exported).values()]
+                    # The others' keys it carries, with their passwords, as here
+                    # (keys_here): the vault's kept beside, and one used apart.
                     for other in secret_notes.others_of(slots).values():
-                        if self.their is not None:
-                            slot = decode_slot(other[PASSWORD_SLOT])
-                            found = self.try_password(slot, self.their[2], PASSWORD_SLOT)
-                            opened += [found] if found is not None else []
+                        for kept in (self.their, self.apart):
+                            if kept is not None:
+                                slot = decode_slot(other[PASSWORD_SLOT])
+                                found = self.try_password(slot, kept[2], PASSWORD_SLOT)
+                                opened += [found] if found is not None else []
                     bound = str(row.get("secret_bound") or note_id)
                     assert open_with_any(opened, bound, SealedText(sealed)) == expected.text
                 else:
@@ -1573,6 +1576,18 @@ def test_a_note_sealed_with_the_others_key_is_opened_with_theirs(qapp: QApplicat
         state.take_from_theirs(pick=0, text="")
         state.bring_in_notes([""])
         state.make_ordinary(pick=0, forgot=False, password="first secret", stop=None)
+        holds(state)
+
+
+def test_an_export_carries_the_key_another_computer_used_apart(qapp: QApplication) -> None:
+    # Its notes open in an encrypted export with that computer's password, as here.
+    with machine() as state:
+        state.first_start(old=False)
+        state.write_note("")
+        state.make_secret(pick=0, title="", forgot=False, password="first secret", stop=None)
+        state.keep_apart(password="first secret", stop=None)
+        state.take_from_apart(pick=0, text="")
+        state.export(encrypted=True, stop=None)
         holds(state)
 
 
