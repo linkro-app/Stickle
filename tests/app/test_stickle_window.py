@@ -510,6 +510,25 @@ def test_the_windows_it_opens_stay_above_pinned_notes_with_it(qtbot: QtBot, app:
     assert not stays_on_top(app.window)
 
 
+@pytest.mark.parametrize("elsewhere", ["another app", "a note"])
+def test_a_question_of_its_left_open_does_not_keep_it_above_once_left(
+    qtbot: QtBot, app: App, elsewhere: str
+) -> None:
+    # Signing in to a cloud, the window that turns sync on waits while the user
+    # is in the browser: counted as in use, its window covered the sign-in page.
+    note = open_note(app, "핀 메모")
+    app.window.open()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
+    question = QDialog(app.window)
+    question.open()  # modal to the window, the notes still open to the keyboard
+    move_to(qtbot, question)
+    assert stays_on_top(app.window)
+
+    move_to(qtbot, None if elsewhere == "another app" else note)
+    assert not stays_on_top(app.window)
+    question.close()
+
+
 def test_it_stays_above_pinned_notes_while_the_systems_file_dialog_is_open(
     qtbot: QtBot, app: App, monkeypatch: pytest.MonkeyPatch
 ) -> None:

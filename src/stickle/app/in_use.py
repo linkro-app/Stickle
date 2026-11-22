@@ -81,12 +81,11 @@ class OnTopWhileInUse(QObject):
         the windows it opened: those stay above pinned notes only with it."""
         if not stays_on_top(self._window):
             return
-        # A file chooser of the system has no Qt window, but it is modal to one.
-        widget = (
-            QApplication.activeModalWidget()
-            or file_dialogs.asking_for()
-            or QApplication.activeWindow()
-        )
+        # Where the keyboard is. A file chooser of the system has no Qt window,
+        # but it is open for one. A window of its own that waits for an answer
+        # does not count once the keyboard is elsewhere: left open while the user
+        # signed in in the browser, it kept this window over the sign-in page.
+        widget = file_dialogs.asking_for() or QApplication.activeWindow()
         while widget is not None:
             if widget is self._window:
                 return

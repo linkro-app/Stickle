@@ -30,7 +30,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWi
 
 from stickle.app.app_icon import SyncSign, halted_pixmap
 from stickle.app.backups import when
-from stickle.app.in_use import call_up
+from stickle.app.in_use import OnTopWhileInUse, call_up
 from stickle.app.link_label import LinkLabel
 from stickle.app.titles import shown_title
 from stickle.app.tray import SyncShown
@@ -336,6 +336,7 @@ class SyncDisplay(QObject):
 
             self._asking = SyncStopped(syncing, self.open_again, self._setup.disconnect)
             self._asking.finished.connect(self._asked)
+            OnTopWhileInUse(self._asking)
         self._present(self._asking)
 
     def _asked(self) -> None:
@@ -352,6 +353,7 @@ class SyncDisplay(QObject):
 
             self._again = TurnOnSync(setup, None, syncing.kept_login(), password)
             self._again.finished.connect(self._done_again)
+            OnTopWhileInUse(self._again)
         self._present(self._again)
 
     def _done_again(self) -> None:
@@ -359,6 +361,8 @@ class SyncDisplay(QObject):
 
     @staticmethod
     def _present(window: QWidget) -> None:
+        # Above pinned notes until the user moves on from it (to a browser
+        # signing in, say): it has an OnTopWhileInUse.
         call_up(window)
         window.show()
         window.raise_()

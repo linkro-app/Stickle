@@ -13,6 +13,7 @@ from PySide6.QtCore import QCoreApplication, QDate, QDateTime, QEvent, QObject, 
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from pytestqt.qtbot import QtBot
+from test_stickle_window import move_to
 
 from stickle.app.i18n import Translations
 from stickle.app.notes import NoteManager
@@ -24,6 +25,7 @@ from stickle.app.sync_stopped import SyncStopped
 from stickle.app.syncing import BigChange, Ended, Syncing
 from stickle.app.tray import Tray
 from stickle.app.turn_on_sync import TurnOnSync
+from stickle.app.window_flags import stays_on_top
 from stickle.data.schema import open_store
 from stickle.data.settings import SYNC_STOP_SEEN, SYNC_STOP_TOLD, Settings
 from stickle.data.sync_connection import WEBDAV, Login
@@ -426,6 +428,23 @@ def test_the_lines_saying_how_sync_stands_lead_to_the_window(
     # Asked for again, the one open comes forward.
     at.window.open_standing()
     assert stopped_window() is window
+    window.reject()
+
+
+def test_called_up_it_stays_above_pinned_notes_only_until_the_user_moves_on(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    # It had nothing to let it go: above every other window until it was closed.
+    at = manager_of(qtbot, settings)
+    at.display.follow(cast(Syncing, FakeSync(Stopped.VAULT_GONE)))
+    at.window.sync_line.pressed.emit()
+    window = stopped_window()
+    assert window is not None and stays_on_top(window)
+    move_to(qtbot, window)
+    assert stays_on_top(window)
+
+    move_to(qtbot, None)  # to another app
+    assert not stays_on_top(window)
     window.reject()
 
 

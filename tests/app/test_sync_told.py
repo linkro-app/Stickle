@@ -17,6 +17,7 @@ from PySide6.QtCore import QCoreApplication, QDate, QDateTime, QEvent, QObject, 
 from PySide6.QtWidgets import QApplication
 from pytestqt.qtbot import QtBot
 from sync_screens import FakeSyncing
+from test_stickle_window import move_to
 
 from stickle.app import new_version, note_window
 from stickle.app.i18n import Translations
@@ -33,6 +34,7 @@ from stickle.app.syncing import Ended, Syncing
 from stickle.app.tray import Tray
 from stickle.app.turn_on_sync import TurnOnSync
 from stickle.app.update_check import UpdateCheck
+from stickle.app.window_flags import stays_on_top
 from stickle.core.note import SealedText
 from stickle.core.updates import Release
 from stickle.data.notes import NoteRepository
@@ -322,6 +324,24 @@ def test_a_password_turned_down_leads_to_typing_it_anew(
     assert at.line == SIGN_IN_TOLD  # until OK, whatever else is done
     at.window.open_standing()  # asked for again: the one open
     assert password_window() is window
+
+
+def test_the_window_it_leads_to_stays_above_only_until_the_user_moves_on(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    # Above every other window until it was closed, it covered the page the
+    # user went to in the browser.
+    at = manager_of(qtbot, settings)
+    sync = at.follow(FakeSync())
+    sync.ended(Outcome(Stopped.SIGN_IN))
+    at.window.open_standing()
+    window = password_window()
+    assert window is not None and stays_on_top(window)
+    move_to(qtbot, window)
+    assert stays_on_top(window)
+
+    move_to(qtbot, None)  # to another app
+    assert not stays_on_top(window)
 
 
 @pytest.mark.parametrize("way", ["button", "notification", "status line"])
