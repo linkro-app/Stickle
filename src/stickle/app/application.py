@@ -122,6 +122,7 @@ if TYPE_CHECKING:
     from stickle.sync.engine import FirstLook
     from stickle.sync.keys import Follow
     from stickle.sync.secret_key import SecretFollow, SecretOther
+    from stickle.sync.targets.onedrive import App as OneDriveApp
 
 APP_ID = "co.linkro.stickle"
 
@@ -1357,11 +1358,18 @@ def run(
                     syncing = None
 
             def look(
-                login: sync_connection.Login, moving: Callable[[str, int, int], None]
+                login: sync_connection.Login,
+                moving: Callable[[str, int, int], None],
+                renewed: Callable[[str], None],
             ) -> FirstLook | None:
                 from stickle.app.syncing import look_first
 
-                return look_first(database, opened_with, login, moving)
+                return look_first(database, opened_with, login, moving, renewed=renewed)
+
+            def onedrive() -> OneDriveApp | None:
+                from stickle.sync.targets.onedrive import registered
+
+                return registered()
 
             def keep_joined_recovery_key(public: bytes) -> None:
                 """Joined with it, typed: the user has the vault's recovery key."""
@@ -1381,6 +1389,7 @@ def run(
                 lambda login: connected(login, True, only_the_cloud=True),
                 unlock.secret_notes_kept_for,
                 keep_joined_recovery_key,
+                onedrive,
             )
         # Before any note opens: each offers to become a secret note.
         manager.secrets = secret_passwords(

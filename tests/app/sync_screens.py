@@ -32,7 +32,7 @@ from stickle.app.stickle_window import StickleWindow
 from stickle.app.sync_display import SyncDisplay
 from stickle.app.sync_panel import ChangeName, DisconnectSync
 from stickle.app.sync_setup import SyncSetup
-from stickle.app.sync_status import WEBDAV_NAME, SyncStatus
+from stickle.app.sync_status import SyncStatus, cloud_name
 from stickle.app.sync_stopped import SyncStopped
 from stickle.app.syncing import BigChange, Ended, Syncing
 from stickle.app.tray import Tray
@@ -45,13 +45,21 @@ from stickle.crypto.secret_notes import seal_text
 from stickle.data.colors import OwnColor
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
-from stickle.data.sync_connection import WEBDAV, Login
+from stickle.data.sync_connection import ONEDRIVE, WEBDAV, Login
 from stickle.data.versions import VersionRepository
 from stickle.sync.devices import Other
 from stickle.sync.engine import GETTING, PUTTING, FirstLook, LetGo, Report
 from stickle.sync.format import NewerFormatError
 from stickle.sync.outcome import Outcome, Stopped
-from stickle.sync.targets.base import CertificateError, NoAccessError, SignInNeededError
+from stickle.sync.targets.base import (
+    CertificateError,
+    NoAccessError,
+    SignInNeededError,
+    TooBusyError,
+    UnavailableError,
+)
+from stickle.sync.targets.onedrive import App
+from stickle.sync.targets.sign_in import SignInFailedError
 from stickle.sync.targets.webdav import NoWebDavFolderError
 from stickle.sync.vault import NoWayInError
 
@@ -60,6 +68,10 @@ ADDRESS = "https://nas.example.com:5006/stickle"
 USER = "stickle-user"
 PASSWORD = "not a real password"
 THIS_PC = "DESKTOP-7GQ2K1F"
+ACCOUNT = "jiwoo.kim@outlook.com"
+# Registered with no one: a scene reaches nothing.
+MADE_UP_APP = App("00000000-0000-4000-8000-000000000000")
+SIGN_IN_ADDRESS = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_id=0"
 A_CERTIFICATE = bytes(range(64))
 A_RECOVERY_KEY = "K7QM-2HXP-9RTV-4WJD-8FNB-3YCS-6GKA-M2Q7"
 ELSEWHERE_AT = "2026-11-05T05:03:00.000Z"
@@ -92,7 +104,6 @@ class FakeSyncing(QObject):
     moving = Signal(str, int, int)
     unsent_changed = Signal(object)
     unmatched_changed = Signal(object)
-    cloud_name = WEBDAV_NAME
 
     def __init__(
         self,
@@ -102,11 +113,16 @@ class FakeSyncing(QObject):
         address: str = ADDRESS,
         user: str = USER,
         name: str = THIS_PC,
+        kind: str = WEBDAV,
     ) -> None:
+        """kind: of the connection; OneDrive's has no address, and the user is
+        the account's name."""
         super().__init__()
-        self.login = Login(VAULT, WEBDAV, address, user, PASSWORD, {})
+        onedrive = kind == ONEDRIVE
+        self.login = Login(VAULT, kind, "" if onedrive else address, user, PASSWORD, {})
+        self.cloud_name = cloud_name(kind)
         moment = _at_14_05() if last is None else last
-        self.status = SyncStatus(WEBDAV_NAME, None, lambda: to_put, lambda: moment, self)
+        self.status = SyncStatus(kind, None, lambda: to_put, lambda: moment, self)
         self._others = list(others)
         self._name = name
 
@@ -200,7 +216,9 @@ def _keys(there: bool = True, held: bool = True, old: bool = False) -> RecoveryK
     )
 
 
-def _setup(syncing: FakeSyncing | None, keys: RecoveryKeys | None = None) -> SyncSetup:
+def _setup(
+    syncing: FakeSyncing | None, keys: RecoveryKeys | None = None, onedrive: bool = False
+) -> SyncSetup:
     def connect(_login: Login, _joining: bool) -> Syncing:
         raise AssertionError("a scene connects to nothing")
 
@@ -211,6 +229,7 @@ def _setup(syncing: FakeSyncing | None, keys: RecoveryKeys | None = None) -> Syn
         lambda: {},
         connect,
         lambda: None,
+        onedrive=(lambda: MADE_UP_APP) if onedrive else (lambda: None),
     )
 
 
@@ -879,6 +898,116 @@ def _icons(stage: Stage) -> QWidget:
     return label
 
 
+# OneDrive
+
+
+def _onedrive_turn_on(stage: Stage) -> TurnOnSync:
+    return stage.keep(TurnOnSync(_setup(None, onedrive=True)))
+
+
+def _onedrive_choosing(stage: Stage) -> TurnOnSync:
+    window = _onedrive_turn_on(stage)
+    window.next_button.click()
+    return window
+
+
+def _onedrive_sign_in(stage: Stage) -> TurnOnSync:
+    window = _onedrive_choosing(stage)
+    window.next_button.click()
+    return window
+
+
+def _onedrive_waiting(stage: Stage) -> QWidget:
+    """The browser sent to sign in (not really: a scene opens nothing)."""
+    window = _onedrive_sign_in(stage)
+    window._sign_in_address = SIGN_IN_ADDRESS
+    for part in (window.sign_in_waiting, window.copy_line, window.copy_button):
+        part.show()
+    window._fit()
+    return window
+
+
+def _onedrive_failing(error: Exception) -> Callable[[Stage], QWidget]:
+    def build(stage: Stage) -> QWidget:
+        window = _onedrive_sign_in(stage)
+        window._sign_in_failed(error)
+        return window
+
+    return build
+
+
+def _onedrive_failing_after(error: Exception) -> Callable[[Stage], QWidget]:
+    """Signed in, and then OneDrive failed."""
+
+    def build(stage: Stage) -> QWidget:
+        window = _onedrive_sign_in(stage)
+        window._failed(error)
+        return window
+
+    return build
+
+
+def _onedrive_not_started(stage: Stage) -> QWidget:
+    window = _onedrive_sign_in(stage)
+    window._fail(window.tr("Couldn't start signing in. Try again."))
+    return window
+
+
+def _onedrive_checking(stage: Stage) -> QWidget:
+    window = _onedrive_sign_in(stage)
+    window._job = cast("Job", object())  # as long as there is one, it is busy
+    window._say(window.tr("Checking OneDrive…"))
+    window._update_buttons()
+
+    def over() -> None:
+        window._job = None
+
+    stage.at_end(over)
+    return window
+
+
+def _onedrive_folder(page: str) -> Callable[[Stage], QWidget]:
+    def build(stage: Stage) -> QWidget:
+        window = _onedrive_sign_in(stage)
+        window._show_recovery_state()
+        window._show(getattr(window, page))
+        if page == "present_page":
+            window.way_in.setText(A_RECOVERY_KEY)
+        return window
+
+    return build
+
+
+def _onedrive_last_ended(outcome: Outcome) -> Callable[[Stage], QWidget]:
+    def build(stage: Stage) -> QWidget:
+        window = _onedrive_sign_in(stage)
+        window._set_line(window._going_on)
+        window._show(window.last_page)
+        window._round_shown(Ended(Report(), outcome))
+        return window
+
+    return build
+
+
+def _onedrive_signed_out(stage: Stage) -> QWidget:
+    """Microsoft turned the refresh token kept down: signed in to anew."""
+    kept = Login(VAULT, ONEDRIVE, "", ACCOUNT, PASSWORD, {})
+    return stage.keep(TurnOnSync(_setup(None, onedrive=True), None, kept, True))
+
+
+def _onedrive_synced(user: str = ACCOUNT) -> Callable[[], FakeSyncing]:
+    return lambda: FakeSyncing(_others(), user=user, kind=ONEDRIVE)
+
+
+def _onedrive_stopped(why: Stopped) -> Callable[[], FakeSyncing]:
+    return lambda: _onedrive_synced()().round_was(Outcome(why))
+
+
+def _onedrive_disconnect(stage: Stage) -> DisconnectSync:
+    syncing = stage.keep(_onedrive_synced()())
+    return stage.keep(DisconnectSync(cast("Syncing", syncing), lambda: None))
+
+
 _REASONS = {
     Stopped.SIGN_IN: "sign-in",
     Stopped.NO_ACCESS: "no-access",
@@ -1038,4 +1167,38 @@ SCENES: list[Scene] = [
     Scene("note-conflict-original-two", _original(2), keyboard=False),
     Scene("note-held", _held("회의 10시 · Meeting at 10"), keyboard=False),
     Scene("note-held-narrow", _held("회의 10시", width=160), keyboard=False),
+    Scene("onedrive-turn-on-2-choose", _onedrive_choosing),
+    Scene("onedrive-turn-on-3-sign-in", _onedrive_sign_in),
+    Scene("onedrive-turn-on-3-waiting", _onedrive_waiting),
+    Scene("onedrive-turn-on-3-declined", _onedrive_failing(SignInFailedError(declined=True))),
+    Scene("onedrive-turn-on-3-not-signed-in", _onedrive_failing(SignInFailedError())),
+    Scene("onedrive-turn-on-3-blocked", _onedrive_failing(NoAccessError())),
+    Scene("onedrive-turn-on-3-busy", _onedrive_failing(TooBusyError())),
+    Scene("onedrive-turn-on-3-unreachable", _onedrive_failing(UnavailableError())),
+    Scene("onedrive-turn-on-3-not-started", _onedrive_not_started),
+    Scene("onedrive-turn-on-3-checking", _onedrive_checking),
+    Scene("onedrive-turn-on-3-signed-in-turned-down", _onedrive_failing_after(SignInNeededError())),
+    Scene(
+        "onedrive-turn-on-3-onedrive-unreachable",
+        _onedrive_failing_after(UnavailableError(answered=True)),
+    ),
+    Scene("onedrive-turn-on-4-new", _onedrive_folder("absent_page")),
+    Scene("onedrive-turn-on-4-join", _onedrive_folder("present_page")),
+    Scene("onedrive-turn-on-5-signed-out", _onedrive_last_ended(Outcome(Stopped.SIGN_IN))),
+    Scene("onedrive-turn-on-5-blocked", _onedrive_last_ended(Outcome(Stopped.NO_ACCESS))),
+    Scene("onedrive-turn-on-5-full", _onedrive_last_ended(Outcome(full=True))),
+    Scene("onedrive-turn-on-again-sign-in", _onedrive_signed_out),
+    Scene("onedrive-connections-synced", _page_showing(_onedrive_synced())),
+    Scene("onedrive-connections-unnamed", _page_showing(_onedrive_synced(""))),
+    Scene("onedrive-connections-long-name", _page_showing(_onedrive_synced(LONG_USER))),
+    Scene("onedrive-connections-signed-out", _page_showing(_onedrive_stopped(Stopped.SIGN_IN))),
+    Scene("onedrive-connections-blocked", _page_showing(_onedrive_stopped(Stopped.NO_ACCESS))),
+    Scene("onedrive-disconnect", _onedrive_disconnect),
+    Scene("onedrive-manager-told-signed-out", _manager(_onedrive_stopped(Stopped.SIGN_IN))),
+    Scene("onedrive-manager-told-blocked", _manager(_onedrive_stopped(Stopped.NO_ACCESS))),
+    Scene(
+        "onedrive-tray-menu-signed-out",
+        _menu(_onedrive_stopped(Stopped.SIGN_IN)),
+        keyboard=False,
+    ),
 ]

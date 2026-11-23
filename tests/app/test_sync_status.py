@@ -6,10 +6,11 @@ from pytestqt.qtbot import QtBot
 from stickle.app.sync_status import SyncStatus
 from stickle.app.syncing import Ended
 from stickle.app.times import moment_text
+from stickle.data.sync_connection import ONEDRIVE, WEBDAV
 from stickle.sync.engine import GETTING, PUTTING, Report
 from stickle.sync.outcome import Outcome, Stopped
 
-CLOUD = "WebDAV"
+CLOUD = WEBDAV
 
 
 class Line:
@@ -174,3 +175,47 @@ def test_changing_what_a_round_changed_happens_once(qtbot: QtBot) -> None:
     assert line.changes == 1
     line.status.moved(PUTTING, 21, 22)
     assert line.changes == 2
+
+
+# OneDrive: signed in through Microsoft, and the app registered there
+
+
+def onedrive_line(stopped: Stopped | None = None) -> SyncStatus:
+    moment = QDateTime(QDate.currentDate(), QTime(14, 5))
+    return SyncStatus(ONEDRIVE, stopped, lambda: 0, lambda: moment)
+
+
+def test_onedrive_is_named_as_it_names_itself(qtbot: QtBot) -> None:
+    assert onedrive_line().text() == f"Synced with OneDrive · {at_two_past_five()}"
+
+
+def test_onedrive_signed_out_asks_for_signing_in_again(qtbot: QtBot) -> None:
+    status = onedrive_line(Stopped.SIGN_IN)
+    assert status.text() == "Sync stopped — sign in to OneDrive again"
+    assert status.notice() == (
+        "Stickle was signed out of OneDrive, so sync stopped. Sign in again to carry on."
+        " Your notes are still on this computer."
+    )
+    assert status.way_on() == "Sign &in again…"
+    assert status.asks_sign_in
+
+
+def test_microsoft_blocking_stickle_is_said_as_microsoft(qtbot: QtBot) -> None:
+    status = onedrive_line(Stopped.NO_ACCESS)
+    assert status.text() == "Sync stopped — Microsoft has blocked Stickle"
+    assert status.notice() == (
+        "Microsoft has blocked Stickle, so sync stopped. Your notes are still on this"
+        " computer. Until a new version fixes this, you can use another cloud."
+    )
+    assert status.way_on() == "&Open connection settings"
+    assert not status.asks_sign_in
+
+
+def test_what_is_the_same_for_every_cloud_names_onedrive(qtbot: QtBot) -> None:
+    assert onedrive_line(Stopped.VAULT_GONE).text() == (
+        "Sync stopped — the Stickle folder is gone from OneDrive"
+    )
+    status = onedrive_line()
+    status.round_ended(Ended(Report(), Outcome(full=True)))
+    assert status.text() == "Uploads stopped — your OneDrive is full"
+    assert status.notice().startswith("OneDrive is full, so uploads stopped.")

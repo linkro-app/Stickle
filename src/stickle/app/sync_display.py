@@ -314,13 +314,14 @@ class SyncDisplay(QObject):
     def open_standing(self) -> None:
         """Where the lines saying how sync stands lead, as does the button beside
         what tells of a stop: the window that asks, while stopped for that; the
-        server password, while the server turns it down; the new version, while
-        sync waits for one; else the connection settings."""
+        server password (or signing in to OneDrive), while the cloud turns down
+        what it was signed in with; the new version, while sync waits for one;
+        else the connection settings."""
         status = None if self._syncing is None else self._syncing.status
         if status is not None and status.asks is not None:
             self.open_stopped()
-        elif status is not None and status.asks_password:
-            self.open_again(password=True)
+        elif status is not None and status.asks_sign_in:
+            self.open_again(signed_out=True)
         elif status is not None and status.update_carries_on:
             self._window.get_new_version()
         else:
@@ -342,16 +343,17 @@ class SyncDisplay(QObject):
     def _asked(self) -> None:
         self._asking = None
 
-    def open_again(self, password: bool = False) -> None:
-        """The window that turns sync on, going from the server as kept; password:
-        from a password typed anew, the one kept having been turned down."""
+    def open_again(self, signed_out: bool = False) -> None:
+        """The window that turns sync on, going from the cloud as kept; signed_out:
+        from a password typed anew (or signing in anew), what was kept having
+        been turned down."""
         syncing, setup = self._syncing, self._setup
         if syncing is None or setup is None:
             return
         if self._again is None:
             from stickle.app.turn_on_sync import TurnOnSync
 
-            self._again = TurnOnSync(setup, None, syncing.kept_login(), password)
+            self._again = TurnOnSync(setup, None, syncing.kept_login(), signed_out)
             self._again.finished.connect(self._done_again)
             OnTopWhileInUse(self._again)
         self._present(self._again)

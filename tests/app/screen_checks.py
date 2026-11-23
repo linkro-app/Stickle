@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QRadioButton,
     QStackedWidget,
     QTabBar,
     QTabWidget,
@@ -138,6 +139,18 @@ def outside(top: QWidget) -> list[str]:
     return found
 
 
+def _in_a_group_reached(widget: QWidget, chain: list[QWidget]) -> bool:
+    """A radio button of a group Tab comes to: Tab comes to the one chosen (Qt
+    takes it off the others once that has the keyboard), the arrows to the rest."""
+    if not isinstance(widget, QRadioButton) or not widget.autoExclusive():
+        return False
+    parent = widget.parentWidget()
+    return any(
+        isinstance(other, QRadioButton) and other.autoExclusive() and other.parentWidget() is parent
+        for other in chain
+    )
+
+
 def unreached(top: QWidget) -> list[str]:
     """Controls in sight and on that Tab does not come to."""
     chain = tab_chain(top)
@@ -149,6 +162,7 @@ def unreached(top: QWidget) -> list[str]:
         and not part_of_another(widget, top)
         and widget not in chain
         and widget.focusProxy() not in chain
+        and not _in_a_group_reached(widget, chain)
     ]
 
 

@@ -29,7 +29,7 @@ from stickle.app.support import site_page
 from stickle.app.sync_display import SyncDisplay
 from stickle.app.sync_panel import SyncPanel
 from stickle.app.sync_setup import SyncSetup
-from stickle.app.sync_status import SyncStatus
+from stickle.app.sync_status import SyncStatus, cloud_name
 from stickle.app.syncing import Ended, Syncing
 from stickle.app.tray import Tray
 from stickle.app.turn_on_sync import TurnOnSync
@@ -48,13 +48,14 @@ from stickle.data.settings import (
     SYNC_TRASHED,
     Settings,
 )
-from stickle.data.sync_connection import WEBDAV, Login
+from stickle.data.sync_connection import ONEDRIVE, WEBDAV, Login
 from stickle.platform.updates import STORE
 from stickle.sync.engine import LetGo, Report
 from stickle.sync.outcome import Outcome, Stopped
 
 KEY = bytes([4]) * 32
 LOGIN = Login("vault", WEBDAV, "http://nas.local/dav", "u", "p", {1: bytes(32)})
+ONEDRIVE_LOGIN = Login("vault", ONEDRIVE, "", "someone@example.com", "a token", {1: bytes(32)})
 RELEASE = Release("0.8.0", "https://github.com/linkro-app/Stickle/releases/tag/v0.8.0")
 FULL = Outcome(full=True)
 SIGN_IN_TOLD = (
@@ -92,15 +93,15 @@ class FakeSync(QObject):
     unmatched_changed = Signal(object)
     round_shown = Signal(object)
     moving = Signal(str, int, int)
-    cloud_name = "WebDAV"
 
-    def __init__(self, stopped: Stopped | None = None) -> None:
+    def __init__(self, stopped: Stopped | None = None, login: Login = LOGIN) -> None:
         super().__init__()
         self.status = SyncStatus(
-            "WebDAV", stopped, lambda: 0, lambda: QDateTime(QDate.currentDate(), QTime(14, 5))
+            login.kind, stopped, lambda: 0, lambda: QDateTime(QDate.currentDate(), QTime(14, 5))
         )
         self.round_shown.connect(self.status.round_ended)
-        self.login = LOGIN
+        self.login = login
+        self.cloud_name = cloud_name(login.kind)
 
     def kept_login(self) -> Login:
         return self.login
@@ -324,6 +325,34 @@ def test_a_password_turned_down_leads_to_typing_it_anew(
     assert at.line == SIGN_IN_TOLD  # until OK, whatever else is done
     at.window.open_standing()  # asked for again: the one open
     assert password_window() is window
+
+
+@pytest.mark.parametrize("way", ["button", "notification", "status line", "tray"])
+def test_signed_out_of_onedrive_leads_to_signing_in_anew(
+    qtbot: QtBot, settings: Settings, way: str
+) -> None:
+    at = manager_of(qtbot, settings)
+    sync = at.follow(FakeSync(login=ONEDRIVE_LOGIN))
+    sync.ended(Outcome(Stopped.SIGN_IN))
+    assert at.line == (
+        "Stickle was signed out of OneDrive, so sync stopped. Sign in again to carry on."
+        " Your notes are still on this computer."
+    )
+    assert at.window.sync_stop_line.action_button.text() == "Sign &in again…"
+    match way:
+        case "button":
+            at.window.sync_stop_line.action_button.click()
+        case "notification":
+            at.clicks[0]()
+        case "status line":
+            at.window.sync_line.pressed.emit()
+        case _:
+            at.tray.sync_action.trigger()
+    window = password_window()
+    assert window is not None
+    assert window.pages.current() is window.sign_in_page
+    assert window.message.text() == ""  # nothing sent, nothing turned down yet
+    assert not at.window.settings.isVisible()
 
 
 def test_the_window_it_leads_to_stays_above_only_until_the_user_moves_on(

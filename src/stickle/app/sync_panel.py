@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, override
 from urllib.parse import urlsplit
 
 import apsw
-from PySide6.QtCore import QDate, QDateTime, QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QDate, QDateTime, QEvent, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -31,6 +31,7 @@ from stickle.app.background import Job
 from stickle.app.times import day_text
 from stickle.core.updates import FEED_HOST
 from stickle.data.settings import DEVICE_NAME_LONGEST, SYNC_EVERY_CHOICES
+from stickle.data.sync_connection import ONEDRIVE
 from stickle.sync.devices import Other
 from stickle.sync.outcome import Stopped
 
@@ -43,6 +44,9 @@ ROWS_SHOWN = 4  # computers in sight at once; the others by scrolling
 # A round asked for that does not end in this long gives the button back all the
 # same: something went wrong that nothing will tell of.
 ASKED_FOR_AT_MOST_MS = 2 * 60 * 1000
+# Where a personal Microsoft account's user takes an app's access away: an app
+# cannot do that itself.
+MICROSOFT_APP_ACCESS = "https://account.live.com/consent/Manage"
 
 
 def _filled(pattern: str, *values: str) -> str:
@@ -139,9 +143,17 @@ class DisconnectSync(QDialog):
         self._syncing = syncing
         self._disconnected = disconnected
         self._leaving = False
+        onedrive = syncing.login.kind == ONEDRIVE
         self.turns_off = _wrapped(self)
         self.folder_stays = _wrapped(self)
         self.password_goes = _wrapped(self)
+        self.password_goes.setVisible(not onedrive)
+        self.access_stays = _wrapped(self)  # what Microsoft still lets Stickle do
+        self.access_stays.setVisible(onedrive)
+        self.access_button = QPushButton(self)
+        self.access_button.setAutoDefault(False)
+        self.access_button.setVisible(onedrive)
+        self.access_button.clicked.connect(self._open_access)
         self.message = _wrapped(self)
         self.message.hide()
         self.disconnect_button = QPushButton(self)
@@ -155,9 +167,14 @@ class DisconnectSync(QDialog):
         buttons.addStretch(1)
         buttons.addWidget(self.disconnect_button)
         buttons.addWidget(self.cancel_button)
+        access = QHBoxLayout()
+        access.addWidget(self.access_button)
+        access.addStretch(1)
         layout = QVBoxLayout(self)
-        for label in (self.turns_off, self.folder_stays, self.password_goes, self.message):
+        for label in (self.turns_off, self.folder_stays, self.password_goes, self.access_stays):
             layout.addWidget(label)
+        layout.addLayout(access)
+        layout.addWidget(self.message)
         layout.addLayout(buttons)
         self.setMinimumWidth(420)
         self.retranslate()
@@ -176,9 +193,23 @@ class DisconnectSync(QDialog):
         self.password_goes.setText(
             self.tr("The server password saved on this computer is deleted too.")
         )
+        self.access_stays.setText(
+            self.tr(
+                "To remove Stickle's access from your Microsoft account too, remove it under '%1'."
+            ).replace(
+                "%1",
+                # As Microsoft's own page is named, in this language.
+                self.tr("Apps and services you've given access"),
+            )
+        )
+        self.access_button.setText(self.tr("&Open that page"))
         self.message.setText(self.tr("Disconnecting…"))
         self.disconnect_button.setText(self.tr("Disconnect"))
         self.cancel_button.setText(self.tr("Cancel"))
+
+    @staticmethod
+    def _open_access() -> None:
+        QDesktopServices.openUrl(QUrl(MICROSOFT_APP_ACCESS))
 
     def _leave(self) -> None:
         self._leaving = True
@@ -307,26 +338,49 @@ class SyncPanel(QWidget):
         ]
 
     def connects_to(self, update_check: bool) -> str:
-        """Where the app connects, line by line."""
-        lines = [
-            self.tr("Stickle connects to:"),
-            self.tr("· %1 — to sync with WebDAV").replace(
-                "%1", server_of(self.syncing.login.address)
-            ),
-        ]
+        """Where the app connects, line by line; for a cloud reached through an
+        app registered there, what the cloud tells its developer, after."""
+        login = self.syncing.login
+        onedrive = login.kind == ONEDRIVE
+        if onedrive:
+            from stickle.sync.targets.onedrive import MICROSOFT
+
+            cloud = self.tr("· %1 — to sync with OneDrive and sign in").replace(
+                "%1", ", ".join(MICROSOFT.hosts)
+            )
+        else:
+            cloud = self.tr("· %1 — to sync with WebDAV").replace("%1", server_of(login.address))
+        lines = [self.tr("Stickle connects to:"), cloud]
         if update_check:
             lines.append(
                 self.tr(
                     "· %1 — a daily check for a new version (you can turn it off in General)"
                 ).replace("%1", FEED_HOST)
             )
+        if onedrive:
+            lines += [
+                "",
+                self.tr(
+                    "Microsoft shows Stickle's developer totals, such as how many people sync"
+                    " with Stickle and how many sync requests it makes. It doesn't show who you"
+                    " are or anything in your notes."
+                ),
+                self.tr(
+                    "If Microsoft blocks Stickle, syncing with OneDrive stops. Your notes stay on"
+                    " this computer, and you can switch to another cloud."
+                ),
+            ]
         return "\n".join(lines)
 
-    def retranslate(self) -> None:
+    def _account_line(self) -> str:
         login = self.syncing.login
-        self.account.setText(
-            f"{self.syncing.cloud_name} · {server_of(login.address)} · {login.user}"
-        )
+        if login.kind == ONEDRIVE:
+            cloud = self.tr("OneDrive (personal account)")
+            return f"{cloud} · {login.user}" if login.user else cloud
+        return f"{self.syncing.cloud_name} · {server_of(login.address)} · {login.user}"
+
+    def retranslate(self) -> None:
+        self.account.setText(self._account_line())
         self.review_button.setText(self.tr("&Review…"))  # named while hidden too
         self.sync_now_button.setText(self.tr("&Sync now"))
         self.every_label.setText(self.tr("&Get changes from other computers:"))

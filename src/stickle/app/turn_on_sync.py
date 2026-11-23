@@ -1,6 +1,7 @@
 """Turning sync on, in one window going from step to step: what it is, where to,
-the server, and the Stickle folder there (made, or opened with what the other
-computers open it with), then the first round going on.
+the server (or signing in to OneDrive in the browser), and the Stickle folder
+there (made, or opened with what the other computers open it with), then the
+first round going on.
 
 Nothing is kept until the folder is made or opened: cancelled before that, this
 computer is as it was. Opening a folder there before, with notes on this
@@ -21,17 +22,35 @@ key. A folder there is never made over. Nothing of the connection kept changes
 until the new one is kept in its place. Stopped with the server turning down
 the password kept, it starts with the password to type anew: the one turned
 down is not sent again (servers count those, and lock the account out).
+OneDrive likewise starts from signing in anew, when Microsoft turned the
+refresh token down.
+
+OneDrive is signed in to in the browser: a listener on this computer hears
+the browser sent back, for as long as the step waits for it, and is closed
+however that ends (signing in again, going back, cancelling, closing). Each new
+refresh token Microsoft gives on the way is the one kept, should sync be turned
+on; signing in and cancelling keeps none.
 
 Opened on request: this is what brings TLS and HTTP into a run.
 """
 
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Literal, override
 
-from PySide6.QtCore import QEvent, QLocale, QObject, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette, QResizeEvent, QShowEvent
+from PySide6.QtCore import QByteArray, QEvent, QLocale, QObject, Qt, QUrl, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QFont,
+    QFontDatabase,
+    QGuiApplication,
+    QPalette,
+    QResizeEvent,
+    QShowEvent,
+)
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -53,19 +72,28 @@ from stickle.app.secret_dialogs import (
     confirm_new_recovery_key,
     show_recovery_key,
 )
+from stickle.app.support import site_language
 from stickle.app.sync_setup import SyncGuideLine, SyncSetup
-from stickle.app.sync_status import MANY, WEBDAV_NAME, SyncWords
+from stickle.app.sync_status import MANY, SyncWords, cloud_name
 from stickle.app.syncing import Ended
 from stickle.app.typed import forget_typed
 from stickle.crypto.following import digest_of
 from stickle.crypto.keyfile import KeyFileError
 from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
 from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY, DataKeys
-from stickle.data.sync_connection import WEBDAV, Login
+from stickle.data.sync_connection import ONEDRIVE, WEBDAV, Login
 from stickle.sync.engine import GETTING, FirstLook
 from stickle.sync.format import NewerFormatError
 from stickle.sync.keys import newest
-from stickle.sync.targets.base import CertificateError, NoAccessError, SignInNeededError
+from stickle.sync.targets.base import (
+    CertificateError,
+    NoAccessError,
+    SignInNeededError,
+    TooBusyError,
+    UnavailableError,
+)
+from stickle.sync.targets.onedrive import OneDrive
+from stickle.sync.targets.sign_in import Pages, SignedIn, SignIn, SignInFailedError
 from stickle.sync.targets.webdav import (
     Address,
     AddressError,
@@ -218,9 +246,31 @@ class _Pages(QWidget):
             each.setVisible(each is page)
 
 
-def _look(target: WebDav) -> str | None:
+type _Reached = WebDav | OneDrive
+
+
+class _Token:
+    """The refresh token to sign in to OneDrive with: the newest given, from
+    whichever thread is told of it."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._value = ""
+
+    @property
+    def value(self) -> str:
+        with self._lock:
+            return self._value
+
+    def set(self, value: str) -> None:
+        with self._lock:
+            self._value = value
+
+
+def _look(target: _Reached) -> str | None:
     """The vault there, if there is one, once the server has shown it is one to use."""
-    target.check()
+    if isinstance(target, WebDav):
+        target.check()
     return there(target)
 
 
@@ -230,19 +280,28 @@ class TurnOnSync(QDialog):
         setup: SyncSetup,
         parent: QWidget | None = None,
         again: Login | None = None,
-        password: bool = False,
+        signed_out: bool = False,
     ) -> None:
         """again: the connection kept, which sync stopped with (its Stickle folder
         gone, made anew, or the server's certificate changed): the window starts
-        by looking at the server as kept, and goes on as that is now. password:
-        it stopped with the server turning down the password kept; the window
-        starts at the server, asking it nothing until a new one is typed."""
+        by looking at the cloud as kept, and goes on as that is now. signed_out:
+        it stopped with the cloud turning down what it was signed in with; the
+        window starts at the server (or signing in to OneDrive), sending it
+        nothing until a new password is typed (or the user has signed in)."""
         super().__init__(parent)
         self._setup = setup
         self._again = again
+        self._onedrive = setup.onedrive()  # None: OneDrive is not offered
+        self._kind = WEBDAV if again is None else again.kind
         self._words = SyncWords(self)
         self._job: Job | None = None
-        self._target: WebDav | None = None
+        self._target: _Reached | None = None
+        # Signing in to OneDrive: the sign-in waited for, and its work.
+        self._signing: SignIn | None = None
+        self._signing_job: Job | None = None
+        self._sign_in_address = ""
+        self._token = _Token()
+        self._account: str | None = None
         self._address: Address | None = None
         self._certificate: bytes | None = None  # trusted, for this address
         self._shown_certificate: bytes | None = None
@@ -262,6 +321,7 @@ class TurnOnSync(QDialog):
         self.pages = _Pages(self)
         self.intro_page = self._make_intro_page()
         self.choose_page = self._make_choose_page()
+        self.sign_in_page = self._make_sign_in_page()
         self.server_page = self._make_server_page()
         self.certificate_page = self._make_certificate_page()
         self.absent_page = self._make_absent_page()
@@ -272,6 +332,7 @@ class TurnOnSync(QDialog):
         for page in (
             self.intro_page,
             self.choose_page,
+            self.sign_in_page,
             self.server_page,
             self.certificate_page,
             self.absent_page,
@@ -314,11 +375,18 @@ class TurnOnSync(QDialog):
         if again is None:
             self._show(self.intro_page)
             return
+        if again.kind == ONEDRIVE:
+            self._account = again.user or None
+            self._show(self.sign_in_page)
+            if not signed_out:  # the refresh token was not turned down: on with it
+                self._token.set(again.secret)
+                self._reach_onedrive()
+            return
         self.address.setText(again.address)
         self.user.setText(again.user)
         self._certificate = again.certificate  # after the address, which forgets it
         self._show(self.server_page)
-        if password:
+        if signed_out:
             self._fail(self._turned_down(), self.password)
             return
         self.password.setText(again.secret)
@@ -341,10 +409,38 @@ class TurnOnSync(QDialog):
     def _make_choose_page(self) -> QWidget:
         page, layout = _page()
         self.choose_heading = _heading(page)
+        self.onedrive_choice = QRadioButton(page)
         self.webdav_choice = QRadioButton(page)
-        self.webdav_choice.setChecked(True)
+        offered = self._onedrive is not None
+        self.onedrive_choice.setVisible(offered)
+        (self.onedrive_choice if offered else self.webdav_choice).setChecked(True)
+        self.own_folder_note = _small(page)  # what a cloud of its own folder lets it see
+        self.own_folder_note.setVisible(offered)
         layout.addWidget(self.choose_heading)
+        layout.addWidget(self.onedrive_choice)
         layout.addWidget(self.webdav_choice)
+        layout.addWidget(self.own_folder_note)
+        layout.addStretch(1)
+        return page
+
+    def _make_sign_in_page(self) -> QWidget:
+        page, layout = _page()
+        self.sign_in_heading = _heading(page)
+        self.sign_in_waiting = _wrapped(page)
+        self.copy_line = _wrapped(page)
+        self.copy_button = QPushButton(page)
+        self.copy_button.setAutoDefault(False)
+        self.copy_button.clicked.connect(self._copy_address)
+        row = QHBoxLayout()
+        row.addWidget(self.copy_button)
+        row.addStretch(1)
+        for part in (self.sign_in_waiting, self.copy_line, self.copy_button):
+            part.hide()  # until the browser is sent to sign in
+        layout.addWidget(self.sign_in_heading)
+        layout.addWidget(self.sign_in_waiting)
+        layout.addSpacing(8)
+        layout.addWidget(self.copy_line)
+        layout.addLayout(row)
         layout.addStretch(1)
         return page
 
@@ -476,10 +572,27 @@ class TurnOnSync(QDialog):
             )
         )
         self.choose_heading.setText(self.tr("Where should your notes sync?"))
+        self.onedrive_choice.setText(
+            self.tr(
+                "&OneDrive — a personal Microsoft account. Work or school accounts don't work yet."
+            )
+        )
         self.webdav_choice.setText(
             self.tr("&WebDAV — your own server, such as Nextcloud or a Synology NAS")
         )
-        self.server_heading.setText(WEBDAV_NAME)
+        self.own_folder_note.setText(
+            self.tr("In OneDrive, Stickle uses only its own folder and can't see your other files.")
+        )
+        self.sign_in_heading.setText(cloud_name(ONEDRIVE))
+        self.sign_in_waiting.setText(
+            self.tr(
+                "Sign in on the page that opened in your browser and allow Stickle. When"
+                " you're done, you'll continue in this window."
+            )
+        )
+        self.copy_line.setText(self.tr("If no browser opened, copy the address into one."))
+        self.copy_button.setText(self.tr("&Copy the address"))
+        self.server_heading.setText(cloud_name(WEBDAV))
         self.address_label.setText(self.tr("Server &address:"))
         self.user_label.setText(self.tr("&User name:"))
         self.password_label.setText(self.tr("&Password:"))
@@ -507,7 +620,7 @@ class TurnOnSync(QDialog):
                 "There's already a Stickle folder in %1. Enter the recovery key or spare"
                 " password of the computers that already sync. If you've made a new recovery"
                 " key since, use the latest one."
-            ).replace("%1", WEBDAV_NAME)
+            ).replace("%1", cloud_name(self._kind))
         )
         self.by_key.setText(self.tr("&Recovery key"))
         self.by_password.setText(self.tr("S&pare password"))
@@ -545,7 +658,7 @@ class TurnOnSync(QDialog):
         self._update_buttons()
         focus: QWidget = self.next_button
         if page is self.choose_page:
-            focus = self.webdav_choice
+            focus = self.onedrive_choice if self.onedrive_choice.isChecked() else self.webdav_choice
         elif page is self.server_page:
             focus = self.address
         elif page is self.present_page:
@@ -585,7 +698,7 @@ class TurnOnSync(QDialog):
         busy = self._job is not None
         self.pages.setEnabled(not busy)
         last = page is self.last_page
-        first = self.server_page if self._again is not None else self.intro_page
+        first = self._cloud_page() if self._again is not None else self.intro_page
         self.back_button.setVisible(page not in (first, self.preview_page) and not last)
         self.back_button.setEnabled(not busy)
         self.cloud_only_button.setVisible(page is self.preview_page and self._preview is not None)
@@ -601,6 +714,8 @@ class TurnOnSync(QDialog):
 
     def _next_text(self) -> str:
         page = self.pages.current()
+        if page is self.sign_in_page:
+            return self.tr("&Sign in with your browser…")
         if page is self.server_page:
             return self.tr("&Connect")
         if page is self.certificate_page:
@@ -626,6 +741,8 @@ class TurnOnSync(QDialog):
             return self._recovery_state() == "ready"
         if page is self.present_page:
             return bool(self.way_in.text())
+        if page is self.sign_in_page:
+            return self._onedrive is not None
         return True
 
     # Messages
@@ -654,24 +771,33 @@ class TurnOnSync(QDialog):
 
     # Going from step to step
 
+    def _cloud_page(self) -> QWidget:
+        """Where the chosen cloud is reached: its server, or signing in."""
+        return self.sign_in_page if self._kind == ONEDRIVE else self.server_page
+
     def _back(self) -> None:
         page = self.pages.current()
         if page is self.choose_page:
             self._show(self.intro_page)
-        elif page is self.server_page:
+        elif page in (self.server_page, self.sign_in_page):
+            self._end_sign_in()
             self._show(self.choose_page)
         elif page is self.confirm_page:
             self._show(self.preview_page)
         else:
             self._close_target()
-            self._show(self.server_page)
+            self._show(self._cloud_page())
 
     def _next(self) -> None:
         page = self.pages.current()
         if page is self.intro_page:
             self._show(self.choose_page)
         elif page is self.choose_page:
-            self._show(self.server_page)
+            self._kind = ONEDRIVE if self.onedrive_choice.isChecked() else WEBDAV
+            self.retranslate()  # what is said of the Stickle folder names the cloud
+            self._show(self._cloud_page())
+        elif page is self.sign_in_page:
+            self._sign_in()
         elif page is self.server_page:
             self._connect()
         elif page is self.certificate_page:
@@ -702,6 +828,104 @@ class TurnOnSync(QDialog):
         self._say(busy)
         self._job = Job(work, ended)
         self._update_buttons()
+
+    # Signing in to OneDrive
+
+    def _sign_in(self) -> None:
+        """The browser sent to sign in, and its coming back waited for; any
+        sign-in waited for before is let go of (its tab may have been closed)."""
+        app = self._onedrive
+        assert app is not None
+        self._end_sign_in()
+        self._close_target()
+        self._clear_message()
+        signing = app.sign_in(
+            Pages(
+                site_language(),
+                self.tr("You're signed in. You can close this tab and go back to Stickle."),
+                self.tr("Sign-in didn't finish. Go back to Stickle and try again."),
+            )
+        )
+        try:
+            address = signing.start()
+        except UnavailableError:  # no listener could be opened here
+            self._fail(self.tr("Couldn't start signing in. Try again."))
+            return
+        self._signing, self._sign_in_address = signing, address
+        self._signing_job = Job(signing.wait, lambda outcome: self._signed_in(signing, outcome))
+        for part in (self.sign_in_waiting, self.copy_line, self.copy_button):
+            part.show()
+        self._fit()
+        # Not opened, the address is there to copy.
+        QDesktopServices.openUrl(QUrl.fromEncoded(QByteArray(address.encode("ascii"))))
+
+    def _copy_address(self) -> None:
+        if self._sign_in_address:
+            QGuiApplication.clipboard().setText(self._sign_in_address)
+
+    def _end_sign_in(self) -> None:
+        """The sign-in waited for, let go of: its listener closed, nothing of it kept."""
+        signing, job = self._signing, self._signing_job
+        self._signing, self._signing_job, self._sign_in_address = None, None, ""
+        if signing is not None:
+            signing.cancel()
+        if job is not None:
+            job.drop(lambda: None)
+        for part in (self.sign_in_waiting, self.copy_line, self.copy_button):
+            part.hide()
+
+    def _signed_in(self, signing: SignIn, outcome: object) -> None:
+        if signing is not self._signing:  # let go of meanwhile
+            return
+        self._signing_job = None
+        self._end_sign_in()
+        self._fit()
+        if isinstance(outcome, Exception):
+            self._sign_in_failed(outcome)
+        elif isinstance(outcome, SignedIn):
+            self._token.set(outcome.refresh_token)
+            self._account = outcome.account
+            self._reach_onedrive()
+
+    def _sign_in_failed(self, error: Exception) -> None:
+        log.info("sync: signing in: %s", type(error).__name__)
+        match error:
+            case SignInFailedError(declined=True):
+                said = self.tr(
+                    "Stickle wasn't allowed, so sign-in didn't finish. To sync, sign in again"
+                    " and allow Stickle."
+                )
+            case NoAccessError():
+                said = self._blocked()
+            case TooBusyError():
+                said = self._too_busy()
+            case UnavailableError():
+                said = self.tr("Couldn't reach Microsoft. Check your network and try again.")
+            case _:
+                said = self._not_signed_in()
+        self._fail(said)
+
+    def _not_signed_in(self) -> str:
+        return self.tr("Sign-in didn't finish. Try again.")
+
+    def _blocked(self) -> str:
+        return self.tr(
+            "Microsoft has blocked Stickle. Until a new version fixes this, you can use"
+            " another cloud."
+        )
+
+    def _too_busy(self) -> str:
+        return self.tr("Microsoft isn't taking requests right now. Try again in a little while.")
+
+    def _reach_onedrive(self) -> None:
+        """OneDrive looked at as signed in to: its Stickle folder, if there is one."""
+        app = self._onedrive
+        if app is None:  # this build has Stickle registered with no one
+            return
+        self._close_target()
+        target = app.target(self._token.value, self._token.set)
+        self._target = target
+        self._begin(lambda: _look(target), self._looked, self.tr("Checking OneDrive…"))
 
     # The server
 
@@ -775,6 +999,11 @@ class TurnOnSync(QDialog):
 
     def _failed(self, error: Exception) -> None:
         log.info("sync: turning on: %s", type(error).__name__)
+        if self._kind == ONEDRIVE and isinstance(
+            error, SignInNeededError | NoAccessError | TooBusyError | UnavailableError | OSError
+        ):
+            self._failed_at_onedrive(error)
+            return
         match error:
             case CertificateError():
                 self._shown_certificate = error.certificate
@@ -815,12 +1044,28 @@ class TurnOnSync(QDialog):
             case NoWayInError():
                 self._fail(self._opens_nothing(), self.way_in)
             case _:
-                self._fail(
-                    self.tr(
-                        "Couldn't reach the server. Check the address and your network,"
-                        " then try again."
-                    )
-                )
+                self._fail(self._unreachable())
+
+    def _failed_at_onedrive(self, error: Exception) -> None:
+        match error:
+            case SignInNeededError():  # what it was signed in with is no more
+                self._close_target()
+                self._show(self.sign_in_page)
+                self._fail(self._not_signed_in())
+            case NoAccessError():
+                self._fail(self._blocked())
+            case TooBusyError():
+                self._fail(self._too_busy())
+            case _:
+                self._fail(self._unreachable())
+
+    def _unreachable(self) -> str:
+        """The cloud did not answer as it should."""
+        if self._kind == ONEDRIVE:
+            return self.tr("Couldn't reach OneDrive. Check your network and try again.")
+        return self.tr(
+            "Couldn't reach the server. Check the address and your network, then try again."
+        )
 
     def _turned_down(self) -> str:
         return self.tr(
@@ -853,14 +1098,14 @@ class TurnOnSync(QDialog):
                 " computer's recovery key or spare password.",
                 "",
                 self._setup.note_count(),
-            ).replace("%1", WEBDAV_NAME)
+            ).replace("%1", cloud_name(self._kind))
         return self.tr(
             "Stickle will make its folder in %1 and upload the %Ln note(s) on this computer."
             " On your other computers, turn on sync with this computer's recovery key or"
             " spare password.",
             "",
             self._setup.note_count(),
-        ).replace("%1", WEBDAV_NAME)
+        ).replace("%1", cloud_name(self._kind))
 
     def _recovery_state(self) -> str:
         recovery = self._setup.recovery
@@ -1000,10 +1245,16 @@ class TurnOnSync(QDialog):
     # What merging would make, before anything is kept
 
     def _ready_login(self) -> Login:
-        assert self._opened_login is not None
-        return self._opened_login
+        """The folder's login, as opened: with OneDrive's newest refresh token."""
+        login = self._opened_login
+        assert login is not None
+        return replace(login, secret=self._token.value) if login.kind == ONEDRIVE else login
 
     def _login(self, vault: Vault) -> Login:
+        if self._kind == ONEDRIVE:
+            return Login(
+                vault.vault, ONEDRIVE, "", self._account or "", self._token.value, vault.keys.keys
+            )
         assert self._address is not None
         return Login(
             vault.vault,
@@ -1025,7 +1276,7 @@ class TurnOnSync(QDialog):
         self._preview = None
         self._show(self.preview_page)
         self._begin(
-            lambda: look(login, relay.moved.emit),
+            lambda: look(login, relay.moved.emit, self._token.set),
             self._first_looked,
             self.tr("Downloading the notes in the cloud…"),
         )
@@ -1122,12 +1373,7 @@ class TurnOnSync(QDialog):
                     )
                 )
             else:
-                self._fail(
-                    self.tr(
-                        "Couldn't reach the server. Check the address and your network,"
-                        " then try again."
-                    )
-                )
+                self._fail(self._unreachable())
             return
         if self._again is not None and login.vault == self._again.vault:
             self.accept()  # the folder as it was: sync just goes on, and says so where it does
@@ -1224,9 +1470,9 @@ class TurnOnSync(QDialog):
         outcome = ended.outcome
         if outcome.stopped is not None:
             why = outcome.stopped
-            self._set_line(lambda: self._words.stopped(why, WEBDAV_NAME))
+            self._set_line(lambda: self._words.stopped(why, self._kind))
         elif outcome.full:
-            self._set_line(lambda: self._words.full(WEBDAV_NAME))
+            self._set_line(lambda: self._words.full(self._kind))
         elif outcome.wait is not None:
             return  # tried again by itself: the line stays as it is
         else:
@@ -1255,6 +1501,7 @@ class TurnOnSync(QDialog):
 
     @override
     def done(self, result: int, /) -> None:
+        self._end_sign_in()
         if self._job is not None:  # what it is doing is let finish, and comes to nothing
             target, self._target = self._target, None
             self._job.drop(target.close if target is not None else lambda: None)

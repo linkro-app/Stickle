@@ -117,6 +117,7 @@ class Graph:
     refresh_tokens: set[str] = field(default_factory=lambda: {FIRST_REFRESH})
     access_tokens: dict[str, float] = field(default_factory=dict[str, float])  # until, monotonic
     issued: list[str] = field(default_factory=list[str])  # every access token it gave
+    issued_refresh: list[str] = field(default_factory=list[str])  # every refresh token, in turn
     refusing_refresh: bool = False  # as when the user took the app's access away
     app_turned_away: bool = False  # as when Microsoft stopped the app
     turning_down_access: bool = False  # every access token, however new
@@ -304,6 +305,7 @@ class _Handler(BaseHTTPRequestHandler):
         graph.access_tokens[access] = time.monotonic() + LASTS
         graph.issued.append(access)
         graph.refresh_tokens.add(refresh)  # the one before still good
+        graph.issued_refresh.append(refresh)
         return {
             "token_type": "Bearer",
             "scope": scope,

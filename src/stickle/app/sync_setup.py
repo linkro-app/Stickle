@@ -23,9 +23,12 @@ from stickle.data.sync_connection import Login
 if TYPE_CHECKING:
     from stickle.app.syncing import Syncing
     from stickle.sync.engine import FirstLook
+    from stickle.sync.targets.onedrive import App as OneDriveApp
 
 # Told as notes go by: what is being done, how many so far, of how many.
 type Moving = Callable[[str, int, int], None]
+# Told a new refresh token, to sign in with from then on.
+type Renewed = Callable[[str], None]
 
 
 @dataclass(frozen=True)
@@ -41,7 +44,7 @@ class SyncSetup:
     disconnect: Callable[[], None]  # sync left: the connection forgotten, the app going on
     # What merging with the vault of a login would make, nothing kept yet; off
     # the app's thread (None: it could not be looked at). None: not looked at.
-    look: Callable[[Login, Moving], FirstLook | None] | None = None
+    look: Callable[[Login, Moving, Renewed], FirstLook | None] | None = None
     # Connected to a vault there before, keeping only its notes: this computer's
     # go first, after a backup (if that fails, nothing is kept or let go of).
     connect_cloud_only: Callable[[Login], Syncing] | None = None
@@ -49,6 +52,9 @@ class SyncSetup:
     secret_notes_kept_for: Callable[[bytes], bool] = lambda _public: True
     # Joined with the recovery key of that pair, typed: the user has it.
     keep_recovery_key: Callable[[bytes], None] = lambda _public: None
+    # Stickle as registered with Microsoft, looked at as the window opens
+    # (None: it is not, and OneDrive is not offered).
+    onedrive: Callable[[], OneDriveApp | None] = lambda: None
 
 
 class SyncGuideLine(QWidget):

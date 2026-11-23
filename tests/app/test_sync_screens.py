@@ -13,12 +13,14 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QCoreApplication, QLocale, QPoint, Qt, QTranslator
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QImage
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QLabel,
     QMenu,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -241,6 +243,29 @@ def test_a_control_tab_does_not_come_to_is_found(qtbot: QtBot) -> None:
     window = window_of(qtbot)
     button = QPushButton("mouse only", window)
     button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    assert unreached(shown(window))
+
+
+def test_radio_buttons_tab_comes_to_by_the_chosen_one_are_reached(qtbot: QtBot) -> None:
+    window = window_of(qtbot)
+    layout = QVBoxLayout(window)
+    chosen, other = QRadioButton("one", window), QRadioButton("other", window)
+    layout.addWidget(chosen)
+    layout.addWidget(other)
+    chosen.setChecked(True)
+    shown(window)
+    chosen.setFocus()  # Qt takes Tab off the others: the arrows go to them
+    QApplication.processEvents()
+    assert not other.focusPolicy() & Qt.FocusPolicy.TabFocus
+    assert unreached(window) == []
+    QTest.keyClick(chosen, Qt.Key.Key_Down)
+    assert other.hasFocus() or other.isChecked()
+
+
+def test_a_radio_button_of_a_group_tab_never_comes_to_is_found(qtbot: QtBot) -> None:
+    window = window_of(qtbot)
+    for name in ("one", "other"):
+        QRadioButton(name, window).setFocusPolicy(Qt.FocusPolicy.NoFocus)
     assert unreached(shown(window))
 
 

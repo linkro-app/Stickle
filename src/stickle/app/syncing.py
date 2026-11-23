@@ -10,8 +10,9 @@ first needs it, so a start is not held up by it.
 import gc
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import apsw
 from PySide6.QtCore import QDateTime, QObject, Qt, QTimer, Signal
@@ -21,7 +22,7 @@ from stickle.app.background import work_goes_on
 from stickle.app.labels import mark_name
 from stickle.app.notes import NoteManager
 from stickle.app.reminders import ReminderKeeper
-from stickle.app.sync_status import WEBDAV_NAME, SyncStatus
+from stickle.app.sync_status import SyncStatus, cloud_name
 from stickle.core.being_edited import Editing
 from stickle.core.clock import Clocks, millis_at
 from stickle.core.cloud_time import CloudTime
@@ -39,7 +40,7 @@ from stickle.data.database import open_database
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import SETTING
 from stickle.data.settings import DEVICE_NAME, SYNC_EVERY, Settings
-from stickle.data.sync_connection import WEBDAV, Login
+from stickle.data.sync_connection import ONEDRIVE, WEBDAV, Login
 from stickle.platform.clocks import since_start
 from stickle.sync import diagnostics
 from stickle.sync.devices import Other, others, this_device
@@ -57,7 +58,16 @@ from stickle.sync.outcome import LONGEST_WAIT, Outcome, Stopped, after
 from stickle.sync.runner import Runner, Until
 from stickle.sync.schedule import START_WAIT, Schedule
 from stickle.sync.secret_key import SecretFollow, SecretOther
-from stickle.sync.targets.base import AsRead, CertificateError, NotThereError, Target
+from stickle.sync.targets.base import (
+    AsRead,
+    CertificateError,
+    NotThereError,
+    Target,
+    UnavailableError,
+)
+
+if TYPE_CHECKING:
+    from stickle.sync.targets.onedrive import App
 
 log = logging.getLogger(__name__)
 
@@ -105,6 +115,10 @@ def stopped_as_kept(why: str | None) -> Stopped | None:
         return None if why is None else Stopped(why)
     except ValueError:  # by a later version, and it is not told of here
         return None
+
+
+def _renewed_unkept(_token: str) -> None:
+    """On the way out: the connection is let go of all the same."""
 
 
 def _heard_nothing(_date: int, _took: int) -> None:
@@ -160,6 +174,10 @@ class _Rounds:
     cloud: CloudTime
     make_target: Callable[[Callable[[int, int], None], Callable[[], None]], Target] | None = None
     over: Callable[[], bool] = lambda: False
+    # Stickle as registered with Microsoft (None: as this build has it).
+    onedrive: App | None = None
+    # Told each new refresh token, once it is used from now on (and kept, if the login is).
+    renewed_to: Callable[[str], None] | None = None
     _db: apsw.Connection | None = None
     _target: Target | None = None
     failures: int = 0
@@ -172,6 +190,7 @@ class _Rounds:
     _backed_up: bool = False  # this round, to take in what it stopped for
     _stopped: str | None = None
     _offset: int = 0
+    _renewal: tuple[str, str] | None = None  # (old, new) refresh token, to be kept
 
     def pairs(self) -> Mapping[str, SealedSlot]:
         """The key file B's pairs as they are now (looked at, never written: the
@@ -195,18 +214,58 @@ class _Rounds:
         if self.kept:
             sync_connection.no_longer_trusted(self.database())
 
+    def _renewed(self, token: str) -> None:
+        """A new refresh token from Microsoft, on sync's thread: used from now
+        on, and kept in place of the one it renews if that is still the one
+        kept (not over a connection kept since)."""
+        old = self.login
+        self.login = replace(old, secret=token)
+        if self.kept:
+            first = old.secret if self._renewal is None else self._renewal[0]
+            self._renewal = (first, token)
+            self._keep_renewal()
+        if self.renewed_to is not None:
+            self.renewed_to(token)
+
+    def _keep_renewal(self) -> None:
+        """The refresh token renewed, kept once no transaction is open: a round
+        may renew it in the middle of one, which could yet be rolled back."""
+        renewal, db = self._renewal, self._db
+        if renewal is None or db is None or db.in_transaction:
+            return
+        try:
+            sync_connection.renew(db, self.login.vault, *renewal)
+        except apsw.Error as error:  # tried again as the round ends
+            log.warning("sync: the refresh token is not kept yet: %s", type(error).__name__)
+            return
+        self._renewal = None
+
     def _new_target(self) -> Target:
-        return self._reach(self.cloud.heard, self._no_longer_trusted)
+        return self._reach(self.cloud.heard, self._no_longer_trusted, renewed=self._renewed)
 
     def _reach(
         self,
         heard: Callable[[int, int], None],
         no_longer_trusted: Callable[[], None],
         timeout: float | None = None,
+        renewed: Callable[[str], None] = _renewed_unkept,
     ) -> Target:
         login = self.login
         if self.make_target is not None:
             return self.make_target(heard, no_longer_trusted)
+        if login.kind == ONEDRIVE:
+            from stickle.sync.targets import onedrive
+
+            app = self.onedrive or onedrive.registered()
+            if app is None:  # a build without Stickle registered: tried again later
+                log.info("sync: this build cannot reach OneDrive")
+                raise UnavailableError(answered=True)
+            return app.target(
+                login.secret,
+                renewed,
+                heard=heard,
+                timeout=onedrive.TIMEOUT if timeout is None else timeout,
+            )
         if login.kind != WEBDAV:
             raise ValueError(login.kind)
         from stickle.sync.targets.webdav import TIMEOUT, WebDav, parse_address
@@ -303,6 +362,7 @@ class _Rounds:
             )
         except Exception as failed:  # told apart below, whatever it was
             error = failed
+        self._keep_renewal()
         # Read again next round; a round that failed may not have got to them.
         self.held = frozenset(report.held) | (self.held if error is not None else frozenset())
         outcome = self._outcome(error, report)
@@ -361,6 +421,7 @@ class _Rounds:
         if isinstance(self._target, Until):
             self._target.close()
         self._target = None
+        self._keep_renewal()
         if self._db is not None:
             self._db.close()
             self._db = None
@@ -372,13 +433,19 @@ def look_first(
     login: Login,
     progress: Progress | None = None,
     make_target: Callable[[Callable[[int, int], None], Callable[[], None]], Target] | None = None,
+    renewed: Callable[[str], None] | None = None,
+    onedrive: App | None = None,
 ) -> FirstLook | None:
     """What merging this device's notes with those of the vault login opens would
     make, before anything of it is kept here: on a connection of its own to the
     notes database and to the cloud, off the app's thread. None if it could not
-    be looked at. progress: told as the vault's notes are read."""
-    rounds = _Rounds(store, key, login, CloudTime(since_start, 0), make_target, kept=False)
+    be looked at. progress: told as the vault's notes are read. renewed: told a
+    new refresh token, to sign in with from then on (nothing here keeps it)."""
+    rounds = _Rounds(
+        store, key, login, CloudTime(since_start, 0), make_target, kept=False, onedrive=onedrive
+    )
     rounds.progress = progress
+    rounds.renewed_to = renewed
     try:
         return rounds.first_look()
     finally:
@@ -409,17 +476,19 @@ class Syncing(QObject):
         | None = None,
         start_wait: float = START_WAIT,
         take_keys: TakeKeys | None = None,
+        onedrive: App | None = None,
     ) -> None:
         """store, key: the notes database. make_target: how to reach the cloud,
         if not as login says (given the two things to tell of what it hears).
         start_wait: seconds from now to the first round of its own. take_keys:
-        what takes the vault's recovery key or master password here."""
+        what takes the vault's recovery key or master password here. onedrive:
+        Stickle as registered with Microsoft, if not as this build has it."""
         super().__init__()
         self._connection = connection
         self._manager = manager
         self._reminders = reminders
         self._take_keys = take_keys
-        self._rounds = _Rounds(store, key, login, cloud, make_target)
+        self._rounds = _Rounds(store, key, login, cloud, make_target, onedrive=onedrive)
         self._rounds.progress = self.moving.emit  # sent from sync's thread: heard on this one
         self._rounds.editing = manager.editing
         every = Settings(connection).get(SYNC_EVERY)
@@ -432,9 +501,9 @@ class Syncing(QObject):
             self._rounds.close,
         )
         self._rounds.over = lambda: self.runner.over
-        self.cloud_name = WEBDAV_NAME
+        self.cloud_name = cloud_name(login.kind)
         self.status = SyncStatus(
-            self.cloud_name,
+            login.kind,
             stopped_as_kept(login.stopped),
             self.to_put,
             self.last_synced,

@@ -195,7 +195,12 @@ class Looking:
     cloud_only: list[Login] = field(default_factory=list[Login])
     no_backup: bool = False
 
-    def look(self, login: Login, moving: Callable[[str, int, int], None]) -> FirstLook | None:
+    def look(
+        self,
+        login: Login,
+        moving: Callable[[str, int, int], None],
+        _renewed: Callable[[str], None],
+    ) -> FirstLook | None:
         self.asked.append(login)
         for move in self.moves:
             moving(*move)
@@ -222,7 +227,7 @@ def make_bench(
     looking: Looking | None = None,
     notes_here: int = 3,
     again: Login | None = None,
-    password: bool = False,
+    signed_out: bool = False,
 ) -> Bench:
     syncing = FakeSyncing()
     logins: list[tuple[Login, bool]] = []
@@ -250,7 +255,7 @@ def make_bench(
         None if looking is None else looking.look,
         None if looking is None else cloud_only,
     )
-    window = TurnOnSync(setup, None, again, password)
+    window = TurnOnSync(setup, None, again, signed_out)
     if again is None:  # else it may close by itself, and goes once closed
         qtbot.addWidget(window)
     window.show()
@@ -1334,7 +1339,7 @@ def test_the_password_turned_down_is_typed_anew_and_not_sent_again(
     with webdav(share, PASSWORD) as server:
         old = folder_made(server)
         server.asked.clear()
-        bench = make_bench(qtbot, keys, again=turned_down(server, old), password=True)
+        bench = make_bench(qtbot, keys, again=turned_down(server, old), signed_out=True)
         window = bench.window
         assert window.pages.current() is window.server_page
         assert (window.address.text(), window.user.text()) == (on_server(server), "stickle")
@@ -1369,7 +1374,7 @@ def test_cancelled_typing_a_password_anew_asks_and_keeps_nothing(
     with webdav(share, PASSWORD) as server:
         old = folder_made(server)
         server.asked.clear()
-        bench = make_bench(qtbot, keys, again=turned_down(server, old), password=True)
+        bench = make_bench(qtbot, keys, again=turned_down(server, old), signed_out=True)
         bench.window.password.setText(PASSWORD)
         bench.window.reject()
         assert bench.logins == [] and server.asked == []
@@ -1382,7 +1387,7 @@ def test_typing_a_password_anew_at_another_address_looks_at_its_certificate_anew
         address = f"https://{HOST}:{server.port}/share"
         vault = folder_made(server, address)
         server.asked.clear()
-        bench = make_bench(qtbot, keys, again=turned_down(server, vault, address), password=True)
+        bench = make_bench(qtbot, keys, again=turned_down(server, vault, address), signed_out=True)
         window = bench.window
         window.address.setText(f"{address}/")  # the certificate was trusted for the other
         window.password.setText(PASSWORD)
@@ -1448,8 +1453,13 @@ class Pc:
         assert isinstance(ended, Ended)
         return ended
 
-    def look(self, login: Login, moving: Callable[[str, int, int], None]) -> FirstLook | None:
-        return look_first(self.path, DB_KEY, login, moving)
+    def look(
+        self,
+        login: Login,
+        moving: Callable[[str, int, int], None],
+        renewed: Callable[[str], None],
+    ) -> FirstLook | None:
+        return look_first(self.path, DB_KEY, login, moving, renewed=renewed)
 
     def setup(self, keys: Keys) -> SyncSetup:
         return SyncSetup(

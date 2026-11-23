@@ -9,6 +9,7 @@ from PySide6.QtCore import QDate, QDateTime, QElapsedTimer, QLocale, QObject, Si
 
 from stickle.app.times import moment_text
 from stickle.data.settings import CLOUD_FULL
+from stickle.data.sync_connection import ONEDRIVE, WEBDAV
 from stickle.platform.updates import SOFTWARE_CENTER, kept_by
 from stickle.sync.engine import GETTING
 from stickle.sync.outcome import Stopped
@@ -16,7 +17,10 @@ from stickle.sync.outcome import Stopped
 if TYPE_CHECKING:
     from stickle.app.syncing import Ended
 
-WEBDAV_NAME = "WebDAV"  # the same in every language
+# Each kind of connection's cloud, by name: the same in every language.
+CLOUD_NAMES = {WEBDAV: "WebDAV", ONEDRIVE: "OneDrive"}
+# Who may block Stickle from a cloud reached through an app registered there.
+BLOCKERS = {ONEDRIVE: "Microsoft"}
 MANY = 20  # notes on the move beyond which the line says how far it has got
 MOVING_EVERY_MS = 500  # how far it has got is said at most this often
 # Stopped for these, a window asks what to do (stickle.app.sync_stopped).
@@ -25,12 +29,25 @@ ASKING = frozenset(
 )
 
 
+def cloud_name(kind: str) -> str:
+    """The cloud of a kind of connection, by name."""
+    return CLOUD_NAMES[kind]
+
+
 class SyncWords(QObject):
-    def stopped(self, why: Stopped, cloud: str) -> str:
+    """Said of sync, for the kind of connection it has (WEBDAV, ONEDRIVE)."""
+
+    def stopped(self, why: Stopped, kind: str) -> str:
         """Sync stopped until the user does something, and why."""
+        cloud = cloud_name(kind)
+        blocker = BLOCKERS.get(kind)
         match why:
+            case Stopped.SIGN_IN if blocker is not None:
+                return self.tr("Sync stopped — sign in to %1 again").replace("%1", cloud)
             case Stopped.SIGN_IN:
                 return self.tr("Sync stopped — check your server password")
+            case Stopped.NO_ACCESS if blocker is not None:
+                return self.tr("Sync stopped — %1 has blocked Stickle").replace("%1", blocker)
             case Stopped.NO_ACCESS:
                 return self.tr(
                     "Sync stopped — check the Stickle folder's permissions on the server"
@@ -48,9 +65,21 @@ class SyncWords(QObject):
             case Stopped.NEWER:
                 return self.tr("Sync stopped — update Stickle to carry on")
 
-    def told(self, why: Stopped, cloud: str) -> str:
+    def told(self, why: Stopped, kind: str) -> str:
         """The sentence telling once that sync stopped, and why."""
+        cloud = cloud_name(kind)
+        blocker = BLOCKERS.get(kind)
         match why:
+            case Stopped.SIGN_IN if blocker is not None:
+                said = self.tr(
+                    "Stickle was signed out of %1, so sync stopped. Sign in again to carry on."
+                    " Your notes are still on this computer."
+                )
+            case Stopped.NO_ACCESS if blocker is not None:
+                said = self.tr(
+                    "%1 has blocked Stickle, so sync stopped. Your notes are still on this"
+                    " computer. Until a new version fixes this, you can use another cloud."
+                ).replace("%1", blocker)
             case Stopped.SIGN_IN:
                 said = self.tr(
                     "The server didn't accept the password, so sync stopped. If you changed"
@@ -81,15 +110,17 @@ class SyncWords(QObject):
         """Said after that, where the software center keeps Stickle up to date."""
         return self.tr("Update it in your software center.")
 
-    def full_told(self, cloud: str) -> str:
+    def full_told(self, kind: str) -> str:
         return self.tr(
             "%1 is full, so uploads stopped. Changes from your other computers still come"
             " in. Free up space and it carries on."
-        ).replace("%1", cloud)
+        ).replace("%1", cloud_name(kind))
 
-    def way_on(self, why: Stopped) -> str:
+    def way_on(self, why: Stopped, kind: str) -> str:
         """The button beside what says that sync stopped, and why: where it leads."""
         match why:
+            case Stopped.SIGN_IN if kind in BLOCKERS:
+                return self.tr("Sign &in again…")
             case Stopped.SIGN_IN:
                 return self.tr("&Enter the password…")
             case Stopped.NO_ACCESS:
@@ -99,26 +130,26 @@ class SyncWords(QObject):
             case _:
                 return self.tr("&Review…")
 
-    def full(self, cloud: str) -> str:
-        return self.tr("Uploads stopped — your %1 is full").replace("%1", cloud)
+    def full(self, kind: str) -> str:
+        return self.tr("Uploads stopped — your %1 is full").replace("%1", cloud_name(kind))
 
-    def synced(self, cloud: str, moment: QDateTime) -> str:
+    def synced(self, kind: str, moment: QDateTime) -> str:
         """When it last went through; the day too, if that was not today."""
         when = (
             QLocale().toString(moment.time(), QLocale.FormatType.ShortFormat)
             if moment.date() == QDate.currentDate()
             else moment_text(moment)
         )
-        return self.tr("Synced with %1 · %2").replace("%1", cloud).replace("%2", when)
+        return self.tr("Synced with %1 · %2").replace("%1", cloud_name(kind)).replace("%2", when)
 
-    def moving(self, what: str, cloud: str, done: int, of: int) -> str:
+    def moving(self, what: str, kind: str, done: int, of: int) -> str:
         pattern = (
             self.tr("Downloading from %1 · %2 of %3 notes")
             if what == GETTING
             else self.tr("Uploading to %1 · %2 of %3 notes")
         )
         return (
-            pattern.replace("%1", cloud)
+            pattern.replace("%1", cloud_name(kind))
             .replace("%2", QLocale().toString(done))
             .replace("%3", QLocale().toString(of))
         )
@@ -139,17 +170,18 @@ class SyncStatus(QObject):
 
     def __init__(
         self,
-        cloud: str,
+        kind: str,
         stopped: Stopped | None,
         to_put: Callable[[], int],
         last_synced: Callable[[], QDateTime | None],
         parent: QObject | None = None,
     ) -> None:
-        """stopped: as it was left; to_put: notes changed here and not in the
-        cloud yet; last_synced: when a round last went through, if one has."""
+        """kind: of the connection (WEBDAV, ONEDRIVE); stopped: as it was left;
+        to_put: notes changed here and not in the cloud yet; last_synced: when a
+        round last went through, if one has."""
         super().__init__(parent)
         self._words = SyncWords(self)
-        self._cloud = cloud
+        self._kind = kind
         self._stopped = stopped
         self._to_put = to_put
         self._last_synced = last_synced
@@ -185,8 +217,9 @@ class SyncStatus(QObject):
         return self._stopped.value if self._stopped in ASKING else None
 
     @property
-    def asks_password(self) -> bool:
-        """Whether it stopped for the server turning down the password."""
+    def asks_sign_in(self) -> bool:
+        """Whether it stopped for the cloud turning down what it was signed in
+        with: the server password, or the refresh token."""
         return self._stopped is Stopped.SIGN_IN
 
     @property
@@ -201,8 +234,8 @@ class SyncStatus(QObject):
         """The sentence telling once of what told says; empty if nothing."""
         words = self._words
         if self._stopped is None:
-            return words.full_told(self._cloud) if self._full else ""
-        said = words.told(self._stopped, self._cloud)
+            return words.full_told(self._kind) if self._full else ""
+        said = words.told(self._stopped, self._kind)
         if self._stopped is Stopped.NEWER and kept_by() == SOFTWARE_CENTER:
             said = f"{said} {words.update_elsewhere()}"
         return said
@@ -213,7 +246,7 @@ class SyncStatus(QObject):
             return ""
         if self._stopped is Stopped.NEWER and kept_by() == SOFTWARE_CENTER:
             return ""  # updated where Stickle cannot lead
-        return self._words.way_on(self._stopped)
+        return self._words.way_on(self._stopped, self._kind)
 
     def round_ended(self, ended: Ended) -> None:
         outcome = ended.outcome
@@ -239,13 +272,13 @@ class SyncStatus(QObject):
         """The line; empty before anything is known of it."""
         words = self._words
         if self._stopped is not None:
-            return words.stopped(self._stopped, self._cloud)
+            return words.stopped(self._stopped, self._kind)
         if self._full:
-            return words.full(self._cloud)
+            return words.full(self._kind)
         if self._moving is not None:
-            return words.moving(self._moving[0], self._cloud, *self._moving[1:])
+            return words.moving(self._moving[0], self._kind, *self._moving[1:])
         if self._offline:
             return words.offline(self._waiting)
         if self._waiting:
             return words.trying_again(self._waiting)
-        return "" if self._synced is None else words.synced(self._cloud, self._synced)
+        return "" if self._synced is None else words.synced(self._kind, self._synced)

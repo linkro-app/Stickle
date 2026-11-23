@@ -37,10 +37,11 @@ import json
 import ssl
 import time
 from collections.abc import Callable, Generator, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 from urllib.parse import SplitResult, quote, urlsplit
 
+from stickle.cloud_apps import onedrive_client_id
 from stickle.core.cloud_time import date_millis
 from stickle.platform.tls import https_context
 from stickle.sync.targets.base import (
@@ -116,6 +117,12 @@ class Place:
     def authorize(self) -> str:
         port = "" if self.port is None else f":{self.port}"
         return f"https://{self.login}{port}/{self.tenant}/oauth2/v2.0/authorize"
+
+    @property
+    def hosts(self) -> list[str]:
+        """Where a target and a sign-in connect, as told to the user (* for any name under)."""
+        content = [f"*{host}" if host.startswith(".") else host for host in self.content]
+        return [self.graph, self.login, *content]
 
 
 MICROSOFT = Place()
@@ -514,3 +521,40 @@ class OneDrive:
         date = date_millis(response.getheader("Date"))
         if date is not None:
             self._heard(date, round((time.monotonic() - began) * 1000))
+
+
+@dataclass(frozen=True)
+class App:
+    """Stickle as registered with Microsoft, and where Microsoft is: what a
+    sign-in and a target both take."""
+
+    client_id: str = field(repr=False)
+    place: Place = MICROSOFT
+    public: Callable[[], ssl.SSLContext] = https_context
+
+    def sign_in(self, pages: Pages, *, timeout: float = TIMEOUT) -> SignIn:
+        return sign_in(self.client_id, pages, place=self.place, public=self.public, timeout=timeout)
+
+    def target(
+        self,
+        refresh_token: str,
+        renewed: Callable[[str], None],
+        *,
+        heard: Callable[[int, int], None] | None = None,
+        timeout: float = TIMEOUT,
+    ) -> OneDrive:
+        return OneDrive(
+            self.client_id,
+            refresh_token,
+            renewed,
+            place=self.place,
+            public=self.public,
+            heard=heard,
+            timeout=timeout,
+        )
+
+
+def registered() -> App | None:
+    """Stickle as this build has it registered with Microsoft; None: it has not."""
+    client_id = onedrive_client_id()
+    return None if client_id is None else App(client_id)

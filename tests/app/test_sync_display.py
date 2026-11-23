@@ -33,6 +33,7 @@ from stickle.app.syncing import Ended, Syncing
 from stickle.app.tray import SyncShown, Tray
 from stickle.app.update_check import UpdateCheck
 from stickle.core.updates import Release
+from stickle.data.sync_connection import WEBDAV
 from stickle.sync.engine import PUTTING, Report
 from stickle.sync.outcome import Outcome, Stopped
 
@@ -314,7 +315,7 @@ class FakeSync(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.status = SyncStatus(
-            "WebDAV", None, lambda: 3, lambda: QDateTime(QDate.currentDate(), QTime(14, 5))
+            WEBDAV, None, lambda: 3, lambda: QDateTime(QDate.currentDate(), QTime(14, 5))
         )
 
 
