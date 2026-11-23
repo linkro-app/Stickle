@@ -959,11 +959,20 @@ def test_how_far_the_download_has_got_is_said_when_there_are_many(
     assert bench.window.preview_counts.isVisible()
 
 
-def test_a_long_first_line_does_not_widen_the_window(qtbot: QtBot, keys: Keys, share: Path) -> None:
+def test_a_long_first_line_does_not_widen_the_window(
+    qtbot: QtBot, keys: Keys, share: Path, tmp_path: Path
+) -> None:
+    short_line = "짧은 첫 줄"
+    other_share = tmp_path / "dav-short"
+    (other_share / "share").mkdir(parents=True)
+    looking = Looking([FirstLook(2, 5, 0, [short_line])])
+    width_for_short = opened_with_notes_here(qtbot, Keys(), other_share, looking).window.width()
     long_line = "아주 긴 첫 줄 " * 80
     bench = opened_with_notes_here(qtbot, keys, share, Looking([FirstLook(2, 5, 0, [long_line])]))
     window = bench.window
-    assert window.width() == WIDTH
+    # As wide as with a short line: at least WIDTH, wider only where letters
+    # are (boxes where the system's fonts are not found, as in tests here).
+    assert window.width() == width_for_short >= WIDTH
     shown = window.recent_lines[0]
     assert shown.full_text() == long_line and shown.text().endswith("…")
     assert not window.recent_lines[1].isVisible()

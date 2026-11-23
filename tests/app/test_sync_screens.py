@@ -121,6 +121,57 @@ def test_the_scenes_have_names_of_their_own() -> None:
     assert len({scene.name for scene in SCENES}) == len(SCENES)
 
 
+def _scene(name: str) -> Scene:
+    return next(scene for scene in SCENES if scene.name == name)
+
+
+@pytest.mark.parametrize("language", LANGUAGES)
+@pytest.mark.parametrize(
+    "name", ["connections-synced", "onedrive-connections-synced", "onedrive-connections-long-name"]
+)
+def test_the_settings_window_made_as_small_as_it_goes_still_holds_together(
+    translations: Translations, language: str, name: str
+) -> None:
+    """Wrapped text is not told to the window: as narrow as it goes, it is still
+    as tall as that text needs there."""
+    translations.apply(language)
+    stage = Stage(translations)
+    scene = _scene(name)
+    try:
+        top = scene.build(stage)
+        on_screen(top)
+        top.resize(1, 1)
+        for _ in range(3):
+            QApplication.processEvents()
+        assert top.width() == top.minimumWidth()
+        assert problems(top, scene.keyboard) == {}
+    finally:
+        stage.end()
+
+
+@pytest.mark.parametrize("language", LANGUAGES)
+def test_the_turn_on_window_is_as_wide_as_a_choice_in_wider_letters(
+    translations: Translations, language: str
+) -> None:
+    """A choice's line does not wrap, and letters are wider on some systems than
+    on others."""
+    before = QApplication.font()
+    assert before.pointSizeF() > 0
+    wider = QFont(before)
+    wider.setPointSizeF(before.pointSizeF() * 1.25)
+    QApplication.setFont(wider)
+    translations.apply(language)
+    stage = Stage(translations)
+    scene = _scene("onedrive-turn-on-2-choose")
+    try:
+        top = scene.build(stage)
+        on_screen(top)
+        assert problems(top, scene.keyboard) == {}
+    finally:
+        stage.end()
+        QApplication.setFont(before)
+
+
 @pytest.mark.parametrize("language", LANGUAGES)
 @pytest.mark.parametrize("why", [*Stopped, None], ids=lambda why: getattr(why, "name", "full"))
 def test_the_tray_tooltip_is_said_whole(

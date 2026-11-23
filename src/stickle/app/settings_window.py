@@ -13,7 +13,7 @@ from datetime import time
 from typing import TYPE_CHECKING, override
 
 from PySide6.QtCore import QEvent, QLocale, QObject, QSize, Qt, QTime, Signal
-from PySide6.QtGui import QFont, QGuiApplication, QKeyEvent, QPalette
+from PySide6.QtGui import QFont, QGuiApplication, QKeyEvent, QPalette, QResizeEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -569,7 +569,27 @@ class SettingsWindow(QDialog):
     def event(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.WindowActivate:
             self.refresh()  # changed outside Stickle meanwhile, say in the system's settings
-        return super().event(event)
+        handled = super().event(event)
+        if event.type() == QEvent.Type.LayoutRequest:
+            self._tall_enough()  # laid out anew: a text may wrap to more lines now
+        return handled
+
+    @override
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._tall_enough()
+
+    def _tall_enough(self) -> None:
+        """Never shorter than a page needs at this width: wrapped text is not
+        told to the window, and would run into what is below it (the window made
+        narrower, or no wider than the screen lets it be)."""
+        layout = self.layout()
+        if layout is None:
+            return
+        width = self.width()
+        tallest = max(layout.totalMinimumSize().height(), layout.totalHeightForWidth(width))
+        if tallest != self.minimumHeight():
+            self.setMinimumHeight(tallest)
 
     def refresh(self) -> None:
         """Show what the files and settings say: they may have changed outside

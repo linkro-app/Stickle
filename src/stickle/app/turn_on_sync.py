@@ -679,14 +679,20 @@ class TurnOnSync(QDialog):
         self._fit()
 
     def _fit(self) -> None:
-        """As tall as what is on it now: wrapped text is not told to the window."""
+        """As tall as what is on it now: wrapped text is not told to the window.
+        And wide enough for what cannot wrap, a choice's line, in letters wider on
+        some systems than on others."""
         layout = self.layout()
         if layout is None:
             return
         layout.invalidate()
         layout.activate()
-        wanted = layout.totalHeightForWidth(self.width())
-        self.resize(self.width(), wanted if wanted > 0 else layout.totalSizeHint().height())
+        narrowest = max(WIDTH, layout.totalMinimumSize().width())
+        if narrowest != self.minimumWidth():
+            self.setMinimumWidth(narrowest)
+        width = max(self.width(), narrowest)
+        wanted = layout.totalHeightForWidth(width)
+        self.resize(width, wanted if wanted > 0 else layout.totalSizeHint().height())
 
     @override
     def showEvent(self, event: QShowEvent) -> None:
