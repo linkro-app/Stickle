@@ -51,6 +51,11 @@ def signed_in(folder: str = "") -> OneDrive:
     return OneDrive(client_id, written["refresh_token"], renewed, folder=folder)
 
 
+def another_way_in(target: OneDrive) -> OneDrive:
+    """To the same folder with a connection and tokens of its own: another device."""
+    return signed_in(target._folder)  # pyright: ignore[reportPrivateUsage]
+
+
 @contextmanager
 def folder_of_its_own() -> Generator[OneDrive]:
     """A target whose Stickle folder is a new folder in the app's folder."""
