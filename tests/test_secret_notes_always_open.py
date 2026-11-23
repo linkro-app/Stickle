@@ -50,6 +50,7 @@ import tempfile
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal, cast
 from unittest import mock
@@ -606,7 +607,11 @@ class SecretNotesMachine(RuleBasedStateMachine):
                 return  # turning them on waits for a recovery key, kept
             if key is None:
                 return
-            self.notes.make_secret(note_id, title, seal_text(key, note_id, text))
+            # Its earlier texts too, as the app seals them: some are in the clear
+            # (the text before going back to a backup, or before a change taken in).
+            self.notes.make_secret(
+                note_id, title, seal_text(key, note_id, text), partial(seal_text, key, note_id)
+            )
             self.expected[note_id] = Expected(text, secret=True, title=title)
 
     @precondition(swarm("edit_secret", having(secret=True, deleted=False)))
