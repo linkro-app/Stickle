@@ -203,6 +203,32 @@ def test_a_file_written_over_gone_with_its_folder_is_refused(graph: Graph, drive
     assert graph.files == {}
 
 
+@pytest.mark.parametrize("chunk", [CHUNK, 1000], ids=["whole", "in-parts"])
+def test_a_file_written_after_its_upload_session_was_made_is_refused(
+    graph: Graph, told: Told, chunk: int
+) -> None:
+    drive = drive_of(graph, told, chunk=chunk)
+    tag = drive.put(NOTE, b"1", Absent())
+    graph.meanwhile[NOTE] = b"from elsewhere"
+
+    with pytest.raises(RefusedError):
+        drive.put(NOTE, bytes(range(256)) * 10, AsRead(tag))
+
+    assert graph.files[NOTE].data == b"from elsewhere"
+
+
+def test_a_file_deleted_after_its_upload_session_was_made_is_refused(
+    graph: Graph, drive: OneDrive
+) -> None:
+    tag = drive.put(NOTE, b"1", Absent())
+    graph.meanwhile[NOTE] = None
+
+    with pytest.raises(RefusedError):
+        drive.put(NOTE, b"22", AsRead(tag))
+
+    assert graph.files == {}  # not made again
+
+
 def test_a_file_written_over_without_a_tag_is_refused_unsent(graph: Graph, drive: OneDrive) -> None:
     drive.put(NOTE, b"1", Absent())
     before = to_graph(graph)

@@ -12,8 +12,9 @@ Each of the four things a target does takes these requests:
   the next write is refused, and the file read again.
 - put, a file made: one upload that fails if a file is there already.
 - put, a file written over: an upload session, made only if the file's eTag is
-  still the one read (if-match), then the file to it. A file written over
-  without a tag is refused unsent: read, it has one.
+  still the one read (if-match), then the file to it, which is refused too if
+  the file was written or deleted since the session was made. A file written
+  over without a tag is refused unsent: read, it has one.
 - delete: only if the eTag is still the one read; without a tag, as it is.
 
 Conditions are kept, and every write leaves the file a new eTag.
@@ -403,6 +404,8 @@ class OneDrive:
                 continue
             if end == size and sent.status in _WRITTEN:
                 return _tag(_object(sent.data))
+            if sent.status == 404:
+                raise RefusedError()  # written or deleted since the session was made
             raise _error(sent)
         raise AssertionError("an upload with nothing in it")
 

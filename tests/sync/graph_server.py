@@ -4,7 +4,8 @@ certificate authority (trustme), for the OneDrive target to talk real HTTPS to.
 It answers as Microsoft's documentation says they do, for what the target asks:
 the app's folder (its files, a page at a time), a file's details with an
 address to download it from, an upload that fails if a file is there, an
-upload session made only if the file's eTag is as given, a delete likewise,
+upload session made only if the file's eTag is as given (and its upload
+refused if the file is written or deleted meanwhile), a delete likewise,
 and access tokens from a refresh token (a new refresh token each time, the one
 before still good). Every write gives the file a new eTag.
 
@@ -83,6 +84,7 @@ class _File:
 class _Session:
     path: str
     data: bytearray
+    tag: str | None = None  # an upload's: the file's when it was made; None: none there
 
 
 @dataclass(frozen=True)
@@ -113,6 +115,9 @@ class Graph:
         default_factory=dict[str, list[dict[str, object]]]
     )
     answers: list[Answer] = field(default_factory=list[Answer])  # for the next Graph requests
+    # What another device does to a file right after an upload session for it
+    # is made: writes this, or deletes it (None).
+    meanwhile: dict[str, bytes | None] = field(default_factory=dict[str, bytes | None])
     token_answers: list[Answer] = field(default_factory=list[Answer])  # for the next refreshes
     refresh_tokens: set[str] = field(default_factory=lambda: {FIRST_REFRESH})
     access_tokens: dict[str, float] = field(default_factory=dict[str, float])  # until, monotonic
@@ -376,6 +381,11 @@ class _Handler(BaseHTTPRequestHandler):
         if session is None:
             self._error(404, "itemNotFound")
             return
+        stored = graph.files.get(session.path)
+        if (None if stored is None else stored.tag) != session.tag:
+            del graph._sessions[f"u:{key}"]  # pyright: ignore[reportPrivateUsage]
+            self._error(404, "itemNotFound")  # as Graph answers: written or deleted since
+            return
         given = (self.headers.get("Content-Range") or "").removeprefix("bytes ")
         span, _, whole = given.partition("/")
         start, _, end = span.partition("-")
@@ -490,7 +500,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._error(412, "preconditionFailed")
             return
         key = secrets.token_urlsafe(12)
-        graph._sessions[f"u:{key}"] = _Session(path, bytearray())  # pyright: ignore[reportPrivateUsage]
+        graph._sessions[f"u:{key}"] = _Session(  # pyright: ignore[reportPrivateUsage]
+            path, bytearray(), None if stored is None else stored.tag
+        )
+        if path in graph.meanwhile:
+            if (change := graph.meanwhile.pop(path)) is None:
+                graph.files.pop(path, None)
+            else:
+                graph._write(path, change)  # pyright: ignore[reportPrivateUsage]
         self._reply(
             200,
             {
