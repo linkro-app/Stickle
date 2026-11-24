@@ -104,6 +104,22 @@ def test_an_edit_over_that_held_what_came_looks_at_once() -> None:
     assert due(schedule) == 50.0
 
 
+def test_a_change_the_cloud_tells_of_looks_at_once() -> None:
+    schedule = after_first()
+    schedule.changed_elsewhere(50.0)
+    assert due(schedule) == 50.0
+    assert schedule.begin(50.0) is False
+
+
+def test_a_change_told_while_a_round_runs_brings_another() -> None:
+    schedule = after_first()
+    schedule.woke(50.0)
+    schedule.begin(50.0)
+    schedule.changed_elsewhere(51.0)
+    schedule.ended(52.0)
+    assert due(schedule) == 51.0
+
+
 def test_asking_is_a_full_look_at_once() -> None:
     schedule = after_first()
     schedule.asked(50.0)
@@ -143,7 +159,7 @@ def test_after_a_failure_it_tries_again_as_told() -> None:
     assert due(schedule) == 66.0
 
 
-@pytest.mark.parametrize("event", ["edit", "focus", "wake", "left", "let go"])
+@pytest.mark.parametrize("event", ["edit", "focus", "wake", "left", "let go", "told"])
 def test_while_it_fails_nothing_starts_a_round_sooner(event: str) -> None:
     schedule = after_first()
     schedule.woke(50.0)
@@ -157,6 +173,8 @@ def test_while_it_fails_nothing_starts_a_round_sooner(event: str) -> None:
         schedule.woke(52.0)
     elif event == "let go":
         schedule.let_go(52.0)
+    elif event == "told":
+        schedule.changed_elsewhere(52.0)
     else:
         schedule.edited(52.0, big=True)
         schedule.left(52.0)

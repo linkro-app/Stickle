@@ -140,6 +140,9 @@ class Runner[T: Turn]:
     def let_go(self) -> None:
         self._tell(self._schedule.let_go)
 
+    def changed_elsewhere(self) -> None:
+        self._tell(self._schedule.changed_elsewhere)
+
     def asked(self) -> None:
         self._tell(self._schedule.asked)
 

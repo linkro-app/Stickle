@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 import real_onedrive
+from dropbox_server import APP_KEY, dropbox_server
+from dropbox_server import FIRST_REFRESH as DROPBOX_REFRESH
 from fake_cloud import KINDS, FakeCloud, Kind
 from graph_server import CLIENT_ID, FIRST_REFRESH, graph_server
 from real_server import account_given, folder_of_its_own
@@ -31,6 +33,7 @@ from stickle.sync.targets.base import (
     RefusedError,
     Target,
 )
+from stickle.sync.targets.dropbox import Dropbox
 from stickle.sync.targets.onedrive import OneDrive
 from stickle.sync.targets.webdav import WebDav, parse_address
 
@@ -50,12 +53,16 @@ REAL_SERVER = Kind("real-server", "weak")
 GRAPH = Kind("graph", "etag")
 REAL_ONEDRIVE = Kind("real-onedrive", "etag")
 
+# Dropbox's API in the test, over HTTPS, through the real Dropbox target.
+DROPBOX_API = Kind("dropbox-api", "rev")
+
 
 @pytest.fixture(
     params=[
         *KINDS,
         WSGIDAV,
         GRAPH,
+        DROPBOX_API,
         *([REAL_SERVER] if account_given() else []),
         *([REAL_ONEDRIVE] if real_onedrive.account_given() else []),
     ],
@@ -91,6 +98,14 @@ def target(kind: Kind, cloud: FakeCloud, tmp_path: Path) -> Iterator[Target]:
             )
             yield drive
             drive.close()
+        return
+    if kind is DROPBOX_API:
+        with dropbox_server() as box:
+            dropbox = Dropbox(
+                APP_KEY, DROPBOX_REFRESH, lambda _token: None, place=box.place, public=box.context
+            )
+            yield dropbox
+            dropbox.close()
         return
     if kind is not WSGIDAV:
         yield cloud.target("laptop")

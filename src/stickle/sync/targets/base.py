@@ -4,7 +4,8 @@ A target (OneDrive, Dropbox, WebDAV) does four things to the files in its
 Stickle folder: lists a folder, reads a file, writes one and deletes one. A
 file it makes is written only if none is there yet; one it replaces or deletes,
 only if it is still as it was read. Some targets can also tell what changed
-since a cursor, and wait for a change; others leave sync to compare lists.
+since a cursor, and wait for a change; others leave sync to compare lists. One
+may also give a feed that tells when a folder changes, for rounds to look then.
 
 Nothing else is asked of them: no locks, no renames, and nothing is read into
 the time a file was changed. A target that cannot keep a condition (some
@@ -103,6 +104,40 @@ class Target(Protocol):
         """Whether something changed since cursor, waiting up to seconds for it;
         None if the target cannot wait (sync looks every so often instead)."""
         ...
+
+
+@dataclass(frozen=True)
+class Waited:
+    """How a wait for a change ended."""
+
+    changes: bool  # something changed since the cursor
+    backoff: float | None  # seconds the cloud asks to pass before the next wait
+
+
+class Feed(Protocol):
+    """Tells when a folder of the Stickle folder changes (Dropbox's long poll):
+    used from one thread at a time, but for cut()."""
+
+    def latest(self) -> str:
+        """A cursor for the folder as it is now."""
+        ...
+
+    def wait(self, cursor: str) -> Waited:
+        """Whether the folder changed since cursor, waiting a few minutes for it.
+        UnavailableError if cut meanwhile; CursorExpiredError if the cursor is
+        too old: take another."""
+        ...
+
+    def since(self, cursor: str) -> tuple[bool, str]:
+        """Whether anything changed since cursor that this device did not write
+        itself, and the cursor past it all."""
+        ...
+
+    def cut(self) -> None:
+        """Ends the wait under way, or the next one, from another thread."""
+        ...
+
+    def close(self) -> None: ...
 
 
 class TargetError(Exception):

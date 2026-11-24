@@ -85,6 +85,15 @@ def test_a_change_wakes_it_up_from_a_long_wait() -> None:
     runner.finish()
 
 
+def test_a_change_told_elsewhere_wakes_it_up() -> None:
+    work = Work()
+    runner = runner_of(work)
+    runner.start()
+    runner.changed_elsewhere()
+    assert began(work)
+    runner.finish()
+
+
 def test_a_round_that_breaks_does_not_end_the_thread() -> None:
     work = Work(fail_with=RuntimeError("no"))
     runner = runner_of(work)

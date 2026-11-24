@@ -6,8 +6,8 @@ on), and asks when the next one is due.
   send again and again (its file over 64 KB), when it is left or a minute after.
 - What changed elsewhere is looked for every few minutes (set by the user), when
   asked, when the computer wakes, when the app comes back to the front, if the
-  last look is at least half a minute old, and when the edit of a note is over
-  that what came for it waited for.
+  last look is at least half a minute old, when the edit of a note is over
+  that what came for it waited for, and when the cloud tells of a change.
 - A round that failed for now is tried again after as long as it says; until
   then nothing else starts one but the user asking.
 - A round that stopped until the user does something: nothing starts another,
@@ -91,6 +91,10 @@ class Schedule:
 
     def let_go(self, now: float) -> None:
         """A note's edit is over, and what came for it waited for that."""
+        self._soon_at = now
+
+    def changed_elsewhere(self, now: float) -> None:
+        """Another device changed something, as the cloud told."""
         self._soon_at = now
 
     def asked(self, now: float) -> None:
