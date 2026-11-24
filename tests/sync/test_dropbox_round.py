@@ -237,6 +237,7 @@ def test_its_own_round_does_not_wake_it(
     looked = len(box.requests(API, "/2/files/list_folder/continue"))
 
     laptop.notes.create("written on the laptop")
+    box.answer_late = 0.2  # Dropbox tells of each write before its answer is in
     laptop.sync()  # writes its own file in devices/
 
     for _ in range(int(SOON / 0.05)):

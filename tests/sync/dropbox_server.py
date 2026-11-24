@@ -148,6 +148,7 @@ class DropboxState:
     page: int = 2000  # entries on a page, at most
     hold: float = 2.0  # seconds a long poll waits, at most, in the test
     backoff: int | None = None  # in the long poll's answers
+    answer_late: float = 0.0  # seconds an upload's answer comes after the file is written
     revoked: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
     changed: threading.Condition = field(init=False)
@@ -547,7 +548,11 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if not same:
             box._write(path, body)  # pyright: ignore[reportPrivateUsage]
-        self._reply(200, box._metadata(path, tagged=False))  # pyright: ignore[reportPrivateUsage]
+        written = box._metadata(path, tagged=False)  # pyright: ignore[reportPrivateUsage]
+        until = time.monotonic() + box.answer_late
+        while not box.closing and (left := until - time.monotonic()) > 0:
+            box.changed.wait(left)  # the lock let go: the long poll is told first
+        self._reply(200, written)
 
     # The notify host
 

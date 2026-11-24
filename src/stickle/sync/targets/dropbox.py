@@ -376,10 +376,12 @@ class _Shared:
         self._public = public
         self._lock = threading.Lock()  # for the tokens, held while they are made again
         self._context_lock = threading.Lock()  # apart: tokens made again need the context
-        self._revs_lock = threading.Lock()  # apart: a write is not held up by that
+        self._revs = threading.Condition(threading.Lock())  # apart: a write is not held up
         self._context: ssl.SSLContext | None = None
         self._tokens: Tokens | None = None
         self._written: deque[tuple[str, str]] = deque(maxlen=KEPT_REVS)
+        self._writes = 0  # begun so far
+        self._writing: set[int] = set()  # sent, their answers not in yet
 
     def signed_in(self, tokens: Tokens) -> None:
         self._tokens = tokens
@@ -403,13 +405,38 @@ class _Shared:
             now = self._tokens.access()
             return now if now != turned_down else self._tokens.renew()
 
-    def wrote(self, path_lower: str, rev: str) -> None:
-        with self._revs_lock:
-            self._written.append((path_lower, rev))
+    def writing(self) -> int:
+        """A write about to be sent: until its answer is in (done), a file listed
+        may be what it wrote."""
+        with self._revs:
+            self._writes += 1
+            self._writing.add(self._writes)
+            return self._writes
 
-    def mine(self, path_lower: str, rev: str) -> bool:
-        with self._revs_lock:
-            return (path_lower, rev) in self._written
+    def wrote(self, path_lower: str, rev: str) -> None:
+        with self._revs:
+            self._written.append((path_lower, rev))
+            self._revs.notify_all()
+
+    def done(self, write: int) -> None:
+        with self._revs:
+            self._writing.discard(write)
+            self._revs.notify_all()
+
+    def mine(self, path_lower: str, rev: str, seconds: float) -> bool:
+        """Whether this target wrote it, at that rev, of what was listed before
+        now. Dropbox may tell of a write before its answer is in, so this waits
+        for the writes under way now (not those begun later, which were not
+        listed), for that many seconds at most: then the file is another's."""
+        until = time.monotonic() + seconds
+        with self._revs:
+            under_way = set(self._writing)
+            while (path_lower, rev) not in self._written:
+                left = until - time.monotonic()
+                if not under_way & self._writing or left <= 0:
+                    return False
+                self._revs.wait(left)
+            return True
 
 
 def _signed(
@@ -555,22 +582,26 @@ class Dropbox:
             "mute": True,  # no word of it to the user's other Dropbox apps
             "strict_conflict": True,
         }
-        answer = _signed(
-            self._shared,
-            self._content,
-            "/2/files/upload",
-            data,
-            {"Dropbox-API-Arg": _arg(args), "Content-Type": "application/octet-stream"},
-        )
-        if answer.status != 200:
-            raise _error(answer)
-        written = _object(answer.data)
-        rev, path_lower = _rev(written), _text(written, "path_lower")
-        if rev is None:
-            raise UnavailableError(answered=True)  # written, but at what rev is not known
-        if path_lower is not None:
-            self._shared.wrote(path_lower, rev)
-        return rev
+        write = self._shared.writing()
+        try:
+            answer = _signed(
+                self._shared,
+                self._content,
+                "/2/files/upload",
+                data,
+                {"Dropbox-API-Arg": _arg(args), "Content-Type": "application/octet-stream"},
+            )
+            if answer.status != 200:
+                raise _error(answer)
+            written = _object(answer.data)
+            rev, path_lower = _rev(written), _text(written, "path_lower")
+            if rev is None:
+                raise UnavailableError(answered=True)  # written, but at what rev is not known
+            if path_lower is not None:
+                self._shared.wrote(path_lower, rev)
+            return rev
+        finally:
+            self._shared.done(write)
 
     def delete(self, path: str, condition: AsRead) -> None:
         if not path:
@@ -727,8 +758,9 @@ class DropboxFeed:
         return Waited(changes, None if backoff is None else float(backoff))
 
     def since(self, cursor: str) -> tuple[bool, str]:
-        """A file this target wrote, at the rev it wrote it, is its own; a file
-        another wrote, one deleted, or a folder, is not."""
+        """A file this target wrote, at the rev it wrote it, is its own (one it is
+        writing, once the answer is in); a file another wrote, one deleted, or a
+        folder, is not."""
         others = False
         while True:
             answer = _rpc(
@@ -807,4 +839,8 @@ class DropboxFeed:
         if item.get(".tag") != "file":
             return False
         path_lower, rev = _text(item, "path_lower"), _rev(item)
-        return path_lower is not None and rev is not None and self._shared.mine(path_lower, rev)
+        return (
+            path_lower is not None
+            and rev is not None
+            and self._shared.mine(path_lower, rev, self._timeout)
+        )

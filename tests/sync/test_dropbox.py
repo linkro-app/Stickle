@@ -33,11 +33,12 @@ from stickle.sync.targets.base import (
     NotThereError,
     RefusedError,
     SignInNeededError,
+    TargetError,
     TokenExpiredError,
     TooBusyError,
     UnavailableError,
 )
-from stickle.sync.targets.dropbox import WAIT, Dropbox, Place
+from stickle.sync.targets.dropbox import TIMEOUT, WAIT, Dropbox, Place
 
 NOTE = "notes/0f8e6f3c-1d9b-4a63-9c38-3b2a4f2f7d10.json"
 MINE = "devices/aaaaaaaa.json"
@@ -68,6 +69,7 @@ def drive_of(
     folder: str = "",
     public: Callable[[], ssl.SSLContext] | None = None,
     page: int = 2000,
+    timeout: float = TIMEOUT,
 ) -> Dropbox:
     return Dropbox(
         APP_KEY,
@@ -77,6 +79,7 @@ def drive_of(
         folder=folder,
         public=box.context if public is None else public,
         heard=lambda date, took: told.heard.append((date, took)),
+        timeout=timeout,
         page=page,
     )
 
@@ -616,6 +619,48 @@ def test_what_this_device_wrote_is_its_own(box: DropboxState, drive: Dropbox, wa
     assert feed.wait(cursor).changes is True
     assert feed.since(cursor)[0] is False
     feed.close()
+
+
+def test_its_write_told_of_before_the_answer_came_is_its_own(
+    box: DropboxState, drive: Dropbox, watched: str
+) -> None:
+    feed = drive.feed(watched)
+    cursor = feed.latest()
+    box.answer_late = 0.5
+    putting = threading.Thread(target=drive.put, args=(MINE, b"a", Absent()))
+    putting.start()
+
+    assert feed.wait(cursor).changes is True
+    assert putting.is_alive()  # the answer not in yet
+    assert feed.since(cursor)[0] is False
+    putting.join(5.0)
+    feed.close()
+
+
+def test_its_write_whose_answer_never_came_is_another_s(
+    box: DropboxState, told: Told, watched: str
+) -> None:
+    drive = drive_of(box, told, timeout=0.5)
+    feed = drive.feed(watched)
+    cursor = feed.latest()
+    box.answer_late = 3.0
+    failed: list[TargetError] = []
+
+    def put() -> None:
+        try:
+            drive.put(MINE, b"a", Absent())
+        except TargetError as error:
+            failed.append(error)
+
+    putting = threading.Thread(target=put)
+    putting.start()
+
+    assert feed.wait(cursor).changes is True
+    assert feed.since(cursor)[0] is True  # written at a rev it never heard: in doubt
+    putting.join(5.0)
+    assert failed
+    feed.close()
+    drive.close()
 
 
 def test_a_file_deleted_is_not_its_own(box: DropboxState, drive: Dropbox, watched: str) -> None:
