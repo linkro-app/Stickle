@@ -25,14 +25,17 @@ clouds. A feed (feed()) tells when a folder changes, waiting on Dropbox's long
 poll, for sync not to look every few minutes (stickle.sync.watcher). It knows
 the revs this target wrote, to tell its own writes from others'.
 
-The refresh token comes from a sign-in in the browser. Dropbox gives no new
-one when the access token is made again: it lasts until revoked (revoke()).
+The refresh token comes from a sign-in in the browser (sign_in): the browser
+comes back to one of the ports registered for the app, or the user enters the
+code Dropbox shows them. Dropbox gives no new one when the access token is made
+again: it lasts until revoked (revoke()).
 
 Who is talked to, before anything is sent: only Dropbox's own API hosts, over
 https, with a certificate a public authority issued for them. The API host
-(tokens, listings, deletes) and the content host (reads, writes) are sent the
-access token; the notify host (the long poll) no token at all, only its cursor.
-No redirect is followed.
+(tokens, the account's name, listings, deletes) and the content host (reads,
+writes) are sent the access token; the notify host (the long poll) no token at
+all, only its cursor. No redirect is followed. Dropbox's own site, where the
+user signs in, is the browser's to open.
 
 Nothing here logs, and no error says what a token, a path, a cursor or an
 account is.
@@ -49,10 +52,11 @@ import ssl
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Generator, Iterator
-from dataclasses import dataclass
+from collections.abc import Callable, Generator, Iterator, Mapping
+from dataclasses import dataclass, field
 from typing import cast
 
+from stickle.cloud_apps import dropbox_app_key
 from stickle.core.cloud_time import date_millis
 from stickle.platform.tls import https_context
 from stickle.sync.targets.base import (
@@ -75,6 +79,7 @@ from stickle.sync.targets.base import (
     Waited,
 )
 from stickle.sync.targets.oauth import TokenAddress, Tokens, waiting
+from stickle.sync.targets.sign_in import Pages, SignIn
 
 TIMEOUT = 30.0  # seconds, for each step of a request
 PAGE = 2000  # files on a page of a listing, at most: Dropbox's own most
@@ -84,6 +89,14 @@ WAIT = 480  # seconds a long poll waits for a change, at most: Dropbox's own mos
 WAIT_TIMEOUT = WAIT + 90 + TIMEOUT
 KEPT_REVS = 64  # of what this target wrote, to tell its own writes in a feed
 _MOST = 1024 * 1024  # bytes of a long poll's answer read, at most
+
+# The ports the app has registered with Dropbox, each as http://127.0.0.1:<port>:
+# Dropbox sends the browser back to no other. Below every system's ephemeral
+# ports, apart from each other, none a known program's.
+REDIRECT_PORTS = (17391, 21587, 24683, 28749, 31253)
+# What the app asks of the account: to read and write files in its folder, and
+# to know the account's name. Named, Dropbox grants these and no more.
+SCOPE = "files.metadata.read files.content.read files.content.write account_info.read"
 
 _USER_AGENT = "Stickle"
 _REV = re.compile(r"[0-9a-f]{9,}")  # as Dropbox's revs are; nothing else is one
@@ -109,12 +122,21 @@ class Place:
     api: str = "api.dropboxapi.com"
     content: str = "content.dropboxapi.com"
     notify: str = "notify.dropboxapi.com"
-    # Tests only: other ports than https's own, for the API, content and notify.
+    www: str = "www.dropbox.com"  # the browser's, to sign in at: the app sends it nothing
+    # Tests only: other ports than https's own, for the API, content and notify,
+    # and for the sign-in page.
     ports: tuple[int, int, int] | None = None
+    www_port: int | None = None
+    redirect_ports: tuple[int, ...] = REDIRECT_PORTS
 
     @property
     def tokens(self) -> TokenAddress:
         return TokenAddress(self.api, _TOKEN_PATH, self.port(0))
+
+    @property
+    def authorize(self) -> str:
+        port = "" if self.www_port is None else f":{self.www_port}"
+        return f"https://{self.www}{port}/oauth2/authorize"
 
     @property
     def hosts(self) -> list[str]:
@@ -126,6 +148,62 @@ class Place:
 
 
 DROPBOX = Place()
+
+
+def sign_in(
+    app_key: str,
+    pages: Pages,
+    *,
+    place: Place = DROPBOX,
+    public: Callable[[], ssl.SSLContext] = https_context,
+    timeout: float = TIMEOUT,
+) -> SignIn:
+    """A sign-in to a Dropbox account, with a refresh token to keep (offline).
+    The user is shown the page to allow Stickle each time, even when they did
+    before: else it would go on to the account the browser is signed in to,
+    without saying which. With every registered port taken, Dropbox shows them
+    the code to enter instead."""
+    return SignIn(
+        place.authorize,
+        place.tokens,
+        app_key,
+        SCOPE,
+        pages,
+        extra={"token_access_type": "offline", "force_reapprove": "true", "locale": pages.language},
+        redirect_host="127.0.0.1",
+        ports=place.redirect_ports,
+        paste=True,
+        account=lambda tokens: _account(tokens, place, public, timeout),
+        public=public,
+        timeout=timeout,
+    )
+
+
+def _account(
+    tokens: Mapping[str, object],
+    place: Place,
+    public: Callable[[], ssl.SSLContext],
+    timeout: float,
+) -> str | None:
+    """The account's email address, as Dropbox tells it to the access token a
+    sign-in was given; None if it does not."""
+    access = tokens.get("access_token")
+    if not isinstance(access, str) or not access:
+        return None
+    host = _Host(place.api, place.port(0), public, timeout)
+    try:
+        answer = host.ask(
+            "/2/users/get_current_account",
+            b"null",
+            {"Content-Type": "application/json", "Authorization": f"Bearer {access}"},
+        )
+    finally:
+        host.close()
+    if answer.status != 200:
+        return None
+    said = _json(answer.data)
+    email = cast(dict[str, object], said).get("email") if isinstance(said, dict) else None
+    return email if isinstance(email, str) else None
 
 
 @dataclass(frozen=True)
@@ -844,3 +922,40 @@ class DropboxFeed:
             and rev is not None
             and self._shared.mine(path_lower, rev, self._timeout)
         )
+
+
+@dataclass(frozen=True)
+class App:
+    """Stickle as registered with Dropbox, and where Dropbox is: what a sign-in
+    and a target both take."""
+
+    app_key: str = field(repr=False)
+    place: Place = DROPBOX
+    public: Callable[[], ssl.SSLContext] = https_context
+
+    def sign_in(self, pages: Pages, *, timeout: float = TIMEOUT) -> SignIn:
+        return sign_in(self.app_key, pages, place=self.place, public=self.public, timeout=timeout)
+
+    def target(
+        self,
+        refresh_token: str,
+        renewed: Callable[[str], None],
+        *,
+        heard: Callable[[int, int], None] | None = None,
+        timeout: float = TIMEOUT,
+    ) -> Dropbox:
+        return Dropbox(
+            self.app_key,
+            refresh_token,
+            renewed,
+            place=self.place,
+            public=self.public,
+            heard=heard,
+            timeout=timeout,
+        )
+
+
+def registered() -> App | None:
+    """Stickle as this build has it registered with Dropbox; None: it has not."""
+    app_key = dropbox_app_key()
+    return None if app_key is None else App(app_key)

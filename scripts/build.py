@@ -8,8 +8,8 @@ executable packing, both of which make antivirus products suspicious of
 Python applications.
 
 The identifiers the clouds gave Stickle as an app are taken from the
-environment (STICKLE_ONEDRIVE_CLIENT_ID, see stickle.cloud_apps): a build
-without one does not offer that cloud.
+environment (STICKLE_ONEDRIVE_CLIENT_ID and STICKLE_DROPBOX_APP_KEY, see
+stickle.cloud_apps): a build without one does not offer that cloud.
 """
 
 import importlib.util
@@ -24,7 +24,7 @@ from pathlib import Path
 from build_appimage import fetch
 
 from stickle import __version__
-from stickle.cloud_apps import BUILT_IN, ONEDRIVE_VARIABLE, is_client_id
+from stickle.cloud_apps import BUILT_IN, IDENTIFIERS
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_DIR = ROOT / "build"
@@ -174,18 +174,21 @@ def check_winrt_tables() -> None:
 def write_cloud_apps(environment: Mapping[str, str], file: Path = CLOUD_APPS_FILE) -> list[str]:
     """The identifiers the clouds gave Stickle as an app, from the build's
     environment, into the module the app reads them from (stickle.cloud_apps):
-    Nuitka's options to take it in. A release is not built without them."""
-    given = environment.get(ONEDRIVE_VARIABLE, "").strip()
-    if not given:
-        if environment.get(RELEASE_VARIABLE) == "true":
-            raise SystemExit(f"A release is not built without {ONEDRIVE_VARIABLE}.")
+    Nuitka's options to take it in. A release is not built without them all."""
+    lines: list[str] = []
+    for identifier in IDENTIFIERS:
+        given = environment.get(identifier.variable, "").strip()
+        if not given:
+            if environment.get(RELEASE_VARIABLE) == "true":
+                raise SystemExit(f"A release is not built without {identifier.variable}.")
+            continue
+        if not identifier.shape(given):
+            raise SystemExit(f"{identifier.variable} is not {identifier.what}.")
+        lines.append(f"{identifier.name} = {given!r}")
+    if not lines:
         return []
-    if not is_client_id(given):
-        raise SystemExit(f"{ONEDRIVE_VARIABLE} is not a Microsoft application (client) ID.")
-    file.write_bytes(
-        f'"""Written by scripts/build.py for the build, and gone after it."""\n\n'
-        f"ONEDRIVE_CLIENT_ID = {given!r}\n".encode()
-    )
+    heading = '"""Written by scripts/build.py for the build, and gone after it."""'
+    file.write_bytes("\n".join([heading, "", *lines, ""]).encode())
     return [f"--include-module={BUILT_IN}"]
 
 

@@ -78,7 +78,7 @@ def run_checks() -> list[tuple[str, str]]:
     results.append(time_zone_check())
     results.append(calendar_check())
     results.append(sync_check())
-    results.append(cloud_apps_line())
+    results += cloud_apps_lines()
     results.append(clock_line())
     results += input_method_checks()
     results.append(start_at_login_check())
@@ -345,12 +345,18 @@ def sync_check() -> tuple[str, str]:
     return ("PASS" if ok else "FAIL", name)
 
 
-def cloud_apps_line() -> tuple[str, str]:
-    """Whether the build put in the app's ID for Microsoft (never the ID itself)."""
-    from stickle.cloud_apps import onedrive_client_id
+def cloud_apps_lines() -> list[tuple[str, str]]:
+    """Whether the build put in the app's identifier for each cloud (never the
+    identifier itself)."""
+    from stickle.cloud_apps import IDENTIFIERS, given
 
-    there = onedrive_client_id() is not None
-    return ("INFO", f"OneDrive app identifier: {'given' if there else 'none'}")
+    return [
+        (
+            "INFO",
+            f"{identifier.cloud} app identifier: {'given' if given(identifier) else 'none'}",
+        )
+        for identifier in IDENTIFIERS
+    ]
 
 
 def clock_line() -> tuple[str, str]:

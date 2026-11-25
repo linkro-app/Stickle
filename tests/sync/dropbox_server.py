@@ -9,17 +9,25 @@ changed since one, the long poll, revoking a token, and access tokens from a
 refresh token (no new refresh token: Dropbox's last until revoked). A write of
 other bytes gives the file a new rev; the same bytes again keep it.
 
+Signing in: the page to allow the app (the browser's, as the test plays it)
+sends the browser back to a registered address with a code, or, given none,
+shows the code for the user to enter; the token address exchanges a code once,
+for the app it was given to, with the verifier its challenge was made from (a
+refresh token only if one was asked for: offline). The account's details tell
+its email address.
+
 What Dropbox does not document, it does as the test says: a delete whose
 parent_rev is not the file's is refused as a conflict, or (mismatch_not_found)
 answered as no file there.
 
-Three servers share one state, as Dropbox's three hosts: the API, content and
-notify. Each answers its own requests only, so that one sent to another host
-fails as it would. The test says what goes wrong (an answer for the next
-requests, tokens turned down, the app turned away, no room left, cursors too
-old) and looks at every request that reached it.
+Four servers share one state, as Dropbox's hosts: the API, content and notify,
+and the site the browser signs in at. Each answers its own requests only, so
+that one sent to another host fails as it would. The test says what goes wrong
+(an answer for the next requests, tokens turned down, the app turned away, no
+room left, cursors too old) and looks at every request that reached it.
 """
 
+import base64
 import hashlib
 import json
 import secrets
@@ -29,20 +37,23 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import cast
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import trustme
 
-from stickle.sync.targets.dropbox import Place
+from stickle.sync.targets.dropbox import REDIRECT_PORTS, Place
 
 HOST = "127.0.0.1"
 APP_KEY = "a1b2c3d4e5f6g7h"  # a test's, not the app's
 FIRST_REFRESH = "refresh-token-first-of-a-test"
 LASTS = 14400  # seconds an access token is good for, as Dropbox's
-API, CONTENT, NOTIFY = "api", "content", "notify"
+API, CONTENT, NOTIFY, WWW = "api", "content", "notify", "www"
 TOKEN_PATH = "/oauth2/token"
+AUTHORIZE = "/oauth2/authorize"
+ACCOUNT = "someone@example.com"  # the account's email address, as Dropbox tells it
 LONGPOLL = "/2/files/list_folder/longpoll"
 BLOCK = 4 * 1024 * 1024  # Dropbox's content hash is of blocks this size
 
@@ -51,7 +62,7 @@ BLOCK = 4 * 1024 * 1024  # Dropbox's content hash is of blocks this size
 class Asked:
     """A request that reached one of the servers."""
 
-    host: str  # API, CONTENT or NOTIFY
+    host: str  # API, CONTENT, NOTIFY or WWW
     path: str
     authorization: str | None
     arg: dict[str, object] | None  # Dropbox-API-Arg, read
@@ -70,6 +81,15 @@ class Answer:
     status: int
     headers: dict[str, str] = field(default_factory=dict[str, str])
     body: dict[str, object] | bytes = field(default_factory=dict[str, object])
+
+
+@dataclass(frozen=True)
+class _Code:
+    app_key: str
+    redirect_uri: str | None  # None: shown to the user, to enter
+    challenge: str
+    scope: str
+    offline: bool  # a refresh token asked for
 
 
 @dataclass
@@ -127,6 +147,8 @@ class DropboxState:
     """The servers' state, which the test reads and changes between requests."""
 
     ports: tuple[int, int, int] = (0, 0, 0)
+    www_port: int = 0
+    redirect_ports: tuple[int, ...] = REDIRECT_PORTS  # the app's, as registered
     client_context: ssl.SSLContext | None = None
     asked: list[Asked] = field(default_factory=list[Asked])
     files: dict[str, _File] = field(default_factory=dict[str, _File])  # "notes/x.json"
@@ -149,6 +171,8 @@ class DropboxState:
     hold: float = 2.0  # seconds a long poll waits, at most, in the test
     backoff: int | None = None  # in the long poll's answers
     answer_late: float = 0.0  # seconds an upload's answer comes after the file is written
+    declining: bool = False  # the user says no to the app on the sign-in page
+    email: object = ACCOUNT  # as the account's details tell it; None: not at all
     revoked: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
     changed: threading.Condition = field(init=False)
@@ -157,6 +181,7 @@ class DropboxState:
     _cursors: dict[str, _Cursor] = field(default_factory=dict[str, _Cursor])
     _seq: int = 0
     _epoch: int = 0
+    _codes: dict[str, _Code] = field(default_factory=dict[str, _Code])
 
     def __post_init__(self) -> None:
         self.changed = threading.Condition(self.lock)
@@ -164,7 +189,15 @@ class DropboxState:
     @property
     def place(self) -> Place:
         """Where the target finds it, as it finds Dropbox."""
-        return Place(api=HOST, content=HOST, notify=HOST, ports=self.ports)
+        return Place(
+            api=HOST,
+            content=HOST,
+            notify=HOST,
+            www=HOST,
+            ports=self.ports,
+            www_port=self.www_port,
+            redirect_ports=self.redirect_ports,
+        )
 
     def context(self) -> ssl.SSLContext:
         """One that trusts the servers' certificate, as a public authority's would be."""
@@ -316,6 +349,17 @@ class _Handler(BaseHTTPRequestHandler):
             400, f"Error in call to API function: {why}".encode(), {"Content-Type": "text/plain"}
         )
 
+    def do_GET(self) -> None:
+        server = cast(_Server, self.server)
+        box, host = server.box, server.host
+        parts = urlsplit(self.path)
+        with box.lock:
+            box.asked.append(Asked(host, parts.path, self.headers.get("Authorization"), None, b""))
+            if host != WWW or parts.path != AUTHORIZE:
+                self._reply(404, b"not on this host", {"Content-Type": "text/plain"})
+                return
+            self._authorize(box, parts.query)
+
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
@@ -348,6 +392,7 @@ class _Handler(BaseHTTPRequestHandler):
                 (API, "/2/files/delete_v2"): self._delete,
                 (API, "/2/files/get_metadata"): self._details,
                 (API, "/2/auth/token/revoke"): self._revoke,
+                (API, "/2/users/get_current_account"): self._current_account,
                 (CONTENT, "/2/files/download"): self._download,
                 (CONTENT, "/2/files/upload"): self._upload,
             }
@@ -396,6 +441,9 @@ class _Handler(BaseHTTPRequestHandler):
         if box.app_turned_away or form.get("client_id") != APP_KEY:
             self._reply(400, {"error": "invalid_client", "error_description": "Invalid client_id"})
             return
+        if form.get("grant_type") == "authorization_code":
+            self._redeem(box, form)
+            return
         refresh = form.get("refresh_token", "")
         if (
             box.refusing_refresh
@@ -414,6 +462,55 @@ class _Handler(BaseHTTPRequestHandler):
         box.access_tokens[access] = (time.monotonic() + LASTS, refresh)
         box.issued.append(access)
         self._reply(200, {"access_token": access, "token_type": "bearer", "expires_in": LASTS})
+
+    def _redeem(self, box: DropboxState, form: dict[str, str]) -> None:
+        given = box._codes.pop(form.get("code", ""), None)  # pyright: ignore[reportPrivateUsage]
+        verifier = form.get("code_verifier", "")
+        challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+            .rstrip(b"=")
+            .decode()
+        )
+        if (
+            given is None
+            or given.app_key != form.get("client_id")
+            or given.redirect_uri != form.get("redirect_uri")
+            or not verifier
+            or given.challenge != challenge
+        ):
+            self._reply(400, {"error": "invalid_grant", "error_description": "code doesn't exist"})
+            return
+        access = f"sl.u.{secrets.token_urlsafe(24)}"
+        tokens: dict[str, object] = {
+            "access_token": access,
+            "token_type": "bearer",
+            "expires_in": LASTS,
+            "scope": given.scope,
+            "uid": "12345678",
+            "account_id": "dbid:AAH4f99T0taONIb-OurWxbNQ6ywGRopQngc",
+        }
+        refresh = ""
+        if given.offline:
+            refresh = f"refresh-{secrets.token_urlsafe(16)}"
+            box.refresh_tokens.add(refresh)
+            tokens["refresh_token"] = refresh
+        box.access_tokens[access] = (time.monotonic() + LASTS, refresh)
+        box.issued.append(access)
+        self._reply(200, tokens)
+
+    def _current_account(self, box: DropboxState, _args: dict[str, object], _body: bytes) -> None:
+        account: dict[str, object] = {
+            "account_id": "dbid:AAH4f99T0taONIb-OurWxbNQ6ywGRopQngc",
+            "name": {"display_name": "Some One", "given_name": "Some", "surname": "One"},
+            "email_verified": True,
+            "disabled": False,
+            "country": "KR",
+            "locale": "ko",
+            "account_type": {".tag": "basic"},
+        }
+        if box.email is not None:
+            account["email"] = box.email
+        self._reply(200, account)
 
     def _revoke(self, box: DropboxState, _args: dict[str, object], _body: bytes) -> None:
         token = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
@@ -554,6 +651,47 @@ class _Handler(BaseHTTPRequestHandler):
             box.changed.wait(left)  # the lock let go: the long poll is told first
         self._reply(200, written)
 
+    # The site the browser signs in at
+
+    def _authorize(self, box: DropboxState, query: str) -> None:
+        given = {name: values[0] for name, values in parse_qs(query).items()}
+        redirect = given.get("redirect_uri")
+        if box.app_turned_away or given.get("client_id") != APP_KEY:
+            self._reply(400, b"Invalid client_id", {"Content-Type": "text/plain"})  # its own page
+            return
+        if redirect is not None and redirect not in {
+            f"http://127.0.0.1:{port}" for port in box.redirect_ports
+        }:
+            self._reply(400, b"Invalid redirect_uri", {"Content-Type": "text/plain"})
+            return
+        answer: dict[str, str]
+        if (
+            given.get("response_type") != "code"
+            or given.get("code_challenge_method") != "S256"
+            or not given.get("code_challenge")
+        ):
+            answer = {"error": "invalid_request", "error_description": "No code_challenge"}
+        elif box.declining:
+            answer = {"error": "access_denied", "error_description": "The user chose not to"}
+        else:
+            code = secrets.token_urlsafe(32)
+            box._codes[code] = _Code(  # pyright: ignore[reportPrivateUsage]
+                given["client_id"],
+                redirect,
+                given["code_challenge"],
+                given.get("scope", ""),
+                given.get("token_access_type") == "offline",
+            )
+            answer = {"code": code}
+        if redirect is None:  # the code shown, to enter in the app
+            code = answer.get("code")
+            text = f"<code>{escape(code)}</code>" if code else "Something went wrong."
+            self._reply(200 if code else 400, text.encode(), {"Content-Type": "text/html"})
+            return
+        if "state" in given:
+            answer["state"] = given["state"]
+        self._reply(302, b"", {"Location": f"{redirect}?{urlencode(answer)}"})
+
     # The notify host
 
     def _longpoll(self, box: DropboxState, body: bytes) -> None:
@@ -610,15 +748,13 @@ def dropbox_server() -> Generator[DropboxState]:
     authority.configure_trust(client)  # pyright: ignore[reportUnknownMemberType]
     box = DropboxState(client_context=client)
     servers: list[_Server] = []
-    for host in (API, CONTENT, NOTIFY):
+    for host in (API, CONTENT, NOTIFY, WWW):
         server = _Server((HOST, 0), _Handler)
         server.socket = serving.wrap_socket(server.socket, server_side=True)
         server.box, server.host = box, host
         servers.append(server)
-    box.ports = cast(
-        tuple[int, int, int],
-        tuple(cast(tuple[str, int], each.server_address)[1] for each in servers),
-    )
+    found = [cast(tuple[str, int], each.server_address)[1] for each in servers]
+    box.ports, box.www_port = (found[0], found[1], found[2]), found[3]
     threads = [
         threading.Thread(target=each.serve_forever, args=(0.05,), daemon=True) for each in servers
     ]

@@ -2,18 +2,23 @@
 
 The app opens the address SignIn.start gives in the user's browser. While they
 sign in there, a listener on this computer's loopback addresses only
-(127.0.0.1 and ::1, on one port) waits for the cloud to send the browser back.
-Only an answer with this sign-in's state ends it; anything else is answered
-with a page, and the wait goes on. A code is exchanged for tokens at the
-cloud's token address, with the verifier only this sign-in knows, and only
+(127.0.0.1 and ::1, on one port; or on 127.0.0.1 alone, on the first free one
+of the ports the app has registered) waits for the cloud to send the browser
+back. Only an answer with this sign-in's state ends it; anything else is
+answered with a page, and the wait goes on. A code is exchanged for tokens at
+the cloud's token address, with the verifier only this sign-in knows, and only
 then is the browser shown its page: signed in, or not. However the sign-in
 ends, the listener is closed.
 
+Should every registered port be taken, a cloud that can show the user the
+code instead (Dropbox) is asked to: the user enters it in the app (enter), and
+it is exchanged the same way. Only this sign-in's verifier makes it good.
+
 There is no client secret: the app is a public client, which PKCE is for. What
 is kept of a sign-in is the refresh token, and the name of the account if the
-cloud tells it, in an ID token. That comes from the token address itself over
+cloud tells it: in an ID token, which comes from the token address itself over
 checked https, so its signature need not be checked (OpenID Connect Core,
-3.1.3.7).
+3.1.3.7); or as the cloud answers when asked with the access token.
 
 Nothing here logs. The code, the state, the verifier, the tokens and the
 account's name are in no error, repr or page, and the cloud's own words for
@@ -24,13 +29,14 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import socket
 import socketserver
 import ssl
 import sys
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -53,6 +59,7 @@ ACCOUNT_MOST = 256  # characters of an account's name, at most
 _TRIES = 8  # at finding a port free on both loopback addresses
 _POLL = 0.1  # seconds the listener takes to notice it is to close, at most
 _DECLINED = "access_denied"
+_CODE = re.compile(r"[A-Za-z0-9._~+/=-]{8,512}")  # a code a user enters, as clouds make them
 _APP_TURNED_AWAY = frozenset({"invalid_client", "unauthorized_client"})
 
 # The page loads nothing, runs nothing and goes nowhere.
@@ -116,6 +123,19 @@ def _fields(query: str) -> dict[str, str]:
     return {name: values[0] for name, values in given.items() if len(values) == 1}
 
 
+def named(value: object) -> str | None:
+    """An account's name as the user knows it, if it is one to show."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value if value and len(value) <= ACCOUNT_MOST and value.isprintable() else None
+
+
+def id_token_account(tokens: Mapping[str, object]) -> str | None:
+    """The account's name, from the ID token in a token address's answer."""
+    return _account(tokens.get("id_token"))
+
+
 def _account(token: object) -> str | None:
     """The account's name, from an ID token, as the user knows it."""
     if not isinstance(token, str):
@@ -130,11 +150,9 @@ def _account(token: object) -> str | None:
     if not isinstance(claims, dict):
         return None
     for name in ("preferred_username", "email"):
-        value = cast(dict[str, object], claims).get(name)
-        if isinstance(value, str):
-            value = value.strip()
-            if value and len(value) <= ACCOUNT_MOST and value.isprintable():
-                return value
+        found = named(cast(dict[str, object], claims).get(name))
+        if found is not None:
+            return found
     return None
 
 
@@ -187,6 +205,17 @@ class _Listener6(_Listener):
     address_family = socket.AF_INET6
 
 
+def listen_on(ports: Sequence[int]) -> list[_Listener]:
+    """A listener on 127.0.0.1, on the first of these ports that is free;
+    none if none is."""
+    for port in ports:
+        try:
+            return [_Listener(("127.0.0.1", port), _Handler)]
+        except OSError:
+            continue  # taken, or not to be had
+    return []
+
+
 def listen() -> list[_Listener]:
     """Listeners on one port, on both loopback addresses if this computer has
     IPv6 (where a browser may take "localhost" to be), else on 127.0.0.1."""
@@ -204,7 +233,8 @@ def listen() -> list[_Listener]:
 
 class SignIn:
     """One sign-in, from the address for the browser to the tokens. start, then
-    wait; cancel from any thread (as when the user closes the window)."""
+    wait (or, when pasting, enter the code the user was shown); cancel from any
+    thread (as when the user closes the window)."""
 
     def __init__(
         self,
@@ -216,13 +246,20 @@ class SignIn:
         *,
         extra: Mapping[str, str] | None = None,
         redirect_host: str = "localhost",
+        ports: Sequence[int] = (),
+        paste: bool = False,
+        account: Callable[[Mapping[str, object]], str | None] = id_token_account,
         public: Callable[[], ssl.SSLContext] = https_context,
         timeout: float = TIMEOUT,
     ) -> None:
         """authorize: the cloud's address to sign in at (https, no query).
         extra: more of the query for it, as the cloud wants. redirect_host: as
-        the cloud has it registered for the app. timeout: seconds, for each
-        step of the exchange."""
+        the cloud has it registered for the app. ports: those registered with
+        it, if it takes no other (then redirect_host is 127.0.0.1); none: any.
+        paste: with them all taken, the cloud shows the user the code instead.
+        account: the account's name, from the token address's answer (what
+        goes wrong there leaves it unknown). timeout: seconds, for each step of
+        the exchange."""
         self._authorize = authorize
         self._tokens = tokens
         self._client_id = client_id
@@ -230,14 +267,19 @@ class SignIn:
         self._pages = pages
         self._extra = dict(extra or {})
         self._redirect_host = redirect_host
+        self._ports = tuple(ports)
+        self._paste = paste
+        self._account_of = account
         self._public = public
         self._timeout = timeout
         self._state = secrets.token_urlsafe(32)
         self._verifier = secrets.token_urlsafe(64)  # 86 characters: RFC 7636 asks 43 to 128
         self._lock = threading.Lock()
         self._closing = threading.Lock()
+        self._entering = threading.Lock()  # one code entered at a time
         self._ended = threading.Event()
         self._started = False
+        self._pasting = False
         self._taken = False  # an answer with the state came
         self._cancelled = False
         self._outcome: SignedIn | TargetError | None = None
@@ -257,18 +299,32 @@ class SignIn:
     def _redirect(self) -> str:
         return f"http://{self._redirect_host}:{self._port}"
 
+    @property
+    def pasting(self) -> bool:
+        """Whether the user is to enter the code the cloud shows them (every
+        registered port taken), rather than the browser bringing it back."""
+        with self._lock:
+            return self._pasting
+
     def start(self) -> str:
-        """Listening from now on: the address to open in the browser."""
+        """Listening from now on (or else, when pasting, nothing): the address
+        to open in the browser."""
         with self._lock:
             if self._started or self._cancelled:
                 raise RuntimeError("a sign-in starts once")
             self._started = True
         with self._closing:
             try:
-                self._listeners = listen()
+                self._listeners = listen_on(self._ports) if self._ports else listen()
             except OSError:
                 raise UnavailableError() from None
-            self._port = self._listeners[0].server_port
+            if not self._listeners:
+                if not self._paste:
+                    raise UnavailableError()
+                with self._lock:
+                    self._pasting = True
+            else:
+                self._port = self._listeners[0].server_port
             for listener in self._listeners:
                 listener.answering = self._answer
                 threading.Thread(
@@ -277,7 +333,7 @@ class SignIn:
         query = {
             "client_id": self._client_id,
             "response_type": "code",
-            "redirect_uri": self._redirect,
+            **({} if self.pasting else {"redirect_uri": self._redirect}),
             "scope": self._scope,
             "state": self._state,
             "code_challenge": _challenge(self._verifier),
@@ -285,6 +341,30 @@ class SignIn:
             **self._extra,
         }
         return f"{self._authorize}?{urlencode(query, quote_via=quote)}"
+
+    def enter(self, code: str) -> SignedIn | None:
+        """When pasting: the code the user was shown, exchanged; None if the
+        sign-in was cancelled meanwhile. One that is no code, or that the cloud
+        refuses, raises (SignInFailedError), and another may be entered."""
+        with self._lock:
+            if not self._pasting:
+                raise RuntimeError("the browser brings the code back")
+        code = code.strip()
+        if not _CODE.fullmatch(code):
+            raise SignInFailedError()  # sent nowhere
+        with self._entering:
+            with self._lock:
+                if self._cancelled:
+                    return None
+                if self._outcome is not None:
+                    raise RuntimeError("signed in already")
+            signed = self._exchange(code)
+            with self._lock:
+                if self._cancelled:
+                    return None
+                self._outcome = signed
+            self._ended.set()
+            return signed
 
     def wait(self, timeout: float | None = None) -> SignedIn | None:
         """The tokens, once the sign-in ended with them; None if it was cancelled,
@@ -361,7 +441,7 @@ class SignIn:
             "client_id": self._client_id,
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": self._redirect,
+            **({} if self.pasting else {"redirect_uri": self._redirect}),
             "code_verifier": self._verifier,
         }
         context = self._public()
@@ -380,7 +460,11 @@ class SignIn:
         refresh = tokens.get("refresh_token")
         if not isinstance(refresh, str) or not refresh:
             raise SignInFailedError()  # nothing to keep the sign-in by
-        return SignedIn(refresh, _account(tokens.get("id_token")))
+        try:
+            account = named(self._account_of(tokens))
+        except TargetError:
+            account = None  # signed in all the same: only the name is not known
+        return SignedIn(refresh, account)
 
     def _send(self, asked: BaseHTTPRequestHandler, status: int, text: str | None) -> None:
         body = b"" if text is None else page(self._pages.language, text)
