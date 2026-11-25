@@ -23,6 +23,7 @@ from PySide6.QtCore import (
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from stickle import __version__
+from stickle.app.app_icon import make_icon
 from stickle.app.app_list import icon_png, offer_app_list
 from stickle.app.backups import BackupAccess, DailyBackups
 from stickle.app.cloud_folder_notice import InCloudFolder, in_cloud_folder
@@ -1096,6 +1097,9 @@ def run(
     app = QApplication(argv)
     app.setApplicationName("Stickle")
     app.setDesktopFileName(APP_ID)
+    # Every window's own, on its title bar (and Windows' taskbar button): without
+    # it a window shows the program's, Python's or the system's when run from source.
+    app.setWindowIcon(make_icon())
     app.setQuitOnLastWindowClosed(False)
     # Qt and Python are loaded now; read again below once the notes are up, for
     # what was loaded after (a second read is served from memory).
