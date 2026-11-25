@@ -16,9 +16,10 @@ for the app it was given to, with the verifier its challenge was made from (a
 refresh token only if one was asked for: offline). The account's details tell
 its email address.
 
-What Dropbox does not document, it does as the test says: a delete whose
-parent_rev is not the file's is refused as a conflict, or (mismatch_not_found)
-answered as no file there.
+What Dropbox does not document, it does as the real one was seen to
+(test_real_dropbox): a delete whose parent_rev is not the file's is refused as
+a conflict. Should Dropbox ever answer that there is no file there instead,
+the test says so (mismatch_not_found).
 
 Four servers share one state, as Dropbox's hosts: the API, content and notify,
 and the site the browser signs in at. Each answers its own requests only, so

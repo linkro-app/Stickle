@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import real_dropbox
 import real_onedrive
 from dropbox_server import APP_KEY, dropbox_server
 from dropbox_server import FIRST_REFRESH as DROPBOX_REFRESH
@@ -53,8 +54,10 @@ REAL_SERVER = Kind("real-server", "weak")
 GRAPH = Kind("graph", "etag")
 REAL_ONEDRIVE = Kind("real-onedrive", "etag")
 
-# Dropbox's API in the test, over HTTPS, through the real Dropbox target.
+# Dropbox's API in the test, over HTTPS, through the real Dropbox target; and
+# the real Dropbox of whoever runs this.
 DROPBOX_API = Kind("dropbox-api", "rev")
+REAL_DROPBOX = Kind("real-dropbox", "rev")
 
 
 @pytest.fixture(
@@ -65,6 +68,7 @@ DROPBOX_API = Kind("dropbox-api", "rev")
         DROPBOX_API,
         *([REAL_SERVER] if account_given() else []),
         *([REAL_ONEDRIVE] if real_onedrive.account_given() else []),
+        *([REAL_DROPBOX] if real_dropbox.account_given() else []),
     ],
     ids=lambda kind: kind.name,
 )
@@ -85,6 +89,10 @@ def target(kind: Kind, cloud: FakeCloud, tmp_path: Path) -> Iterator[Target]:
         return
     if kind is REAL_ONEDRIVE:
         with real_onedrive.folder_of_its_own() as real:
+            yield real
+        return
+    if kind is REAL_DROPBOX:
+        with real_dropbox.folder_of_its_own() as real:
             yield real
         return
     if kind is GRAPH:
