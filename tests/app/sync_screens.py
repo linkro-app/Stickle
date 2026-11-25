@@ -45,7 +45,7 @@ from stickle.crypto.secret_notes import seal_text
 from stickle.data.colors import OwnColor
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
-from stickle.data.sync_connection import ONEDRIVE, WEBDAV, Login
+from stickle.data.sync_connection import DROPBOX, ONEDRIVE, SIGNED_IN, WEBDAV, Login
 from stickle.data.versions import VersionRepository
 from stickle.sync.devices import Other
 from stickle.sync.engine import GETTING, PUTTING, FirstLook, LetGo, Report
@@ -58,6 +58,7 @@ from stickle.sync.targets.base import (
     TooBusyError,
     UnavailableError,
 )
+from stickle.sync.targets.dropbox import App as DropboxApp
 from stickle.sync.targets.onedrive import App
 from stickle.sync.targets.sign_in import SignInFailedError
 from stickle.sync.targets.webdav import NoWebDavFolderError
@@ -71,6 +72,9 @@ THIS_PC = "DESKTOP-7GQ2K1F"
 ACCOUNT = "jiwoo.kim@outlook.com"
 # Registered with no one: a scene reaches nothing.
 MADE_UP_APP = App("00000000-0000-4000-8000-000000000000")
+MADE_UP_DROPBOX = DropboxApp("a0b1c2d3e4f5g6h")
+DROPBOX_ACCOUNT = "jiwoo.kim@example.com"
+DROPBOX_SIGN_IN = "https://www.dropbox.com/oauth2/authorize?client_id=0"
 SIGN_IN_ADDRESS = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_id=0"
 A_CERTIFICATE = bytes(range(64))
 A_RECOVERY_KEY = "K7QM-2HXP-9RTV-4WJD-8FNB-3YCS-6GKA-M2Q7"
@@ -115,11 +119,11 @@ class FakeSyncing(QObject):
         name: str = THIS_PC,
         kind: str = WEBDAV,
     ) -> None:
-        """kind: of the connection; OneDrive's has no address, and the user is
-        the account's name."""
+        """kind: of the connection; OneDrive's and Dropbox's have no address,
+        and the user is the account's name."""
         super().__init__()
-        onedrive = kind == ONEDRIVE
-        self.login = Login(VAULT, kind, "" if onedrive else address, user, PASSWORD, {})
+        signed_in = kind in SIGNED_IN
+        self.login = Login(VAULT, kind, "" if signed_in else address, user, PASSWORD, {})
         self.cloud_name = cloud_name(kind)
         moment = _at_14_05() if last is None else last
         self.status = SyncStatus(kind, None, lambda: to_put, lambda: moment, self)
@@ -217,7 +221,10 @@ def _keys(there: bool = True, held: bool = True, old: bool = False) -> RecoveryK
 
 
 def _setup(
-    syncing: FakeSyncing | None, keys: RecoveryKeys | None = None, onedrive: bool = False
+    syncing: FakeSyncing | None,
+    keys: RecoveryKeys | None = None,
+    onedrive: bool = False,
+    dropbox: bool = False,
 ) -> SyncSetup:
     def connect(_login: Login, _joining: bool) -> Syncing:
         raise AssertionError("a scene connects to nothing")
@@ -230,6 +237,7 @@ def _setup(
         connect,
         lambda: None,
         onedrive=(lambda: MADE_UP_APP) if onedrive else (lambda: None),
+        dropbox=(lambda: MADE_UP_DROPBOX) if dropbox else (lambda: None),
     )
 
 
@@ -956,7 +964,7 @@ def _onedrive_not_started(stage: Stage) -> QWidget:
 def _onedrive_checking(stage: Stage) -> QWidget:
     window = _onedrive_sign_in(stage)
     window._job = cast("Job", object())  # as long as there is one, it is busy
-    window._say(window.tr("Checking OneDrive…"))
+    window._say(window.tr("Checking %1…").replace("%1", "OneDrive"))
     window._update_buttons()
 
     def over() -> None:
@@ -1005,6 +1013,117 @@ def _onedrive_stopped(why: Stopped) -> Callable[[], FakeSyncing]:
 
 def _onedrive_disconnect(stage: Stage) -> DisconnectSync:
     syncing = stage.keep(_onedrive_synced()())
+    return stage.keep(DisconnectSync(cast("Syncing", syncing), lambda: None))
+
+
+# Dropbox
+
+
+def _dropbox_choosing(stage: Stage) -> TurnOnSync:
+    """All three clouds offered, Dropbox chosen."""
+    window = stage.keep(TurnOnSync(_setup(None, onedrive=True, dropbox=True)))
+    window.next_button.click()
+    window.dropbox_choice.setChecked(True)
+    return window
+
+
+def _dropbox_sign_in(stage: Stage) -> TurnOnSync:
+    window = stage.keep(TurnOnSync(_setup(None, dropbox=True)))  # alone: chosen first
+    window.next_button.click()
+    window.next_button.click()
+    return window
+
+
+def _dropbox_waiting(pasting: bool) -> Callable[[Stage], TurnOnSync]:
+    """The browser sent to sign in (not really: a scene opens nothing); pasting:
+    every port registered taken, the code Dropbox shows to paste."""
+
+    def build(stage: Stage) -> TurnOnSync:
+        window = _dropbox_sign_in(stage)
+        window._sign_in_address = DROPBOX_SIGN_IN
+        for part in (
+            window.sign_in_waiting,
+            window.other_account_note,
+            window.copy_line,
+            window.copy_button,
+        ):
+            part.show()
+        for part in window._pasting_parts():
+            part.setVisible(pasting)
+        window._fit()
+        return window
+
+    return build
+
+
+def _dropbox_wrong_code(stage: Stage) -> QWidget:
+    window = _dropbox_waiting(True)(stage)
+    window.code.setText("sl.u.not-a-code-dropbox-gave")
+    window._fail(
+        window.tr(
+            "That code didn't sign you in. Check it, or choose Sign in with your browser… again."
+        ),
+        window.code,
+    )
+    return window
+
+
+def _dropbox_failing(error: Exception) -> Callable[[Stage], QWidget]:
+    def build(stage: Stage) -> QWidget:
+        window = _dropbox_sign_in(stage)
+        window._sign_in_failed(error)
+        return window
+
+    return build
+
+
+def _dropbox_failing_after(error: Exception) -> Callable[[Stage], QWidget]:
+    """Signed in, and then Dropbox failed."""
+
+    def build(stage: Stage) -> QWidget:
+        window = _dropbox_sign_in(stage)
+        window._failed(error)
+        return window
+
+    return build
+
+
+def _dropbox_checking(stage: Stage) -> QWidget:
+    window = _dropbox_sign_in(stage)
+    window._job = cast("Job", object())  # as long as there is one, it is busy
+    window._say(window.tr("Checking %1…").replace("%1", "Dropbox"))
+    window._update_buttons()
+
+    def over() -> None:
+        window._job = None
+
+    stage.at_end(over)
+    return window
+
+
+def _dropbox_new_folder(stage: Stage) -> QWidget:
+    window = _dropbox_sign_in(stage)
+    window._show_recovery_state()
+    window._show(window.absent_page)
+    return window
+
+
+def _dropbox_signed_out(stage: Stage) -> QWidget:
+    """Dropbox turned the refresh token kept down: signed in to anew."""
+    kept = Login(VAULT, DROPBOX, "", DROPBOX_ACCOUNT, PASSWORD, {})
+    return stage.keep(TurnOnSync(_setup(None, dropbox=True), None, kept, True))
+
+
+def _dropbox_synced(user: str = DROPBOX_ACCOUNT) -> Callable[[], FakeSyncing]:
+    return lambda: FakeSyncing(_others(), user=user, kind=DROPBOX)
+
+
+def _dropbox_stopped(why: Stopped) -> Callable[[], FakeSyncing]:
+    return lambda: _dropbox_synced()().round_was(Outcome(why))
+
+
+def _dropbox_disconnect(stage: Stage) -> DisconnectSync:
+    syncing = stage.keep(_dropbox_synced()())
     return stage.keep(DisconnectSync(cast("Syncing", syncing), lambda: None))
 
 
@@ -1201,4 +1320,28 @@ SCENES: list[Scene] = [
         _menu(_onedrive_stopped(Stopped.SIGN_IN)),
         keyboard=False,
     ),
+    Scene("dropbox-turn-on-2-choose", _dropbox_choosing),
+    Scene("dropbox-turn-on-3-sign-in", _dropbox_sign_in),
+    Scene("dropbox-turn-on-3-waiting", _dropbox_waiting(False)),
+    Scene("dropbox-turn-on-3-pasting", _dropbox_waiting(True)),
+    Scene("dropbox-turn-on-3-wrong-code", _dropbox_wrong_code),
+    Scene("dropbox-turn-on-3-declined", _dropbox_failing(SignInFailedError(declined=True))),
+    Scene("dropbox-turn-on-3-blocked", _dropbox_failing(NoAccessError())),
+    Scene("dropbox-turn-on-3-busy", _dropbox_failing(TooBusyError())),
+    Scene("dropbox-turn-on-3-unreachable", _dropbox_failing(UnavailableError())),
+    Scene("dropbox-turn-on-3-checking", _dropbox_checking),
+    Scene(
+        "dropbox-turn-on-3-dropbox-unreachable",
+        _dropbox_failing_after(UnavailableError(answered=True)),
+    ),
+    Scene("dropbox-turn-on-4-new", _dropbox_new_folder),
+    Scene("dropbox-turn-on-again-sign-in", _dropbox_signed_out),
+    Scene("dropbox-connections-synced", _page_showing(_dropbox_synced())),
+    Scene("dropbox-connections-unnamed", _page_showing(_dropbox_synced(""))),
+    Scene("dropbox-connections-signed-out", _page_showing(_dropbox_stopped(Stopped.SIGN_IN))),
+    Scene("dropbox-connections-blocked", _page_showing(_dropbox_stopped(Stopped.NO_ACCESS))),
+    Scene("dropbox-disconnect", _dropbox_disconnect),
+    Scene("dropbox-manager-told-signed-out", _manager(_dropbox_stopped(Stopped.SIGN_IN))),
+    Scene("dropbox-manager-told-blocked", _manager(_dropbox_stopped(Stopped.NO_ACCESS))),
+    Scene("dropbox-tray-menu-signed-out", _menu(_dropbox_stopped(Stopped.SIGN_IN)), keyboard=False),
 ]

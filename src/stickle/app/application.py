@@ -122,6 +122,7 @@ if TYPE_CHECKING:
     from stickle.sync.engine import FirstLook
     from stickle.sync.keys import Follow
     from stickle.sync.secret_key import SecretFollow, SecretOther
+    from stickle.sync.targets.dropbox import App as DropboxApp
     from stickle.sync.targets.onedrive import App as OneDriveApp
 
 APP_ID = "co.linkro.stickle"
@@ -1371,6 +1372,11 @@ def run(
 
                 return registered()
 
+            def dropbox() -> DropboxApp | None:
+                from stickle.sync.targets.dropbox import registered
+
+                return registered()
+
             def keep_joined_recovery_key(public: bytes) -> None:
                 """Joined with it, typed: the user has the vault's recovery key."""
                 try:
@@ -1390,6 +1396,7 @@ def run(
                 unlock.secret_notes_kept_for,
                 keep_joined_recovery_key,
                 onedrive,
+                dropbox,
             )
         # Before any note opens: each offers to become a secret note.
         manager.secrets = secret_passwords(

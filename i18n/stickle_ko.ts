@@ -827,6 +827,10 @@ These files are not encrypted: keep them somewhere safe.</source>
         <translation>이 PC에 저장한 서버 비밀번호도 지웁니다.</translation>
     </message>
     <message>
+        <source>This signs Stickle out of %1.</source>
+        <translation>%1에서 Stickle을 로그아웃합니다.</translation>
+    </message>
+    <message>
         <source>To remove Stickle&apos;s access from your Microsoft account too, remove it under &apos;%1&apos;.</source>
         <translation>Microsoft 계정에서 Stickle의 허락까지 없애려면 계정의 &apos;%1&apos;에서 Stickle을 지우세요.</translation>
     </message>
@@ -4177,20 +4181,20 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>· %1 — WebDAV와 동기화하려고</translation>
     </message>
     <message>
-        <source>· %1 — to sync with OneDrive and sign in</source>
-        <translation>· %1 — OneDrive와 동기화하고 로그인하려고</translation>
-    </message>
-    <message>
         <source>· %1 — a daily check for a new version (you can turn it off in General)</source>
         <translation>· %1 — 하루에 한 번 새 버전 확인(일반 칸에서 끌 수 있음)</translation>
     </message>
     <message>
-        <source>Microsoft shows Stickle&apos;s developer totals, such as how many people sync with Stickle and how many sync requests it makes. It doesn&apos;t show who you are or anything in your notes.</source>
-        <translation>Microsoft는 Stickle의 동기화를 사용하는 사람 수, 동기화 요청 수 같은 합계를 Stickle 개발자에게 보여 줍니다. 누가 연결했는지와 메모 내용은 보이지 않습니다.</translation>
+        <source>· %1 — to sync with %2 and sign in</source>
+        <translation>· %1 — %2와 동기화하고 로그인하려고</translation>
     </message>
     <message>
-        <source>If Microsoft blocks Stickle, syncing with OneDrive stops. Your notes stay on this computer, and you can switch to another cloud.</source>
-        <translation>Microsoft가 Stickle의 연결을 막으면 OneDrive로는 동기화할 수 없게 됩니다. 메모는 이 PC에 그대로 있고, 다른 클라우드로 바꿀 수 있습니다.</translation>
+        <source>%1 shows Stickle&apos;s developer totals, such as how many people sync with Stickle and how many sync requests it makes. It doesn&apos;t show who you are or anything in your notes.</source>
+        <translation>%1는 Stickle의 동기화를 사용하는 사람 수, 동기화 요청 수 같은 합계를 Stickle 개발자에게 보여 줍니다. 누가 연결했는지와 메모 내용은 보이지 않습니다.</translation>
+    </message>
+    <message>
+        <source>If %1 blocks Stickle, syncing with %2 stops. Your notes stay on this computer, and you can switch to another cloud.</source>
+        <translation>%1가 Stickle의 연결을 막으면 %2로는 동기화할 수 없게 됩니다. 메모는 이 PC에 그대로 있고, 다른 클라우드로 바꿀 수 있습니다.</translation>
     </message>
     <message>
         <source>OneDrive (personal account)</source>
@@ -4773,8 +4777,32 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>어디로 동기화할까요?</translation>
     </message>
     <message>
+        <source>&amp;Dropbox</source>
+        <translation>Dropbox(&amp;D)</translation>
+    </message>
+    <message>
         <source>&amp;WebDAV — your own server, such as Nextcloud or a Synology NAS</source>
         <translation>WebDAV(&amp;W) — Nextcloud, 시놀로지 NAS 같은 내 서버</translation>
+    </message>
+    <message>
+        <source>If the page shows a different %1 account, sign out on the %1 website first, then choose Sign in with your browser… again.</source>
+        <translation>페이지에 다른 %1 계정이 보이면, %1 웹사이트에서 먼저 로그아웃한 뒤 [브라우저에서 로그인…]을 다시 누르세요.</translation>
+    </message>
+    <message>
+        <source>Paste the code shown on the %1 page.</source>
+        <translation>%1 페이지에 보이는 코드를 붙여 넣으세요.</translation>
+    </message>
+    <message>
+        <source>Co&amp;de:</source>
+        <translation>코드(&amp;D):</translation>
+    </message>
+    <message>
+        <source>Code</source>
+        <translation>코드</translation>
+    </message>
+    <message>
+        <source>C&amp;onnect</source>
+        <translation>연결(&amp;O)</translation>
     </message>
     <message>
         <source>Server &amp;address:</source>
@@ -4889,6 +4917,26 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>다음(&amp;N)</translation>
     </message>
     <message>
+        <source>That code didn&apos;t sign you in. Check it, or choose Sign in with your browser… again.</source>
+        <translation>이 코드로는 로그인하지 못했습니다. 코드를 확인하거나 [브라우저에서 로그인…]을 다시 누르세요.</translation>
+    </message>
+    <message>
+        <source>%1 has blocked Stickle. Until a new version fixes this, you can use another cloud.</source>
+        <translation>%1가 Stickle의 연결을 막았습니다. 새 버전에서 고칠 때까지 다른 클라우드를 쓸 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>%1 isn&apos;t taking requests right now. Try again in a little while.</source>
+        <translation>%1가 지금 요청을 받지 않습니다. 잠시 뒤 다시 해 보세요.</translation>
+    </message>
+    <message>
+        <source>Couldn&apos;t reach %1. Check your network and try again.</source>
+        <translation>%1에 연결하지 못했습니다. 네트워크를 확인하고 다시 해 보세요.</translation>
+    </message>
+    <message>
+        <source>Checking %1…</source>
+        <translation>%1를 확인하는 중입니다…</translation>
+    </message>
+    <message>
         <source>A server outside your home network needs an https address.</source>
         <translation>집 밖의 서버는 https 주소만 됩니다.</translation>
     </message>
@@ -4913,12 +4961,16 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>이 계정은 이 주소의 폴더에 쓸 수 없습니다. 서버에서 권한을 확인하세요.</translation>
     </message>
     <message>
-        <source>&amp;OneDrive — a personal Microsoft account. Work or school accounts don&apos;t work yet.</source>
-        <translation>OneDrive(&amp;O) — Microsoft 개인 계정. 회사·학교 계정은 아직 안 됩니다.</translation>
+        <source>In %1 and %2, Stickle uses only its own folder and can&apos;t see your other files.</source>
+        <translation>%1·%2에서는 Stickle 전용 폴더에만 쓰고, 다른 파일은 보지 않습니다.</translation>
     </message>
     <message>
-        <source>In OneDrive, Stickle uses only its own folder and can&apos;t see your other files.</source>
-        <translation>OneDrive에서는 Stickle 전용 폴더에만 쓰고, 다른 파일은 보지 않습니다.</translation>
+        <source>In %1, Stickle uses only its own folder and can&apos;t see your other files.</source>
+        <translation>%1에서는 Stickle 전용 폴더에만 쓰고, 다른 파일은 보지 않습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;OneDrive — a personal Microsoft account. Work or school accounts don&apos;t work yet.</source>
+        <translation>OneDrive(&amp;O) — Microsoft 개인 계정. 회사·학교 계정은 아직 안 됩니다.</translation>
     </message>
     <message>
         <source>Sign in on the page that opened in your browser and allow Stickle. When you&apos;re done, you&apos;ll continue in this window.</source>
@@ -4953,24 +5005,8 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>Stickle을 허용하지 않아 로그인을 마치지 못했습니다. 동기화하려면 다시 로그인해 Stickle을 허용하세요.</translation>
     </message>
     <message>
-        <source>Couldn&apos;t reach Microsoft. Check your network and try again.</source>
-        <translation>Microsoft에 연결하지 못했습니다. 네트워크를 확인하고 다시 해 보세요.</translation>
-    </message>
-    <message>
         <source>Sign-in didn&apos;t finish. Try again.</source>
         <translation>로그인을 마치지 못했습니다. 다시 해 보세요.</translation>
-    </message>
-    <message>
-        <source>Microsoft has blocked Stickle. Until a new version fixes this, you can use another cloud.</source>
-        <translation>Microsoft가 Stickle의 연결을 막았습니다. 새 버전에서 고칠 때까지 다른 클라우드를 쓸 수 있습니다.</translation>
-    </message>
-    <message>
-        <source>Microsoft isn&apos;t taking requests right now. Try again in a little while.</source>
-        <translation>Microsoft가 지금 요청을 받지 않습니다. 잠시 뒤 다시 해 보세요.</translation>
-    </message>
-    <message>
-        <source>Checking OneDrive…</source>
-        <translation>OneDrive를 확인하는 중입니다…</translation>
     </message>
     <message>
         <source>There&apos;s no WebDAV folder at that address. Check the address.</source>
@@ -4983,10 +5019,6 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>This is not a recovery key as written: a character may be missing, extra or mistyped. Please check it again.</source>
         <translation>복구 키 형식이 맞지 않습니다. 빠지거나 더 들어가거나 잘못 적은 글자가 있을 수 있습니다. 다시 확인해 주세요.</translation>
-    </message>
-    <message>
-        <source>Couldn&apos;t reach OneDrive. Check your network and try again.</source>
-        <translation>OneDrive에 연결하지 못했습니다. 네트워크를 확인하고 다시 해 보세요.</translation>
     </message>
     <message>
         <source>Couldn&apos;t reach the server. Check the address and your network, then try again.</source>

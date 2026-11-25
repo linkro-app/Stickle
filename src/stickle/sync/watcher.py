@@ -9,10 +9,12 @@ now and then while it is (SAFETY_NET) and every few minutes while it is not
 (rounds_every). A device's own file is written when it put something (or once
 a day), so a feed of devices/ tells of every change once, not of each file.
 
-The cursor is taken as it starts, before the first round looks, so nothing
-changed in between goes untold; it moves on past each change seen. A cursor
-too old to follow is taken anew, and a round looks, for what changed meanwhile
-is not known. When in doubt (what changed cannot be read), a round looks.
+The cursor is taken as it starts, and a round is told to look once it is:
+what changed before the cursor is that round's to find, what changes after
+it the feed's, so nothing goes untold whenever the rounds' own look was. It
+moves on past each change seen. A cursor too old to follow is taken anew, and
+a round looks likewise. When in doubt (what changed cannot be read), a round
+looks.
 
 A failure is tried again after a pause: half a minute, then twice as long each
 time, up to five minutes (or as long as the cloud asks). It never holds up a
@@ -121,15 +123,12 @@ class Watcher:
 
     def _watch(self) -> None:
         cursor: str | None = None
-        taken_anew = False  # a round to look once there is a cursor again
         pause = self._first_pause
         while not self._over():
             try:
                 if cursor is None:
                     cursor = self._feed.latest()
-                    if taken_anew:
-                        taken_anew = False
-                        self._tell()
+                    self._tell()  # what changed before it is not known: a round looks
                 waited = self._feed.wait(cursor)
                 if self._over():
                     return
@@ -148,7 +147,7 @@ class Watcher:
                 if waited.backoff:
                     self._pause(waited.backoff)
             except CursorExpiredError:
-                cursor, taken_anew = None, True
+                cursor = None
             except SignInNeededError, NoAccessError:
                 self._say(False)
                 return

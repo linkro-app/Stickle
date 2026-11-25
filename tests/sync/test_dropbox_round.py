@@ -112,7 +112,8 @@ def watchers() -> Iterator[list[Watcher]]:
 
 
 def watching(pc: Pc, box: DropboxState, watchers: list[Watcher]) -> Told:
-    """pc's watcher on devices/, started, its first wait under way."""
+    """pc's watcher on devices/, started, its first wait under way: what it
+    told of taking its cursor heard (a round looks, whatever changed before)."""
     told = Told()
     waits = len(box.requests(NOTIFY))
     watcher = Watcher(pc.target.feed(DEVICES), told.changed, told.work, first_pause=0.05)
@@ -120,6 +121,7 @@ def watching(pc: Pc, box: DropboxState, watchers: list[Watcher]) -> Told:
     watcher.start()
     for _ in range(int(SOON / 0.02)):
         if len(box.requests(NOTIFY)) > waits:
+            assert told.told()
             return told
         time.sleep(0.02)
     raise AssertionError("it never waited")
@@ -369,6 +371,7 @@ def test_a_change_brings_the_other_ones_round_forward(
     watcher.start()
     try:
         assert told.said.wait(SOON) and told.working == [True]
+        assert rounds.acquire(timeout=SOON)  # the one the cursor asked for
 
         laptop.notes.create("written on the laptop")
         laptop.sync()

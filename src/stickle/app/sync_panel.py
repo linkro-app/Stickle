@@ -28,10 +28,11 @@ from PySide6.QtWidgets import (
 )
 
 from stickle.app.background import Job
+from stickle.app.sync_status import BLOCKERS
 from stickle.app.times import day_text
 from stickle.core.updates import FEED_HOST
 from stickle.data.settings import DEVICE_NAME_LONGEST, SYNC_EVERY_CHOICES
-from stickle.data.sync_connection import ONEDRIVE
+from stickle.data.sync_connection import DROPBOX, ONEDRIVE, WEBDAV
 from stickle.sync.devices import Other
 from stickle.sync.outcome import Stopped
 
@@ -76,6 +77,18 @@ def _no_gap(layout: QVBoxLayout | QHBoxLayout) -> None:
 def server_of(address: str) -> str:
     """The server of an address as kept: its name, and its port if it has one."""
     return urlsplit(address).netloc
+
+
+def hosts(kind: str) -> list[str]:
+    """Where a cloud reached through an app registered there is connected to,
+    as its target does (not the sign-in page: that is the browser's)."""
+    if kind == DROPBOX:
+        from stickle.sync.targets import dropbox
+
+        return dropbox.DROPBOX.hosts
+    from stickle.sync.targets.onedrive import MICROSOFT
+
+    return MICROSOFT.hosts
 
 
 def on_one_line(name: str) -> str:
@@ -143,11 +156,14 @@ class DisconnectSync(QDialog):
         self._syncing = syncing
         self._disconnected = disconnected
         self._leaving = False
-        onedrive = syncing.login.kind == ONEDRIVE
+        kind = syncing.login.kind
+        onedrive = kind == ONEDRIVE
         self.turns_off = _wrapped(self)
         self.folder_stays = _wrapped(self)
         self.password_goes = _wrapped(self)
-        self.password_goes.setVisible(not onedrive)
+        self.password_goes.setVisible(kind == WEBDAV)
+        self.signs_out = _wrapped(self)  # Dropbox: its refresh token revoked
+        self.signs_out.setVisible(kind == DROPBOX)
         self.access_stays = _wrapped(self)  # what Microsoft still lets Stickle do
         self.access_stays.setVisible(onedrive)
         self.access_button = QPushButton(self)
@@ -171,7 +187,13 @@ class DisconnectSync(QDialog):
         access.addWidget(self.access_button)
         access.addStretch(1)
         layout = QVBoxLayout(self)
-        for label in (self.turns_off, self.folder_stays, self.password_goes, self.access_stays):
+        for label in (
+            self.turns_off,
+            self.folder_stays,
+            self.password_goes,
+            self.signs_out,
+            self.access_stays,
+        ):
             layout.addWidget(label)
         layout.addLayout(access)
         layout.addWidget(self.message)
@@ -192,6 +214,9 @@ class DisconnectSync(QDialog):
         )
         self.password_goes.setText(
             self.tr("The server password saved on this computer is deleted too.")
+        )
+        self.signs_out.setText(
+            self.tr("This signs Stickle out of %1.").replace("%1", self._syncing.cloud_name)
         )
         self.access_stays.setText(
             self.tr(
@@ -281,6 +306,10 @@ class SyncPanel(QWidget):
         self.every_box.setCurrentIndex(self.every_box.findData(syncing.looks_every()))
         self.every_box.activated.connect(self._every_chosen)
         self.every_note = _small(self)
+        # Dropbox tells of a change as it is made: how often to look is not the user's.
+        self._every_shown = syncing.login.kind != DROPBOX
+        for part in (self.every_label, self.every_box, self.every_note):
+            part.setVisible(self._every_shown)
         self.computers_title = _wrapped(self)
         self.computers = QListWidget(self)
         self.computers.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -328,10 +357,11 @@ class SyncPanel(QWidget):
         self.retranslate()
 
     def tab_order(self) -> list[QWidget]:
+        every = [self.every_box] if self._every_shown else []
         return [
             self.review_button,
             self.sync_now_button,
-            self.every_box,
+            *every,
             self.computers,
             self.rename_button,
             self.disconnect_button,
@@ -341,12 +371,11 @@ class SyncPanel(QWidget):
         """Where the app connects, line by line; for a cloud reached through an
         app registered there, what the cloud tells its developer, after."""
         login = self.syncing.login
-        onedrive = login.kind == ONEDRIVE
-        if onedrive:
-            from stickle.sync.targets.onedrive import MICROSOFT
-
-            cloud = self.tr("· %1 — to sync with OneDrive and sign in").replace(
-                "%1", ", ".join(MICROSOFT.hosts)
+        name = self.syncing.cloud_name
+        blocker = BLOCKERS.get(login.kind)
+        if blocker is not None:
+            cloud = _filled(
+                self.tr("· %1 — to sync with %2 and sign in"), ", ".join(hosts(login.kind)), name
             )
         else:
             cloud = self.tr("· %1 — to sync with WebDAV").replace("%1", server_of(login.address))
@@ -357,25 +386,36 @@ class SyncPanel(QWidget):
                     "· %1 — a daily check for a new version (you can turn it off in General)"
                 ).replace("%1", FEED_HOST)
             )
-        if onedrive:
+        if blocker is not None:
             lines += [
                 "",
-                self.tr(
-                    "Microsoft shows Stickle's developer totals, such as how many people sync"
-                    " with Stickle and how many sync requests it makes. It doesn't show who you"
-                    " are or anything in your notes."
+                _filled(
+                    self.tr(
+                        "%1 shows Stickle's developer totals, such as how many people sync"
+                        " with Stickle and how many sync requests it makes. It doesn't show who"
+                        " you are or anything in your notes."
+                    ),
+                    blocker,
                 ),
-                self.tr(
-                    "If Microsoft blocks Stickle, syncing with OneDrive stops. Your notes stay on"
-                    " this computer, and you can switch to another cloud."
+                _filled(
+                    self.tr(
+                        "If %1 blocks Stickle, syncing with %2 stops. Your notes stay on this"
+                        " computer, and you can switch to another cloud."
+                    ),
+                    blocker,
+                    name,
                 ),
             ]
         return "\n".join(lines)
 
     def _account_line(self) -> str:
         login = self.syncing.login
-        if login.kind == ONEDRIVE:
-            cloud = self.tr("OneDrive (personal account)")
+        if login.kind in (ONEDRIVE, DROPBOX):
+            cloud = (
+                self.tr("OneDrive (personal account)")
+                if login.kind == ONEDRIVE
+                else self.syncing.cloud_name
+            )
             return f"{cloud} · {login.user}" if login.user else cloud
         return f"{self.syncing.cloud_name} · {server_of(login.address)} · {login.user}"
 

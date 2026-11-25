@@ -5,12 +5,20 @@ what they bring shown here.
 Imported only when this device syncs: a run with sync off does not load it.
 What it takes to reach a cloud (TLS, HTTP) is loaded by the thread, when it
 first needs it, so a start is not held up by it.
+
+With Dropbox, a watcher on its long poll (stickle.sync.watcher) runs beside the
+rounds, on a thread of its own: started once a round has been through (devices/
+is there then, with this device's file in it), it brings a round forward when
+another device changes something, and has them look only now and then while it
+works. It ends with them, as the user quits or leaves, or as sync stops until
+the user signs in again.
 """
 
 import gc
 import logging
+import threading
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -40,7 +48,7 @@ from stickle.data.database import open_database
 from stickle.data.notes import NoteRepository
 from stickle.data.record_stamps import SETTING
 from stickle.data.settings import DEVICE_NAME, SYNC_EVERY, Settings
-from stickle.data.sync_connection import ONEDRIVE, WEBDAV, Login
+from stickle.data.sync_connection import DROPBOX, ONEDRIVE, WEBDAV, Login
 from stickle.platform.clocks import since_start
 from stickle.sync import diagnostics
 from stickle.sync.devices import Other, others, this_device
@@ -56,7 +64,7 @@ from stickle.sync.format import DEVICES, item_path
 from stickle.sync.keys import Follow
 from stickle.sync.outcome import LONGEST_WAIT, Outcome, Stopped, after
 from stickle.sync.runner import Runner, Until
-from stickle.sync.schedule import START_WAIT, Schedule
+from stickle.sync.schedule import EVERY, START_WAIT, Schedule
 from stickle.sync.secret_key import SecretFollow, SecretOther
 from stickle.sync.targets.base import (
     AsRead,
@@ -67,7 +75,9 @@ from stickle.sync.targets.base import (
 )
 
 if TYPE_CHECKING:
+    from stickle.sync.targets.dropbox import App as DropboxApp
     from stickle.sync.targets.onedrive import App
+    from stickle.sync.watcher import Watcher
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +111,9 @@ SYNCED = frozenset(
 type TakeKeys = Callable[[str, Sequence[Follow], Sequence[SecretFollow | SecretOther]], object]
 # Those looked at again when the app starts: it may have been dealt with since.
 LOOKED_AT_AGAIN = {Stopped.BIG_CHANGE.value, Stopped.NEWER.value}
+# Stopped for these, sync goes on with a new connection (signed in anew), or once
+# the user asks: nothing is watched meanwhile.
+SIGNED_OUT = frozenset({Stopped.SIGN_IN, Stopped.NO_ACCESS})
 
 
 def cloud_time(connection: apsw.Connection, clocks: Clocks) -> CloudTime:
@@ -174,11 +187,17 @@ class _Rounds:
     cloud: CloudTime
     make_target: Callable[[Callable[[int, int], None], Callable[[], None]], Target] | None = None
     over: Callable[[], bool] = lambda: False
-    # Stickle as registered with Microsoft (None: as this build has it).
+    # Stickle as registered with Microsoft, and with Dropbox (None: as this build has it).
     onedrive: App | None = None
+    dropbox: DropboxApp | None = None
     # Told each new refresh token, once it is used from now on (and kept, if the login is).
     renewed_to: Callable[[str], None] | None = None
+    # Told after each round that went through, on sync's thread, of the target it
+    # reached the cloud with (as made, not as the rounds use it).
+    went_through: Callable[[Target], None] | None = None
+    _reached: Target | None = None
     _db: apsw.Connection | None = None
+    _home: threading.Thread | None = None  # the one the database is open on
     _target: Target | None = None
     failures: int = 0
     accept: bool = False  # the user lets the next round take in what it stopped for
@@ -191,6 +210,7 @@ class _Rounds:
     _stopped: str | None = None
     _offset: int = 0
     _renewal: tuple[str, str] | None = None  # (old, new) refresh token, to be kept
+    _renewing: threading.Lock = field(default_factory=threading.Lock)  # for those two
 
     def pairs(self) -> Mapping[str, SealedSlot]:
         """The key file B's pairs as they are now (looked at, never written: the
@@ -205,6 +225,7 @@ class _Rounds:
     def database(self) -> apsw.Connection:
         if self._db is None:
             self._db = open_database(self.store, self.key, wait_ms=WAIT_MS)
+            self._home = threading.current_thread()
             self._db.pragma("cache_size", -CACHE_KIB)
             self._stopped = self.login.stopped
             self._offset = self.cloud.offset
@@ -215,30 +236,40 @@ class _Rounds:
             sync_connection.no_longer_trusted(self.database())
 
     def _renewed(self, token: str) -> None:
-        """A new refresh token from Microsoft, on sync's thread: used from now
-        on, and kept in place of the one it renews if that is still the one
-        kept (not over a connection kept since)."""
-        old = self.login
-        self.login = replace(old, secret=token)
-        if self.kept:
-            first = old.secret if self._renewal is None else self._renewal[0]
-            self._renewal = (first, token)
-            self._keep_renewal()
+        """A new refresh token from the cloud, on sync's thread (or a watcher's):
+        used from now on, and kept in place of the one it renews if that is
+        still the one kept (not over a connection kept since)."""
+        with self._renewing:
+            old = self.login
+            self.login = replace(old, secret=token)
+            if self.kept:
+                first = old.secret if self._renewal is None else self._renewal[0]
+                self._renewal = (first, token)
+        self._keep_renewal()
         if self.renewed_to is not None:
             self.renewed_to(token)
 
     def _keep_renewal(self) -> None:
         """The refresh token renewed, kept once no transaction is open: a round
-        may renew it in the middle of one, which could yet be rolled back."""
-        renewal, db = self._renewal, self._db
-        if renewal is None or db is None or db.in_transaction:
+        may renew it in the middle of one, which could yet be rolled back. Only
+        on the thread the database is open on: on another, as the round ends."""
+        with self._renewing:
+            renewal = self._renewal
+        db = self._db
+        if renewal is None or db is None or threading.current_thread() is not self._home:
+            return
+        if db.in_transaction:
             return
         try:
             sync_connection.renew(db, self.login.vault, *renewal)
         except apsw.Error as error:  # tried again as the round ends
             log.warning("sync: the refresh token is not kept yet: %s", type(error).__name__)
             return
-        self._renewal = None
+        with self._renewing:
+            if self._renewal == renewal:
+                self._renewal = None
+            elif self._renewal is not None:  # renewed again meanwhile: from the one kept
+                self._renewal = (renewal[1], self._renewal[1])
 
     def _new_target(self) -> Target:
         return self._reach(self.cloud.heard, self._no_longer_trusted, renewed=self._renewed)
@@ -253,18 +284,24 @@ class _Rounds:
         login = self.login
         if self.make_target is not None:
             return self.make_target(heard, no_longer_trusted)
-        if login.kind == ONEDRIVE:
-            from stickle.sync.targets import onedrive
+        if login.kind in (ONEDRIVE, DROPBOX):
+            app: App | DropboxApp | None
+            if login.kind == ONEDRIVE:
+                from stickle.sync.targets import onedrive
 
-            app = self.onedrive or onedrive.registered()
+                app, longest = self.onedrive or onedrive.registered(), onedrive.TIMEOUT
+            else:
+                from stickle.sync.targets import dropbox
+
+                app, longest = self.dropbox or dropbox.registered(), dropbox.TIMEOUT
             if app is None:  # a build without Stickle registered: tried again later
-                log.info("sync: this build cannot reach OneDrive")
+                log.info("sync: this build cannot reach %s", cloud_name(login.kind))
                 raise UnavailableError(answered=True)
             return app.target(
                 login.secret,
                 renewed,
                 heard=heard,
-                timeout=onedrive.TIMEOUT if timeout is None else timeout,
+                timeout=longest if timeout is None else timeout,
             )
         if login.kind != WEBDAV:
             raise ValueError(login.kind)
@@ -280,29 +317,46 @@ class _Rounds:
             timeout=TIMEOUT if timeout is None else timeout,
         )
 
-    def take_device_off(self, device: str) -> None:
-        """This device's file gone from the vault, for the others to stop telling
-        of it. Off the thread of the rounds; if it cannot be done, it stays. Only
+    def sign_off(self, device: str) -> None:
+        """As sync is left, off the thread of the rounds: this device's file gone
+        from the vault, for the others to stop telling of it; then, with
+        Dropbox, Stickle signed out of the account (its refresh token, about to
+        be forgotten here, revoked). What cannot be done stays as it is. Only
         this device writes that file, so no condition: a server's weak tags
         would never meet one."""
-        path = item_path(DEVICES, device)
-        target: Until | None = None
         try:
-            target = Until(
-                self._reach(_heard_nothing, lambda: None, LEAVING_TIMEOUT), lambda: False
-            )
-            target.delete(path, AsRead(None))
-        except NotThereError:
-            pass
+            reached = self._reach(_heard_nothing, lambda: None, LEAVING_TIMEOUT)
         except Exception as error:  # the app goes on without it
             log.info("sync: this device stays listed: %s", type(error).__name__)
+            return
+        target = Until(reached, lambda: False)
+        try:
+            try:
+                target.delete(item_path(DEVICES, device), AsRead(None))
+            except NotThereError:
+                pass
+            except Exception as error:
+                log.info("sync: this device stays listed: %s", type(error).__name__)
+            if self.login.kind == DROPBOX:
+                self._sign_out(reached)
         finally:
-            if target is not None:
-                target.close()
+            target.close()
+
+    @staticmethod
+    def _sign_out(reached: Target) -> None:
+        from stickle.sync.targets.dropbox import Dropbox
+
+        if not isinstance(reached, Dropbox):
+            return
+        try:
+            reached.revoke()
+        except Exception as error:  # forgotten here all the same
+            log.info("sync: still signed in to Dropbox: %s", type(error).__name__)
 
     def place_of(self, db: apsw.Connection) -> Place:
         if self._target is None:
-            self._target = Until(self._new_target(), self.over)
+            self._reached = self._new_target()
+            self._target = Until(self._reached, self.over)
         login = self.login
         aside = self.store.parent / "quarantine"
         device = Settings(db).device_id()
@@ -372,6 +426,8 @@ class _Rounds:
             self.accept = False
         if db is not None:
             self._keep(db, outcome, report)
+        if error is None:
+            self._went_through()
         return Ended(
             report,
             outcome,
@@ -379,6 +435,14 @@ class _Rounds:
             backup_failed,
             self._backed_up,
         )
+
+    def _went_through(self) -> None:
+        if self.went_through is None or self._reached is None or self.over():
+            return
+        try:
+            self.went_through(self._reached)
+        except Exception as error:  # the rounds go on all the same
+            log.error("sync: after a round: %s", type(error).__name__)
 
     def _outcome(self, error: Exception | None, report: Report) -> Outcome:
         if isinstance(error, BackupFailedError):
@@ -420,7 +484,7 @@ class _Rounds:
     def close(self) -> None:
         if isinstance(self._target, Until):
             self._target.close()
-        self._target = None
+        self._target = self._reached = None
         self._keep_renewal()
         if self._db is not None:
             self._db.close()
@@ -435,6 +499,7 @@ def look_first(
     make_target: Callable[[Callable[[int, int], None], Callable[[], None]], Target] | None = None,
     renewed: Callable[[str], None] | None = None,
     onedrive: App | None = None,
+    dropbox: DropboxApp | None = None,
 ) -> FirstLook | None:
     """What merging this device's notes with those of the vault login opens would
     make, before anything of it is kept here: on a connection of its own to the
@@ -442,7 +507,14 @@ def look_first(
     be looked at. progress: told as the vault's notes are read. renewed: told a
     new refresh token, to sign in with from then on (nothing here keeps it)."""
     rounds = _Rounds(
-        store, key, login, CloudTime(since_start, 0), make_target, kept=False, onedrive=onedrive
+        store,
+        key,
+        login,
+        CloudTime(since_start, 0),
+        make_target,
+        kept=False,
+        onedrive=onedrive,
+        dropbox=dropbox,
     )
     rounds.progress = progress
     rounds.renewed_to = renewed
@@ -477,21 +549,26 @@ class Syncing(QObject):
         start_wait: float = START_WAIT,
         take_keys: TakeKeys | None = None,
         onedrive: App | None = None,
+        dropbox: DropboxApp | None = None,
     ) -> None:
         """store, key: the notes database. make_target: how to reach the cloud,
         if not as login says (given the two things to tell of what it hears).
         start_wait: seconds from now to the first round of its own. take_keys:
-        what takes the vault's recovery key or master password here. onedrive:
-        Stickle as registered with Microsoft, if not as this build has it."""
+        what takes the vault's recovery key or master password here. onedrive,
+        dropbox: Stickle as registered there, if not as this build has it."""
         super().__init__()
         self._connection = connection
         self._manager = manager
         self._reminders = reminders
         self._take_keys = take_keys
-        self._rounds = _Rounds(store, key, login, cloud, make_target, onedrive=onedrive)
+        self._rounds = _Rounds(
+            store, key, login, cloud, make_target, onedrive=onedrive, dropbox=dropbox
+        )
         self._rounds.progress = self.moving.emit  # sent from sync's thread: heard on this one
         self._rounds.editing = manager.editing
-        every = Settings(connection).get(SYNC_EVERY)
+        self._rounds.went_through = self._watch
+        # Dropbox's rounds go by how its watcher goes, not as the user set them.
+        every = EVERY if login.kind == DROPBOX else Settings(connection).get(SYNC_EVERY)
         stopped = login.stopped is not None and login.stopped not in LOOKED_AT_AGAIN
         self.runner = Runner(
             Schedule(self._now(), every, stopped, start_wait),
@@ -528,6 +605,9 @@ class Syncing(QObject):
         self._looking_again = QTimer(self)
         self._looking_again.setSingleShot(True)
         self._looking_again.timeout.connect(self.left)
+        self._watching = threading.Lock()  # for the two below
+        self._watcher: Watcher | None = None
+        self._watched = False  # no watcher from now on
 
     @staticmethod
     def _now() -> float:
@@ -565,6 +645,47 @@ class Syncing(QObject):
 
     def woke(self) -> None:
         self.runner.woke()
+        with self._watching:
+            watcher = self._watcher
+        if watcher is not None:  # its wait may be on a connection gone
+            watcher.again()
+
+    def _watch(self, target: Target) -> None:
+        """On sync's thread, once a round with Dropbox has been through: its
+        long poll watched from now on (if it is not already), for another
+        device's change to bring a round forward, rounds looking only now and
+        then while it works."""
+        if self.login.kind != DROPBOX:
+            return
+        from stickle.sync.targets.dropbox import Dropbox
+        from stickle.sync.watcher import Watcher, rounds_every
+
+        if not isinstance(target, Dropbox):
+            return
+        runner = self.runner
+        with self._watching:
+            if self._watcher is not None or self._watched:
+                return
+            self._watcher = Watcher(
+                target.feed(DEVICES),
+                runner.changed_elsewhere,
+                lambda working: runner.set_every(rounds_every(working)),
+            )
+            self._watcher.start()
+
+    def _stop_watching(self) -> None:
+        """No more long polls from now on, the one under way cut; rounds look
+        every few minutes again."""
+        with self._watching:
+            self._watched = True
+            watcher = self._watcher
+        if watcher is not None:
+            watcher.stop(0.0)
+            self.runner.set_every(EVERY)
+
+    def _still_watching(self) -> bool:
+        with self._watching:
+            return self._watcher is not None and self._watcher.running
 
     def hurry(self) -> None:
         """Send what is waiting now: the app may not go on for long (a session ending)."""
@@ -642,7 +763,8 @@ class Syncing(QObject):
 
     def set_looks_every(self, seconds: int) -> None:
         Settings(self._connection).set(SYNC_EVERY, seconds)
-        self.runner.set_every(seconds)
+        if self.login.kind != DROPBOX:  # its watcher sets it
+            self.runner.set_every(seconds)
 
     # What the user decides (the windows that ask are elsewhere)
 
@@ -712,6 +834,8 @@ class Syncing(QObject):
         """On the app's thread: what the round brought, on screen."""
         if self._finished:  # sent before it ended, and the app is ending too
             return
+        if ended.outcome.stopped in SIGNED_OUT:
+            self._stop_watching()
         report = ended.report
         if (report.follows or report.secret) and self._take_keys is not None:
             self._take_keys(self.login.vault, report.follows, report.secret)
@@ -783,8 +907,9 @@ class Syncing(QObject):
     # Leaving, with the app going on
 
     def leaving(self) -> None:
-        """On the app's thread, first: what is typed is saved, and nothing
-        changed from now on is told of."""
+        """On the app's thread, first: what is typed is saved, nothing changed
+        from now on is told of, and nothing is watched."""
+        self._stop_watching()
         self._stop_looking_for_unsent()
         self._manager.save_all()
         self._connection.set_update_hook(None)
@@ -798,14 +923,15 @@ class Syncing(QObject):
 
     def leave(self) -> None:
         """Off the app's thread: rounds end, what is waiting to be put getting
-        as long as when the user quits, and this device comes off the list."""
+        as long as when the user quits, and this device comes off the list
+        (signed out, with Dropbox)."""
         self.runner.finish(QUIT_WAIT)
-        self._rounds.take_device_off(self._leaving_as)
+        self._rounds.sign_off(self._leaving_as)
 
     def left(self) -> None:
         """On the app's thread, last. A request still out (it takes no more
         than its own time) keeps garbage collected here until it is back."""
-        if self.runner.running:
+        if self.runner.running or self._still_watching():
             self._looking_again.start(LOOK_AGAIN_MS)
             return
         self._collector.stop()
@@ -815,12 +941,13 @@ class Syncing(QObject):
     def finish(self, seconds: float) -> None:
         """Ends it; seconds: how long what is waiting to be put may take."""
         self._finished = True
+        self._stop_watching()
         self._stop_looking_for_unsent()
         self._connection.set_update_hook(None)
         self._notice()
         self._collector.stop()
         self.runner.finish(seconds)
-        if not self.runner.running:
+        if not self.runner.running and not self._still_watching():
             gc.enable()
 
     def ended(self, seconds: float) -> bool:

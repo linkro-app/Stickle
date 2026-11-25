@@ -1,5 +1,5 @@
 """Turning sync on, in one window going from step to step: what it is, where to,
-the server (or signing in to OneDrive in the browser), and the Stickle folder
+the server (or signing in to OneDrive or Dropbox in the browser), and the Stickle folder
 there (made, or opened with what the other computers open it with), then the
 first round going on.
 
@@ -22,14 +22,16 @@ key. A folder there is never made over. Nothing of the connection kept changes
 until the new one is kept in its place. Stopped with the server turning down
 the password kept, it starts with the password to type anew: the one turned
 down is not sent again (servers count those, and lock the account out).
-OneDrive likewise starts from signing in anew, when Microsoft turned the
-refresh token down.
+OneDrive and Dropbox likewise start from signing in anew, when the cloud turned
+the refresh token down.
 
-OneDrive is signed in to in the browser: a listener on this computer hears
-the browser sent back, for as long as the step waits for it, and is closed
-however that ends (signing in again, going back, cancelling, closing). Each new
-refresh token Microsoft gives on the way is the one kept, should sync be turned
-on; signing in and cancelling keeps none.
+OneDrive and Dropbox are signed in to in the browser: a listener on this
+computer hears the browser sent back, for as long as the step waits for it, and
+is closed however that ends (signing in again, going back, cancelling, closing).
+With every port registered with Dropbox taken, the user pastes the code Dropbox
+shows them instead, as many times as it takes. Each new refresh token the cloud
+gives on the way is the one kept, should sync be turned on; signing in and
+cancelling keeps none.
 
 Opened on request: this is what brings TLS and HTTP into a run.
 """
@@ -47,6 +49,7 @@ from PySide6.QtGui import (
     QFont,
     QFontDatabase,
     QGuiApplication,
+    QKeyEvent,
     QPalette,
     QResizeEvent,
     QShowEvent,
@@ -74,14 +77,14 @@ from stickle.app.secret_dialogs import (
 )
 from stickle.app.support import site_language
 from stickle.app.sync_setup import SyncGuideLine, SyncSetup
-from stickle.app.sync_status import MANY, SyncWords, cloud_name
+from stickle.app.sync_status import BLOCKERS, MANY, SyncWords, cloud_name
 from stickle.app.syncing import Ended
 from stickle.app.typed import forget_typed
 from stickle.crypto.following import digest_of
 from stickle.crypto.keyfile import KeyFileError
 from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
 from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY, DataKeys
-from stickle.data.sync_connection import ONEDRIVE, WEBDAV, Login
+from stickle.data.sync_connection import DROPBOX, ONEDRIVE, SIGNED_IN, WEBDAV, Login
 from stickle.sync.engine import GETTING, FirstLook
 from stickle.sync.format import NewerFormatError
 from stickle.sync.keys import newest
@@ -92,6 +95,9 @@ from stickle.sync.targets.base import (
     TooBusyError,
     UnavailableError,
 )
+from stickle.sync.targets.dropbox import App as DropboxApp
+from stickle.sync.targets.dropbox import Dropbox
+from stickle.sync.targets.onedrive import App as OneDriveApp
 from stickle.sync.targets.onedrive import OneDrive
 from stickle.sync.targets.sign_in import Pages, SignedIn, SignIn, SignInFailedError
 from stickle.sync.targets.webdav import (
@@ -246,12 +252,23 @@ class _Pages(QWidget):
             each.setVisible(each is page)
 
 
-type _Reached = WebDav | OneDrive
+type _Reached = WebDav | OneDrive | Dropbox
+
+
+class _CodeField(QLineEdit):
+    """Where the code Dropbox shows is pasted: Enter there enters it, and does
+    not go on to the window's next step as well."""
+
+    @override
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        super().keyPressEvent(event)
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            event.accept()
 
 
 class _Token:
-    """The refresh token to sign in to OneDrive with: the newest given, from
-    whichever thread is told of it."""
+    """The refresh token to sign in to OneDrive or Dropbox with: the newest
+    given, from whichever thread is told of it."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -292,13 +309,16 @@ class TurnOnSync(QDialog):
         self._setup = setup
         self._again = again
         self._onedrive = setup.onedrive()  # None: OneDrive is not offered
+        self._dropbox = setup.dropbox()  # nor Dropbox
         self._kind = WEBDAV if again is None else again.kind
         self._words = SyncWords(self)
         self._job: Job | None = None
         self._target: _Reached | None = None
-        # Signing in to OneDrive: the sign-in waited for, and its work.
+        # Signing in to OneDrive or Dropbox: the sign-in waited for, and its
+        # work; and a code pasted, being entered.
         self._signing: SignIn | None = None
         self._signing_job: Job | None = None
+        self._entering: Job | None = None
         self._sign_in_address = ""
         self._token = _Token()
         self._account: str | None = None
@@ -375,12 +395,12 @@ class TurnOnSync(QDialog):
         if again is None:
             self._show(self.intro_page)
             return
-        if again.kind == ONEDRIVE:
+        if again.kind in SIGNED_IN:
             self._account = again.user or None
             self._show(self.sign_in_page)
             if not signed_out:  # the refresh token was not turned down: on with it
                 self._token.set(again.secret)
-                self._reach_onedrive()
+                self._reach_cloud()
             return
         self.address.setText(again.address)
         self.user.setText(again.user)
@@ -410,23 +430,58 @@ class TurnOnSync(QDialog):
         page, layout = _page()
         self.choose_heading = _heading(page)
         self.onedrive_choice = QRadioButton(page)
+        self.dropbox_choice = QRadioButton(page)
         self.webdav_choice = QRadioButton(page)
-        offered = self._onedrive is not None
-        self.onedrive_choice.setVisible(offered)
-        (self.onedrive_choice if offered else self.webdav_choice).setChecked(True)
+        self.onedrive_choice.setVisible(self._onedrive is not None)
+        self.dropbox_choice.setVisible(self._dropbox is not None)
+        offered = [each for each in self._choices() if not each.isHidden()]
+        offered[0].setChecked(True)
         self.own_folder_note = _small(page)  # what a cloud of its own folder lets it see
-        self.own_folder_note.setVisible(offered)
+        self.own_folder_note.setVisible(bool(self._own_folders()))
         layout.addWidget(self.choose_heading)
-        layout.addWidget(self.onedrive_choice)
-        layout.addWidget(self.webdav_choice)
+        for choice in self._choices():
+            layout.addWidget(choice)
         layout.addWidget(self.own_folder_note)
         layout.addStretch(1)
         return page
+
+    def _choices(self) -> tuple[QRadioButton, ...]:
+        return (self.onedrive_choice, self.dropbox_choice, self.webdav_choice)
+
+    def _own_folders(self) -> list[str]:
+        """The clouds offered where Stickle has a folder of its own."""
+        apps = ((ONEDRIVE, self._onedrive), (DROPBOX, self._dropbox))
+        return [cloud_name(kind) for kind, app in apps if app is not None]
+
+    def _own_folder_sentence(self) -> str:
+        clouds = self._own_folders()
+        if len(clouds) > 1:
+            return (
+                self.tr(
+                    "In %1 and %2, Stickle uses only its own folder and can't see your other files."
+                )
+                .replace("%1", clouds[0])
+                .replace("%2", clouds[1])
+            )
+        return self.tr(
+            "In %1, Stickle uses only its own folder and can't see your other files."
+        ).replace("%1", clouds[0] if clouds else "")
+
+    def _signs_in(self) -> bool:
+        """Whether the chosen cloud is signed in to in the browser."""
+        return self._kind in SIGNED_IN
+
+    def _app(self) -> OneDriveApp | DropboxApp | None:
+        """Stickle as registered with the chosen cloud; None: not, by this build."""
+        if self._kind == ONEDRIVE:
+            return self._onedrive
+        return self._dropbox if self._kind == DROPBOX else None
 
     def _make_sign_in_page(self) -> QWidget:
         page, layout = _page()
         self.sign_in_heading = _heading(page)
         self.sign_in_waiting = _wrapped(page)
+        self.other_account_note = _small(page)  # Dropbox: it signs in as the browser is
         self.copy_line = _wrapped(page)
         self.copy_button = QPushButton(page)
         self.copy_button.setAutoDefault(False)
@@ -434,15 +489,46 @@ class TurnOnSync(QDialog):
         row = QHBoxLayout()
         row.addWidget(self.copy_button)
         row.addStretch(1)
-        for part in (self.sign_in_waiting, self.copy_line, self.copy_button):
+        # With every port Dropbox has registered taken: the code it shows, pasted.
+        self.paste_line = _wrapped(page)
+        self.code = _CodeField(page)
+        self.code_label = QLabel(page)
+        self.code_label.setBuddy(self.code)
+        self.code_button = QPushButton(page)
+        self.code_button.setAutoDefault(False)
+        self.code.returnPressed.connect(self._enter_code)
+        self.code.textChanged.connect(self._show_code_button)
+        self.code_button.clicked.connect(self._enter_code)
+        pasted = QHBoxLayout()
+        pasted.addWidget(self.code_label)
+        pasted.addWidget(self.code, 1)
+        pasted.addWidget(self.code_button)
+        for part in self._signing_parts():
             part.hide()  # until the browser is sent to sign in
         layout.addWidget(self.sign_in_heading)
         layout.addWidget(self.sign_in_waiting)
+        layout.addWidget(self.other_account_note)
         layout.addSpacing(8)
         layout.addWidget(self.copy_line)
         layout.addLayout(row)
+        layout.addSpacing(8)
+        layout.addWidget(self.paste_line)
+        layout.addLayout(pasted)
         layout.addStretch(1)
         return page
+
+    def _signing_parts(self) -> tuple[QWidget, ...]:
+        """What the sign-in page shows while the browser is out signing in."""
+        return (
+            self.sign_in_waiting,
+            self.other_account_note,
+            self.copy_line,
+            self.copy_button,
+            *self._pasting_parts(),
+        )
+
+    def _pasting_parts(self) -> tuple[QWidget, ...]:
+        return (self.paste_line, self.code_label, self.code, self.code_button)
 
     def _make_server_page(self) -> QWidget:
         page, layout = _page()
@@ -577,21 +663,32 @@ class TurnOnSync(QDialog):
                 "&OneDrive — a personal Microsoft account. Work or school accounts don't work yet."
             )
         )
+        self.dropbox_choice.setText(self.tr("&Dropbox"))
         self.webdav_choice.setText(
             self.tr("&WebDAV — your own server, such as Nextcloud or a Synology NAS")
         )
-        self.own_folder_note.setText(
-            self.tr("In OneDrive, Stickle uses only its own folder and can't see your other files.")
-        )
-        self.sign_in_heading.setText(cloud_name(ONEDRIVE))
+        self.own_folder_note.setText(self._own_folder_sentence())
+        self.sign_in_heading.setText(cloud_name(self._kind if self._signs_in() else ONEDRIVE))
         self.sign_in_waiting.setText(
             self.tr(
                 "Sign in on the page that opened in your browser and allow Stickle. When"
                 " you're done, you'll continue in this window."
             )
         )
+        self.other_account_note.setText(
+            self.tr(
+                "If the page shows a different %1 account, sign out on the %1 website first,"
+                " then choose Sign in with your browser… again."
+            ).replace("%1", cloud_name(DROPBOX))
+        )
         self.copy_line.setText(self.tr("If no browser opened, copy the address into one."))
         self.copy_button.setText(self.tr("&Copy the address"))
+        self.paste_line.setText(
+            self.tr("Paste the code shown on the %1 page.").replace("%1", cloud_name(DROPBOX))
+        )
+        self.code_label.setText(self.tr("Co&de:"))
+        self.code.setAccessibleName(self.tr("Code"))
+        self.code_button.setText(self.tr("C&onnect"))
         self.server_heading.setText(cloud_name(WEBDAV))
         self.address_label.setText(self.tr("Server &address:"))
         self.user_label.setText(self.tr("&User name:"))
@@ -658,7 +755,7 @@ class TurnOnSync(QDialog):
         self._update_buttons()
         focus: QWidget = self.next_button
         if page is self.choose_page:
-            focus = self.onedrive_choice if self.onedrive_choice.isChecked() else self.webdav_choice
+            focus = next(each for each in self._choices() if each.isChecked())
         elif page is self.server_page:
             focus = self.address
         elif page is self.present_page:
@@ -748,7 +845,7 @@ class TurnOnSync(QDialog):
         if page is self.present_page:
             return bool(self.way_in.text())
         if page is self.sign_in_page:
-            return self._onedrive is not None
+            return self._app() is not None
         return True
 
     # Messages
@@ -779,7 +876,7 @@ class TurnOnSync(QDialog):
 
     def _cloud_page(self) -> QWidget:
         """Where the chosen cloud is reached: its server, or signing in."""
-        return self.sign_in_page if self._kind == ONEDRIVE else self.server_page
+        return self.sign_in_page if self._signs_in() else self.server_page
 
     def _back(self) -> None:
         page = self.pages.current()
@@ -799,7 +896,8 @@ class TurnOnSync(QDialog):
         if page is self.intro_page:
             self._show(self.choose_page)
         elif page is self.choose_page:
-            self._kind = ONEDRIVE if self.onedrive_choice.isChecked() else WEBDAV
+            kinds = dict(zip(self._choices(), (ONEDRIVE, DROPBOX, WEBDAV), strict=True))
+            self._kind = next(kinds[each] for each in self._choices() if each.isChecked())
             self.retranslate()  # what is said of the Stickle folder names the cloud
             self._show(self._cloud_page())
         elif page is self.sign_in_page:
@@ -835,12 +933,13 @@ class TurnOnSync(QDialog):
         self._job = Job(work, ended)
         self._update_buttons()
 
-    # Signing in to OneDrive
+    # Signing in to OneDrive or Dropbox
 
     def _sign_in(self) -> None:
-        """The browser sent to sign in, and its coming back waited for; any
-        sign-in waited for before is let go of (its tab may have been closed)."""
-        app = self._onedrive
+        """The browser sent to sign in, and its coming back waited for (or the
+        code it shows, pasted); any sign-in waited for before is let go of (its
+        tab may have been closed)."""
+        app = self._app()
         assert app is not None
         self._end_sign_in()
         self._close_target()
@@ -859,11 +958,54 @@ class TurnOnSync(QDialog):
             return
         self._signing, self._sign_in_address = signing, address
         self._signing_job = Job(signing.wait, lambda outcome: self._signed_in(signing, outcome))
+        pasting = signing.pasting
         for part in (self.sign_in_waiting, self.copy_line, self.copy_button):
             part.show()
+        self.other_account_note.setVisible(self._kind == DROPBOX)
+        for part in self._pasting_parts():
+            part.setVisible(pasting)
+        self._show_code_button()
         self._fit()
         # Not opened, the address is there to copy.
         QDesktopServices.openUrl(QUrl.fromEncoded(QByteArray(address.encode("ascii"))))
+        if pasting:
+            self.code.setFocus()
+
+    def _show_code_button(self) -> None:
+        self.code_button.setEnabled(bool(self.code.text().strip()) and self._entering is None)
+
+    def _enter_code(self) -> None:
+        """The code pasted, exchanged for the tokens: the sign-in ends with them
+        (as the browser coming back would), or the user is told and may try again."""
+        signing, code = self._signing, self.code.text()
+        if signing is None or not signing.pasting or self._entering is not None:
+            return
+        if not code.strip():
+            return
+        self._clear_message()
+        self._entering = Job(
+            lambda: signing.enter(code), lambda outcome: self._entered(signing, outcome)
+        )
+        self.code.setEnabled(False)
+        self._show_code_button()
+
+    def _entered(self, signing: SignIn, outcome: object) -> None:
+        if signing is not self._signing:  # let go of meanwhile
+            return
+        self._entering = None
+        self.code.setEnabled(True)
+        self._show_code_button()
+        if not isinstance(outcome, Exception):
+            return  # signed in: told by the sign-in waited for
+        log.info("sync: a code entered: %s", type(outcome).__name__)
+        if type(outcome) is SignInFailedError:
+            said = self.tr(
+                "That code didn't sign you in. Check it, or choose Sign in with your browser…"
+                " again."
+            )
+        else:
+            said = self._sign_in_failure(outcome)
+        self._fail(said, self.code)
 
     def _copy_address(self) -> None:
         if self._sign_in_address:
@@ -871,14 +1013,18 @@ class TurnOnSync(QDialog):
 
     def _end_sign_in(self) -> None:
         """The sign-in waited for, let go of: its listener closed, nothing of it kept."""
-        signing, job = self._signing, self._signing_job
+        signing, job, entering = self._signing, self._signing_job, self._entering
         self._signing, self._signing_job, self._sign_in_address = None, None, ""
+        self._entering = None
         if signing is not None:
             signing.cancel()
-        if job is not None:
-            job.drop(lambda: None)
-        for part in (self.sign_in_waiting, self.copy_line, self.copy_button):
+        for each in (job, entering):
+            if each is not None:
+                each.drop(lambda: None)
+        for part in self._signing_parts():
             part.hide()
+        self.code.setEnabled(True)
+        self.code.clear()  # good once, but not left about
 
     def _signed_in(self, signing: SignIn, outcome: object) -> None:
         if signing is not self._signing:  # let go of meanwhile
@@ -891,47 +1037,61 @@ class TurnOnSync(QDialog):
         elif isinstance(outcome, SignedIn):
             self._token.set(outcome.refresh_token)
             self._account = outcome.account
-            self._reach_onedrive()
+            self._reach_cloud()
 
     def _sign_in_failed(self, error: Exception) -> None:
         log.info("sync: signing in: %s", type(error).__name__)
+        self._fail(self._sign_in_failure(error))
+
+    def _sign_in_failure(self, error: Exception) -> str:
         match error:
             case SignInFailedError(declined=True):
-                said = self.tr(
+                return self.tr(
                     "Stickle wasn't allowed, so sign-in didn't finish. To sync, sign in again"
                     " and allow Stickle."
                 )
             case NoAccessError():
-                said = self._blocked()
+                return self._blocked()
             case TooBusyError():
-                said = self._too_busy()
+                return self._too_busy()
             case UnavailableError():
-                said = self.tr("Couldn't reach Microsoft. Check your network and try again.")
+                return self._unreachable_at(self._blocker())
             case _:
-                said = self._not_signed_in()
-        self._fail(said)
+                return self._not_signed_in()
+
+    def _blocker(self) -> str:
+        """Who runs the chosen cloud, and may block Stickle from it."""
+        return BLOCKERS.get(self._kind, cloud_name(self._kind))
 
     def _not_signed_in(self) -> str:
         return self.tr("Sign-in didn't finish. Try again.")
 
     def _blocked(self) -> str:
         return self.tr(
-            "Microsoft has blocked Stickle. Until a new version fixes this, you can use"
-            " another cloud."
-        )
+            "%1 has blocked Stickle. Until a new version fixes this, you can use another cloud."
+        ).replace("%1", self._blocker())
 
     def _too_busy(self) -> str:
-        return self.tr("Microsoft isn't taking requests right now. Try again in a little while.")
+        return self.tr("%1 isn't taking requests right now. Try again in a little while.").replace(
+            "%1", self._blocker()
+        )
 
-    def _reach_onedrive(self) -> None:
-        """OneDrive looked at as signed in to: its Stickle folder, if there is one."""
-        app = self._onedrive
+    def _unreachable_at(self, cloud: str) -> str:
+        return self.tr("Couldn't reach %1. Check your network and try again.").replace("%1", cloud)
+
+    def _reach_cloud(self) -> None:
+        """The cloud looked at as signed in to: its Stickle folder, if there is one."""
+        app = self._app()
         if app is None:  # this build has Stickle registered with no one
             return
         self._close_target()
         target = app.target(self._token.value, self._token.set)
         self._target = target
-        self._begin(lambda: _look(target), self._looked, self.tr("Checking OneDrive…"))
+        self._begin(
+            lambda: _look(target),
+            self._looked,
+            self.tr("Checking %1…").replace("%1", cloud_name(self._kind)),
+        )
 
     # The server
 
@@ -1005,10 +1165,10 @@ class TurnOnSync(QDialog):
 
     def _failed(self, error: Exception) -> None:
         log.info("sync: turning on: %s", type(error).__name__)
-        if self._kind == ONEDRIVE and isinstance(
+        if self._signs_in() and isinstance(
             error, SignInNeededError | NoAccessError | TooBusyError | UnavailableError | OSError
         ):
-            self._failed_at_onedrive(error)
+            self._failed_at_cloud(error)
             return
         match error:
             case CertificateError():
@@ -1052,7 +1212,7 @@ class TurnOnSync(QDialog):
             case _:
                 self._fail(self._unreachable())
 
-    def _failed_at_onedrive(self, error: Exception) -> None:
+    def _failed_at_cloud(self, error: Exception) -> None:
         match error:
             case SignInNeededError():  # what it was signed in with is no more
                 self._close_target()
@@ -1067,8 +1227,8 @@ class TurnOnSync(QDialog):
 
     def _unreachable(self) -> str:
         """The cloud did not answer as it should."""
-        if self._kind == ONEDRIVE:
-            return self.tr("Couldn't reach OneDrive. Check your network and try again.")
+        if self._signs_in():
+            return self._unreachable_at(cloud_name(self._kind))
         return self.tr(
             "Couldn't reach the server. Check the address and your network, then try again."
         )
@@ -1251,15 +1411,15 @@ class TurnOnSync(QDialog):
     # What merging would make, before anything is kept
 
     def _ready_login(self) -> Login:
-        """The folder's login, as opened: with OneDrive's newest refresh token."""
+        """The folder's login, as opened: with the newest refresh token, if signed in to."""
         login = self._opened_login
         assert login is not None
-        return replace(login, secret=self._token.value) if login.kind == ONEDRIVE else login
+        return replace(login, secret=self._token.value) if login.kind in SIGNED_IN else login
 
     def _login(self, vault: Vault) -> Login:
-        if self._kind == ONEDRIVE:
+        if self._signs_in():
             return Login(
-                vault.vault, ONEDRIVE, "", self._account or "", self._token.value, vault.keys.keys
+                vault.vault, self._kind, "", self._account or "", self._token.value, vault.keys.keys
             )
         assert self._address is not None
         return Login(

@@ -16,6 +16,8 @@ import apsw
 
 WEBDAV = "webdav"
 ONEDRIVE = "onedrive"
+DROPBOX = "dropbox"
+SIGNED_IN = (ONEDRIVE, DROPBOX)  # signed in to in the browser: a refresh token kept
 OFFSET = "cloud_offset"  # the key of how far the cloud's clock is, among the counters
 
 
@@ -23,9 +25,10 @@ OFFSET = "cloud_offset"  # the key of how far the cloud's clock is, among the co
 class Login:
     vault: str
     kind: str
-    address: str = field(repr=False)  # WebDAV's; empty for OneDrive
-    user: str = field(repr=False)  # OneDrive: the account's name, empty if it was not told
-    secret: str = field(repr=False)  # the password; OneDrive: the refresh token
+    address: str = field(repr=False)  # WebDAV's; empty for OneDrive and Dropbox
+    # OneDrive, Dropbox: the account's name, empty if it was not told
+    user: str = field(repr=False)
+    secret: str = field(repr=False)  # the password; OneDrive, Dropbox: the refresh token
     keys: Mapping[int, bytes] = field(repr=False)  # the vault's data keys, by number
     certificate: bytes | None = field(default=None, repr=False)  # the one trusted (DER)
     stopped: str | None = None  # why sync stopped until the user does something
@@ -86,8 +89,8 @@ def renew(connection: apsw.Connection, vault: str, old: str, new: str) -> None:
     """A refresh token in place of the one it was renewed from: only if that
     one is still kept, not over a connection kept since (signed in anew)."""
     connection.execute(
-        "UPDATE sync_connection SET secret = ? WHERE vault = ? AND kind = ? AND secret = ?",
-        (new, vault, ONEDRIVE, old),
+        "UPDATE sync_connection SET secret = ? WHERE vault = ? AND kind IN (?, ?) AND secret = ?",
+        (new, vault, *SIGNED_IN, old),
     )
 
 

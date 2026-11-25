@@ -9,7 +9,7 @@ from PySide6.QtCore import QDate, QDateTime, QElapsedTimer, QLocale, QObject, Si
 
 from stickle.app.times import moment_text
 from stickle.data.settings import CLOUD_FULL
-from stickle.data.sync_connection import ONEDRIVE, WEBDAV
+from stickle.data.sync_connection import DROPBOX, ONEDRIVE, WEBDAV
 from stickle.platform.updates import SOFTWARE_CENTER, kept_by
 from stickle.sync.engine import GETTING
 from stickle.sync.outcome import Stopped
@@ -18,9 +18,9 @@ if TYPE_CHECKING:
     from stickle.app.syncing import Ended
 
 # Each kind of connection's cloud, by name: the same in every language.
-CLOUD_NAMES = {WEBDAV: "WebDAV", ONEDRIVE: "OneDrive"}
+CLOUD_NAMES = {WEBDAV: "WebDAV", ONEDRIVE: "OneDrive", DROPBOX: "Dropbox"}
 # Who may block Stickle from a cloud reached through an app registered there.
-BLOCKERS = {ONEDRIVE: "Microsoft"}
+BLOCKERS = {ONEDRIVE: "Microsoft", DROPBOX: "Dropbox"}
 MANY = 20  # notes on the move beyond which the line says how far it has got
 MOVING_EVERY_MS = 500  # how far it has got is said at most this often
 # Stopped for these, a window asks what to do (stickle.app.sync_stopped).
@@ -35,7 +35,7 @@ def cloud_name(kind: str) -> str:
 
 
 class SyncWords(QObject):
-    """Said of sync, for the kind of connection it has (WEBDAV, ONEDRIVE)."""
+    """Said of sync, for the kind of connection it has (WEBDAV, ONEDRIVE, DROPBOX)."""
 
     def stopped(self, why: Stopped, kind: str) -> str:
         """Sync stopped until the user does something, and why."""
@@ -176,7 +176,7 @@ class SyncStatus(QObject):
         last_synced: Callable[[], QDateTime | None],
         parent: QObject | None = None,
     ) -> None:
-        """kind: of the connection (WEBDAV, ONEDRIVE); stopped: as it was left;
+        """kind: of the connection (WEBDAV, ONEDRIVE, DROPBOX); stopped: as it was left;
         to_put: notes changed here and not in the cloud yet; last_synced: when a
         round last went through, if one has."""
         super().__init__(parent)

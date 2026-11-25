@@ -142,7 +142,25 @@ def test_a_change_another_device_made_is_told(feed: Feed, watching: Watching) ->
     watching.watcher.start()
 
     assert waits(feed, 2)
-    assert feed.calls == ["latest", "wait c1", "working True", "since c1", "told", "wait c2"]
+    assert feed.calls == [
+        "latest",
+        "told",
+        "wait c1",
+        "working True",
+        "since c1",
+        "told",
+        "wait c2",
+    ]
+
+
+def test_a_round_looks_once_the_first_cursor_is_taken(feed: Feed, watching: Watching) -> None:
+    feed.give("latest", "c1")
+
+    watching.watcher.start()
+
+    # The rounds may have looked before it was there: what changed then is a round's to find.
+    assert waits(feed, 1)
+    assert feed.calls == ["latest", "told", "wait c1"]
 
 
 def test_its_own_change_is_not_told(feed: Feed, watching: Watching) -> None:
@@ -153,7 +171,7 @@ def test_its_own_change_is_not_told(feed: Feed, watching: Watching) -> None:
     watching.watcher.start()
 
     assert waits(feed, 2)
-    assert "told" not in feed.calls and feed.calls[-1] == "wait c2"
+    assert feed.calls.count("told") == 1 and feed.calls[-1] == "wait c2"  # the cursor's
 
 
 def test_nothing_changed_tells_nothing(feed: Feed, watching: Watching) -> None:
@@ -163,7 +181,7 @@ def test_nothing_changed_tells_nothing(feed: Feed, watching: Watching) -> None:
     watching.watcher.start()
 
     assert waits(feed, 3)
-    assert feed.calls == ["latest", "wait c1", "working True", "wait c1", "wait c1"]
+    assert feed.calls == ["latest", "told", "wait c1", "working True", "wait c1", "wait c1"]
 
 
 def test_a_failure_pauses_twice_as_long_each_time_up_to_the_longest(
@@ -190,7 +208,7 @@ def test_failing_from_the_first_cursor_on(feed: Feed, watching: Watching) -> Non
     watching.watcher.start()
 
     assert waits(feed, 2)
-    assert feed.calls[:4] == ["latest", "working False", "latest", "wait c1"]
+    assert feed.calls[:5] == ["latest", "working False", "latest", "told", "wait c1"]
 
 
 def test_too_busy_waits_as_long_as_asked(feed: Feed, watching: Watching) -> None:
@@ -222,7 +240,7 @@ def test_a_cursor_too_old_is_taken_anew_and_a_round_looks(feed: Feed, watching: 
 
     assert waits(feed, 2)
     # Told once the new cursor is there: what changes after the round's look is not missed.
-    assert feed.calls == ["latest", "wait c1", "latest", "told", "wait c9"]
+    assert feed.calls == ["latest", "told", "wait c1", "latest", "told", "wait c9"]
 
 
 def test_what_changed_unread_is_told_in_doubt(feed: Feed, watching: Watching) -> None:
@@ -233,15 +251,16 @@ def test_what_changed_unread_is_told_in_doubt(feed: Feed, watching: Watching) ->
     watching.watcher.start()
 
     assert waits(feed, 3)
-    assert feed.calls[:6] == [
+    assert feed.calls[:7] == [
         "latest",
+        "told",
         "wait c1",
         "working True",
         "since c1",
         "told",
         "working False",
     ]
-    assert feed.calls[6:] == ["wait c1", "working True", "since c1", "wait c2"]
+    assert feed.calls[7:] == ["wait c1", "working True", "since c1", "wait c2"]
 
 
 @pytest.mark.parametrize("call", ["latest", "since"])
@@ -272,7 +291,7 @@ def test_stopping_cuts_the_wait_and_asks_nothing_more(feed: Feed, watching: Watc
     assert watching.watcher.stop(SOON)
 
     assert time.monotonic() - began < 1
-    assert feed.calls == ["latest", "wait c1"] and feed.closed
+    assert feed.calls == ["latest", "told", "wait c1"] and feed.closed
 
 
 def test_stopping_during_a_pause_ends_it(feed: Feed) -> None:
@@ -302,7 +321,7 @@ def test_again_cuts_the_wait_and_waits_anew_at_once(feed: Feed, watching: Watchi
     watching.watcher.again()
 
     assert waits(feed, 2)
-    assert feed.calls == ["latest", "wait c1", "wait c1"]  # no pause, nothing told
+    assert feed.calls == ["latest", "told", "wait c1", "wait c1"]  # no pause, nothing told
     assert feed.times[1] - feed.times[0] < 1
 
 
