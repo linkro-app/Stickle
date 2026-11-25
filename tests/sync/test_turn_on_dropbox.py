@@ -371,6 +371,25 @@ def test_said_no_to_on_the_page_it_says_so(bench: Bench) -> None:
     assert not bench.logins
 
 
+@pytest.mark.parametrize("declining", [False, True], ids=["allowed", "said-no"])
+def test_back_from_the_browser_the_window_is_brought_forward(
+    bench: Bench, monkeypatch: pytest.MonkeyPatch, declining: bool
+) -> None:
+    # Its page says to go back to Stickle, whose window was behind the browser.
+    asked: list[str] = []
+    monkeypatch.setattr(bench.window, "activateWindow", lambda: asked.append("activate"))
+    bench.box.declining = declining
+    bench.to_sign_in()
+    bench.sign_in()
+    assert not asked  # not while the browser is in use
+
+    status, location, _page = allow_page(bench.box, bench.opened[-1])
+    assert status == 302
+    back(location)
+    bench.qtbot.waitUntil(lambda: bool(asked), timeout=MS)
+    assert asked == ["activate"]
+
+
 def test_dropbox_down_once_signed_in_is_said_by_name(bench: Bench) -> None:
     bench.box.answers += [Answer(500, body=b"down") for _ in range(6)]
     bench.to_sign_in()

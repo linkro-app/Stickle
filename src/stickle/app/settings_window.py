@@ -143,7 +143,6 @@ class SettingsWindow(QDialog):
         self,
         notes: NoteManager,
         translations: Translations,
-        parent: QWidget | None = None,
         autostart: Autostart | None = None,
         app_list: AppMenuEntry | None = None,
         recovery: RecoveryKeys | None = None,
@@ -155,7 +154,12 @@ class SettingsWindow(QDialog):
         full_screen: FullScreenWatch | None = None,
         sync_setup: SyncSetup | None = None,
     ) -> None:
-        super().__init__(parent)
+        # A window of its own, as Stickle Manager is, not one of its dialogs: with
+        # its own taskbar button (and in Alt+Tab), found again after signing in
+        # in the browser, and there even when opened from the tray with Stickle
+        # Manager closed. Not a dialog either: X11 window managers keep a dialog
+        # with no parent above all the app's windows (as the missed reminders' was).
+        super().__init__(None, Qt.WindowType.Window)
         self._notes = notes
         self._full_screen = full_screen
         self._sync_setup = sync_setup
@@ -165,8 +169,7 @@ class SettingsWindow(QDialog):
         self._app_list = app_list
         self._recovery = recovery
         self._updates = updates
-        # Called up from the tray or a note, it is kept above pinned notes on its
-        # own; from the Stickle window, that window keeps it there.
+        # Called up, it is kept above pinned notes until the user moves on from it.
         self._on_top = OnTopWhileInUse(self)
         self.tabs = QTabWidget(self)
         # Every tab in sight: the window is made wide enough instead.

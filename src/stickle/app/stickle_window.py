@@ -51,7 +51,7 @@ from stickle.app.finder import DesktopFinder
 from stickle.app.full_screen import FullScreenWatch
 from stickle.app.i18n import Translations
 from stickle.app.import_dialog import ImportDialog
-from stickle.app.in_use import OnTopWhileInUse, call_up
+from stickle.app.in_use import OnTopWhileInUse, call_up, opened_from
 from stickle.app.label_manager import LabelManager
 from stickle.app.labels import category_item_icon, keyhole_item_icon
 from stickle.app.master_password import MasterPasswords
@@ -156,11 +156,11 @@ class StickleWindow(QWidget):
 
         if login_may_be_blocked is None:
             login_may_be_blocked = may_be_blocked()
-        # One of its own windows, above it and the pinned notes while in use.
+        # A window of its own, as this one is, but opened from it: while the
+        # keyboard is in the settings, this one stays above pinned notes too.
         self.settings = SettingsWindow(
             notes,
             translations,
-            self,
             autostart=autostart,
             app_list=app_list,
             recovery=recovery,
@@ -172,6 +172,8 @@ class StickleWindow(QWidget):
             full_screen=full_screen,
             sync_setup=sync_setup,
         )
+        opened_from(self.settings, self)
+        self.destroyed.connect(self.settings.deleteLater)  # gone with it, as a child is
         self.settings_button = QPushButton(self)
         self.settings_button.clicked.connect(lambda: self.open_settings())
         settings_shortcut = QShortcut(QKeySequence(SETTINGS_KEYS), self)

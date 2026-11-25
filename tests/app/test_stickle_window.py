@@ -188,7 +188,6 @@ def test_the_button_and_ctrl_comma_open_the_settings_once(qtbot: QtBot, app: App
 
     app.window.settings_button.click()
     assert app.window.settings.isVisible()
-    assert app.window.settings.parentWidget() is app.window  # one of its windows
     app.window.settings.close()
 
     app.window.activateWindow()
@@ -197,10 +196,27 @@ def test_the_button_and_ctrl_comma_open_the_settings_once(qtbot: QtBot, app: App
     assert app.window.settings.isVisible()
     app.window.settings_button.click()  # again: the same window, brought forward
 
-    assert len(app.window.findChildren(SettingsWindow)) == 1
+    shown = [w for w in QApplication.topLevelWidgets() if w.isVisible()]
+    assert [w for w in shown if isinstance(w, SettingsWindow)] == [app.window.settings]
 
 
-def test_from_the_stickle_window_the_settings_stay_above_pinned_notes_with_it(
+def test_the_settings_are_a_window_of_their_own_with_a_taskbar_button(
+    qtbot: QtBot, app: App
+) -> None:
+    # As a dialog of the Stickle window they had no taskbar button of their
+    # own, and none at all opened from the tray with that window closed: lost
+    # behind the browser after signing in there.
+    app.tray.settings_action.trigger()
+    settings = app.window.settings
+    qtbot.waitExposed(settings)
+
+    assert settings.parentWidget() is None
+    assert settings.windowType() == Qt.WindowType.Window  # no X11 dialog either
+    assert settings.windowHandle().transientParent() is None
+    settings.close()
+
+
+def test_from_the_stickle_window_both_stay_above_pinned_notes_while_in_the_settings(
     qtbot: QtBot, app: App
 ) -> None:
     note = open_note(app, "핀 메모")
@@ -210,27 +226,29 @@ def test_from_the_stickle_window_the_settings_stay_above_pinned_notes_with_it(
     app.window.settings_button.click()
     move_to(qtbot, app.window.settings)
 
-    assert stays_on_top(app.window)
-    assert not stays_on_top(app.window.settings)  # kept above it by the system
+    assert stays_on_top(app.window)  # they were opened from it
+    assert stays_on_top(app.window.settings)  # a window of their own, kept there themselves
     move_to(qtbot, note)
     assert not stays_on_top(app.window)
+    assert not stays_on_top(app.window.settings)
 
 
-def test_shown_from_it_the_settings_put_it_back_on_top(
+def test_shown_from_it_its_windows_put_it_back_on_top(
     qtbot: QtBot, app: App, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Telling Windows the settings are not on top took the Stickle window, which
-    # they belong to, out of the top too: both went below the pinned notes.
+    # Telling Windows the settings were not on top took the Stickle window, which
+    # they then belonged to, out of the top too: both went below the pinned notes.
+    # Now a window of their own, the same goes for its other windows.
     kept: list[QWidget] = []
     monkeypatch.setattr(in_use, "keep_stays_on_top", kept.append)
     app.window.open()
     qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
     kept.clear()
 
-    app.window.settings_button.click()
-    qtbot.waitUntil(lambda: app.window.settings in kept)
+    app.window.about_button.click()
+    qtbot.waitUntil(lambda: app.window.about in kept)
 
-    assert kept[kept.index(app.window.settings) + 1 :] == [app.window]
+    assert kept[kept.index(app.window.about) + 1 :] == [app.window]
     assert stays_on_top(app.window)
 
 

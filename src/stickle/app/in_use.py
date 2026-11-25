@@ -7,6 +7,7 @@ The windows it opens (its dialogs, the system's file chooser) are kept above it
 by the system, so it stays above while the keyboard is in any of them.
 """
 
+import weakref
 from typing import cast, override
 
 from PySide6.QtCore import QEvent, QObject, QTimer
@@ -15,6 +16,19 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from stickle.app import file_dialogs
 from stickle.app.window_flags import keep_stays_on_top, set_stays_on_top, stays_on_top
+
+# Windows of their own, with no parent, and the window each was opened from.
+_openers: weakref.WeakKeyDictionary[QWidget, QWidget] = weakref.WeakKeyDictionary()
+
+
+def opened_from(window: QWidget, opener: QWidget) -> None:
+    """A window of its own (no parent, so with its own taskbar button) counted
+    as one of opener's: while the keyboard is in it, opener is still in use."""
+    _openers[window] = opener
+
+
+def _opener(window: QWidget) -> QWidget | None:
+    return window.parentWidget() or _openers.get(window)
 
 
 def call_up(window: QWidget) -> None:
@@ -62,8 +76,8 @@ class OnTopWhileInUse(QObject):
 
     def _keep(self) -> None:
         """Above the others or not, as meant. Windows takes the window this one
-        belongs to out of the top along with it (the settings, shown from Stickle
-        Manager, sent it below the pinned notes): that one is put back, and its
+        belongs to out of the top along with it (a window shown from Stickle
+        Manager sent it below the pinned notes): that one is put back, and its
         windows with it."""
         keep_stays_on_top(self._window)
         owner = self._window.parentWidget()
@@ -89,6 +103,6 @@ class OnTopWhileInUse(QObject):
         while widget is not None:
             if widget is self._window:
                 return
-            widget = widget.parentWidget()
+            widget = _opener(widget)
         set_stays_on_top(self._window, False)
         self._keep()  # left for the window it belongs to, which is still above

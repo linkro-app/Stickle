@@ -85,6 +85,7 @@ from stickle.crypto.keyfile import KeyFileError
 from stickle.crypto.recovery import RecoveryKeyTypoError, WrongRecoveryKeyError
 from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY, DataKeys
 from stickle.data.sync_connection import DROPBOX, ONEDRIVE, SIGNED_IN, WEBDAV, Login
+from stickle.platform.linux.x11 import activate
 from stickle.sync.engine import GETTING, FirstLook
 from stickle.sync.format import NewerFormatError
 from stickle.sync.keys import newest
@@ -1032,12 +1033,25 @@ class TurnOnSync(QDialog):
         self._signing_job = None
         self._end_sign_in()
         self._fit()
+        self._come_back()
         if isinstance(outcome, Exception):
             self._sign_in_failed(outcome)
         elif isinstance(outcome, SignedIn):
             self._token.set(outcome.refresh_token)
             self._account = outcome.account
             self._reach_cloud()
+
+    def _come_back(self) -> None:
+        """Back from the browser, whose page says to go back to Stickle: this
+        window brought forward for what comes next. Windows lets no program take
+        the keyboard from the one in front, and flashes the window's taskbar
+        button instead (the settings', when opened from them)."""
+        self.raise_()
+        self.activateWindow()
+        if QGuiApplication.platformName() == "xcb":
+            # Asked for as a taskbar would; the application's own request above
+            # may be refused.
+            activate(int(self.winId()))
 
     def _sign_in_failed(self, error: Exception) -> None:
         log.info("sync: signing in: %s", type(error).__name__)
