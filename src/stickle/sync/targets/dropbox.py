@@ -89,6 +89,14 @@ WAIT = 480  # seconds a long poll waits for a change, at most: Dropbox's own mos
 WAIT_TIMEOUT = WAIT + 90 + TIMEOUT
 KEPT_REVS = 64  # of what this target wrote, to tell its own writes in a feed
 _MOST = 1024 * 1024  # bytes of a long poll's answer read, at most
+# A long poll's connection, quiet this many seconds, has the system ask after
+# the other end every so many seconds, so many times, before giving it up: a
+# connection the network went from under (another Wi-Fi, another address)
+# fails within two minutes, not only when the wait's time is up. Not every
+# system tells a connection that only reads that its address is gone.
+KEEPALIVE_IDLE = 60
+KEEPALIVE_EVERY = 10
+KEEPALIVE_PROBES = 3
 
 # The ports the app has registered with Dropbox, each as http://127.0.0.1:<port>:
 # Dropbox sends the browser back to no other. Below every system's ephemeral
@@ -339,6 +347,21 @@ def _read(response: http.client.HTTPResponse) -> _Answer:
         waiting(response.getheader("Retry-After"), response.getheader("Date")),
         response.getheader("Dropbox-API-Result"),
     )
+
+
+def _keep_alive(sock: socket.socket) -> None:
+    """The system asks after the other end of the connection while it is quiet
+    (TCP keepalive), as often as above where the system lets that be said."""
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    idle = getattr(socket, "TCP_KEEPIDLE", None) or getattr(socket, "TCP_KEEPALIVE", None)
+    for option, value in (
+        (idle, KEEPALIVE_IDLE),  # macOS names it TCP_KEEPALIVE
+        (getattr(socket, "TCP_KEEPINTVL", None), KEEPALIVE_EVERY),
+        (getattr(socket, "TCP_KEEPCNT", None), KEEPALIVE_PROBES),
+    ):
+        if isinstance(option, int):
+            with contextlib.suppress(OSError):  # an older system: its own timings
+                sock.setsockopt(socket.IPPROTO_TCP, option, value)
 
 
 class _Received:
@@ -762,7 +785,8 @@ class DropboxFeed:
 
     A wait reads its answer as it comes, beside a pair of sockets that cut()
     writes to. That wakes it on every system: closing or shutting a socket
-    another thread waits on does not, on Windows."""
+    another thread waits on does not, on Windows. Its connection is kept
+    alive (KEEPALIVE_IDLE), for one the network went from under to fail soon."""
 
     def __init__(self, path: str, shared: _Shared, place: Place, timeout: float) -> None:
         self._path = path
@@ -820,6 +844,7 @@ class DropboxFeed:
                 },
             )
             assert isinstance(connection.sock, ssl.SSLSocket)
+            _keep_alive(connection.sock)
             answer = self._answer(connection.sock, woken)
         except OSError, http.client.HTTPException:  # ssl's errors among them
             raise UnavailableError() from None

@@ -3,6 +3,7 @@ over real HTTPS: what it asks, what it does with each answer, where its tokens
 go, and its feed's long poll. What every target answers alike is in
 test_target_contract."""
 
+import socket
 import ssl
 import threading
 import time
@@ -24,6 +25,7 @@ from dropbox_server import (
     dropbox_server,
 )
 
+from stickle.sync.targets import dropbox
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
@@ -38,7 +40,15 @@ from stickle.sync.targets.base import (
     TooBusyError,
     UnavailableError,
 )
-from stickle.sync.targets.dropbox import TIMEOUT, WAIT, Dropbox, Place
+from stickle.sync.targets.dropbox import (
+    KEEPALIVE_EVERY,
+    KEEPALIVE_IDLE,
+    KEEPALIVE_PROBES,
+    TIMEOUT,
+    WAIT,
+    Dropbox,
+    Place,
+)
 
 NOTE = "notes/0f8e6f3c-1d9b-4a63-9c38-3b2a4f2f7d10.json"
 MINE = "devices/aaaaaaaa.json"
@@ -706,6 +716,42 @@ def test_the_wait_is_sent_only_the_cursor(box: DropboxState, drive: Dropbox, wat
     [waited] = box.requests(NOTIFY)
     assert waited.authorization is None
     assert waited.args == {"cursor": cursor, "timeout": WAIT}
+    feed.close()
+
+
+def test_the_wait_s_connection_is_asked_after_while_quiet(
+    box: DropboxState, drive: Dropbox, watched: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A connection the network went from under fails within two minutes, the
+    system asking after the other end (TCP keepalive): not only when the
+    wait's time is up. As set on the wait's own connection, on this system."""
+    box.hold = 0.1
+    seen: list[dict[str, int]] = []
+    keep_alive = dropbox._keep_alive  # pyright: ignore[reportPrivateUsage]
+
+    def kept(sock: socket.socket) -> None:
+        keep_alive(sock)
+        said = {"on": sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE)}
+        idle = getattr(socket, "TCP_KEEPIDLE", None) or getattr(socket, "TCP_KEEPALIVE", None)
+        for name, option in (
+            ("idle", idle),
+            ("every", getattr(socket, "TCP_KEEPINTVL", None)),
+            ("probes", getattr(socket, "TCP_KEEPCNT", None)),
+        ):
+            if isinstance(option, int):
+                said[name] = sock.getsockopt(socket.IPPROTO_TCP, option)
+        seen.append(said)
+
+    monkeypatch.setattr(dropbox, "_keep_alive", kept)
+    feed = drive.feed(watched)
+
+    feed.wait(feed.latest())
+
+    [said] = seen
+    assert said.pop("on") != 0
+    wanted = {"idle": KEEPALIVE_IDLE, "every": KEEPALIVE_EVERY, "probes": KEEPALIVE_PROBES}
+    assert said == {name: wanted[name] for name in said}
+    assert KEEPALIVE_IDLE + KEEPALIVE_EVERY * KEEPALIVE_PROBES <= 120
     feed.close()
 
 
