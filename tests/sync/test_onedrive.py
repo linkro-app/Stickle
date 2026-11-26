@@ -19,6 +19,7 @@ from graph_server import (
     graph_server,
 )
 
+from stickle.sync.targets import onedrive
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
@@ -34,6 +35,7 @@ from stickle.sync.targets.base import (
 from stickle.sync.targets.onedrive import (
     CHUNK,
     CONTENT_HOSTS,
+    IDLE_REOPEN,
     PAGE,
     OneDrive,
     Place,
@@ -524,3 +526,23 @@ def test_requests_go_under_the_apps_folder(graph: Graph, drive: OneDrive) -> Non
     for asked in graph.graph_requests():
         assert asked.path.startswith(APPROOT), asked.path
         assert ":?" not in asked.path and not asked.path.endswith(":")  # nothing after it
+
+
+# A connection kept between requests
+
+
+def test_a_connection_left_idle_a_while_is_not_used_again(
+    graph: Graph, drive: OneDrive, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Cut off unnoticed as the network changed, it would wait the whole time out.
+    now = [0.0]
+    monkeypatch.setattr(onedrive, "_idle_now", lambda: now[0])
+    list(drive.list("notes"))
+    kept = drive._kept  # pyright: ignore[reportPrivateUsage]
+    assert kept is not None
+    now[0] += IDLE_REOPEN - 1
+    list(drive.list("notes"))
+    assert drive._kept is kept  # pyright: ignore[reportPrivateUsage]
+    now[0] += IDLE_REOPEN + 1
+    list(drive.list("notes"))
+    assert drive._kept not in (None, kept)  # pyright: ignore[reportPrivateUsage]

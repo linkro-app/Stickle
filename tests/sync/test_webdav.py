@@ -21,6 +21,7 @@ import trustme
 from webdav_server import HOST, Server, self_signed, webdav
 
 from stickle.sync.outcome import Stopped, after
+from stickle.sync.targets import webdav as webdav_target
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
@@ -36,6 +37,7 @@ from stickle.sync.targets.base import (
     UnavailableError,
 )
 from stickle.sync.targets.webdav import (
+    IDLE_REOPEN,
     Address,
     AddressError,
     NoWebDavFolderError,
@@ -879,6 +881,22 @@ def test_a_kept_connection_is_replaced_only_once(scripted: Scripted) -> None:
     scripted.hang_up = 5
     with pytest.raises(UnavailableError):
         target.get(NOTE)
+    assert scripted.connections == 2 and len(scripted.requests) == 3
+    target.close()
+
+
+def test_a_connection_left_idle_a_while_is_not_used_again(
+    scripted: Scripted, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Cut off unnoticed as the network changed, it would wait the whole time out.
+    now = [0.0]
+    monkeypatch.setattr(webdav_target, "_idle_now", lambda: now[0])
+    target = to(scripted)
+    target.get(NOTE)
+    now[0] += IDLE_REOPEN - 1
+    target.get(NOTE)  # still the same one
+    now[0] += IDLE_REOPEN + 1
+    target.get(NOTE)
     assert scripted.connections == 2 and len(scripted.requests) == 3
     target.close()
 

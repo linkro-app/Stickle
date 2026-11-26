@@ -190,7 +190,7 @@ class SyncStopped(QDialog):
         big = self._why is Stopped.BIG_CHANGE
         # Nothing to unfold but for a big change (named all the same).
         self._show_big_change(self._syncing.big_change() if big else BigChange([], [], []))
-        self.until.setVisible(big)
+        self.until.setVisible(big or self._why is Stopped.VAULT_GONE)
         disconnect = self.tr("&Disconnect")
         match self._why:
             case Stopped.BIG_CHANGE:
@@ -223,6 +223,13 @@ class SyncStopped(QDialog):
                         "If you deleted it on purpose, disconnect. If you make it again, your"
                         " other computers need the recovery key or spare password once to"
                         " keep syncing."
+                    )
+                )
+                # Out of reach for now (a server's disk not there yet): not gone at all.
+                self.until.setText(
+                    self.tr(
+                        "If the folder is back, choose Sync now under Settings, Connections"
+                        " to carry on. Stickle also looks for it again each time it starts."
                     )
                 )
                 first, second = self.tr("&Make it again from this computer's notes…"), disconnect

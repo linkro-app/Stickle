@@ -65,6 +65,10 @@ from stickle.sync.targets.oauth import TokenAddress, Tokens, waiting
 from stickle.sync.targets.sign_in import Pages, SignIn
 
 TIMEOUT = 30.0  # seconds, for each step of a request
+# Seconds a connection kept from a request may lie idle and still be used for
+# the next: longer, and it may have been cut off unnoticed as the network changed
+# (a new one costs a handshake; servers mostly close idle ones sooner anyway).
+IDLE_REOPEN = 20.0
 PAGE = 200  # files on a page of a listing
 # Bytes of a file sent to an upload session at a time: a multiple of 320 KiB,
 # as Graph asks, and well under its 60 MiB.
@@ -79,6 +83,7 @@ SIGN_IN_SCOPE = f"openid profile {SCOPE}"
 CONTENT_HOSTS = (".1drv.com", ".microsoftpersonalcontent.com", "api.onedrive.com")
 
 _USER_AGENT = "Stickle"
+_idle_now = time.monotonic  # how long a kept connection lay idle (tests set it)
 _GRAPH = "/v1.0/"
 _APPROOT = f"{_GRAPH}me/drive/special/approot"
 _LISTED = f"$select=name,size,eTag,file&$top={PAGE}"
@@ -255,6 +260,7 @@ class OneDrive:
         self._timeout = timeout
         self._chunk = chunk
         self._kept: http.client.HTTPSConnection | None = None
+        self._kept_at = 0.0  # when it was last used
 
     @property
     def keeps_conditions(self) -> bool:
@@ -477,6 +483,9 @@ class OneDrive:
         }
         connection, may_be_closed = self._kept, self._kept is not None
         self._kept = None
+        if connection is not None and _idle_now() - self._kept_at > IDLE_REOPEN:
+            connection.close()  # idle a while (see IDLE_REOPEN): a new one
+            connection, may_be_closed = None, False
         while True:
             try:
                 if connection is None:
@@ -507,6 +516,7 @@ class OneDrive:
                     connection.close()
                 else:
                     self._kept = connection
+                    self._kept_at = _idle_now()
                 return answer
 
     @staticmethod

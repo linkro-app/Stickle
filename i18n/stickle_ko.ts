@@ -4315,6 +4315,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>일부러 지웠으면 연결을 끊으세요. 다시 만들면 다른 PC에서는 복구 키나 예비 암호를 한 번 넣어야 이어서 동기화됩니다.</translation>
     </message>
     <message>
+        <source>If the folder is back, choose Sync now under Settings, Connections to carry on. Stickle also looks for it again each time it starts.</source>
+        <translation>폴더가 다시 보이면 설정 &apos;연결&apos;의 [지금 동기화]를 눌러 이어 가세요. Stickle을 켤 때마다 다시 찾아보기도 합니다.</translation>
+    </message>
+    <message>
         <source>&amp;Make it again from this computer&apos;s notes…</source>
         <translation>이 PC의 메모로 다시 만들기(&amp;M)…</translation>
     </message>

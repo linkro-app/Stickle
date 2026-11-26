@@ -9,9 +9,15 @@ on), and asks when the next one is due.
   last look is at least half a minute old, when the edit of a note is over
   that what came for it waited for, and when the cloud tells of a change.
 - A round that failed for now is tried again after as long as it says; until
-  then nothing else starts one but the user asking.
+  then nothing else starts one but the user asking, except that one that got no
+  answer at all (no network) is tried again as soon as something happens here,
+  a few seconds after it at least: it costs nothing, the network back or not.
 - A round that stopped until the user does something: nothing starts another,
-  but the user asking.
+  but the user asking; one stopped for what may be dealt with elsewhere (a big
+  change undone there) is looked at again as the cloud tells of a change, as
+  the app comes back to the front, and every hour, as quietly.
+- Woken from sleep, the first round waits a few seconds, for the network to be
+  back first.
 - A full look (stickle.sync.engine) is due first of all, when asked, and a day
   after the last one that went through.
 """
@@ -24,6 +30,9 @@ EVERY = 5 * 60.0
 FOCUS_AT_LEAST = 30.0
 DAY = 24 * 60 * 60.0
 START_WAIT = 2.0  # after the app starts, for it not to be held up by the first round
+OFFLINE_AGAIN = 15.0  # no answer at all: tried again this soon, once something happens
+WOKE_WAIT = 10.0  # woken: the network is not back at once
+LOOK_AGAIN = 60 * 60.0  # stopped for what may be dealt with elsewhere: looked at again
 
 
 class Schedule:
@@ -43,6 +52,8 @@ class Schedule:
         self._soon_at: float | None = None  # wanted at once (woke, came to the front)
         self._not_before = -math.inf  # the last round failed for now: wait for this
         self._failing = False
+        self._offline_since: float | None = None  # failing with no answer: when it was
+        self._looks_again = False  # stopped, but looked at again now and then
         self._asked = False
         self._looked = now  # when a round last went through (or it started)
         self._full_due = True  # the first round's, a failed one's, or one asked for
@@ -87,7 +98,7 @@ class Schedule:
 
     def woke(self, now: float) -> None:
         """The computer woke from sleep."""
-        self._soon_at = now
+        self._soon_at = now + WOKE_WAIT
 
     def let_go(self, now: float) -> None:
         """A note's edit is over, and what came for it waited for that."""
@@ -113,13 +124,18 @@ class Schedule:
         if self._asked:
             return self._not_before
         if self._stopped:
-            return None
+            if not self._looks_again:
+                return None
+            return min(at for at in (self._soon_at, self._look_at) if at is not None)
         due = min(
             at
             for at in (self._edited_at, self._big_edited_at, self._soon_at, self._look_at)
             if at is not None
         )
-        return max(due, self._not_before)
+        not_before = self._not_before
+        if self._offline_since is not None:  # something happened: soon, network or not
+            not_before = min(not_before, self._offline_since + OFFLINE_AGAIN)
+        return max(due, not_before)
 
     def begin(self, now: float) -> bool:
         """A round begins: whether it is to be a full look."""
@@ -128,11 +144,22 @@ class Schedule:
         self._running_full = self._full_due or now - self._last_full >= DAY
         return self._running_full
 
-    def ended(self, now: float, wait: float | None = None, stopped: bool = False) -> None:
+    def ended(
+        self,
+        now: float,
+        wait: float | None = None,
+        stopped: bool = False,
+        offline: bool = False,
+        looks_again: bool = False,
+    ) -> None:
         """The round ended. wait: it failed for now, to be tried again after that
-        many seconds; stopped: it stopped until the user does something."""
+        many seconds (offline: with no answer at all); stopped: it stopped until
+        the user does something (looks_again: what it stopped for may be dealt
+        with elsewhere, so it is looked at again now and then)."""
         self._stopped = stopped
+        self._looks_again = stopped and looks_again
         self._failing = wait is not None
+        self._offline_since = now if wait is not None and offline else None
         if wait is not None:
             self._look_at = now + wait
             if not self._asked:  # asked for while it ran: that still goes first
@@ -141,6 +168,8 @@ class Schedule:
         self._not_before = -math.inf
         self._look_at = now + self._every
         if stopped:
+            if self._looks_again:
+                self._look_at = now + LOOK_AGAIN
             return
         self._looked = now
         if self._running_full:

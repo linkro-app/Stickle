@@ -44,6 +44,16 @@ class Turn(Protocol):
         """Stopped until the user does something."""
         ...
 
+    @property
+    def offline(self) -> bool:
+        """Failed for now with no answer at all (no network, most likely)."""
+        ...
+
+    @property
+    def looks_again(self) -> bool:
+        """Stopped for what may be dealt with elsewhere: looked at again now and then."""
+        ...
+
 
 class Until:
     """A target that makes no more requests once over says so: the app is ending.
@@ -240,7 +250,9 @@ class Runner[T: Turn]:
                 self._schedule.ended(self._clock(), LONGEST_WAIT)
             return
         with self._told:
-            self._schedule.ended(self._clock(), turn.wait, turn.stopped)
+            self._schedule.ended(
+                self._clock(), turn.wait, turn.stopped, turn.offline, turn.looks_again
+            )
         try:
             self._ended(turn)
         except Exception as error:

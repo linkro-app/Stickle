@@ -45,9 +45,10 @@ from stickle.data.settings import MAGNET, Settings
 from stickle.data.sync_connection import WEBDAV, Login
 from stickle.data.versions import VersionRepository
 from stickle.sync import schedule as schedule_module
-from stickle.sync.engine import GETTING, PUTTING, FirstLook
+from stickle.sync.engine import GETTING, PUTTING, FirstLook, Report
 from stickle.sync.format import NOTES, item_path
-from stickle.sync.outcome import Stopped
+from stickle.sync.outcome import Outcome, Stopped
+from stickle.sync.schedule import LOOK_AGAIN
 from stickle.sync.targets.base import SignInNeededError
 
 ROUND_MS = 15_000
@@ -630,9 +631,7 @@ def _stopped(pc: Pc) -> str | None:
     return None if login is None else login.stopped
 
 
-@pytest.mark.parametrize(
-    "why", ["sign in", "no access", "vault gone", "vault changed", "certificate"]
-)
+@pytest.mark.parametrize("why", ["sign in", "no access", "vault changed", "certificate"])
 def test_what_stopped_stays_stopped_at_the_next_start(
     qtbot: QtBot, tmp_path: Path, cloud: FakeCloud, why: str
 ) -> None:
@@ -643,8 +642,8 @@ def test_what_stopped_stays_stopped_at_the_next_start(
     pc.db.close()
 
 
-@pytest.mark.parametrize("why", ["big change", "newer"])
-def test_a_big_change_or_a_newer_format_is_looked_at_again_at_the_next_start(
+@pytest.mark.parametrize("why", ["big change", "newer", "vault gone"])
+def test_what_may_be_over_since_is_looked_at_again_at_the_next_start(
     qtbot: QtBot, tmp_path: Path, cloud: FakeCloud, why: str
 ) -> None:
     pc = make_pc(qtbot, tmp_path, cloud, stopped=why)
@@ -652,6 +651,23 @@ def test_a_big_change_or_a_newer_format_is_looked_at_again_at_the_next_start(
     pc.syncing.finish(0.0)
     pc.other.close()
     pc.db.close()
+
+
+@pytest.mark.parametrize(
+    ("outcome", "offline", "looks_again"),
+    [
+        (Outcome(wait=15.0, offline=True), True, False),
+        (Outcome(wait=15.0), False, False),
+        (Outcome(Stopped.BIG_CHANGE), False, True),  # undone elsewhere, it may go on
+        (Outcome(Stopped.VAULT_GONE), False, False),  # looked at again as it starts only
+        (Outcome(Stopped.SIGN_IN), False, False),
+    ],
+)
+def test_a_round_ended_says_what_the_next_one_goes_by(
+    outcome: Outcome, offline: bool, looks_again: bool
+) -> None:
+    ended = Ended(Report(), outcome)
+    assert (ended.offline, ended.looks_again) == (offline, looks_again)
 
 
 def test_a_round_through_after_it_was_stopped_clears_why(
@@ -787,8 +803,10 @@ def test_a_big_change_with_no_backup_takes_nothing_in_and_stays_stopped(
     assert not any(pc.notes.get(note_id).deleted for note_id in made)  # pyright: ignore[reportOptionalMemberAccess]
     assert all(pc.window_of(note_id) is not None for note_id in made)
     assert _stopped(pc) == "big change"
-    # Not tried again by itself, nor taken in by the next round asked for.
-    assert pc.syncing.runner._schedule.next_at() is None  # pyright: ignore[reportPrivateUsage]
+    # Not tried again soon (only looked at again in an hour, as quietly), nor
+    # taken in by the next round asked for.
+    at = pc.syncing.runner._schedule.next_at()  # pyright: ignore[reportPrivateUsage]
+    assert at is not None and at - pc.syncing._now() > LOOK_AGAIN - 60  # pyright: ignore[reportPrivateUsage]
     monkeypatch.undo()
     assert pc.round().outcome.stopped is Stopped.BIG_CHANGE
     assert backups(pc.path) == []

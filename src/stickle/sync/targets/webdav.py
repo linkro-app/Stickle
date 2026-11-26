@@ -58,9 +58,14 @@ from stickle.sync.targets.base import (
 
 FOLDER = "Stickle"  # right under the address the user gave
 TIMEOUT = 30.0  # seconds, for each step of a request
+# Seconds a connection kept from a request may lie idle and still be used for
+# the next: longer, and it may have been cut off unnoticed as the network changed
+# (a new one costs a handshake; servers mostly close idle ones sooner anyway).
+IDLE_REOPEN = 20.0
 HTTPS_PORT = 443
 
 _USER_AGENT = "Stickle"
+_idle_now = time.monotonic  # how long a kept connection lay idle (tests set it)
 _DAV = "{DAV:}"
 _RESPONSE = f"{_DAV}response"
 _HREF = f"{_DAV}href"
@@ -328,6 +333,7 @@ class WebDav:
         self._keeps_conditions = keeps_conditions
         self._timeout = timeout
         self._kept: http.client.HTTPConnection | None = None
+        self._kept_at = 0.0  # when it was last used
         self._folders: set[str] = set()  # known to be there
 
     @property
@@ -465,6 +471,7 @@ class WebDav:
         kept already (a listing being read while others are made)."""
         if self._kept is None and connection.sock is not None:
             self._kept = connection
+            self._kept_at = _idle_now()
         else:
             connection.close()
 
@@ -478,6 +485,9 @@ class WebDav:
         sent = {"Authorization": self._sign_in, "User-Agent": _USER_AGENT, **headers}
         connection, may_be_closed = self._kept, self._kept is not None
         self._kept = None
+        if connection is not None and _idle_now() - self._kept_at > IDLE_REOPEN:
+            connection.close()  # idle a while (see IDLE_REOPEN): a new one
+            connection, may_be_closed = None, False
         while True:
             try:
                 if connection is None:

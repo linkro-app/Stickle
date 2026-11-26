@@ -345,6 +345,8 @@ def test_a_change_brings_the_other_ones_round_forward(
     class Turned:
         wait: float | None = None
         stopped: bool = False
+        offline: bool = False
+        looks_again: bool = False
 
     rounds = threading.Semaphore(0)
 

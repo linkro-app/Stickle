@@ -41,6 +41,7 @@ from stickle.sync.targets.base import (
     UnavailableError,
 )
 from stickle.sync.targets.dropbox import (
+    IDLE_REOPEN,
     KEEPALIVE_EVERY,
     KEEPALIVE_IDLE,
     KEEPALIVE_PROBES,
@@ -858,3 +859,24 @@ def test_a_cut_before_the_wait_ends_that_wait_alone(
     assert box.requests(NOTIFY) == []
     assert feed.wait(cursor).changes is False
     feed.close()
+
+
+# A connection kept between requests
+
+
+def test_a_connection_left_idle_a_while_is_not_used_again(
+    drive: Dropbox, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Cut off unnoticed as the network changed, it would wait the whole time out.
+    now = [0.0]
+    monkeypatch.setattr(dropbox, "_idle_now", lambda: now[0])
+    api = drive._api  # pyright: ignore[reportPrivateUsage]
+    list(drive.list("notes"))
+    kept = api._kept  # pyright: ignore[reportPrivateUsage]
+    assert kept is not None
+    now[0] += IDLE_REOPEN - 1
+    list(drive.list("notes"))
+    assert api._kept is kept  # pyright: ignore[reportPrivateUsage]
+    now[0] += IDLE_REOPEN + 1
+    list(drive.list("notes"))
+    assert api._kept not in (None, kept)  # pyright: ignore[reportPrivateUsage]

@@ -110,7 +110,8 @@ SYNCED = frozenset(
 # the app's thread (the vault, them).
 type TakeKeys = Callable[[str, Sequence[Follow], Sequence[SecretFollow | SecretOther]], object]
 # Those looked at again when the app starts: it may have been dealt with since.
-LOOKED_AT_AGAIN = {Stopped.BIG_CHANGE.value, Stopped.NEWER.value}
+# The folder gone (a server's disk not there yet as it started) may be back.
+LOOKED_AT_AGAIN = {Stopped.BIG_CHANGE.value, Stopped.NEWER.value, Stopped.VAULT_GONE.value}
 # Stopped for these, sync goes on with a new connection (signed in anew), or once
 # the user asks: nothing is watched meanwhile.
 SIGNED_OUT = frozenset({Stopped.SIGN_IN, Stopped.NO_ACCESS})
@@ -164,6 +165,15 @@ class Ended:
     @property
     def stopped(self) -> bool:
         return self.outcome.stopped is not None
+
+    @property
+    def offline(self) -> bool:
+        return self.outcome.offline
+
+    @property
+    def looks_again(self) -> bool:
+        # Undone on the computer it was made on, it may let sync go on by itself.
+        return self.outcome.stopped is Stopped.BIG_CHANGE
 
 
 @dataclass(frozen=True)

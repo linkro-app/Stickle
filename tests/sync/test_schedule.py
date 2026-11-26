@@ -8,7 +8,10 @@ from stickle.sync.schedule import (
     EDIT_WAIT,
     EVERY,
     FOCUS_AT_LEAST,
+    LOOK_AGAIN,
+    OFFLINE_AGAIN,
     START_WAIT,
+    WOKE_WAIT,
     Schedule,
 )
 
@@ -92,10 +95,10 @@ def test_coming_to_the_front_looks_only_if_the_last_look_is_old_enough() -> None
     assert due(schedule) == 100.0 + FOCUS_AT_LEAST
 
 
-def test_waking_looks_at_once() -> None:
+def test_waking_looks_once_the_network_may_be_back() -> None:
     schedule = after_first()
     schedule.woke(50.0)
-    assert due(schedule) == 50.0
+    assert due(schedule) == 50.0 + WOKE_WAIT
 
 
 def test_an_edit_over_that_held_what_came_looks_at_once() -> None:
@@ -289,3 +292,110 @@ def test_hurrying_with_nothing_waiting_starts_nothing() -> None:
     schedule = after_first()
     schedule.hurry(12.0)
     assert due(schedule) == EVERY
+
+
+# With no answer at all (no network), what happens here tries again soon
+
+
+def failed_offline(at: float = 51.0, wait: float = 120.0) -> Schedule:
+    schedule = after_first()
+    schedule.woke(40.0)
+    schedule.begin(50.0)
+    schedule.ended(at, wait=wait, offline=True)
+    return schedule
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        ("edit", 51.0 + OFFLINE_AGAIN),
+        ("focus", 51.0 + OFFLINE_AGAIN),
+        ("wake", 51.0 + OFFLINE_AGAIN),
+        ("told", 51.0 + OFFLINE_AGAIN),
+        ("late edit", 90.0 + EDIT_WAIT),
+    ],
+)
+def test_offline_something_happening_tries_again_soon_but_not_at_once(
+    event: str, expected: float
+) -> None:
+    schedule = failed_offline()
+    match event:
+        case "edit":
+            schedule.edited(52.0)
+        case "focus":
+            schedule.focused(52.0)
+        case "wake":
+            schedule.woke(52.0)
+        case "told":
+            schedule.changed_elsewhere(52.0)
+        case _:
+            schedule.edited(90.0)
+    assert due(schedule) == expected
+
+
+def test_offline_with_nothing_happening_it_waits_as_told() -> None:
+    assert due(failed_offline()) == 51.0 + 120.0
+
+
+def test_failing_with_an_answer_nothing_pulls_it_sooner() -> None:
+    schedule = after_first()
+    schedule.begin(50.0)
+    schedule.ended(51.0, wait=120.0)  # busy, or a server error: as it says
+    schedule.edited(52.0)
+    assert due(schedule) == 171.0
+
+
+def test_through_again_it_is_no_longer_offline() -> None:
+    schedule = failed_offline()
+    schedule.begin(66.0)
+    schedule.ended(67.0)
+    schedule.begin(68.0)
+    schedule.ended(69.0, wait=120.0)  # failing again, with an answer
+    schedule.edited(70.0)
+    assert due(schedule) == 189.0
+
+
+# Stopped for what may be dealt with elsewhere, looked at again now and then
+
+
+def stopped_looking_again() -> Schedule:
+    schedule = after_first()
+    schedule.begin(50.0)
+    schedule.ended(51.0, stopped=True, looks_again=True)
+    return schedule
+
+
+def test_stopped_for_a_big_change_it_looks_again_in_an_hour() -> None:
+    schedule = stopped_looking_again()
+    assert due(schedule) == 51.0 + LOOK_AGAIN
+    assert schedule.held
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"), [("focus", 100.0), ("told", 60.0), ("wake", 60.0 + WOKE_WAIT)]
+)
+def test_stopped_for_a_big_change_the_cloud_the_front_or_waking_looks_again_sooner(
+    event: str, expected: float
+) -> None:
+    schedule = stopped_looking_again()
+    match event:
+        case "focus":
+            schedule.focused(100.0)
+        case "told":
+            schedule.changed_elsewhere(60.0)
+        case _:
+            schedule.woke(60.0)
+    assert due(schedule) == expected
+
+
+def test_stopped_for_a_big_change_an_edit_here_looks_at_nothing() -> None:
+    schedule = stopped_looking_again()
+    schedule.edited(60.0)
+    assert due(schedule) == 51.0 + LOOK_AGAIN
+
+
+def test_still_stopped_after_looking_again_it_looks_again_an_hour_on() -> None:
+    schedule = stopped_looking_again()
+    schedule.begin(51.0 + LOOK_AGAIN)
+    schedule.ended(52.0 + LOOK_AGAIN, stopped=True, looks_again=True)
+    assert due(schedule) == 52.0 + 2 * LOOK_AGAIN

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 import pytest
 from fake_cloud import WEBDAV, FakeCloud
 
+from stickle.sync import schedule
 from stickle.sync.runner import Runner, Until
 from stickle.sync.schedule import Schedule
 from stickle.sync.targets.base import Absent, AsRead, UnavailableError
@@ -18,6 +19,8 @@ class Turned:
     full: bool = False
     wait: float | None = None
     stopped: bool = False
+    offline: bool = False
+    looks_again: bool = False
 
 
 @dataclass
@@ -36,7 +39,8 @@ class Work:
             self.block.wait(5)
         if self.fail_with is not None:
             raise self.fail_with
-        turn = Turned(full, self.next_turn.wait, self.next_turn.stopped)
+        given = self.next_turn
+        turn = Turned(full, given.wait, given.stopped, given.offline, given.looks_again)
         self.turns.append(turn)
         return turn
 
@@ -171,6 +175,33 @@ def test_ending_does_not_try_what_is_failing() -> None:
     runner.edited()
     runner.finish(5.0)
     assert len(work.turns) == 1
+
+
+def test_stopped_for_what_may_be_undone_elsewhere_a_change_there_looks_again() -> None:
+    work = Work(next_turn=Turned(stopped=True, looks_again=True))
+    runner = runner_of(work)
+    runner.start()
+    runner.asked()
+    assert began(work)
+    time.sleep(0.05)
+    runner.changed_elsewhere()  # as the cloud tells
+    assert began(work)
+    runner.finish()
+
+
+def test_failing_with_no_answer_something_happening_tries_again_soon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(schedule, "OFFLINE_AGAIN", 0.05)
+    work = Work(next_turn=Turned(wait=120.0, offline=True))
+    runner = runner_of(work)
+    runner.start()
+    runner.asked()
+    assert began(work)
+    time.sleep(0.05)
+    runner.changed_elsewhere()
+    assert began(work)  # not two minutes on
+    runner.finish()
 
 
 def test_ending_does_not_try_what_is_stopped() -> None:

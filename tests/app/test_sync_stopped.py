@@ -162,7 +162,15 @@ def test_the_folder_or_the_certificate_is_asked_about(
     window = asked.window
     assert said in window.text.text()
     assert window.after.text()
-    assert window.trash.isHidden() and window.until.isHidden()
+    assert window.trash.isHidden()
+    if why is Stopped.VAULT_GONE:  # out of reach for now, perhaps: how it goes on
+        assert window.until.text() == (
+            "If the folder is back, choose Sync now under Settings, Connections to carry on."
+            " Stickle also looks for it again each time it starts."
+        )
+        assert not window.until.isHidden()
+    else:
+        assert window.until.isHidden()
     assert window.first_button.text() == first
     assert window.second_button.text() == "&Disconnect"
     assert window.focusWidget() is window.first_button
