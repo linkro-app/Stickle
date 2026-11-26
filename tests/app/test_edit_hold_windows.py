@@ -1,9 +1,9 @@
 """A note's window, as sync is told whether it is being edited (stickle.core.being_edited):
-from the moment its text is shown to edit, or something of it waits to be saved,
-until that is over. What came from elsewhere meanwhile shows when the edit
-ends; its line says so. What came just before an edit begins shows first, and
-a checkbox ticked on a text that is gone is let go of. An empty note left
-without the keyboard is not being edited."""
+from the first thing typed in its text shown to edit (tests/app/test_first_input.py),
+or something of it waits to be saved, until that is over. What came from
+elsewhere meanwhile shows when the edit ends; its line says so. What came just
+before an edit begins shows first, and a checkbox ticked on a text that is gone
+is let go of. An empty note left without the keyboard is not being edited."""
 
 import secrets
 from collections.abc import Iterator
@@ -12,6 +12,7 @@ from pathlib import Path
 import apsw
 import pytest
 from PySide6.QtGui import QTextCursor
+from PySide6.QtTest import QTest
 from pytestqt.qtbot import QtBot
 
 from stickle.app.note_window import NoteWindow
@@ -55,6 +56,12 @@ def edited(manager: NoteManager, note_id: str) -> bool:
         return being(note_id)
 
 
+def typing(window: NoteWindow, keys: str = "x") -> None:
+    """Shown to edit, and typed in (ASCII: a key typed here gives no other)."""
+    window.edit()
+    QTest.keyClicks(window.editor, keys)
+
+
 def came(notes: NoteRepository, note_id: str, text: str | None = None, **columns: object) -> None:
     """What a round takes in from the laptop, as it does (stickle.sync.local.take)."""
     notes.take_in(note_id, text, LAPTOP, columns, {}, {})
@@ -68,8 +75,9 @@ def test_an_edit_is_told_from_its_start_to_its_end(
     assert not edited(manager, note_id)
 
     window.edit()
+    assert not edited(manager, note_id)  # nothing typed yet
+    QTest.keyClicks(window.editor, "x")
     assert edited(manager, note_id)
-    window.editor.insertPlainText("x")
     window.show_formatted()  # Esc
     assert edited(manager, note_id)  # waiting to be saved
     qtbot.waitUntil(lambda: not edited(manager, note_id), timeout=3000)
@@ -83,10 +91,10 @@ def test_what_came_just_before_the_edit_began_shows_first(
     window = opened(manager, note_id)
     came(notes, note_id, "회의 10시")  # taken in, not shown yet
 
-    window.edit()
+    window.edit(0)
+    QTest.keyClicks(window.editor, "!")
 
-    assert window.editing and window.text == "회의 10시"
-    assert not manager.waiting_to_save()
+    assert window.editing and window.text == "!회의 10시"  # typed on what came
 
 
 def test_a_checkbox_ticked_on_a_text_that_is_gone_is_let_go_of(
@@ -109,7 +117,7 @@ def test_what_comes_while_it_is_edited_shows_once_it_is_over(
 ) -> None:
     note_id = notes.create("회의 9시").id
     window = opened(manager, note_id)
-    window.edit()
+    typing(window)
     came(notes, note_id, None, color="blue", hidden=1, collapsed=0)
     manager.take_in([note_id])
 
@@ -157,7 +165,7 @@ def test_the_held_line_goes_and_sync_is_told_when_the_edit_is_over(
 ) -> None:
     note_id = notes.create("회의 9시").id
     window = opened(manager, note_id)
-    window.edit()
+    typing(window)
     manager.show_held([note_id])
     assert window.held
 
@@ -177,7 +185,7 @@ def test_the_held_line_is_said_and_tells_what_happens(
     monkeypatch.setattr(NoteWindow, "announce", announce)
     note_id = notes.create("회의 9시").id
     window = opened(manager, note_id)
-    window.edit()
+    typing(window)
 
     manager.show_held([note_id])
     manager.show_held([note_id])  # said once
@@ -225,11 +233,12 @@ def test_typing_in_an_empty_note_is_an_edit(
     window.activateWindow()
     qtbot.waitUntil(window.isActiveWindow, timeout=3000)
     window.editor.setFocus()
+    QTest.keyClicks(window.editor, "x")
     qtbot.waitUntil(lambda: edited(manager, note_id), timeout=3000)
 
     came(notes, note_id, "노트북에서 쓴 글")
     manager.take_in([note_id])
-    assert window.text == ""
+    assert window.text == "x"
 
 
 def test_quitting_ends_every_edit(manager: NoteManager, notes: NoteRepository) -> None:

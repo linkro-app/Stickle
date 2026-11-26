@@ -276,6 +276,7 @@ def test_a_copy_of_a_note_being_edited_opens_once_the_edit_is_over(
     original_id = notes.create("회의 11시").id
     [original] = opened(manager, original_id)
     original.edit()
+    QTest.keyClicks(original.editor, "!")  # being typed in
     copy_id = copy_of(notes, original_id, "회의 10시")  # made on the laptop meanwhile
 
     manager.take_in([copy_id])

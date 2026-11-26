@@ -15,6 +15,8 @@ import pytest
 from fake_cloud import WEBDAV as WEBDAV_KIND
 from fake_cloud import FakeCloud, Request, Trouble
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, Qt
+from PySide6.QtGui import QTextCursor
+from PySide6.QtTest import QTest
 from pytestqt.qtbot import QtBot
 from sync_bed import KEY, KEYS, VAULT, Clock, Device
 
@@ -306,36 +308,44 @@ def test_a_note_taken_out_of_the_trash_elsewhere_opens(pc: Pc) -> None:
     assert pc.window_of(note_id) is not None
 
 
+def typing(window: NoteWindow, keys: str = "!") -> None:
+    """Shown to edit and typed in at its end (ASCII: a key typed here gives no other)."""
+    window.edit()
+    QTest.keyClicks(window.editor, keys)
+
+
 def test_a_window_being_edited_is_left_as_it_is(pc: Pc) -> None:
     note_id = note_of_both(pc)
     window = pc.window_of(note_id)
     assert window is not None
-    window.edit()
+    typing(window)
     pc.other.notes.update_body(note_id, "changed there")
     pc.other_syncs()
     pc.round()
     assert window.editing
-    assert window.text == "first"
+    assert window.text == "first!"
 
 
-def test_leaving_a_window_untouched_keeps_what_came(pc: Pc) -> None:
-    """Being open for editing while a change came is no edit to save over it:
-    what came waits for the edit to end, then shows."""
+def test_open_to_edit_with_nothing_typed_what_came_shows_in_it_at_once(pc: Pc) -> None:
+    """Being open for editing is no edit yet: what came is not held, it shows in
+    the text being edited, and typing goes on from there with no conflict copy."""
     note_id = note_of_both(pc)
     window = pc.window_of(note_id)
     assert window is not None
     window.edit()
     pc.other.notes.update_body(note_id, "changed there")
     pc.other_syncs()
-    assert pc.round().report.held == [note_id]
-    pc.manager.save(window)
-    assert pc.notes.get(note_id).body == "first"  # pyright: ignore[reportOptionalMemberAccess]
-    assert window.held
 
-    with pc.qtbot.waitSignal(pc.syncing.round_shown, timeout=ROUND_MS):
-        window.show_formatted()  # the edit is over: a round at once
-    assert window.text == "changed there" and not window.held
-    assert pc.notes.get(note_id).body == "changed there"  # pyright: ignore[reportOptionalMemberAccess]
+    assert pc.round().report.held == []
+    assert window.editing and window.text == "changed there" and not window.held
+    assert window.editor.textCursor().position() == len("first")  # where it was
+
+    window.editor.moveCursor(QTextCursor.MoveOperation.End)
+    QTest.keyClicks(window.editor, "!")
+    pc.manager.save(window)
+    pc.round()
+    assert pc.notes.get(note_id).body == "changed there!"  # pyright: ignore[reportOptionalMemberAccess]
+    assert [note for note in pc.notes.all() if note.conflict is not None] == []
 
 
 def test_typed_while_a_change_waited_both_texts_are_kept(pc: Pc) -> None:
@@ -345,7 +355,8 @@ def test_typed_while_a_change_waited_both_texts_are_kept(pc: Pc) -> None:
     pc.other.notes.update_body(note_id, "changed there")
     pc.other_syncs()
     window.edit()
-    window.editor.setPlainText("typed here")
+    window.editor.selectAll()
+    QTest.keyClicks(window.editor, "typed here")
     pc.manager.save(window)
     assert pc.round().report.held == [note_id]
     assert window.text == "typed here"
@@ -390,7 +401,7 @@ def test_a_note_being_edited_put_in_the_trash_elsewhere_stays_open(pc: Pc) -> No
     note_id = note_of_both(pc)
     window = pc.window_of(note_id)
     assert window is not None
-    window.edit()
+    typing(window)
     pc.other.notes.delete(note_id)
     pc.other_syncs()
     pc.round()
@@ -502,7 +513,7 @@ def test_a_note_moved_elsewhere_while_edited_here_moves_once_left(pc: Pc) -> Non
     window = pc.window_of(note_id)
     assert window is not None
     before = window.geometry()
-    window.edit()
+    typing(window)
 
     there = moved_there(pc, note_id)
     pc.round()

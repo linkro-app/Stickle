@@ -219,6 +219,12 @@ def type_into(window: NoteWindow, text: str) -> None:
     window.editor.insertPlainText(text)
 
 
+def typed_into(window: NoteWindow, keys: str) -> None:
+    """Typed at its end, as keys are (ASCII: a key typed here gives no other)."""
+    window.editor.moveCursor(QTextCursor.MoveOperation.End)
+    QTest.keyClicks(window.editor, keys)
+
+
 def leave_text(window: NoteWindow) -> None:
     """The text loses the keyboard: the edit ends."""
     out = QFocusEvent(QEvent.Type.FocusOut, Qt.FocusReason.OtherFocusReason)
@@ -756,19 +762,19 @@ def test_typed_in_after_sync_took_it_away_what_was_typed_is_kept_encrypted(
     repository.delete(note_id)
     if went == "gone":
         repository.take_in_emptied(note_id)
-    type_into(window, " 추가")
+    typed_into(window, " more")
     told = edits_told(manager, monkeypatch)
 
     assert manager.flush(window)
 
-    assert opened_text(connection, unlock, window) == TEXT + " 추가"
+    assert opened_text(connection, unlock, window) == TEXT + " more"
     note = stored(connection, window)
     assert note.secret and not note.deleted and note.secret_title == "은행"
     if went == "trash":
         assert note.id == note_id
     else:
         assert note.id != note_id and repository.get(note_id) is None
-    assert search(connection, "추가") == []
+    assert search(connection, "more") == []
     assert not window.unsaved and manager.window_for(note.id) is window
     if went == "gone":  # sync told: the edit is the new note's
         qtbot.waitUntil(lambda: ("begin", note.id) in told, timeout=3000)

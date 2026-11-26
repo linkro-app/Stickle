@@ -573,6 +573,8 @@ class NoteManager(QObject):
         window.text_changed.connect(autosave.changed)
         window.text_changed.connect(lambda: self._follow_edit(window))
         window.edit_state_changed.connect(lambda: self._follow_edit(window))
+        # At once, before what is typed goes in: what came just before shows first.
+        window.about_to_type.connect(lambda: self._follow_edit(window))
         window.editing_finished.connect(autosave.save_now)
         window.left.connect(lambda: self._edit_ended(window))
         window.retry_requested.connect(autosave.save_now)
@@ -2660,10 +2662,12 @@ class NoteManager(QObject):
         self.take_in(note_ids)
 
     def _being_edited(self, window: NoteWindow) -> bool:
-        """Its text being typed in (an empty note left without the keyboard is not
-        being edited: it would stay so), or something of it waiting to be saved."""
+        """Its text being typed in, from the first thing typed since it was shown
+        to edit (until then, what comes from elsewhere shows in it; an empty note
+        left without the keyboard is not being edited: it would stay so), or
+        something of it waiting to be saved."""
         autosave = self._autosaves.get(window)
-        typing = window.editing and (window.editor.hasFocus() or bool(window.text.strip()))
+        typing = window.typed_in and (window.editor.hasFocus() or bool(window.text.strip()))
         return typing or window.unsaved or (autosave is not None and autosave.waiting)
 
     def _follow_edit(self, window: NoteWindow) -> None:
@@ -2696,9 +2700,10 @@ class NoteManager(QObject):
         window.set_held(False)
 
     def _catch_up(self, window: NoteWindow) -> None:
-        """The note's text as stored, in the window as its edit begins: sync may
-        have taken one in just before, and nothing is typed on what it replaced.
-        A checkbox ticked on that is let go of: what came shows."""
+        """The note's text as stored, in the window as its edit begins (with the
+        first thing typed, before it goes in): sync may have taken one in just
+        before, and nothing is typed on what it replaced. A checkbox ticked on
+        that is let go of: what came shows."""
         if self._repository is None or window.note_id is None:
             return
         try:
@@ -2707,7 +2712,9 @@ class NoteManager(QObject):
             log.warning("could not read a note again: %s", type(error).__name__)
             return
         if note is None or note.deleted:
-            self._gone_as_edit_begins(window)
+            # Put in the trash, or gone, by sync just before: what is about to be
+            # typed is kept all the same (see save; nothing typed, its window
+            # closes once sync says so).
             return
         if note.secret != window.secret:
             return
@@ -2729,17 +2736,6 @@ class NoteManager(QObject):
             return  # typed on it already: saved as it is (as before sync was told)
         (self._stored_secret if window.secret else self._saved)[window] = stored
         self._edit_kept.discard(window)
-
-    def _gone_as_edit_begins(self, window: NoteWindow) -> None:
-        """The note put in the trash, or gone, by sync just before its edit
-        began: that taken in now if nothing is typed on it yet (its window
-        closes, as it would once sync said so); else what is typed is kept
-        (see save)."""
-        saved = self._stored_secret.get(window) if window.secret else self._saved_text(window)
-        if window.text != saved:
-            return
-        self._autosaves[window].stop()
-        window.release()
 
     def _opened_text(self, window: NoteWindow, note: Note) -> str | None:
         """An open secret note's text as stored, opened with the key its window
@@ -2815,7 +2811,7 @@ class NoteManager(QObject):
             self._take_in_secret(window, note)
         else:
             if note.body != window.text:
-                window.replace_text(note.body)
+                self._show_text(window, note.body)
             self._saved[window] = note.body
             self._edit_kept.discard(window)
         if note.locked != window.locked:
@@ -2826,6 +2822,15 @@ class NoteManager(QObject):
             window.set_collapsed(note.collapsed)
             if not window.moved_by_user:  # else where the user put it is saved, and goes
                 self._restore_place(window)
+
+    @staticmethod
+    def _show_text(window: NoteWindow, text: str) -> None:
+        """What came from elsewhere, in the window as it is: in the text shown to
+        edit (nothing typed in it yet), the cursor where it was; else formatted."""
+        if window.editing:
+            window.take_text(text)
+        else:
+            window.replace_text(text)
 
     def _take_in_secret(self, window: NoteWindow, note: Note) -> None:
         """A secret note's title and text as sync brought them: its text shown if
@@ -2842,7 +2847,7 @@ class NoteManager(QObject):
             window.show_secret_locked(title)
             return
         if opened != self._stored_secret.get(window):
-            window.replace_text(opened)
+            self._show_text(window, opened)
             self._stored_secret[window] = opened
             self._edit_kept.discard(window)
 

@@ -365,9 +365,43 @@ class FlatButton(QToolButton):
         self.icon().paint(painter, icon_rect, Qt.AlignmentFlag.AlignCenter, mode, state)
 
 
+# Keys that change the text without typing a character of their own.
+CHANGING_KEYS = (Qt.Key.Key_Backspace, Qt.Key.Key_Delete, Qt.Key.Key_Return, Qt.Key.Key_Enter)
+CHANGING_SEQUENCES = (
+    QKeySequence.StandardKey.Cut,
+    QKeySequence.StandardKey.Paste,
+    QKeySequence.StandardKey.Undo,
+    QKeySequence.StandardKey.Redo,
+    QKeySequence.StandardKey.DeleteStartOfWord,
+    QKeySequence.StandardKey.DeleteEndOfWord,
+    QKeySequence.StandardKey.DeleteEndOfLine,
+    QKeySequence.StandardKey.DeleteCompleteLine,
+)
+
+
+def _types(event: QEvent) -> bool:
+    """Whether the event, to the editor, is about to change its text: a key that
+    types, deletes or pastes, or a character being composed or committed. Keys
+    that move the cursor or select do not."""
+    if isinstance(event, QInputMethodEvent):
+        return bool(event.preeditString() or event.commitString())
+    if not isinstance(event, QKeyEvent) or event.type() != QEvent.Type.KeyPress:
+        return False
+    if event.key() in CHANGING_KEYS or any(event.matches(each) for each in CHANGING_SEQUENCES):
+        return True
+    held = event.modifiers()
+    command = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
+    if held & command and not held & Qt.KeyboardModifier.AltModifier:
+        return False  # a shortcut (Ctrl+Alt, AltGr on Windows, types characters)
+    typed = event.text()
+    return bool(typed) and (typed.isprintable() or typed == "\t")
+
+
 class NoteEditor(QPlainTextEdit):
     """The note's text as written. Formatted text pasted in (from a web page or a
     word processor) arrives as Markdown, so it keeps the formatting a note can show."""
+
+    pasting = Signal()  # just before what is pasted or dropped goes in
 
     @override
     def insertFromMimeData(self, source: QMimeData) -> None:
@@ -375,6 +409,7 @@ class NoteEditor(QPlainTextEdit):
             source.html() if source.hasHtml() else None, source.text() if source.hasText() else ""
         )
         if text:
+            self.pasting.emit()
             self.textCursor().insertText(text)
             self.ensureCursorVisible()
 
@@ -678,6 +713,10 @@ class NoteWindow(QWidget):
     # Its text shown to edit or formatted, or the keyboard came or went: an edit
     # of it may have begun or ended (its owner looks).
     edit_state_changed = Signal()
+    # Something is about to be typed in its text shown to edit (a key that types
+    # or deletes, a paste or a drop, a character composed), before it goes in:
+    # once each time it is shown to edit. Its owner begins the edit then.
+    about_to_type = Signal()
 
     # Its menu, the items made the first time it opens or any of them is asked for.
     menu = _MenuItem[QMenu]()
@@ -749,6 +788,7 @@ class NoteWindow(QWidget):
         self._ended_unfinished: tuple[str, float, int] | None = None
         # Still being edited while the shortcuts it asked for are shown over it.
         self._keep_editing = False
+        self._typed = False  # in it since its text was last shown to edit (see typed_in)
         self.found = False  # chosen among the notes found on the desktop
         self.secret_title: str | None = None  # a secret note's ("" for none typed)
         self.secret_locked = False
@@ -856,6 +896,7 @@ class NoteWindow(QWidget):
         self.title_bar.menu_button.setMenu(self._menu)
 
         self.editor = NoteEditor(self)
+        self.editor.pasting.connect(self._about_to_type)
         self._ordinary_hints = self.editor.inputMethodHints()
         self.editor.setFrameShape(QPlainTextEdit.Shape.NoFrame)
         self.editor.setPlainText(text)
@@ -1759,8 +1800,9 @@ class NoteWindow(QWidget):
         line.setAccessibleName(f"{shown} {more}")
 
     def take_text(self, text: str) -> None:
-        """Its text as stored now, put in as its edit begins (it came from elsewhere
-        just before): not a change to save, the cursor where it was as far as it goes."""
+        """Its text as stored now, put in the text shown to edit before anything
+        is typed in it (it came from elsewhere): not a change to save, the cursor
+        where it was as far as it goes."""
         at = self.editor.textCursor().position()
         self._last_text = text
         self.editor.setPlainText(text)
@@ -1768,7 +1810,19 @@ class NoteWindow(QWidget):
         cursor.setPosition(min(at, self.editor.document().characterCount() - 1))
         self.editor.setTextCursor(cursor)
 
+    @property
+    def typed_in(self) -> bool:
+        """Its text shown to edit, and typed in since it was (see about_to_type)."""
+        return self.editing and self._typed
+
+    def _about_to_type(self) -> None:
+        if self._typed or not self.editing:
+            return
+        self._typed = True
+        self.about_to_type.emit()
+
     def _shown_changed(self, _index: int) -> None:
+        self._typed = False  # shown to edit anew, or no longer: nothing typed in it yet
         self.edit_state_changed.emit()
 
     def set_next_reminder(self, when: str | None) -> None:
@@ -2013,6 +2067,8 @@ class NoteWindow(QWidget):
 
     @override
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.editor and _types(event):
+            self._about_to_type()  # first, before it goes in (and before lists are helped with)
         if (
             isinstance(watched, QSizeGrip)  # its own (watched before it exists: the editor)
             and event.type() == QEvent.Type.MouseButtonPress

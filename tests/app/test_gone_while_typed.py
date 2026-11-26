@@ -1,10 +1,9 @@
 """A note sync put in the trash, or that went (emptied from the trash elsewhere,
 made one with another note), while its window was still on screen: what is
 typed in it is never lost. Put in the trash, it comes back out with it; gone,
-it is stored as a new note, its window staying. As its edit begins with nothing
-typed yet, that is taken in at once: the window closes, as it would once sync
-said so. However one note fails, quitting, logging out and sleeping save the
-others."""
+it is stored as a new note, its window staying. With nothing typed in it, the
+window closes once sync says so. However one note fails, quitting, logging out
+and sleeping save the others."""
 
 import secrets
 from collections.abc import Iterator
@@ -13,6 +12,7 @@ from pathlib import Path
 import apsw
 import pytest
 from PySide6.QtGui import QTextCursor
+from PySide6.QtTest import QTest
 from pytestqt.qtbot import QtBot
 
 from stickle.app.note_window import NoteWindow
@@ -62,8 +62,9 @@ def opened(manager: NoteManager, note_id: str) -> NoteWindow:
 
 
 def type_into(window: NoteWindow, text: str) -> None:
+    """Typed at its end, as keys are (ASCII: a key typed here gives no other)."""
     window.editor.moveCursor(QTextCursor.MoveOperation.End)
-    window.editor.insertPlainText(text)
+    QTest.keyClicks(window.editor, text)
 
 
 def edited(manager: NoteManager, note_id: str) -> bool:
@@ -104,14 +105,14 @@ def test_typed_in_after_it_went_into_the_trash_it_comes_back_with_what_was_typed
     notes.set_category(note_id, category.id)
     window = opened(manager, note_id)
     window.edit()
-    type_into(window, " 3층")
+    type_into(window, " 3F")
     notes.delete(note_id)  # taken in from the laptop, not shown yet
 
     assert manager.flush(window)
 
     note = notes.get(note_id)
     assert note is not None and not note.deleted
-    assert note.body == "회의 9시 3층"
+    assert note.body == "회의 9시 3F"
     assert (note.color, note.label) == ("blue", category.id)
     assert not window.unsaved and manager.window_for(note_id) is window
     assert notes.deleted() == []
@@ -126,7 +127,7 @@ def test_back_out_of_the_trash_its_window_shows_the_category_it_went_back_into(
     notes.set_category(note_id, old.id)
     window = opened(manager, note_id)
     window.edit()
-    type_into(window, " 3층")
+    type_into(window, " 3F")
     notes.remove_category(old.id, with_notes=True)  # on the laptop, its notes with it
     new = labels.create_category("일", "blue")  # one of the same name made since
 
@@ -142,7 +143,7 @@ def test_back_out_of_the_trash_the_lists_are_told(
     note_id = notes.create("회의 9시").id
     window = opened(manager, note_id)
     window.edit()
-    type_into(window, " 3층")
+    type_into(window, " 3F")
     notes.delete(note_id)
 
     with qtbot.waitSignal(manager.changed, timeout=1000):
@@ -155,7 +156,7 @@ def test_brought_back_its_window_stays_once_sync_says_it_went_into_the_trash(
     note_id = notes.create("회의 9시").id
     window = opened(manager, note_id)
     window.edit()
-    type_into(window, " 3층")
+    type_into(window, " 3F")
     notes.delete(note_id)
     manager.take_in([note_id])  # the round's end shown: kept, being edited
 
@@ -164,7 +165,7 @@ def test_brought_back_its_window_stays_once_sync_says_it_went_into_the_trash(
     qtbot.waitUntil(lambda: not edited(manager, note_id), timeout=3000)
     assert manager.window_for(note_id) is window
     note = notes.get(note_id)
-    assert note is not None and not note.deleted and note.body == "회의 9시 3층"
+    assert note is not None and not note.deleted and note.body == "회의 9시 3F"
 
 
 # Gone elsewhere
@@ -178,7 +179,7 @@ def test_typed_in_after_it_was_gone_it_is_stored_as_a_new_note_its_window_stayin
     notes.set_category(note_id, category.id)
     window = opened(manager, note_id)
     window.edit()
-    type_into(window, " 3층")
+    type_into(window, " 3F")
     notes.delete(note_id)
     notes.take_in_emptied(note_id)  # emptied from the trash on the laptop
 
@@ -187,7 +188,7 @@ def test_typed_in_after_it_was_gone_it_is_stored_as_a_new_note_its_window_stayin
     assert window.note_id is not None and window.note_id != note_id
     note = notes.get(window.note_id)
     assert note is not None and not note.deleted
-    assert note.body == "회의 9시 3층"
+    assert note.body == "회의 9시 3F"
     assert (note.color, note.label) == ("blue", category.id)
     assert manager.window_for(window.note_id) is window and not window.unsaved
     assert notes.get(note_id) is None
@@ -199,7 +200,7 @@ def test_stored_anew_it_is_the_new_note_that_is_being_edited(
     note_id = notes.create("회의 9시").id
     window = opened(manager, note_id)
     window.edit()
-    type_into(window, " 3층")
+    type_into(window, " 3F")
     notes.drop(note_id)  # made one with the laptop's
     told = edits_told(manager, monkeypatch)
 
@@ -217,7 +218,7 @@ def test_gone_while_edited_its_window_stays_until_what_was_typed_is_kept(
     note_id = notes.create("회의 9시").id
     window = opened(manager, note_id)
     window.edit()
-    type_into(window, " 3층")  # waiting to be saved
+    type_into(window, " 3F")  # waiting to be saved
     notes.drop(note_id)
 
     manager.take_in([note_id])  # the round's end shown, before it is saved
@@ -228,22 +229,20 @@ def test_gone_while_edited_its_window_stays_until_what_was_typed_is_kept(
         lambda: window.note_id != note_id and not manager.waiting_to_save(), timeout=3000
     )
     assert window in manager.windows
-    assert bodies(notes) == ["회의 9시 3층"]
+    assert bodies(notes) == ["회의 9시 3F"]
 
 
-def test_gone_while_edited_with_nothing_typed_it_closes_once_the_edit_is_over(
-    qtbot: QtBot, manager: NoteManager, notes: NoteRepository
+def test_gone_shown_to_edit_with_nothing_typed_it_closes_as_sync_says_so(
+    manager: NoteManager, notes: NoteRepository
 ) -> None:
     note_id = notes.create("회의 9시").id
     window = opened(manager, note_id)
     window.edit()
     notes.drop(note_id)
+
     manager.take_in([note_id])
-    assert manager.window_for(note_id) is window
 
-    window.show_formatted()
-
-    qtbot.waitUntil(lambda: window not in manager.windows, timeout=3000)
+    assert window not in manager.windows
     assert notes.all() == []
 
 
@@ -262,23 +261,42 @@ def test_emptied_to_nothing_and_gone_nothing_is_stored(
     assert window.note_id is None and notes.all() == []
 
 
-# As its edit begins
+# The first key typed after it went
 
 
 @pytest.mark.parametrize("went", ["trash", "gone"])
-def test_as_its_edit_begins_with_nothing_typed_what_sync_did_shows_at_once(
-    manager: NoteManager, notes: NoteRepository, went: str
+def test_the_first_key_typed_after_sync_took_it_away_is_kept(
+    qtbot: QtBot, manager: NoteManager, notes: NoteRepository, went: str
 ) -> None:
     note_id = notes.create("회의 9시").id
     window = opened(manager, note_id)
     notes.delete(note_id)
     if went == "gone":
         notes.take_in_emptied(note_id)
+    window.edit(0)
 
+    QTest.keyClicks(window.editor, "!")
+
+    assert window in manager.windows and window.text == "!회의 9시"
+    qtbot.waitUntil(lambda: not manager.waiting_to_save(), timeout=3000)
+    assert window.note_id is not None and (window.note_id == note_id) == (went == "trash")
+    note = notes.get(window.note_id)
+    assert note is not None and not note.deleted and note.body == "!회의 9시"
+
+
+def test_shown_to_edit_with_nothing_typed_its_window_closes_as_sync_says_so(
+    manager: NoteManager, notes: NoteRepository
+) -> None:
+    note_id = notes.create("회의 9시").id
+    window = opened(manager, note_id)
+    notes.delete(note_id)
     window.edit()
 
+    manager.take_in([note_id])
+
     assert window not in manager.windows
-    assert not edited(manager, note_id)
+    note = notes.get(note_id)
+    assert note is not None and note.deleted
 
 
 def test_a_checkbox_ticked_on_a_note_put_in_the_trash_brings_it_back_ticked(
@@ -329,8 +347,8 @@ def test_one_note_failing_to_save_the_others_are_saved_all_the_same(
 ) -> None:
     first, second = notes.create("하나").id, notes.create("둘").id
     failing, other = opened(manager, first), opened(manager, second)
-    type_into(failing, " 더")
-    type_into(other, " 더")
+    type_into(failing, " more")
+    type_into(other, " more")
     stored = NoteRepository.update_body
 
     def update_body(
@@ -347,5 +365,5 @@ def test_one_note_failing_to_save_the_others_are_saved_all_the_same(
     else:
         manager.save_all()
 
-    assert notes.get(second).body == "둘 더"  # pyright: ignore[reportOptionalMemberAccess]
+    assert notes.get(second).body == "둘 more"  # pyright: ignore[reportOptionalMemberAccess]
     assert failing.unsaved and not other.unsaved
