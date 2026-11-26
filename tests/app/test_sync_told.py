@@ -40,6 +40,7 @@ from stickle.core.updates import Release
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.settings import (
+    GOING_BACK_FAILED,
     SYNC_GONE_BACK,
     SYNC_LET_GO,
     SYNC_SECRETS_RESEALED,
@@ -545,6 +546,9 @@ def test_the_lines_are_reached_by_the_keyboard_in_their_order(
     stop, trash = at.window.sync_stop_line, at.window.sync_trash_line
     gone, sealed = at.window.sync_gone_back_line, at.window.sync_secrets_line
     matched, let_go = at.window.sync_matched_line, at.window.sync_let_go_line
+    not_back = at.window.not_gone_back_line
+    assert not_back.action_button.nextInFocusChain() is not_back.ok_button
+    assert not_back.ok_button.nextInFocusChain() is gone.action_button
     assert gone.action_button.nextInFocusChain() is gone.ok_button
     assert gone.ok_button.nextInFocusChain() is sealed.ok_button
     assert sealed.ok_button.nextInFocusChain() is matched.ok_button
@@ -793,3 +797,52 @@ def test_a_note_made_secret_elsewhere_is_told_in_korean(
         " 남습니다."
     )
     assert line.action_button.text() == "이전 버전 보기(&E)…"
+
+
+# Going back to a backup that could not be put in place
+
+
+def test_a_going_back_that_failed_is_told_in_the_run_after_with_a_way_to_try_again(
+    qtbot: QtBot, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings.set(GOING_BACK_FAILED, True)
+    at = manager_of(qtbot, settings)
+    asked: list[bool] = []
+    monkeypatch.setattr(at.window, "restore_backup", lambda: asked.append(True))
+    line = at.window.not_gone_back_line
+
+    qtbot.waitUntil(lambda: not line.isHidden())
+
+    assert line.label.text() == "Couldn't go back to the backup. Your notes are as they were."
+    assert line.action_button.text() == "Try aga&in…"
+    assert at.told == [line.label.text()]
+    assert not settings.get(GOING_BACK_FAILED)  # this run only
+    line.action_button.click()
+    assert asked == [True]
+    assert not line.isHidden()  # until OK
+    line.ok_button.click()
+    assert line.isHidden()
+
+
+def test_a_going_back_that_failed_is_not_told_again(qtbot: QtBot, settings: Settings) -> None:
+    settings.set(GOING_BACK_FAILED, True)
+    manager_of(qtbot, settings)
+    qtbot.wait(10)
+    again = manager_of(qtbot, settings)
+    qtbot.wait(10)
+    assert again.window.not_gone_back_line.isHidden()
+    assert not again.told
+
+
+def test_a_going_back_that_failed_is_told_in_korean(
+    qtbot: QtBot, settings: Settings, translations: Translations
+) -> None:
+    translations.apply("ko")
+    settings.set(GOING_BACK_FAILED, True)
+    at = manager_of(qtbot, settings)
+    line = at.window.not_gone_back_line
+
+    qtbot.waitUntil(lambda: not line.isHidden())
+
+    assert line.label.text() == "백업으로 되돌리지 못했습니다. 메모는 그대로입니다."
+    assert line.action_button.text() == "다시 해 보기(&I)…"

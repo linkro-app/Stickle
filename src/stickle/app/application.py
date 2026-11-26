@@ -82,6 +82,7 @@ from stickle.data.reminders import ReminderRepository
 from stickle.data.schema import MigrationError, latest_version
 from stickle.data.settings import (
     CLOUD_FOLDER_TOLD,
+    GOING_BACK_FAILED,
     RECOVERY_KEY_KEPT,
     KeptRecoveryKey,
     Settings,
@@ -143,6 +144,9 @@ _ended_by_signal = False
 _restore_staged = False
 # What the line telling of going back says, on a computer that syncs (else None).
 _going_back: GoneBack | None = None
+# The staged copy made to go on as sync is now before quitting (on a computer
+# that does not sync: its failure then said in the window that asked).
+_sync_state_kept = False
 # Seconds a request still out at the end may take to come back before the
 # backup is put in place (it takes no more than its own time, 30 per step).
 SYNC_END_WAIT = 60.0
@@ -168,15 +172,17 @@ def go_back_to(
     quit_app: Callable[[], object],
     clock: Clock = utc_now,
     secret_key: bytes | None = None,
+    clocks: Clocks | None = None,
 ) -> bool:
     """Back up the notes as they are, stage the backup and quit to put it in place.
     The notes secret now stay secret in it: their earlier text there sealed with
     secret_key, or, without it, their text as it is now; what goes with the key
     files stays as it is now. Sync goes on from it as it is now, once it has
-    ended (finish_going_back). False, with nothing changed, if the copies could
-    not be made."""
-    global _restore_staged, _going_back
+    ended (finish_going_back); on a computer that does not sync, at once. False,
+    with nothing changed, if the copies could not be made."""
+    global _restore_staged, _going_back, _sync_state_kept
     manager.save_all()
+    _sync_state_kept = False
     seal = None if secret_key is None else functools.partial(seal_text, secret_key)
     try:
         taken = next((each.taken for each in backups(database) if each.path == backup), None)
@@ -184,6 +190,9 @@ def go_back_to(
         stage_restore(database, backup)
         kept = keep_secret_notes_secret(database, key, secret_notes_known(connection), seal)
         keep_key_state(database, key, connection)
+        if sync_connection.current(connection) is None:  # no sync to wait for
+            keep_sync_state(database, key, connection, (clocks or Clocks()).millis())
+            _sync_state_kept = True
     except (OSError, apsw.Error, WrongKeyError, MigrationError) as error:
         cancel_restore(database)
         log.error("could not go back to a backup: %s", type(error).__name__)
@@ -209,17 +218,27 @@ def finish_going_back(
     once sync has ended, the copy goes on with sync as the database has it now,
     and what changed since the backup goes to every computer that syncs
     (stickle.data.going_back). If it cannot, the backup is not put in place,
-    and the notes stay as they are."""
+    and the notes stay as they are: said at the next start."""
+    if _sync_state_kept:  # before quitting (go_back_to)
+        return
     if syncing is not None and not syncing.ended(SYNC_END_WAIT):
         log.error("going back to a backup: sync did not end, the backup is not put in place")
-        cancel_restore(database)
+        _give_up_going_back(connection, database)
         return
     try:
         keep_sync_state(database, key, connection, clocks.millis(), _going_back)
     except (OSError, apsw.Error, WrongKeyError, MigrationError) as error:
         why = type(error).__name__
         log.error("going back to a backup: %s, the backup is not put in place", why)
-        cancel_restore(database)
+        _give_up_going_back(connection, database)
+
+
+def _give_up_going_back(connection: apsw.Connection, database: Path) -> None:
+    cancel_restore(database)
+    try:
+        Settings(connection).set(GOING_BACK_FAILED, True)
+    except apsw.Error as error:
+        log.error("could not keep that going back failed: %s", type(error).__name__)
 
 
 def data_access(
@@ -314,7 +333,14 @@ def data_access(
             available=lambda: backups(database),
             contents=lambda path: contents(path, key, latest_version()),
             restore=lambda path, secret_key: go_back_to(
-                path, manager, connection, database, key, quit_app, secret_key=secret_key
+                path,
+                manager,
+                connection,
+                database,
+                key,
+                quit_app,
+                secret_key=secret_key,
+                clocks=clocks,
             ),
             old_secret_texts=old_texts,
             secrets=lambda: manager.secrets,

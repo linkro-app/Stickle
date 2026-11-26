@@ -330,6 +330,11 @@ def _gone_back(value: object) -> TypeGuard[dict[str, str] | None]:
 # from it (going back to the backup made just before, without asking again).
 SYNC_GONE_BACK = Setting[dict[str, str] | None]("sync_gone_back", "device", None, _gone_back)
 
+# Going back to a backup was given up as Stickle quit, the notes left as they
+# were (on a computer that syncs, where it waits for sync to end): told at the
+# top of Stickle Manager in the run that follows.
+GOING_BACK_FAILED = Setting[bool]("going_back_failed", "device", False, _flag)
+
 # The secret notes, still sealed for the recovery key this computer had before
 # it took the others', were sealed for theirs once opened: said at the top of
 # Stickle Manager until the user says OK.
@@ -414,6 +419,7 @@ SETTINGS: dict[str, Setting[object]] = {
         SYNC_STOP_SEEN,
         SYNC_TRASHED,
         SYNC_GONE_BACK,
+        GOING_BACK_FAILED,
         SYNC_SECRETS_RESEALED,
         SYNC_SECRETS_MATCHED,
         SYNC_LET_GO,

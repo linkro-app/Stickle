@@ -66,6 +66,7 @@ from stickle.app.shortcut_guide import ShortcutGuide
 from stickle.app.shortcuts import GlobalShortcuts
 from stickle.app.sizing import grow_to_fit
 from stickle.app.sync_display import (
+    NotGoneBackLine,
     SyncGoneBackLine,
     SyncLetGoLine,
     SyncLine,
@@ -211,6 +212,7 @@ class StickleWindow(QWidget):
         # Sync stopped, and notes it put in the trash, told once (see SyncDisplay).
         self.sync_stop_line = SyncStopLine(self)
         self.sync_trash_line = SyncTrashLine(self)
+        self.not_gone_back_line = NotGoneBackLine(self)
         self.sync_gone_back_line = SyncGoneBackLine(self)
         self.sync_secrets_line = SyncResealedLine(self)
         self.sync_matched_line = SyncResealedLine(self)
@@ -347,6 +349,7 @@ class StickleWindow(QWidget):
         layout.addWidget(self.changes_label)
         layout.addLayout(changes_buttons)
         layout.addWidget(self.cloud_folder_line)
+        layout.addWidget(self.not_gone_back_line)
         layout.addWidget(self.sync_gone_back_line)
         layout.addWidget(self.sync_secrets_line)
         layout.addWidget(self.sync_matched_line)
@@ -478,6 +481,8 @@ class StickleWindow(QWidget):
             self.changes_seen_button,
             self.cloud_folder_line.open_button,
             self.cloud_folder_line.ok_button,
+            self.not_gone_back_line.action_button,
+            self.not_gone_back_line.ok_button,
             self.sync_gone_back_line.action_button,
             self.sync_gone_back_line.ok_button,
             self.sync_secrets_line.ok_button,

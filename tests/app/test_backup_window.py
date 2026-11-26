@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import apsw
 import pytest
@@ -32,7 +32,7 @@ from stickle.data.backups import Backup, Contents
 from stickle.data.database import open_database
 from stickle.data.notes import NoteRepository
 from stickle.data.schema import open_store
-from stickle.data.settings import SYNC_GONE_BACK, Settings
+from stickle.data.settings import GOING_BACK_FAILED, SYNC_GONE_BACK, Settings
 from stickle.unlock import Unlock
 
 KEY = secrets.token_bytes(32)
@@ -555,6 +555,7 @@ def test_a_sync_that_does_not_end_leaves_the_notes_as_they_are(
     notes = NoteRepository(connection)
     chosen = backups.take(connection, database, FakeClock("2026-10-17T12:00:00.000Z"))
     notes.create("지금")
+    syncs_here(connection)
     quits: list[bool] = []
     assert go_back_to(
         chosen, NoteManager(notes), connection, database, KEY, lambda: quits.append(True)
@@ -566,4 +567,84 @@ def test_a_sync_that_does_not_end_leaves_the_notes_as_they_are(
 
     assert not database.with_name("notes.db.restoring").exists()
     assert "sync did not end" in caplog.text
+    assert Settings(connection).get(GOING_BACK_FAILED)  # said at the next start
     assert not backups.finish_restore(database)  # nothing to put in place: as they are
+
+
+def test_on_a_computer_that_does_not_sync_it_is_made_ready_before_quitting(
+    qtbot: QtBot, connection: apsw.Connection, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Ready before Stickle quits: a failure is said in the window that asked.
+    monkeypatch.setattr(application, "_restore_staged", False)
+    monkeypatch.setattr(application, "_sync_state_kept", False)
+    kept: list[Path] = []
+    real_keep = application.keep_sync_state
+
+    def keep(database: Path, *args: Any, **kwargs: Any) -> None:
+        kept.append(database)
+        real_keep(database, *args, **kwargs)
+
+    monkeypatch.setattr(application, "keep_sync_state", keep)
+    notes = NoteRepository(connection)
+    chosen = backups.take(connection, database, FakeClock("2026-10-17T12:00:00.000Z"))
+    quits: list[bool] = []
+
+    assert go_back_to(
+        chosen, NoteManager(notes), connection, database, KEY, lambda: quits.append(True)
+    )
+    assert kept == [database]
+    qtbot.waitUntil(lambda: quits == [True])
+
+    finish_going_back(connection, database, KEY, None, Clocks())
+
+    assert kept == [database]  # not again
+    assert database.with_name("notes.db.restoring").exists()
+
+
+def test_on_a_computer_that_does_not_sync_a_failure_is_said_at_once(
+    qtbot: QtBot, connection: apsw.Connection, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del qtbot
+    monkeypatch.setattr(application, "_restore_staged", False)
+    monkeypatch.setattr(application, "_sync_state_kept", False)
+
+    def broken(*_args: Any, **_kwargs: Any) -> None:
+        raise apsw.CorruptError("damaged")
+
+    monkeypatch.setattr(application, "keep_sync_state", broken)
+    notes = NoteRepository(connection)
+    chosen = backups.take(connection, database, FakeClock("2026-10-17T12:00:00.000Z"))
+    quits: list[bool] = []
+
+    assert not go_back_to(
+        chosen, NoteManager(notes), connection, database, KEY, lambda: quits.append(True)
+    )
+
+    assert not application.restore_staged()
+    assert not database.with_name("notes.db.restoring").exists()
+    assert quits == []
+    assert not Settings(connection).get(GOING_BACK_FAILED)  # said here, in the window
+
+
+def test_on_a_computer_that_syncs_a_failure_is_kept_to_say_at_the_next_start(
+    qtbot: QtBot, connection: apsw.Connection, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(application, "_restore_staged", False)
+
+    def broken(*_args: Any, **_kwargs: Any) -> None:
+        raise apsw.CorruptError("damaged")
+
+    notes = NoteRepository(connection)
+    chosen = backups.take(connection, database, FakeClock("2026-10-17T12:00:00.000Z"))
+    syncs_here(connection)
+    quits: list[bool] = []
+    assert go_back_to(
+        chosen, NoteManager(notes), connection, database, KEY, lambda: quits.append(True)
+    )
+    qtbot.waitUntil(lambda: quits == [True])
+    monkeypatch.setattr(application, "keep_sync_state", broken)
+
+    finish_going_back(connection, database, KEY, cast(Syncing, Ending(True)), Clocks())
+
+    assert not database.with_name("notes.db.restoring").exists()
+    assert Settings(connection).get(GOING_BACK_FAILED)

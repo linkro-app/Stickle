@@ -2125,6 +2125,13 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
     </message>
 </context>
 <context>
+    <name>NotGoneBackLine</name>
+    <message>
+        <source>Try aga&amp;in…</source>
+        <translation>다시 해 보기(&amp;I)…</translation>
+    </message>
+</context>
+<context>
     <name>NoteColor</name>
     <message>
         <source>Yellow</source>
@@ -4099,6 +4106,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>
             <numerusform>동기화하지 않는 동안 다른 PC에서 지운 메모 %Ln개를 이 PC에서도 휴지통으로 옮겼습니다.</numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Couldn&apos;t go back to the backup. Your notes are as they were.</source>
+        <translation>백업으로 되돌리지 못했습니다. 메모는 그대로입니다.</translation>
     </message>
     <message>
         <source>Every computer that syncs went back to the backup from %1.</source>

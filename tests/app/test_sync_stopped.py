@@ -502,8 +502,10 @@ def test_the_line_is_reached_by_the_keyboard_after_the_lines_before_it(
     at.display.follow(cast(Syncing, sync))
     sync.ended(Outcome(Stopped.BIG_CHANGE))
     line, gone_back = at.window.sync_stop_line, at.window.sync_gone_back_line
+    not_back = at.window.not_gone_back_line
     following: QWidget | None = at.window.cloud_folder_line.ok_button.nextInFocusChain()
-    assert following is gone_back.action_button
+    assert following is not_back.action_button
+    assert not_back.ok_button.nextInFocusChain() is gone_back.action_button
     sealed, matched = at.window.sync_secrets_line, at.window.sync_matched_line
     let_go = at.window.sync_let_go_line
     assert gone_back.ok_button.nextInFocusChain() is sealed.ok_button

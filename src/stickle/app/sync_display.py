@@ -37,6 +37,7 @@ from stickle.app.tray import SyncShown
 from stickle.core.clock import moment_of
 from stickle.data.settings import (
     CLOUD_FULL,
+    GOING_BACK_FAILED,
     SYNC_GONE_BACK,
     SYNC_LET_GO,
     SYNC_SECRETS_MATCHED,
@@ -152,6 +153,15 @@ class SyncGoneBackLine(SyncNoticeLine):
     @override
     def own_way_on(self) -> str:
         return self.tr("&Undo")
+
+
+class NotGoneBackLine(SyncNoticeLine):
+    """Going back to a backup given up as Stickle quit, the notes as they were:
+    told in the run after it, with the way to try again."""
+
+    @override
+    def own_way_on(self) -> str:
+        return self.tr("Try aga&in…")
 
 
 class SyncResealedLine(SyncNoticeLine):
@@ -270,6 +280,13 @@ class SyncDisplay(QObject):
             QTimer.singleShot(0, self._tell_gone_back_once)
         window.sync_gone_back_line.acted.connect(self._undo_going_back)
         window.sync_gone_back_line.seen.connect(self._gone_back_seen)
+        # Going back given up: told in this run only, like going back.
+        self._not_gone_back = settings is not None and settings.get(GOING_BACK_FAILED)
+        if self._not_gone_back:
+            self._set(GOING_BACK_FAILED, False)
+            QTimer.singleShot(0, self._tell_not_gone_back_once)
+        window.not_gone_back_line.acted.connect(lambda: self._window.restore_backup())
+        window.not_gone_back_line.seen.connect(self._not_gone_back_seen)
         self._resealed = settings is not None and settings.get(SYNC_SECRETS_RESEALED)
         window.sync_secrets_line.seen.connect(self._resealed_seen)
         self._matched = None if settings is None else settings.get(SYNC_SECRETS_MATCHED)
@@ -459,6 +476,27 @@ class SyncDisplay(QObject):
         else:
             line.hide()
 
+    # Going back to a backup given up as Stickle quit
+
+    def _not_gone_back_text(self) -> str:
+        return self.tr("Couldn't go back to the backup. Your notes are as they were.")
+
+    def _tell_not_gone_back_once(self) -> None:
+        self._tell_not_gone_back()
+        if self._notify is not None and not self._window.isVisible():
+            self._notify(self._not_gone_back_text(), self._window.open)
+
+    def _tell_not_gone_back(self) -> None:
+        line = self._window.not_gone_back_line
+        if self._not_gone_back:
+            line.tell(self._not_gone_back_text())
+        else:
+            line.hide()
+
+    def _not_gone_back_seen(self) -> None:
+        self._not_gone_back = False
+        self._tell_not_gone_back()
+
     # Going back to a backup on every computer that syncs
 
     def _gone_back_text(self) -> str:
@@ -608,6 +646,7 @@ class SyncDisplay(QObject):
     def _show(self) -> None:
         self._tell_stop()
         self._tell_trashed()
+        self._tell_not_gone_back()
         self._tell_gone_back()
         self._tell_resealed()
         self._tell_matched()
