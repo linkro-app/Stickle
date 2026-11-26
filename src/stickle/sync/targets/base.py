@@ -195,6 +195,15 @@ class CertificateError(TargetError):
     def __init__(self, certificate: bytes) -> None:
         super().__init__()
         self.certificate = certificate  # the one it shows (DER)
+        # A name a public authority issued it for, found by whoever looks at it:
+        # put in the address, it is taken without being asked about.
+        self.issued_for: str | None = None
+
+
+class UnusableCertificateError(CertificateError):
+    """The server shows the very certificate the user chose to trust, and the
+    system cannot use it for a safe connection (a key too weak, say): trusting
+    it again would not help. Nothing was sent to it."""
 
 
 class CursorExpiredError(TargetError):

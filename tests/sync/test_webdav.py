@@ -36,6 +36,7 @@ from stickle.sync.targets.base import (
     TargetError,
     TooBusyError,
     UnavailableError,
+    UnusableCertificateError,
 )
 from stickle.sync.targets.webdav import (
     IDLE_REOPEN,
@@ -47,6 +48,7 @@ from stickle.sync.targets.webdav import (
     _OnlyThisCertificate,  # pyright: ignore[reportPrivateUsage]
     certificate_of,
     fingerprint,
+    issued_for,
     parse_address,
 )
 
@@ -285,6 +287,45 @@ def test_another_certificate_stops_and_nothing_is_sent(share: Path) -> None:
         with pytest.raises(CertificateError) as caught:
             list(target.list(""))
         assert caught.value.certificate == server.certificate != trusted
+        assert server.asked == []
+
+
+def test_the_trusted_certificate_the_system_cannot_use_is_told_apart(
+    share: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As OpenSSL turns down a key too weak (RSA 1024) even in the very certificate
+    # trusted: trusting it again would come back here.
+    def too_weak(_self: object) -> None:
+        raise ssl.SSLCertVerificationError("EE certificate key too weak")
+
+    monkeypatch.setattr(webdav_target._OnlyThisCertificate, "connect", too_weak)  # pyright: ignore[reportPrivateUsage]
+    with webdav(share, PASSWORD, own=self_signed()) as server:
+        target = WebDav(
+            over_tls(server), "stickle", PASSWORD, server.certificate, public=untrusting
+        )
+        with pytest.raises(UnusableCertificateError) as caught:
+            target.check()
+        assert caught.value.certificate == server.certificate
+        assert server.asked == []
+
+
+def test_another_certificate_is_not_taken_for_one_that_cannot_be_used(share: Path) -> None:
+    trusted = webdav_certificate(share.parent / "first")
+    with webdav(share, PASSWORD, own=self_signed()) as server:
+        target = WebDav(over_tls(server), "stickle", PASSWORD, trusted, public=untrusting)
+        with pytest.raises(CertificateError) as caught:
+            target.check()
+        assert not isinstance(caught.value, UnusableCertificateError)
+
+
+def test_a_name_a_public_authority_issued_the_certificate_for_is_found(share: Path) -> None:
+    with webdav(share, PASSWORD, trustme.CA(), name="nas.example.com") as server:
+        assert server.context is not None
+        context = server.context
+        address = over_tls(server)  # its number, not that name
+        assert issued_for(address, "nas.example.com", public=lambda: context)
+        assert not issued_for(address, "another.example.com", public=lambda: context)
+        assert not issued_for(address, "nas.example.com", public=untrusting)
         assert server.asked == []
 
 

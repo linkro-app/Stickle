@@ -29,6 +29,7 @@ import base64
 import hashlib
 import http.client
 import ipaddress
+import socket
 import ssl
 import time
 from collections.abc import Callable, Generator, Iterator
@@ -54,6 +55,7 @@ from stickle.sync.targets.base import (
     TargetError,
     TooBusyError,
     UnavailableError,
+    UnusableCertificateError,
 )
 
 FOLDER = "Stickle"  # right under the address the user gave
@@ -193,6 +195,23 @@ def certificate_of(address: Address) -> bytes:
     return ssl.PEM_cert_to_DER_cert(shown)
 
 
+def issued_for(
+    address: Address, name: str, public: Callable[[], ssl.SSLContext] = https_context
+) -> bool:
+    """Whether the server at address shows a certificate a public authority
+    issued for name: reached at the address, checked at the name. Only the
+    handshake: nothing is sent."""
+    place = (address.host, address.port or HTTPS_PORT)
+    try:
+        with (
+            socket.create_connection(place, TIMEOUT) as raw,
+            public().wrap_socket(raw, server_hostname=name),
+        ):
+            return True
+    except OSError, ValueError:  # ssl's errors among them
+        return False
+
+
 class _OnlyThisCertificate(http.client.HTTPSConnection):
     """A connection that goes no further than the handshake unless the server
     shows this certificate, however it connects or connects again."""
@@ -322,6 +341,7 @@ class WebDav:
         authority's certificate has taken the place of the one trusted.
         keeps_conditions: only where this server is known to. timeout: seconds,
         for each step of a request."""
+        self.address = address
         self._address = address
         self._root = f"{address.path}/{FOLDER}"
         sign_in = base64.b64encode(f"{user}:{password}".encode()).decode("ascii")
@@ -548,7 +568,10 @@ class WebDav:
             public.connect()
         except ssl.SSLCertVerificationError:
             public.close()
-            raise CertificateError(certificate_of(address)) from None
+            shown = certificate_of(address)
+            if shown == self._certificate:  # trusted, and refused all the same
+                raise UnusableCertificateError(shown) from None
+            raise CertificateError(shown) from None
         if self._certificate is not None:
             self._certificate = None
             if self._no_longer_trusted is not None:

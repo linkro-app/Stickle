@@ -4989,6 +4989,10 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>주소 복사(&amp;C)</translation>
     </message>
     <message>
+        <source>This certificate is for %1. Put that name in the address, and you won&apos;t be asked about the certificate again.</source>
+        <translation>이 인증서는 %1용입니다. 주소에 그 이름을 넣으면 인증서를 다시 묻지 않습니다.</translation>
+    </message>
+    <message>
         <source>&amp;Sign in with your browser…</source>
         <translation>브라우저에서 로그인(&amp;S)…</translation>
     </message>
@@ -5011,6 +5015,10 @@ Your notes as they are now are backed up first, so you can come back to them the
     <message>
         <source>Sign-in didn&apos;t finish. Try again.</source>
         <translation>로그인을 마치지 못했습니다. 다시 해 보세요.</translation>
+    </message>
+    <message>
+        <source>This server&apos;s certificate can&apos;t be used for a safe connection. Make a new certificate on the server, then try again.</source>
+        <translation>이 서버의 인증서는 안전하게 연결할 수 없는 방식입니다. 서버에서 인증서를 새로 만든 뒤 다시 시도하세요.</translation>
     </message>
     <message>
         <source>There&apos;s no WebDAV folder at that address. Check the address.</source>

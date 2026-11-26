@@ -15,6 +15,7 @@ from typing import Any, cast
 
 import apsw
 import pytest
+import trustme
 from PySide6.QtCore import QCoreApplication, QEvent, QLocale, QObject, Qt, Signal
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
@@ -23,6 +24,7 @@ from real_server import account, account_given, another_way_in, folder_of_its_ow
 from shiboken6 import Shiboken
 from webdav_server import HOST, Server, self_signed, webdav
 
+from stickle.app import turn_on_sync
 from stickle.app.application import connect_sync, replace_sync, start_sync
 from stickle.app.background import Job
 from stickle.app.i18n import Translations
@@ -62,6 +64,7 @@ from stickle.sync.format import (
     vault_file,
 )
 from stickle.sync.outcome import Outcome, Stopped
+from stickle.sync.targets import webdav as webdav_target
 from stickle.sync.targets.webdav import WebDav, parse_address
 from stickle.sync.vault import Vault, join, make
 
@@ -524,6 +527,63 @@ def test_a_wrong_password_after_trusting_needs_no_second_trust(bench: Bench, sha
         bench.window.password.setText(PASSWORD)
         bench.press()
         bench.page(bench.window.absent_page)
+
+
+def test_a_self_made_certificate_says_no_name_to_put_in_the_address(
+    bench: Bench, share: Path
+) -> None:
+    with webdav(share, PASSWORD, own=self_signed()) as server:
+        bench.connect(f"https://{HOST}:{server.port}/share")
+        bench.page(bench.window.certificate_page)
+        bench.idle()
+        assert bench.window.certificate_name.isHidden()
+
+
+def test_a_public_certificate_for_another_name_says_that_name(
+    bench: Bench, share: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A NAS reached by its number, its certificate a public authority's for its
+    # own name: at that name it would be taken without a word.
+    checked: list[str] = []
+
+    def issued_for(_address: object, name: str) -> bool:
+        checked.append(name)
+        return name == "my-nas.example.com"
+
+    monkeypatch.setattr(turn_on_sync, "issued_for", issued_for)
+    with webdav(share, PASSWORD, trustme.CA(), name="my-nas.example.com") as server:
+        bench.connect(f"https://{HOST}:{server.port}/share")
+        bench.page(bench.window.certificate_page)
+        bench.idle()
+        hint = bench.window.certificate_name
+        assert not hint.isHidden()
+        assert hint.text() == (
+            "This certificate is for my-nas.example.com. Put that name in the address,"
+            " and you won't be asked about the certificate again."
+        )
+        assert checked == ["my-nas.example.com"]
+        assert server.asked == []
+
+
+def test_a_trusted_certificate_that_cannot_be_used_says_so_and_asks_no_trust_again(
+    bench: Bench, share: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def too_weak(_self: object) -> None:
+        raise ssl.SSLCertVerificationError("EE certificate key too weak")
+
+    with webdav(share, PASSWORD, own=self_signed()) as server:
+        bench.connect(f"https://{HOST}:{server.port}/share")
+        bench.page(bench.window.certificate_page)
+        bench.idle()
+        monkeypatch.setattr(webdav_target._OnlyThisCertificate, "connect", too_weak)  # pyright: ignore[reportPrivateUsage]
+        bench.press()  # trusted: refused all the same
+        bench.page(bench.window.server_page)
+        bench.idle()
+        assert bench.said() == (
+            "This server's certificate can't be used for a safe connection. Make a new"
+            " certificate on the server, then try again."
+        )
+        assert server.asked == []
 
 
 def test_the_fingerprint_is_shown_as_servers_show_it() -> None:

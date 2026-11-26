@@ -54,6 +54,7 @@ from PySide6.QtGui import (
     QResizeEvent,
     QShowEvent,
 )
+from PySide6.QtNetwork import QSsl, QSslCertificate
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -95,6 +96,7 @@ from stickle.sync.targets.base import (
     SignInNeededError,
     TooBusyError,
     UnavailableError,
+    UnusableCertificateError,
 )
 from stickle.sync.targets.dropbox import App as DropboxApp
 from stickle.sync.targets.dropbox import Dropbox
@@ -108,6 +110,7 @@ from stickle.sync.targets.webdav import (
     OutsideHomeError,
     WebDav,
     fingerprint,
+    issued_for,
     parse_address,
 )
 from stickle.sync.vault import (
@@ -293,8 +296,27 @@ class _Token:
 def _look(target: _Reached) -> str | None:
     """The vault there, if there is one, once the server has shown it is one to use."""
     if isinstance(target, WebDav):
-        target.check()
+        try:
+            target.check()
+        except UnusableCertificateError:
+            raise
+        except CertificateError as error:
+            error.issued_for = _public_name(target.address, error.certificate)
+            raise
     return there(target)
+
+
+def _public_name(address: Address, certificate: bytes) -> str | None:
+    """A name the certificate is for that a public authority issued it for, if
+    it has one (not one with a *: that names no one server): at that address,
+    it would be taken without a word. Looked for by its handshakes alone."""
+    shown = QSslCertificate(QByteArray(certificate), QSsl.EncodingFormat.Der)
+    names = shown.subjectAlternativeNames().get(QSsl.AlternativeNameEntryType.DnsEntry, [])
+    here = address.host.casefold()
+    for name in names:
+        if "*" not in name and name.casefold() != here and issued_for(address, name):
+            return name
+    return None
 
 
 class TurnOnSync(QDialog):
@@ -331,6 +353,7 @@ class TurnOnSync(QDialog):
         self._address: Address | None = None
         self._certificate: bytes | None = None  # trusted, for this address
         self._shown_certificate: bytes | None = None
+        self._issued_for: str | None = None  # by a public authority, the one shown
         self._joining = False
         self._ended = False  # the first round is through, or stopped
         self._line: Callable[[], str] = lambda: ""
@@ -574,7 +597,10 @@ class TurnOnSync(QDialog):
         self.fingerprint = QLabel(page)
         self.fingerprint.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self.fingerprint.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        for part in (self.certificate_text, self.fingerprint_label, self.fingerprint):
+        self.certificate_name = _wrapped(page)  # a public authority's, for another name
+        self.certificate_name.hide()
+        parts = (self.certificate_text, self.fingerprint_label, self.fingerprint)
+        for part in (*parts, self.certificate_name):
             layout.addWidget(part)
         layout.addStretch(1)
         return page
@@ -717,6 +743,13 @@ class TurnOnSync(QDialog):
             self.tr("SHA-256 fingerprint (the check code unique to this certificate)")
         )
         self.fingerprint.setAccessibleName(self.tr("SHA-256 fingerprint"))
+        if self._issued_for is not None:
+            self.certificate_name.setText(
+                self.tr(
+                    "This certificate is for %1. Put that name in the address, and you"
+                    " won't be asked about the certificate again."
+                ).replace("%1", self._issued_for)
+            )
         self.check_key_button.setText(self.tr("&Check my existing recovery key…"))
         self.present_text.setText(
             self.tr(
@@ -1190,9 +1223,20 @@ class TurnOnSync(QDialog):
             self._failed_at_cloud(error)
             return
         match error:
+            case UnusableCertificateError():  # trusted already: no use trusting it again
+                self._fail_at_server(
+                    self.tr(
+                        "This server's certificate can't be used for a safe connection. Make"
+                        " a new certificate on the server, then try again."
+                    ),
+                    self.address,
+                )
             case CertificateError():
                 self._shown_certificate = error.certificate
                 self.fingerprint.setText(shown_fingerprint(error.certificate))
+                self._issued_for = error.issued_for
+                self.certificate_name.setVisible(error.issued_for is not None)
+                self.retranslate()
                 self._show(self.certificate_page)
             case VaultThereError() | VaultGoneError():  # another computer got there first
                 self._look_again()
