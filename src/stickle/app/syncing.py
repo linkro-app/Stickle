@@ -989,7 +989,7 @@ class Syncing(QObject):
         self._notice()
         self._collector.stop()
         self.runner.finish(seconds)
-        if not self.runner.running and not self._still_watching():
+        if not work_goes_on():  # a job still out too (a window turning sync on)
             gc.enable()
 
     def ended(self, seconds: float) -> bool:

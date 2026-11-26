@@ -291,7 +291,12 @@ def set_synced_at(connection: apsw.Connection, vault: str, at: int) -> None:
     _set_vault_value(connection, vault, "synced_at", at)
 
 
-MARKS_KEPT = 400  # more than a year's: a device writes its own file once a day, or on a change
+# The marks of this device's own file kept: the latest, and the last of each
+# day for longer. It is written once a day, and after each round that puts
+# something (dozens a day while the user writes): a vault gone back to some
+# day of the last DAYS_KEPT shows the last mark of that day, this device's.
+MARKS_KEPT = 400
+DAYS_KEPT = 400
 
 
 def untold(connection: apsw.Connection, vault: str) -> list[str]:
@@ -313,13 +318,32 @@ def told(connection: apsw.Connection, vault: str, paths: Iterable[str]) -> None:
         connection.execute("DELETE FROM sync_untold WHERE vault = ? AND path = ?", (vault, path))
 
 
-def own_marks(connection: apsw.Connection, vault: str) -> list[str]:
-    """The marks of this device's last writes of its own file in the vault,
-    the latest first."""
+def _dated_marks(connection: apsw.Connection, vault: str) -> list[tuple[int | None, str]]:
+    """(day, mark) of each kept, the latest first; day: of the cloud's time,
+    in days since 1970 (None: kept before marks were kept with theirs)."""
     text = _text(_vault_value(connection, vault, "own_mark"))
-    return [] if text is None else text.split()
+    marks: list[tuple[int | None, str]] = []
+    for word in [] if text is None else text.split():
+        day, _, mark = word.rpartition(":")
+        marks.append((int(day) if day.isdigit() else None, mark))
+    return marks
 
 
-def add_own_mark(connection: apsw.Connection, vault: str, mark: str) -> None:
-    marks = [mark, *own_marks(connection, vault)][:MARKS_KEPT]
-    _set_vault_value(connection, vault, "own_mark", " ".join(marks))
+def own_marks(connection: apsw.Connection, vault: str) -> list[str]:
+    """The marks of this device's writes of its own file in the vault, the
+    latest first: the last MARKS_KEPT, and the last of each of DAYS_KEPT days."""
+    return [mark for _day, mark in _dated_marks(connection, vault)]
+
+
+def add_own_mark(connection: apsw.Connection, vault: str, mark: str, day: int) -> None:
+    """mark, written on day (of the cloud's time, in days since 1970)."""
+    kept: list[tuple[int | None, str]] = []
+    days: set[int] = set()
+    for at, (when, each) in enumerate([(day, mark), *_dated_marks(connection, vault)]):
+        last_of_its_day = when is not None and when not in days and day - when < DAYS_KEPT
+        if when is not None:
+            days.add(when)
+        if at < MARKS_KEPT or last_of_its_day:
+            kept.append((when, each))
+    words = [each if when is None else f"{when}:{each}" for when, each in kept]
+    _set_vault_value(connection, vault, "own_mark", " ".join(words))

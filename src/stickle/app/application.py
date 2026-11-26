@@ -16,10 +16,13 @@ import apsw
 from PySide6.QtCore import (
     QLocale,
     QMessageLogContext,
+    QObject,
+    Qt,
     QTimer,
     QtMsgType,
     qInstallMessageHandler,
 )
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from stickle import __version__
@@ -593,6 +596,46 @@ def replace_sync(
         if login is not None:
             resume(login)
         raise
+
+
+# Asked to end the session and still running this long after: it went on.
+SESSION_GOES_ON_MS = 2 * 60 * 1000
+
+
+class SessionEnding(QObject):
+    """Whether the session is ending (a logout, a shutdown, an update): what
+    waits to go to the cloud then gets no time when Stickle quits, the system
+    being about to end it. Another program may cancel a logout: it is over once
+    Stickle is used again, or a while after, still running."""
+
+    def __init__(self, app: QGuiApplication) -> None:
+        super().__init__(app)
+        self.ending = False
+        self._goes_on = QTimer(self)
+        self._goes_on.setSingleShot(True)
+        self._goes_on.setInterval(SESSION_GOES_ON_MS)
+        self._goes_on.timeout.connect(self._over)
+        app.applicationStateChanged.connect(self._state_changed)
+
+    def asked(self) -> None:
+        """The system asks the session to end; another program may cancel it."""
+        self.ending = True
+        self._goes_on.start()
+
+    def ends(self) -> None:
+        """Ending for certain (closing for an update)."""
+        self.ending = True
+        self._goes_on.stop()
+
+    def _state_changed(self, state: Qt.ApplicationState) -> None:
+        if state == Qt.ApplicationState.ApplicationActive and self._goes_on.isActive():
+            self._over()
+
+    def _over(self) -> None:
+        self._goes_on.stop()
+        if self.ending:
+            self.ending = False
+            log.info("the session goes on")
 
 
 class SyncSwitch:
@@ -1229,7 +1272,7 @@ def run(
     watcher = SignalWatcher(on_signal)
     connection = None
     switch = SyncSwitch()  # this run's sync, if it syncs
-    session_ending = False  # saved, and may not go on for long
+    session = SessionEnding(app)  # saved, and may not go on for long
     clocks = Clocks()  # the cloud's time once it is known, if this device syncs
     try:
         ensure_korean_font()  # the alarm clock's font only once one is drawn (fonts)
@@ -1278,7 +1321,7 @@ def run(
             if switch.syncing is not None:
                 from stickle.app.syncing import QUIT_WAIT
 
-                fast = session_ending or _ended_by_signal or _restore_staged
+                fast = session.ending or _ended_by_signal or _restore_staged
                 switch.syncing.finish(0.0 if fast else QUIT_WAIT)
 
         app.aboutToQuit.connect(finish_syncing)
@@ -1287,8 +1330,7 @@ def run(
         # Logging out or shutting down: save first. No quitting yet, since another
         # program may still cancel the logout.
         def before_session_end(*_: object) -> None:
-            nonlocal session_ending
-            session_ending = True
+            session.asked()
             log.info("saving before the session ends")
             manager.save_all()
             manager.lock_secret_notes()
@@ -1309,8 +1351,7 @@ def run(
                 log.warning("could not ask to be started again after an update")
 
             def close_for_update() -> None:
-                nonlocal session_ending
-                session_ending = True
+                session.ends()
                 log.info("closing for an update")
                 manager.save_all()
                 app.quit()

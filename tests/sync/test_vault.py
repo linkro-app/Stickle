@@ -29,6 +29,7 @@ from stickle.crypto import master, recovery
 from stickle.crypto.recovery import RecoveryKeyTypoError
 from stickle.crypto.sealed import make_sealed_slot
 from stickle.crypto.vault_keys import MASTER_PASSWORD, RECOVERY_KEY
+from stickle.data import sync_state
 from stickle.data.record_stamps import CATEGORY
 from stickle.sync.format import (
     DEVICES,
@@ -456,3 +457,28 @@ def test_a_device_renewing_its_id_puts_nothing_of_what_it_changed_before_again(
     assert {path: after[path] for path in before} == before
     for device in (a, a2, b):
         device.close()
+
+
+def test_a_vault_gone_back_to_a_day_before_a_busy_one_is_not_taken_for_a_copy(
+    tmp_path: Path, clock: Clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Its own file is written after each round that puts something: a busy
+    # day's writes push the day before's out of the latest marks kept.
+    monkeypatch.setattr(sync_state, "MARKS_KEPT", 3)
+    cloud, a, b = two_on(DROPBOX, tmp_path, clock)
+    a.notes.create("메모")
+    settle([a, b])
+    back_to = cloud.requests
+    clock.tick(DAY)
+    for at in range(6):
+        a.notes.create(f"바쁜 날 {at}")
+        clock.tick()
+        a.sync()
+    old = a.id
+
+    cloud.go_back_to(back_to)
+    settle([a, b])
+
+    assert a.id == old
+    a.close()
+    b.close()

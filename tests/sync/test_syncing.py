@@ -23,6 +23,7 @@ from sync_bed import KEY, KEYS, VAULT, Clock, Device
 from stickle.app import syncing as syncing_module
 from stickle.app.about_dialog import AboutDialog
 from stickle.app.application import login_here, replace_sync
+from stickle.app.background import Job
 from stickle.app.note_window import NoteWindow
 from stickle.app.notes import NoteManager
 from stickle.app.placement import monitors, qrect, rect
@@ -1036,3 +1037,25 @@ def test_stored_times_are_the_clouds_with_it() -> None:
     clocks.cloud = lambda: 1_767_225_600_000  # 2026-01-01
     assert clocks.millis() == 1_767_225_600_000
     assert clocks.stamp() == "2026-01-01T00:00:00.000Z"
+
+
+def test_collecting_stays_off_when_sync_ends_while_other_work_goes_on(
+    qtbot: QtBot, tmp_path: Path, cloud: FakeCloud
+) -> None:
+    # Another connection taking its place: the window turning it on may still
+    # be at work on a thread of its own.
+    pc = make_pc(qtbot, tmp_path, cloud)
+    pc.manager.open_stored()
+    pc.syncing.start()
+    pc.round()
+    let_go = threading.Event()
+    seen: list[object] = []
+    Job(lambda: let_go.wait(10), seen.append)
+
+    pc.syncing.finish(0.0)
+
+    assert not gc.isenabled()
+    let_go.set()
+    qtbot.waitUntil(lambda: seen != [], timeout=ROUND_MS)
+    assert gc.isenabled()
+    end(pc)

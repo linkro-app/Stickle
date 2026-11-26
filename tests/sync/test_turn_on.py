@@ -24,7 +24,7 @@ from real_server import account, account_given, another_way_in, folder_of_its_ow
 from shiboken6 import Shiboken
 from webdav_server import HOST, Server, self_signed, webdav
 
-from stickle.app import turn_on_sync
+from stickle.app import background, turn_on_sync
 from stickle.app.application import connect_sync, replace_sync, start_sync
 from stickle.app.background import Job
 from stickle.app.i18n import Translations
@@ -1249,6 +1249,30 @@ def test_collecting_stays_off_while_sync_or_other_work_goes_on(qtbot: QtBot) -> 
     assert not gc.isenabled()
     sync_goes_on.set()
     sync.join(10)
+
+
+def test_collecting_stays_off_while_sync_watches_for_changes(qtbot: QtBot) -> None:
+    let_go, watching = threading.Event(), threading.Event()
+    seen: list[object] = []
+    watcher = threading.Thread(target=watching.wait, args=(10,), name="sync-watch", daemon=True)
+    watcher.start()
+    Job(lambda: let_go.wait(10), seen.append)
+    let_go.set()
+    qtbot.waitUntil(lambda: seen != [], timeout=MS)
+    assert not gc.isenabled()  # its long poll may hold what only the app's thread lets go
+    watching.set()
+    watcher.join(10)
+
+
+def test_while_work_goes_on_garbage_is_collected_on_the_apps_thread(qtbot: QtBot) -> None:
+    # A sign-in may wait long for the browser: collecting is not off all that time.
+    let_go = threading.Event()
+    seen: list[object] = []
+    Job(lambda: let_go.wait(10), seen.append)
+    assert background.collecting()
+    let_go.set()
+    qtbot.waitUntil(lambda: seen != [], timeout=MS)
+    assert not background.collecting()
 
 
 def test_work_whose_window_went_comes_to_what_it_was_told(qtbot: QtBot) -> None:

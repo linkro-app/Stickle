@@ -385,7 +385,7 @@ def _put_own(
         )
         condition = Absent() if before is None else AsRead(tag)
         with writing(connection):
-            sync_state.add_own_mark(connection, vault, mark)
+            sync_state.add_own_mark(connection, vault, mark, now // DAY)
         try:
             written = target.put(path, _sealed(place, contents), condition)
         except FullError:
