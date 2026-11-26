@@ -1008,8 +1008,11 @@ def test_what_waits_to_go_up_is_counted(bed: Bed, qtbot: QtBot) -> None:
     assert live is not None
     bed.first.round_over(qtbot)
     assert live.to_put() == 0
-    bed.first.pc.notes.create("아직 안 올린 메모")
+    made = bed.first.pc.notes.create("아직 안 올린 메모")
     assert live.to_put() == 1
+    # Of the notes a round left: only those to go up.
+    assert live.to_put([made.id, "c1c1c1c1-0000-4000-8000-000000000000"]) == 1
+    assert live.to_put(["c1c1c1c1-0000-4000-8000-000000000000"]) == 0
 
 
 def test_a_new_name_goes_with_the_next_round_and_does_not_wait_for_one(

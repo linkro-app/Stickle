@@ -57,7 +57,7 @@ class FakeSync(QObject):
     def __init__(self, stopped: Stopped | None, change: BigChange | None = None) -> None:
         super().__init__()
         self.status = SyncStatus(
-            WEBDAV, stopped, lambda: 0, lambda: QDateTime(QDate.currentDate(), QTime(14, 5))
+            WEBDAV, stopped, lambda _among: 0, lambda: QDateTime(QDate.currentDate(), QTime(14, 5))
         )
         self.round_shown.connect(self.status.round_ended)
         self.cloud_name = "WebDAV"

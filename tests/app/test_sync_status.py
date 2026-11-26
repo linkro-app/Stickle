@@ -18,8 +18,14 @@ class Line:
 
     def __init__(self, stopped: Stopped | None = None) -> None:
         self.to_put = 0
+        self.changed_here: set[str] = set()  # notes changed here, not in the cloud yet
         self.synced: QDateTime | None = QDateTime(QDate.currentDate(), QTime(14, 5))
-        self.status = SyncStatus(CLOUD, stopped, lambda: self.to_put, lambda: self.synced)
+        self.status = SyncStatus(
+            CLOUD,
+            stopped,
+            lambda among: self.to_put if among is None else len(set(among) & self.changed_here),
+            lambda: self.synced,
+        )
         self.changes = 0
         self.status.changed.connect(self._changed)
 
@@ -125,8 +131,20 @@ def test_failing_with_nothing_to_upload_stays_as_it_was(qtbot: QtBot) -> None:
 
 def test_notes_a_round_passed_over_are_said_though_it_went_through(qtbot: QtBot) -> None:
     line = Line()
+    line.changed_here = {"a", "b"}
     text = line.ended(report=Report(left=["a", "b", "a"]))
     assert text == "2 note(s) to upload · trying again shortly"
+
+
+def test_notes_left_only_to_be_read_again_are_not_said_to_upload(qtbot: QtBot) -> None:
+    # A file that did not open, a secret note waiting for its key's box: to get,
+    # not to put.
+    line = Line()
+    line.changed_here = {"mine"}
+    assert line.ended(report=Report(left=["mine", "theirs"])) == (
+        "1 note(s) to upload · trying again shortly"
+    )
+    assert line.ended(report=Report(left=["theirs"])).startswith("Synced with")
 
 
 def test_how_far_is_told_at_most_twice_a_second(qtbot: QtBot) -> None:
@@ -182,7 +200,7 @@ def test_changing_what_a_round_changed_happens_once(qtbot: QtBot) -> None:
 
 def onedrive_line(stopped: Stopped | None = None) -> SyncStatus:
     moment = QDateTime(QDate.currentDate(), QTime(14, 5))
-    return SyncStatus(ONEDRIVE, stopped, lambda: 0, lambda: moment)
+    return SyncStatus(ONEDRIVE, stopped, lambda _among: 0, lambda: moment)
 
 
 def test_onedrive_is_named_as_it_names_itself(qtbot: QtBot) -> None:

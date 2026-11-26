@@ -126,7 +126,9 @@ class FakeSyncing(QObject):
         self.login = Login(VAULT, kind, "" if signed_in else address, user, PASSWORD, {})
         self.cloud_name = cloud_name(kind)
         moment = _at_14_05() if last is None else last
-        self.status = SyncStatus(kind, None, lambda: to_put, lambda: moment, self)
+        self.status = SyncStatus(
+            kind, None, lambda among: to_put if among is None else len(among), lambda: moment, self
+        )
         self._others = list(others)
         self._name = name
 

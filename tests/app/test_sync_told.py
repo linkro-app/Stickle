@@ -97,7 +97,10 @@ class FakeSync(QObject):
     def __init__(self, stopped: Stopped | None = None, login: Login = LOGIN) -> None:
         super().__init__()
         self.status = SyncStatus(
-            login.kind, stopped, lambda: 0, lambda: QDateTime(QDate.currentDate(), QTime(14, 5))
+            login.kind,
+            stopped,
+            lambda _among: 0,
+            lambda: QDateTime(QDate.currentDate(), QTime(14, 5)),
         )
         self.round_shown.connect(self.status.round_ended)
         self.login = login

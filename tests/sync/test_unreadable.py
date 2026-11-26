@@ -99,6 +99,25 @@ def test_the_same_bytes_failing_for_ten_minutes_are_set_aside_and_written_over(
     assert a.texts() == b.texts() == {note.id: "a가 고친 글"}
 
 
+def test_rounds_that_list_no_folder_count_the_same_bytes_failing_too(
+    two: tuple[FakeCloud, Device, Device], clock: Clock
+) -> None:
+    # A file another device told of, read again each round, as Dropbox's and
+    # OneDrive's rounds go between full looks: set aside as soon all the same.
+    cloud, a, b = two
+    note = a.notes.create("원래 글")
+    settle([a, b])
+    b.full = False
+    a.notes.update_body(note.id, "a가 고친 글")
+    a.sync()
+    cloud.put_by_hand(item_path(NOTES, note.id), DAMAGED)
+    rounds(b, clock, times=FAILS - 1)
+    assert aside(b) == []
+    clock.tick(WAIT)
+    b.sync()
+    assert [each.read_bytes() for each in aside(b)] == [DAMAGED]
+
+
 def test_three_failures_within_ten_minutes_set_nothing_aside(
     two: tuple[FakeCloud, Device, Device], clock: Clock
 ) -> None:

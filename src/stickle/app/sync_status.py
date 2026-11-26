@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QDate, QDateTime, QElapsedTimer, QLocale, QObject, Signal
@@ -172,13 +172,13 @@ class SyncStatus(QObject):
         self,
         kind: str,
         stopped: Stopped | None,
-        to_put: Callable[[], int],
+        to_put: Callable[[Collection[str] | None], int],
         last_synced: Callable[[], QDateTime | None],
         parent: QObject | None = None,
     ) -> None:
         """kind: of the connection (WEBDAV, ONEDRIVE, DROPBOX); stopped: as it was left;
-        to_put: notes changed here and not in the cloud yet; last_synced: when a
-        round last went through, if one has."""
+        to_put: how many notes changed here are not in the cloud yet (of those
+        given, if any); last_synced: when a round last went through, if one has."""
         super().__init__(parent)
         self._words = SyncWords(self)
         self._kind = kind
@@ -256,7 +256,13 @@ class SyncStatus(QObject):
         self._moving = None
         self._told_moving.invalidate()
         self._synced = self._last_synced()
-        self._waiting = self._to_put() if ended.wait is not None else len(set(ended.report.left))
+        # Passed over by a round that went through: of those, the ones to go up
+        # (one only waiting to be read, or for its key's box, is none).
+        left = set(ended.report.left)
+        if ended.wait is not None:
+            self._waiting = self._to_put(None)
+        else:
+            self._waiting = self._to_put(left) if left else 0
         self.changed.emit()
 
     def moved(self, what: str, done: int, of: int) -> None:

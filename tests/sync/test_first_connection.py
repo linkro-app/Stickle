@@ -11,13 +11,23 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from fake_cloud import DROPBOX, WEBDAV_IGNORING, FakeCloud, Kind, Request, Trouble
+from fake_cloud import (
+    DROPBOX,
+    SYNOLOGY,
+    WEBDAV_IGNORING,
+    WEBDAV_WEAK,
+    FakeCloud,
+    Kind,
+    Request,
+    Trouble,
+)
 from sync_bed import VAULT, Clock, Device, settle
 
 from stickle.core import made_notes
 from stickle.data import sync_state
 from stickle.data.versions import VersionRepository
-from stickle.sync.engine import GETTING, cloud_only, first_look, joined
+from stickle.sync import engine
+from stickle.sync.engine import GETTING, cloud_only, first_look, joined, looked_at_forgotten
 from stickle.sync.format import NOTES, item_at, item_path
 from stickle.sync.targets.base import UnavailableError
 
@@ -38,6 +48,14 @@ def made(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(made_notes, "welcome", welcome)
     monkeypatch.setattr(made_notes, "news", news)
+
+
+@pytest.fixture(autouse=True)
+def a_new_run() -> Iterator[None]:
+    """Each test as a run of the app of its own: nothing looked at before it."""
+    looked_at_forgotten()
+    yield
+    looked_at_forgotten()
 
 
 @pytest.fixture
@@ -277,6 +295,43 @@ def test_the_round_after_the_first_look_fetches_none_of_the_vaults_notes_again(
     b.sync()
     assert _gets(cloud, "b", ids) == 5
     assert len(b.notes.all()) == 6
+
+
+@pytest.mark.parametrize("kind", [WEBDAV_WEAK, SYNOLOGY], ids=lambda k: k.name, indirect=True)
+def test_where_tags_are_weak_the_first_round_fetches_none_again_either(
+    two: tuple[FakeCloud, Device, Device],
+) -> None:
+    # A tag and a size as the look read them, in this run: taken as read.
+    cloud, a, b = two
+    ids = [a.notes.create(f"A {i}").id for i in range(5)]
+    a.sync()
+    b.notes.create("B")
+    first_look(b.db, b.place, b.clock, b.notes)
+    assert _gets(cloud, "b", ids) == 5
+    joined(b.db, VAULT)
+    b.sync()
+    assert _gets(cloud, "b", ids) == 5
+    assert len(b.notes.all()) == 6
+
+
+@pytest.mark.parametrize("kind", [WEBDAV_WEAK], ids=lambda k: k.name, indirect=True)
+@pytest.mark.parametrize("how", ["another run", "another size"])
+def test_where_tags_are_weak_one_looked_at_otherwise_is_fetched_again(
+    two: tuple[FakeCloud, Device, Device], how: str
+) -> None:
+    cloud, a, b = two
+    ids = [a.notes.create(f"A {i}").id for i in range(5)]
+    a.sync()
+    first_look(b.db, b.place, b.clock, b.notes)
+    if how == "another run":  # its look kept from a run of the app before
+        looked_at_forgotten()
+    else:  # listed with another size than it was read with
+        looked = engine._LOOKED  # pyright: ignore[reportPrivateUsage]
+        for key in list(looked):
+            looked[key] += 1
+    joined(b.db, VAULT)
+    b.sync()
+    assert _gets(cloud, "b", ids) == 10
 
 
 def test_keeping_only_the_vaults_notes_backs_up_first_and_leaves_no_trace(

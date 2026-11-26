@@ -8,7 +8,9 @@ it (stickle.data.sync_left).
   Place.aside) and the file written over with what this device has of the
   item. If it has nothing of it, the file is passed over until something else
   is written there. Bytes fewer than the folder listed are not counted: half
-  arrived. Without a folder to keep them in, nothing is set aside.
+  arrived. A round that did not list the folder counts them all the same (bytes
+  half arrived come otherwise the next time, and start the count again).
+  Without a folder to keep them in, nothing is set aside.
 - One with a field this version may not change, and one that is not this
   vault's or not where its item's own file is, is passed over until its tag
   changes (a cloud with no tags: until its bytes do, read each round).
@@ -86,8 +88,8 @@ class Leaving:
     def unreadable(self, path: str, read: Read) -> bool:
         """The file did not open: counted. True: set aside now."""
         size = self._sizes.get(path)
-        if size is None or len(read.data) != size:
-            return False  # half arrived, or not listed this round: later
+        if size is not None and len(read.data) != size:
+            return False  # half arrived: later
         now, hashed = self._now(), digest(read.data)
         left = self._left.get(path)
         again = left is not None and left.why == UNREADABLE and left.digest == hashed

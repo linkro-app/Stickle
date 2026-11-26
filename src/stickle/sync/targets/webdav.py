@@ -86,7 +86,8 @@ _WRITTEN = (200, 201, 204)
 _DELETED = (200, 202, 204)
 _NO_FOLDER = (404, 409)  # as a server answers a write into a folder that is not there
 _FOLDER_THERE = (200, 201, 204, 301, 405)  # 405: making a folder that is there
-_PARENT_MISSING = 409
+_PARENT_MISSING = (404, 409)
+_GONE = (404, 410)
 
 # OpenSSL's X509_V_FLAG_NO_CHECK_TIME. Only for the one certificate the user
 # trusted: the same certificate past its date proves as much as before, and
@@ -399,6 +400,13 @@ class WebDav:
             self._folders.clear()
             self._make_folders(path)
             answer = self._ask("PUT", url, data, headers)
+        if answer.status in _GONE:
+            # Not there, the folders there: a server that answers a condition so
+            # (the file gone since it was read: as refused, for it to be read and
+            # merged again), or one not settled yet (tried again later).
+            if isinstance(condition, AsRead):
+                raise RefusedError()
+            raise UnavailableError(answered=True)
         if answer.status not in _WRITTEN:
             raise _error(answer)
         return answer.tag
@@ -439,7 +447,7 @@ class WebDav:
             if each in self._folders:
                 continue
             answer = self._ask("MKCOL", f"{self._url(each)}/")
-            if answer.status == _PARENT_MISSING:
+            if answer.status in _PARENT_MISSING:  # 404 from some servers
                 raise UnavailableError(answered=True)
             if answer.status not in _FOLDER_THERE:
                 raise _error(answer)

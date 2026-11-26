@@ -26,6 +26,7 @@ from stickle.sync.targets.base import (
     Absent,
     AsRead,
     CertificateError,
+    Condition,
     Entry,
     FullError,
     NoAccessError,
@@ -839,6 +840,37 @@ def test_a_write_still_refused_after_the_folders_are_made_is_refused(scripted: S
     with pytest.raises(RefusedError):
         target.put(NOTE, b"text", Absent())
     assert len(scripted.requests) == 6
+    target.close()
+
+
+@pytest.mark.parametrize(
+    ("condition", "error"), [(AsRead('"read"'), RefusedError), (Absent(), UnavailableError)]
+)
+def test_a_write_still_not_there_after_the_folders_are_made_is_no_error_unknown(
+    scripted: Scripted, condition: Condition, error: type[Exception]
+) -> None:
+    # A server answering a condition with 404 rather than 412: refused, to be
+    # read and merged again; a new file so answered, tried again later.
+    made: tuple[int, dict[str, str], bytes] = (201, {}, b"")
+    gone: tuple[int, dict[str, str], bytes] = (404, {}, b"")
+    scripted.answers += [made, made, gone, made, made, gone]
+    target = to(scripted)
+    with pytest.raises(error) as caught:
+        target.put(NOTE, b"text", condition)
+    assert not isinstance(caught.value, NotThereError)
+    if isinstance(caught.value, UnavailableError):
+        assert caught.value.answered
+    target.close()
+
+
+def test_a_folder_not_made_for_want_of_its_parent_answered_404_waits(
+    scripted: Scripted,
+) -> None:
+    scripted.answers += [(404, {}, b"")]
+    target = to(scripted)
+    with pytest.raises(UnavailableError) as caught:
+        target.put(NOTE, b"text", Absent())
+    assert caught.value.answered and len(scripted.requests) == 1
     target.close()
 
 

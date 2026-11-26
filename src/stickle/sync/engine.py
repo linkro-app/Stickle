@@ -281,6 +281,16 @@ class _HeldError(Exception):
 
 
 _HELD = ("locked", TRASH)  # a note's fields that wait while it is edited, with its text
+# Files a first look read in this run of the app, by (vault, place): their size.
+# Read again by the first round only if the listing shows them otherwise, where
+# tags do not tell every write apart (WebDAV's: a write within the second keeps
+# one); were one taken as it was looked at, a version earlier is all it is.
+_LOOKED: dict[tuple[str, str], int] = {}
+
+
+def looked_at_forgotten() -> None:
+    """As in a new run of the app (tests)."""
+    _LOOKED.clear()
 
 
 def _held_field(name: str) -> bool:
@@ -359,7 +369,9 @@ def first_look(
     apart. Nothing else is written, here or there. progress: told as they are read."""
     confirm(place.target, place.vault)
     notes = notes or NoteRepository(connection)
-    looking = _Round(connection, notes, place, cloud_now, joining=True, progress=progress)
+    looking = _Round(
+        connection, notes, place, cloud_now, joining=True, progress=progress, first_look=True
+    )
     looking.look()
     return looking.preview()
 
@@ -601,10 +613,13 @@ class _Round:
         editing: Editing | None = None,
         key: str | None = None,
         old: frozenset[str] = frozenset(),
+        first_look: bool = False,
     ) -> None:
         """joining: None, as the vault was joined or not (stickle.sync.engine.joined);
         key: the number of this device's secret notes' key, old: of the keys it
-        had before (stickle.crypto.secret_notes.OLD_KEYS)."""
+        had before (stickle.crypto.secret_notes.OLD_KEYS); first_look: a look
+        before the first round (what it reads, noted in _LOOKED)."""
+        self._first_look = first_look
         self._db = connection
         self._key = key
         self._old = old
@@ -688,11 +703,11 @@ class _Round:
                 continue  # left as it was: not read
             entry = listed.get(note_id)
             if (
-                target.unique_tags
-                and entry is not None
+                entry is not None
                 and entry.tag is not None
                 and path in kept
                 and kept[path] == entry.tag
+                and (target.unique_tags or _LOOKED.get((vault, path)) == entry.size)
             ):
                 self._staged.add(path)
                 continue
@@ -877,6 +892,8 @@ class _Round:
         try:
             read = self._place.target.get(path)
             staged = Staged(read.tag, read.data)
+            if self._first_look:
+                _LOOKED[self._place.vault, path] = len(read.data)
         except NotThereError:
             staged = Staged(None, None)
         with writing(self._db):
@@ -955,6 +972,8 @@ class _Round:
             return None
         with writing(self._db):
             sync_staged.put(self._db, place.vault, entry.path, Staged(read.tag, read.data))
+        if self._first_look:
+            _LOOKED[place.vault, entry.path] = len(read.data)
         self._copies.setdefault(head.item, []).append(entry.path)
         return head.item
 

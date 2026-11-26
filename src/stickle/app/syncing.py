@@ -17,7 +17,7 @@ the user signs in again.
 import gc
 import logging
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -721,12 +721,19 @@ class Syncing(QObject):
             log.warning("sync: the connection kept does not read: %s", type(error).__name__)
             return self.login
 
-    def to_put(self) -> int:
-        """Notes changed here and not in the cloud yet (not those that wait for
-        their secret notes' password to be matched: they wait for the user)."""
+    def to_put(self, among: Collection[str] | None = None) -> int:
+        """Notes changed here and not in the cloud yet (among those, if given; not
+        those that wait for their secret notes' password to be matched: they
+        wait for the user)."""
         unmatched = self.unmatched()
         changed = sync_state.changed(self._connection, self.login.vault)
-        return len([note_id for note_id in changed if note_id not in unmatched])
+        return len(
+            [
+                note_id
+                for note_id in changed
+                if note_id not in unmatched and (among is None or note_id in among)
+            ]
+        )
 
     def vault_secret_key(self) -> str | None:
         """The number of the vault's secret notes' key, as a round last saw it."""
