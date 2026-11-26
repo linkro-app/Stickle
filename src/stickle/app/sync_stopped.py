@@ -111,7 +111,7 @@ class SyncStopped(QDialog):
         self,
         syncing: Syncing,
         again: Callable[[], None],
-        disconnect: Callable[[], None],
+        disconnect: Callable[[Syncing], None],
         parent: QWidget | None = None,
     ) -> None:
         """again: the window that turns sync on, from the server as kept;
@@ -344,7 +344,7 @@ class SyncStopped(QDialog):
         if isinstance(outcome, Exception):
             log.warning("sync: leaving did not end cleanly: %s", type(outcome).__name__)
         try:
-            self._disconnect()
+            self._disconnect(self._syncing)
         except Exception as error:  # as it was: on again at the next start
             log.error("sync: could not forget the connection: %s", type(error).__name__)
         self.leaving = False

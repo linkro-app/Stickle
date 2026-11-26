@@ -116,7 +116,7 @@ def _turning_on() -> Said:
             lambda: 0,
             lambda: {},
             lambda _login, _joining: None,  # pyright: ignore[reportArgumentType]
-            lambda: None,
+            lambda _left: None,
         )
     )
     window._fail("wrong")  # pyright: ignore[reportPrivateUsage]

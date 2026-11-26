@@ -31,7 +31,7 @@ def dropbox(user: str = ACCOUNT) -> FakeSyncing:
 
 
 def panel_of(qtbot: QtBot, syncing: FakeSyncing) -> SyncPanel:
-    panel = SyncPanel(cast(Syncing, syncing), lambda: None)
+    panel = SyncPanel(cast(Syncing, syncing), lambda _left: None)
     qtbot.addWidget(panel)
     return panel
 
@@ -94,7 +94,7 @@ def test_blocked_it_says_dropbox_and_has_sync_now_beside_it(qtbot: QtBot) -> Non
 
 
 def test_leaving_dropbox_says_stickle_is_signed_out(qtbot: QtBot) -> None:
-    dialog = DisconnectSync(cast(Syncing, dropbox()), lambda: None)
+    dialog = DisconnectSync(cast(Syncing, dropbox()), lambda _left: None)
     qtbot.addWidget(dialog)
     assert dialog.folder_stays.text() == (
         "The Stickle folder in Dropbox isn't deleted, so your other computers keep syncing."
@@ -107,6 +107,6 @@ def test_leaving_dropbox_says_stickle_is_signed_out(qtbot: QtBot) -> None:
 
 
 def test_leaving_another_cloud_says_nothing_of_signing_out(qtbot: QtBot) -> None:
-    dialog = DisconnectSync(cast(Syncing, FakeSyncing()), lambda: None)
+    dialog = DisconnectSync(cast(Syncing, FakeSyncing()), lambda _left: None)
     qtbot.addWidget(dialog)
     assert not dialog.signs_out.isVisibleTo(dialog)

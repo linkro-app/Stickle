@@ -48,7 +48,7 @@ class Sync:
             return cast("Syncing | None", self.syncing)
 
         keys = RecoveryKeys(exists=lambda: True, make=lambda: "key", kept=lambda: None)
-        return SyncSetup(current, keys, lambda: 0, lambda: {}, connect, lambda: None)
+        return SyncSetup(current, keys, lambda: 0, lambda: {}, connect, lambda _left: None)
 
 
 def window_of(

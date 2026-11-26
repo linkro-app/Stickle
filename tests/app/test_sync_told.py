@@ -154,7 +154,7 @@ def setup() -> SyncSetup:
         was_kept=lambda: True,
         is_old=lambda: False,
     )
-    return SyncSetup(lambda: None, keys, lambda: 0, lambda: {}, unused, lambda: None)
+    return SyncSetup(lambda: None, keys, lambda: 0, lambda: {}, unused, lambda _left: None)
 
 
 def manager_of(
@@ -571,7 +571,7 @@ def test_the_connections_page_has_the_way_on_beside_how_sync_stands(
     qtbot: QtBot, outcome: Outcome, button: str
 ) -> None:
     syncing = FakeSyncing().round_was(outcome)
-    panel = SyncPanel(cast(Syncing, syncing), lambda: None)
+    panel = SyncPanel(cast(Syncing, syncing), lambda _left: None)
     qtbot.addWidget(panel)
     assert panel.review_button.isHidden() is (not button)
     if button:
@@ -586,7 +586,9 @@ def test_where_the_software_center_updates_it_the_page_has_no_button_for_it(
     qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("FLATPAK_ID", "co.linkro.stickle")
-    panel = SyncPanel(cast(Syncing, FakeSyncing().round_was(Outcome(Stopped.NEWER))), lambda: None)
+    panel = SyncPanel(
+        cast(Syncing, FakeSyncing().round_was(Outcome(Stopped.NEWER))), lambda _left: None
+    )
     qtbot.addWidget(panel)
     assert panel.review_button.isHidden()
 

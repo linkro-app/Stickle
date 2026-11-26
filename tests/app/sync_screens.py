@@ -235,7 +235,7 @@ def _setup(
         lambda: 12,
         lambda: {},
         connect,
-        lambda: None,
+        lambda _left: None,
         onedrive=(lambda: MADE_UP_APP) if onedrive else (lambda: None),
         dropbox=(lambda: MADE_UP_DROPBOX) if dropbox else (lambda: None),
     )
@@ -479,7 +479,7 @@ A_BIG_CHANGE = BigChange(
 def _asking(why: Stopped) -> Callable[[Stage], SyncStopped]:
     def build(stage: Stage) -> SyncStopped:
         syncing = stage.keep(_synced().round_was(Outcome(why)))
-        return stage.keep(SyncStopped(cast("Syncing", syncing), lambda: None, lambda: None))
+        return stage.keep(SyncStopped(cast("Syncing", syncing), lambda: None, lambda _left: None))
 
     return build
 
@@ -611,7 +611,7 @@ def _change_name(stage: Stage) -> QWidget:
 
 def _disconnect(stage: Stage) -> DisconnectSync:
     syncing = stage.keep(_synced())
-    return stage.keep(DisconnectSync(cast("Syncing", syncing), lambda: None))
+    return stage.keep(DisconnectSync(cast("Syncing", syncing), lambda _left: None))
 
 
 def _disconnecting(stage: Stage) -> QWidget:
@@ -1013,7 +1013,7 @@ def _onedrive_stopped(why: Stopped) -> Callable[[], FakeSyncing]:
 
 def _onedrive_disconnect(stage: Stage) -> DisconnectSync:
     syncing = stage.keep(_onedrive_synced()())
-    return stage.keep(DisconnectSync(cast("Syncing", syncing), lambda: None))
+    return stage.keep(DisconnectSync(cast("Syncing", syncing), lambda _left: None))
 
 
 # Dropbox
@@ -1124,7 +1124,7 @@ def _dropbox_stopped(why: Stopped) -> Callable[[], FakeSyncing]:
 
 def _dropbox_disconnect(stage: Stage) -> DisconnectSync:
     syncing = stage.keep(_dropbox_synced()())
-    return stage.keep(DisconnectSync(cast("Syncing", syncing), lambda: None))
+    return stage.keep(DisconnectSync(cast("Syncing", syncing), lambda _left: None))
 
 
 _REASONS = {

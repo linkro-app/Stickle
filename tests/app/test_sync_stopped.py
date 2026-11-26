@@ -98,7 +98,7 @@ def asking(qtbot: QtBot, why: Stopped, change: BigChange | None = None) -> Asked
     window = SyncStopped(
         cast(Syncing, sync),
         lambda: asked.again.append("again"),
-        lambda: asked.disconnected.append("gone"),
+        lambda _left: asked.disconnected.append("gone"),
     )
     asked.window = window  # deletes itself once closed: not the test's to close
     window.show()
@@ -293,7 +293,7 @@ def setup() -> SyncSetup:
         lambda: 0,
         lambda: {},
         unused,
-        lambda: None,
+        lambda _left: None,
     )
 
 

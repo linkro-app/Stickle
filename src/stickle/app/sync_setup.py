@@ -42,7 +42,9 @@ class SyncSetup:
     pairs: Callable[[], Mapping[str, SealedSlot]]  # what a new vault's key is sealed for
     # Connected (the login; whether the vault was there before): kept, and rounds start.
     connect: Callable[[Login, bool], Syncing]
-    disconnect: Callable[[], None]  # sync left: the connection forgotten, the app going on
+    # That sync left: the connection forgotten, the app going on (nothing, if
+    # another connection has taken its place since).
+    disconnect: Callable[[Syncing], None]
     # What merging with the vault of a login would make, nothing kept yet; off
     # the app's thread (None: it could not be looked at). None: not looked at.
     look: Callable[[Login, Moving, Renewed], FirstLook | None] | None = None

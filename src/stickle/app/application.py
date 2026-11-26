@@ -567,6 +567,43 @@ def replace_sync(
         raise
 
 
+class SyncSwitch:
+    """This run's sync (None: off), and turning it on, to another connection
+    and off. What shows it (the tray, the settings window's connection section)
+    reads it from here as it is told to follow it: so it is the one running by
+    then, never the one it took the place of."""
+
+    def __init__(self, display: SyncDisplay | None = None) -> None:
+        self.syncing: Syncing | None = None
+        self.display = display
+
+    def _now(self, syncing: Syncing) -> Syncing:
+        self.syncing = syncing
+        if self.display is not None:
+            self.display.follow(syncing)
+        return syncing
+
+    def replace(
+        self,
+        connect: Callable[[], Syncing],
+        resume: Callable[[sync_connection.Login], Syncing],
+        kept: Callable[[], sync_connection.Login | None],
+    ) -> Syncing:
+        """Another connection in place of the one before (see replace_sync);
+        connect and resume tell no display: this does, once it is in place."""
+        return self._now(
+            replace_sync(self.syncing, connect, lambda login: self._now(resume(login)), kept)
+        )
+
+    def off(self, left: Syncing, connection: apsw.Connection, clocks: Clocks) -> None:
+        """left turned off (see disconnect_sync): only if it is the one running,
+        not one another connection has taken the place of since."""
+        if left is not self.syncing:
+            return
+        self.syncing = None
+        disconnect_sync(connection, left, clocks, self.display)
+
+
 def disconnect_sync(
     connection: apsw.Connection,
     syncing: Syncing,
@@ -1132,7 +1169,7 @@ def run(
 
     watcher = SignalWatcher(on_signal)
     connection = None
-    syncing: Syncing | None = None
+    switch = SyncSwitch()  # this run's sync, if it syncs
     session_ending = False  # saved, and may not go on for long
     clocks = Clocks()  # the cloud's time once it is known, if this device syncs
     try:
@@ -1177,11 +1214,11 @@ def run(
         def finish_syncing() -> None:
             """Last, with everything saved; what is waiting to be put gets a few
             seconds when the user quits, not when the system is ending the app."""
-            if syncing is not None:
+            if switch.syncing is not None:
                 from stickle.app.syncing import QUIT_WAIT
 
                 fast = session_ending or _ended_by_signal or _restore_staged
-                syncing.finish(0.0 if fast else QUIT_WAIT)
+                switch.syncing.finish(0.0 if fast else QUIT_WAIT)
 
         app.aboutToQuit.connect(finish_syncing)
         manager.empty_old_trash(syncing=login is not None)
@@ -1194,8 +1231,8 @@ def run(
             log.info("saving before the session ends")
             manager.save_all()
             manager.lock_secret_notes()
-            if syncing is not None:
-                syncing.hurry()  # in what time the system gives
+            if switch.syncing is not None:
+                switch.syncing.hurry()  # in what time the system gives
 
         def before_sleep() -> None:
             log.info("saving before sleep")
@@ -1223,8 +1260,8 @@ def run(
             app.installNativeEventFilter(close_filter)
 
         def after_wake() -> None:
-            if syncing is not None:
-                syncing.woke()
+            if switch.syncing is not None:
+                switch.syncing.woke()
 
         sleep_watch = watch_sleep(before_sleep, after_wake)
         log.info("sleep %s", "watched" if sleep_watch is not None else "not watched")
@@ -1324,8 +1361,6 @@ def run(
             def connected(
                 login: sync_connection.Login, joining: bool, only_the_cloud: bool = False
             ) -> Syncing:
-                nonlocal syncing
-
                 def connect() -> Syncing:
                     return connect_sync(
                         notes_db,
@@ -1336,14 +1371,13 @@ def run(
                         clocks,
                         manager,
                         reminders,
-                        sync_display,
+                        None,
                         only_the_cloud,
                         keys_here,
                     )
 
                 def resume(kept: sync_connection.Login) -> Syncing:
-                    nonlocal syncing
-                    syncing = start_sync(
+                    return start_sync(
                         notes_db,
                         database,
                         opened_with,
@@ -1351,20 +1385,14 @@ def run(
                         clocks,
                         manager,
                         reminders,
-                        sync_display,
                         now=False,
                         take_keys=keys_here,
                     )
-                    return syncing
 
-                syncing = replace_sync(syncing, connect, resume, lambda: login_here(notes_db))
-                return syncing
+                return switch.replace(connect, resume, lambda: login_here(notes_db))
 
-            def disconnected() -> None:
-                nonlocal syncing
-                if syncing is not None:
-                    disconnect_sync(notes_db, syncing, clocks, sync_display)
-                    syncing = None
+            def disconnected(left: Syncing) -> None:
+                switch.off(left, notes_db, clocks)
 
             def look(
                 login: sync_connection.Login,
@@ -1393,7 +1421,7 @@ def run(
                     log.warning("recovery key kept: not noted: %s", type(error).__name__)
 
             sync_setup = SyncSetup(
-                lambda: syncing,
+                lambda: switch.syncing,
                 recovery,
                 lambda: len(manager.listed_notes()),
                 unlock.vault_pairs,
@@ -1415,7 +1443,7 @@ def run(
             manager.secret_key_fits,
             lambda: sync_display.secrets_resealed(),
             MatchedHere(
-                lambda: None if syncing is None else syncing.vault_secret_key(),
+                lambda: None if switch.syncing is None else switch.syncing.vault_secret_key(),
                 manager.sealed_here,
                 manager.match_secret_keys,
                 manager.adopt_apart_key,
@@ -1441,7 +1469,7 @@ def run(
             master=master,
             changes=changes,
             full_screen=full_screen,
-            sync_lines=lambda: sync_lines(syncing),
+            sync_lines=lambda: sync_lines(switch.syncing),
             sync_setup=sync_setup,
         )
         connect_stickle_window(stickle_window, manager, tray if tray_available else None, app.quit)
@@ -1462,7 +1490,7 @@ def run(
             from stickle.app.syncing import Syncing as SyncRun
 
             assert unlock.opened_key is not None
-            syncing = SyncRun(
+            switch.syncing = SyncRun(
                 connection,
                 unlock.database,
                 unlock.opened_key,
@@ -1482,7 +1510,8 @@ def run(
             setup=sync_setup,
             notify=stop_notifier(tray, tray_available),
         )
-        sync_display.follow(syncing)
+        switch.display = sync_display
+        sync_display.follow(switch.syncing)
         # Kept here, as the Stickle window is: a window of its own, with no parent.
         missed_window = (
             connect_missed(reminders, stickle_window, tray) if reminders is not None else None
@@ -1603,8 +1632,8 @@ def run(
             daily_backups.start()
         if updates is not None:
             updates.start()
-        if syncing is not None:
-            syncing.start()
+        if switch.syncing is not None:
+            switch.syncing.start()
         try:
             return app.exec()
         finally:
@@ -1613,6 +1642,8 @@ def run(
         watcher.close()
         if connection is not None:
             if _restore_staged and unlock is not None and unlock.opened_key is not None:
-                finish_going_back(connection, unlock.database, unlock.opened_key, syncing, clocks)
+                finish_going_back(
+                    connection, unlock.database, unlock.opened_key, switch.syncing, clocks
+                )
             connection.close()
         log.info("quit")

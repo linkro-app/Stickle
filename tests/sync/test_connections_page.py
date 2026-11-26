@@ -6,6 +6,7 @@ minute after they changed, have not reached the cloud."""
 import gc
 import logging
 import threading
+import warnings
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,7 +47,7 @@ from test_turn_on import (
 from update_translations import TS_DIR, compile_to
 from webdav_server import HOST, Server, webdav
 
-from stickle.app.application import connect_sync, disconnect_sync
+from stickle.app.application import SyncSwitch, connect_sync, disconnect_sync, start_sync
 from stickle.app.background import Job
 from stickle.app.i18n import Translations
 from stickle.app.settings_window import SettingsWindow
@@ -152,10 +153,12 @@ class Computer:
         self.live.runner._work = counted  # pyright: ignore[reportPrivateUsage]
         return self.live
 
-    def disconnect(self) -> None:
-        assert self.live is not None
-        disconnect_sync(self.db, self.live, self.pc.clocks)
-        self.live = None
+    def disconnect(self, left: Syncing) -> None:
+        """As the app turns it off (stickle.app.application.SyncSwitch)."""
+        switch = SyncSwitch()
+        switch.syncing = self.live
+        switch.off(left, self.db, self.pc.clocks)
+        self.live = switch.syncing
 
     def setup(self) -> SyncSetup:
         return SyncSetup(
@@ -796,7 +799,7 @@ def test_while_it_leaves_it_cannot_be_closed_or_pressed_again(
     assert finished == []
     assert dialog.isVisible()
     assert bed.first.live is live
-    assert sync_connection.current(bed.first.db) is not None
+    assert sync_connection.current(bed.first.db) is None  # forgotten as it began
     let_go.set()
     qtbot.waitUntil(lambda: finished != [], timeout=MS)
     assert sync_connection.current(bed.first.db) is None
@@ -885,7 +888,7 @@ def test_a_database_that_will_not_forget_does_not_hold_the_window(
     window = bed.first.page(qtbot)
     calls: list[bool] = []
 
-    def refused() -> None:
+    def refused(_left: Syncing) -> None:
         calls.append(True)
         raise apsw.BusyError("busy")
 
@@ -1224,6 +1227,130 @@ def test_what_shows_how_sync_stands_is_told_as_it_goes_on_and_off(bed: Bed, qtbo
     assert followed == [None, started]
 
 
+class Followed:
+    """What shows sync, told to follow it: with what it reads as running then
+    (the settings window's connection section reads it as SyncSetup.current)."""
+
+    def __init__(self, switch: SyncSwitch) -> None:
+        self.switch = switch
+        self.told: list[tuple[object, object]] = []
+        switch.display = cast(SyncDisplay, self)
+
+    def follow(self, syncing: object) -> None:
+        self.told.append((syncing, self.switch.syncing))
+
+
+def switched(bed: Bed) -> tuple[SyncSwitch, Followed]:
+    switch = SyncSwitch()
+    switch.syncing = bed.first.live
+    return switch, Followed(switch)
+
+
+def connecting(bed: Bed) -> Callable[[], Syncing]:
+    pc = bed.first.pc
+
+    def connect() -> Syncing:
+        started = connect_sync(
+            pc.db, pc.path, DB_KEY, bed.login, False, pc.clocks, pc.manager, None
+        )
+        pc.started.append(started)
+        return started
+
+    return connect
+
+
+def resuming(bed: Bed) -> Callable[[Login], Syncing]:
+    pc = bed.first.pc
+
+    def resume(kept: Login) -> Syncing:
+        started = start_sync(pc.db, pc.path, DB_KEY, kept, pc.clocks, pc.manager, None, now=False)
+        pc.started.append(started)
+        return started
+
+    return resume
+
+
+def test_switched_to_another_connection_what_shows_sync_finds_that_one_running(
+    bed: Bed, qtbot: QtBot
+) -> None:
+    switch, shows = switched(bed)
+
+    new = switch.replace(
+        connecting(bed), resuming(bed), lambda: sync_connection.current(bed.first.db)
+    )
+    assert shows.told == [(new, new)]
+
+    switch.off(new, bed.first.db, bed.first.pc.clocks)
+    assert shows.told == [(new, new), (None, None)]
+
+
+def test_the_connection_before_resumed_what_shows_sync_finds_that_one_running(
+    bed: Bed, qtbot: QtBot
+) -> None:
+    switch, shows = switched(bed)
+
+    def failing() -> Syncing:
+        raise RuntimeError("the new one could not be kept")
+
+    with pytest.raises(RuntimeError):
+        switch.replace(failing, resuming(bed), lambda: sync_connection.current(bed.first.db))
+
+    resumed = switch.syncing
+    assert resumed is not None and resumed is not bed.first.live
+    assert shows.told == [(resumed, resumed)]
+
+
+def test_turning_off_one_another_has_taken_the_place_of_leaves_that_one_running(
+    bed: Bed, qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = bed.first.page(qtbot)
+    dialog = press_disconnect(window)  # for the sync running as it opened
+    bed.first.connect(bed.login, False)  # another in its place meanwhile
+    new = bed.first.live
+    assert new is not None
+    finished: list[int] = []
+    dialog.finished.connect(finished.append)
+
+    dialog.disconnect_button.click()
+    qtbot.waitUntil(lambda: finished != [], timeout=MS)
+
+    assert bed.first.live is new and new.runner.running
+    assert sync_connection.current(bed.first.db) is not None
+    assert bed.own_file(bed.first) in bed.files()
+    noticed: list[bool] = []
+    monkeypatch.setattr(new.runner, "edited", noticed.append)
+    bed.first.pc.notes.create("그 뒤에 쓴 메모")
+    qtbot.waitUntil(lambda: noticed != [], timeout=MS)  # what is written, still told of
+
+
+def test_left_from_two_windows_at_once_what_it_was_told_of_is_let_go_of_once(
+    bed: Bed, qtbot: QtBot
+) -> None:
+    # The settings window's and the one that asks, both open for it.
+    live = bed.first.live
+    assert live is not None
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # a signal let go of twice warns
+        live.leaving()
+        live.leaving()
+    live.leave()
+    bed.first.disconnect(live)
+    assert bed.first.live is None
+
+
+def test_the_connection_is_forgotten_as_disconnect_is_pressed(bed: Bed, qtbot: QtBot) -> None:
+    # The app quitting before leaving is over, sync is off at the next start.
+    window = bed.first.page(qtbot)
+    dialog = press_disconnect(window)
+
+    dialog.disconnect_button.click()
+
+    assert sync_connection.current(bed.first.db) is None  # before anything else is done
+    assert bed.first.live is not None  # still leaving
+    qtbot.waitUntil(lambda: bed.first.live is None, timeout=MS)
+    assert bed.own_file(bed.first) not in bed.files()  # done all the same
+
+
 def test_turning_it_off_and_on_is_logged_by_the_cloud_s_kind_only(
     bed: Bed, qtbot: QtBot, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1276,14 +1403,17 @@ def test_sync_replaced_by_another_has_a_page_of_its_own(bed: Bed, qtbot: QtBot) 
     assert window.sync_panel.syncing is bed.first.live
 
 
-def test_leaving_cut_short_leaves_it_on_at_the_next_start(bed: Bed, qtbot: QtBot) -> None:
-    """Its own file gone, the connection kept: on again, and the file written anew."""
+def test_leaving_cut_short_it_is_off_and_turned_on_again_its_file_is_back(
+    bed: Bed, qtbot: QtBot
+) -> None:
+    """The connection forgotten as it began to leave: off at the next start;
+    turned on again, its own file is written anew."""
     live = bed.first.live
     assert live is not None
     live.leaving()
     live.leave()
     assert bed.own_file(bed.first) not in bed.files()
-    assert sync_connection.current(bed.first.db) is not None
+    assert sync_connection.current(bed.first.db) is None
     bed.first.connect(bed.login, False)
     qtbot.waitUntil(lambda: bed.own_file(bed.first) in bed.files(), timeout=MS)
 

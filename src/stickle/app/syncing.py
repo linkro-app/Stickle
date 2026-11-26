@@ -590,6 +590,8 @@ class Syncing(QObject):
         self.moving.connect(self.status.moved)
         self._leaving_as = ""
         self._finished = False
+        self._let_go = False  # of what the app tells it (see _let_go_of_the_app)
+        self._replaced = False  # ended for another connection (see end)
         self._unsent: frozenset[str] = frozenset()
         self._unmatched: frozenset[str] = frozenset()
         self._looks_for_unsent = False  # not before a first round has been through
@@ -795,7 +797,8 @@ class Syncing(QObject):
         """Ended at once, on the app's thread, for another connection to take its
         place: what is typed is saved, and whatever is waiting to be put goes
         with the next one (each vault keeps its own state of the notes)."""
-        self.leaving()
+        self._replaced = True
+        self._let_go_of_the_app()
         self.finish(0.0)
         self.left()
 
@@ -908,7 +911,23 @@ class Syncing(QObject):
 
     def leaving(self) -> None:
         """On the app's thread, first: what is typed is saved, nothing changed
-        from now on is told of, and nothing is watched."""
+        from now on is told of, nothing is watched, and the connection is
+        forgotten at once (the app quitting meanwhile, sync stays off; what is
+        left to do goes with the login held here). Nothing, once another
+        connection has taken its place: that one stays."""
+        if self._replaced:
+            return
+        self._let_go_of_the_app()
+        try:
+            sync_connection.forget(self._connection)
+        except apsw.Error as error:  # tried again once it has left
+            log.error("sync: could not forget the connection: %s", type(error).__name__)
+
+    def _let_go_of_the_app(self) -> None:
+        """Once: what this sync was told of by the app, let go of."""
+        if self._let_go:
+            return  # another sync may have the connection's hook since
+        self._let_go = True
         self._stop_watching()
         self._stop_looking_for_unsent()
         self._manager.save_all()
@@ -924,7 +943,10 @@ class Syncing(QObject):
     def leave(self) -> None:
         """Off the app's thread: rounds end, what is waiting to be put getting
         as long as when the user quits, and this device comes off the list
-        (signed out, with Dropbox)."""
+        (signed out, with Dropbox). Nothing, once another connection has taken
+        its place: this device is on that one's list, as that one's login."""
+        if self._replaced:
+            return
         self.runner.finish(QUIT_WAIT)
         self._rounds.sign_off(self._leaving_as)
 

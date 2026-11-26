@@ -208,7 +208,7 @@ def make_bench(
         lambda: notes_here,
         lambda: PAIRS,
         connected,
-        lambda: None,
+        lambda _left: None,
         onedrive=(lambda: app) if offered else (lambda: None),
     )
     window = TurnOnSync(setup, None, again, signed_out)

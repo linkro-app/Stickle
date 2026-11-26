@@ -33,7 +33,7 @@ def onedrive(user: str = ACCOUNT) -> FakeSyncing:
 
 
 def panel_of(qtbot: QtBot, syncing: FakeSyncing) -> SyncPanel:
-    panel = SyncPanel(cast(Syncing, syncing), lambda: None)
+    panel = SyncPanel(cast(Syncing, syncing), lambda _left: None)
     qtbot.addWidget(panel)
     return panel
 
@@ -94,7 +94,7 @@ def test_blocked_it_says_microsoft_and_has_sync_now_beside_it(qtbot: QtBot) -> N
 def test_leaving_onedrive_tells_where_microsoft_takes_the_access_away(
     qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    dialog = DisconnectSync(cast(Syncing, onedrive()), lambda: None)
+    dialog = DisconnectSync(cast(Syncing, onedrive()), lambda _left: None)
     qtbot.addWidget(dialog)
     assert dialog.folder_stays.text() == (
         "The Stickle folder in OneDrive isn't deleted, so your other computers keep syncing."
@@ -113,7 +113,7 @@ def test_leaving_onedrive_tells_where_microsoft_takes_the_access_away(
 
 
 def test_leaving_a_server_of_ones_own_says_its_password_goes(qtbot: QtBot) -> None:
-    dialog = DisconnectSync(cast(Syncing, FakeSyncing()), lambda: None)
+    dialog = DisconnectSync(cast(Syncing, FakeSyncing()), lambda _left: None)
     qtbot.addWidget(dialog)
     assert dialog.password_goes.isVisibleTo(dialog)
     assert not dialog.access_stays.isVisibleTo(dialog)

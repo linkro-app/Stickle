@@ -150,7 +150,10 @@ class DisconnectSync(QDialog):
     """Sure? Then sync ends here, and what it takes to reach the cloud goes with it."""
 
     def __init__(
-        self, syncing: Syncing, disconnected: Callable[[], None], parent: QWidget | None = None
+        self,
+        syncing: Syncing,
+        disconnected: Callable[[Syncing], None],
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._syncing = syncing
@@ -248,7 +251,7 @@ class DisconnectSync(QDialog):
         if isinstance(outcome, Exception):
             log.warning("sync: leaving did not end cleanly: %s", type(outcome).__name__)
         try:
-            self._disconnected()
+            self._disconnected(self._syncing)
         except apsw.Error as error:  # as it was: on again at the next start
             log.error("sync: could not forget the connection: %s", type(error).__name__)
         self._leaving = False
@@ -280,7 +283,10 @@ class SyncPanel(QWidget):
     review = Signal()
 
     def __init__(
-        self, syncing: Syncing, disconnect: Callable[[], None], parent: QWidget | None = None
+        self,
+        syncing: Syncing,
+        disconnect: Callable[[Syncing], None],
+        parent: QWidget | None = None,
     ) -> None:
         """disconnect: sync left, the connection forgotten and the app going on."""
         super().__init__(parent)

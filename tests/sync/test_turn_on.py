@@ -251,7 +251,7 @@ def make_bench(
         lambda: notes_here,
         lambda: sealed_for,
         connected,
-        lambda: None,
+        lambda _left: None,
         None if looking is None else looking.look,
         None if looking is None else cloud_only,
     )
@@ -306,7 +306,9 @@ def test_turning_on_is_offered_until_it_is_on(
     monkeypatch.setattr("stickle.app.sync_panel.SyncPanel", NoPanel)
     window = settings_with(
         qtbot,
-        SyncSetup(lambda: on[0], keys.keys(), lambda: 3, lambda: PAIRS, connect, lambda: None),
+        SyncSetup(
+            lambda: on[0], keys.keys(), lambda: 3, lambda: PAIRS, connect, lambda _left: None
+        ),
     )
     assert window.turn_on_sync_button.isVisible()
     assert window.sync_guide.isVisible()
@@ -328,7 +330,7 @@ def test_the_button_opens_its_window_once(qtbot: QtBot, keys: Keys) -> None:
 
     window = settings_with(
         qtbot,
-        SyncSetup(lambda: None, keys.keys(), lambda: 3, lambda: PAIRS, connect, lambda: None),
+        SyncSetup(lambda: None, keys.keys(), lambda: 3, lambda: PAIRS, connect, lambda _left: None),
     )
     window.turn_on_sync_button.click()
     opened = window.findChild(TurnOnSync)
@@ -1493,7 +1495,7 @@ class Pc:
             lambda: len(self.manager.listed_notes()),
             lambda: PAIRS,
             self.connect,
-            lambda: None,
+            lambda _left: None,
             self.look,
             lambda login: self.connect(login, True, only_the_cloud=True),
         )
@@ -1750,7 +1752,7 @@ def test_two_computers_through_a_big_change_and_a_stickle_folder_deleted_and_mad
             first.notes.delete(note_id)
         assert first.round(qtbot).outcome.stopped is None
         assert second.round(qtbot).outcome.stopped is Stopped.BIG_CHANGE
-        asking = SyncStopped(second.syncing, lambda: None, lambda: None)
+        asking = SyncStopped(second.syncing, lambda: None, lambda _left: None)
         asking.show()
         assert asking.trash.toggle.text() == "12 note(s) would go to the trash"
         asking.trash.toggle.click()
@@ -1760,7 +1762,7 @@ def test_two_computers_through_a_big_change_and_a_stickle_folder_deleted_and_mad
         assert shown == sorted(f"메모 {n}" for n in range(12))
         asking.second_button.click()  # not now
         assert len(texts(second)) == 12 and backups(second.path) == []
-        asking = SyncStopped(second.syncing, lambda: None, lambda: None)
+        asking = SyncStopped(second.syncing, lambda: None, lambda _left: None)
         asking.show()
         finished: list[int] = []
         asking.finished.connect(finished.append)

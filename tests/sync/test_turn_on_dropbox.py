@@ -230,7 +230,7 @@ def make_bench(
         lambda: notes_here,
         lambda: PAIRS,
         connected,
-        lambda: None,
+        lambda _left: None,
         onedrive=onedrive,
         dropbox=(lambda: app) if offered else (lambda: None),
     )
