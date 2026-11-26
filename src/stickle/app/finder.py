@@ -125,7 +125,7 @@ class DesktopFinder(QWidget):
         if not term.strip():
             self.count.setText(self.tr("Type to find notes on the desktop."))
         elif self.found:
-            self.count.setText(self.tr("%n note(s)", "", len(self.found)))
+            self.count.setText(self.tr("%Ln note(s)", "", len(self.found)))
         else:
             self.count.setText(self.tr("No note on the desktop matches."))
         hidden, trashed = self._notes.found_elsewhere(term)

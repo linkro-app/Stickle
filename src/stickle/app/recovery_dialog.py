@@ -295,7 +295,7 @@ class RecoveryDialog(QDialog):
             return
         self._say(
             self.tr(
-                "Exported %n note(s) to the folder “%1”.", "", result.notes + result.deleted
+                "Exported %Ln note(s) to the folder “%1”.", "", result.notes + result.deleted
             ).replace("%1", result.folder.name)
         )
 

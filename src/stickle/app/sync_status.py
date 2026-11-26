@@ -156,11 +156,11 @@ class SyncWords(QObject):
 
     def offline(self, to_put: int) -> str:
         return (
-            self.tr("Offline · %n note(s) to upload", "", to_put) if to_put else self.tr("Offline")
+            self.tr("Offline · %Ln note(s) to upload", "", to_put) if to_put else self.tr("Offline")
         )
 
     def trying_again(self, to_put: int) -> str:
-        return self.tr("%n note(s) to upload · trying again shortly", "", to_put)
+        return self.tr("%Ln note(s) to upload · trying again shortly", "", to_put)
 
 
 class SyncStatus(QObject):

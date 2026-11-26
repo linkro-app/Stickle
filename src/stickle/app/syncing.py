@@ -157,6 +157,7 @@ class Ended:
     certificate: bytes | None = None  # what a server showed, if that stopped it
     backup_failed: bool = False  # the big change let in, but no backup could be made first
     taken_in: bool = False  # the big change let in, backed up and taken in (the user saw it)
+    accepting: bool = False  # a round asked to let the big change in (not one already going)
 
     @property
     def wait(self) -> float | None:
@@ -406,6 +407,7 @@ class _Rounds:
         error: Exception | None = None
         db: apsw.Connection | None = None
         self._backed_up = False
+        accepting = self.accept
         try:
             db = self.database()
             sync_vault(
@@ -444,6 +446,7 @@ class _Rounds:
             error.certificate if isinstance(error, CertificateError) else None,
             backup_failed,
             self._backed_up,
+            accepting,
         )
 
     def _went_through(self) -> None:

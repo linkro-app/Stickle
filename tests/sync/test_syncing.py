@@ -789,7 +789,9 @@ def test_a_big_change_with_no_backup_takes_nothing_in_and_stays_stopped(
     for note_id in made:
         pc.other.notes.delete(note_id)
     pc.other_syncs()
-    assert pc.round().outcome.stopped is Stopped.BIG_CHANGE
+    stopped = pc.round()
+    assert stopped.outcome.stopped is Stopped.BIG_CHANGE
+    assert not stopped.accepting  # a round of its own
 
     def full(*_args: object, **_kwargs: object) -> Path:
         raise OSError("the disk is full")
@@ -799,6 +801,7 @@ def test_a_big_change_with_no_backup_takes_nothing_in_and_stays_stopped(
         pc.syncing.take_big_change()
     ended = said(told)
     assert isinstance(ended, Ended) and ended.backup_failed and not ended.taken_in
+    assert ended.accepting  # the round asked to let it in
     assert ended.outcome.stopped is Stopped.BIG_CHANGE and ended.wait is None
     assert not any(pc.notes.get(note_id).deleted for note_id in made)  # pyright: ignore[reportOptionalMemberAccess]
     assert all(pc.window_of(note_id) is not None for note_id in made)

@@ -351,7 +351,7 @@ class Tray(QSystemTrayIcon):
         elif self._notes is not None and self._notes.covered:
             # No other sign: nothing pops up over the full-screen program.
             tooltip = self.tr(
-                "Stickle: %n note(s) hidden for a full-screen program", "", self._notes.covered
+                "Stickle: %Ln note(s) hidden for a full-screen program", "", self._notes.covered
             )
         elif self._notes is not None and self._notes.view is not None:
             # Always in sight, so that notes out of view are not thought lost.

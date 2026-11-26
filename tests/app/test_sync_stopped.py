@@ -80,8 +80,9 @@ class FakeSync(QObject):
     def kept_login(self) -> Login:
         return self.login
 
-    def ended(self, outcome: Outcome, backup_failed: bool = False) -> None:
-        self.round_shown.emit(Ended(Report(), outcome, None, backup_failed))
+    def ended(self, outcome: Outcome, backup_failed: bool = False, accepting: bool = True) -> None:
+        """A round over: accepting, the one asked to let the big change in."""
+        self.round_shown.emit(Ended(Report(), outcome, None, backup_failed, accepting=accepting))
 
 
 @dataclass
@@ -206,6 +207,21 @@ def test_backing_up_and_bringing_in_waits_for_the_round_and_closes(qtbot: QtBot)
     asked.sync.status.moved("getting", 1, 30)  # how far it has got: still waiting
     assert window.isVisible()
     asked.sync.ended(Outcome())
+    assert not window.isVisible()
+
+
+def test_a_round_already_going_as_it_was_pressed_is_not_taken_for_its_answer(
+    qtbot: QtBot,
+) -> None:
+    # Looked at again as the app started: that round ends stopped as before.
+    asked = asking(qtbot, Stopped.BIG_CHANGE, BIG)
+    window = asked.window
+    window.first_button.click()
+    asked.sync.ended(Outcome(Stopped.BIG_CHANGE), accepting=False)
+    assert window.isVisible()
+    assert window.message.text() == "Backing up, then bringing it in…"
+    assert not window.first_button.isEnabled()
+    asked.sync.ended(Outcome())  # the one asked for
     assert not window.isVisible()
 
 

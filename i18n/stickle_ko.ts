@@ -477,9 +477,9 @@
         <translation>‘%1’ 카테고리를 지울까요? 이 카테고리가 붙은 메모는 없습니다.</translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) will lose the category “%1”. This cannot be undone. The notes themselves stay as they are.</source>
+        <source>%Ln note(s) will lose the category “%1”. This cannot be undone. The notes themselves stay as they are.</source>
         <translation>
-            <numerusform>메모 %n개에서 ‘%1’ 카테고리가 빠집니다. 이 작업은 되돌릴 수 없습니다. 메모 내용은 그대로 남습니다.</numerusform>
+            <numerusform>메모 %Ln개에서 ‘%1’ 카테고리가 빠집니다. 이 작업은 되돌릴 수 없습니다. 메모 내용은 그대로 남습니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -491,9 +491,9 @@
         <translation>메모도 휴지통으로…</translation>
     </message>
     <message numerus="yes">
-        <source>Move %n note(s) to the trash with the category “%1”? They can be brought back from the trash for a year.</source>
+        <source>Move %Ln note(s) to the trash with the category “%1”? They can be brought back from the trash for a year.</source>
         <translation>
-            <numerusform>‘%1’ 카테고리와 함께 메모 %n개를 휴지통으로 옮길까요? 휴지통에서 1년 동안 되살릴 수 있습니다.</numerusform>
+            <numerusform>‘%1’ 카테고리와 함께 메모 %Ln개를 휴지통으로 옮길까요? 휴지통에서 1년 동안 되살릴 수 있습니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -759,17 +759,17 @@
         <translation>암호화된 비밀 메모</translation>
     </message>
     <message numerus="yes">
-        <source>%n secret note(s) stayed encrypted with the secret notes&apos; password: their titles can be read, and their text opens with that password.</source>
+        <source>%Ln secret note(s) stayed encrypted with the secret notes&apos; password: their titles can be read, and their text opens with that password.</source>
         <translation>
-            <numerusform>비밀 메모 %n개는 비밀 메모 암호로 암호화된 채 내보냈습니다. 제목은 읽을 수 있고, 내용은 그 암호로 열립니다.</numerusform>
+            <numerusform>비밀 메모 %Ln개는 비밀 메모 암호로 암호화된 채 내보냈습니다. 제목은 읽을 수 있고, 내용은 그 암호로 열립니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) exported to %1, each as a Markdown file, with everything in stickle-export.json. Notes in the trash are in its trash folder.
+        <source>%Ln note(s) exported to %1, each as a Markdown file, with everything in stickle-export.json. Notes in the trash are in its trash folder.
 
 These files are not encrypted: keep them somewhere safe.</source>
         <translation>
-            <numerusform>메모 %n개를 %1에 내보냈습니다. 메모마다 마크다운 파일 하나씩이고, 모든 데이터는 stickle-export.json에 있습니다. 휴지통의 메모는 trash 폴더에 있습니다.
+            <numerusform>메모 %Ln개를 %1에 내보냈습니다. 메모마다 마크다운 파일 하나씩이고, 모든 데이터는 stickle-export.json에 있습니다. 휴지통의 메모는 trash 폴더에 있습니다.
 
 이 파일들은 암호화되어 있지 않으니 안전한 곳에 보관하세요.</numerusform>
         </translation>
@@ -794,9 +794,9 @@ These files are not encrypted: keep them somewhere safe.</source>
         <translation>글자를 치면 바탕화면의 메모를 찾습니다.</translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s)</source>
+        <source>%Ln note(s)</source>
         <translation>
-            <numerusform>메모 %n개</numerusform>
+            <numerusform>메모 %Ln개</numerusform>
         </translation>
     </message>
     <message>
@@ -906,7 +906,7 @@ These files are not encrypted: keep them somewhere safe.</source>
         <translation>이 PC에서 고침</translation>
     </message>
     <message>
-        <source>another PC</source>
+        <source>another computer</source>
         <translation>다른 PC</translation>
     </message>
     <message>
@@ -1001,9 +1001,9 @@ These files are not encrypted: keep them somewhere safe.</source>
         <translation>비밀 메모 가져오기</translation>
     </message>
     <message numerus="yes">
-        <source>%n secret note(s) went out locked. Type the secret notes&apos; password of the day they were exported, or use the recovery key of that day.</source>
+        <source>%Ln secret note(s) went out locked. Type the secret notes&apos; password of the day they were exported, or use the recovery key of that day.</source>
         <translation>
-            <numerusform>비밀 메모 %n개가 잠긴 채 내보내졌습니다. 내보낸 날의 비밀 메모 암호를 넣거나, 그날의 복구 키를 쓰세요.</numerusform>
+            <numerusform>비밀 메모 %Ln개가 잠긴 채 내보내졌습니다. 내보낸 날의 비밀 메모 암호를 넣거나, 그날의 복구 키를 쓰세요.</numerusform>
         </translation>
     </message>
     <message>
@@ -1288,9 +1288,9 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>%1 — 모두 이미 가져옴</translation>
     </message>
     <message numerus="yes">
-        <source>%1 — %n new note(s)</source>
+        <source>%1 — %Ln new note(s)</source>
         <translation>
-            <numerusform>%1 — 새 메모 %n개</numerusform>
+            <numerusform>%1 — 새 메모 %Ln개</numerusform>
         </translation>
     </message>
     <message>
@@ -1302,9 +1302,9 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>가져오기(&amp;B)</translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) not brought in before. Each takes the nearest of Stickle&apos;s colours, and keeps its place and category where it had them.</source>
+        <source>%Ln note(s) not brought in before. Each takes the nearest of Stickle&apos;s colours, and keeps its place and category where it had them.</source>
         <translation>
-            <numerusform>아직 가져오지 않은 메모 %n개. 메모마다 Stickle 색 가운데 가장 가까운 색을 쓰고, 위치와 분류가 있으면 그대로 가져옵니다.</numerusform>
+            <numerusform>아직 가져오지 않은 메모 %Ln개. 메모마다 Stickle 색 가운데 가장 가까운 색을 쓰고, 위치와 분류가 있으면 그대로 가져옵니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -1312,9 +1312,9 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>가져오지 않는 것: %1.</translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) could not be read.</source>
+        <source>%Ln note(s) could not be read.</source>
         <translation>
-            <numerusform>메모 %n개는 읽지 못했습니다.</numerusform>
+            <numerusform>메모 %Ln개는 읽지 못했습니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -1322,27 +1322,27 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>(빈 메모)</translation>
     </message>
     <message numerus="yes">
-        <source>&amp;Bring in %n note(s)</source>
+        <source>&amp;Bring in %Ln note(s)</source>
         <translation>
-            <numerusform>메모 %n개 가져오기(&amp;B)</numerusform>
+            <numerusform>메모 %Ln개 가져오기(&amp;B)</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) not brought in before, with their colours, categories, marks and reminders. Settings, places on screen and passwords stay with the computer they were made on.</source>
+        <source>%Ln note(s) not brought in before, with their colours, categories, marks and reminders. Settings, places on screen and passwords stay with the computer they were made on.</source>
         <translation>
-            <numerusform>아직 가져오지 않은 메모 %n개 — 색·카테고리·표시·알림도 함께 옵니다. 설정·화면 위치·암호는 만든 PC에 남습니다.</numerusform>
+            <numerusform>아직 가져오지 않은 메모 %Ln개 — 색·카테고리·표시·알림도 함께 옵니다. 설정·화면 위치·암호는 만든 PC에 남습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n of them go into the trash, as they were.</source>
+        <source>%Ln of them go into the trash, as they were.</source>
         <translation>
-            <numerusform>그중 %n개는 원래대로 휴지통으로 갑니다.</numerusform>
+            <numerusform>그중 %Ln개는 원래대로 휴지통으로 갑니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n secret note(s) went out locked: they come in with the secret notes&apos; password of that day, or the recovery key of that day.</source>
+        <source>%Ln secret note(s) went out locked: they come in with the secret notes&apos; password of that day, or the recovery key of that day.</source>
         <translation>
-            <numerusform>비밀 메모 %n개는 잠긴 채 내보내졌습니다 — 내보낸 날의 비밀 메모 암호나 그날의 복구 키가 있어야 들어옵니다.</numerusform>
+            <numerusform>비밀 메모 %Ln개는 잠긴 채 내보내졌습니다 — 내보낸 날의 비밀 메모 암호나 그날의 복구 키가 있어야 들어옵니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -1394,33 +1394,33 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>메모를 가져오지 못했습니다. 아무것도 바뀌지 않았습니다.</translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) brought in. They are on the desktop; hidden ones are listed in Stickle Manager.</source>
+        <source>%Ln note(s) brought in. They are on the desktop; hidden ones are listed in Stickle Manager.</source>
         <translation>
-            <numerusform>메모 %n개를 가져왔습니다. 바탕화면에 있고, 숨긴 메모는 Stickle 관리자 목록에 있습니다.</numerusform>
+            <numerusform>메모 %Ln개를 가져왔습니다. 바탕화면에 있고, 숨긴 메모는 Stickle 관리자 목록에 있습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) went into the trash.</source>
+        <source>%Ln note(s) went into the trash.</source>
         <translation>
-            <numerusform>%n개는 휴지통으로 갔습니다.</numerusform>
+            <numerusform>%Ln개는 휴지통으로 갔습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n secret note(s), locked with this computer&apos;s password.</source>
+        <source>%Ln secret note(s), locked with this computer&apos;s password.</source>
         <translation>
-            <numerusform>비밀 메모 %n개는 이 PC의 비밀 메모 암호로 잠갔습니다.</numerusform>
+            <numerusform>비밀 메모 %Ln개는 이 PC의 비밀 메모 암호로 잠갔습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) were secret notes exported in the clear: they came in as ordinary notes.</source>
+        <source>%Ln note(s) were secret notes exported in the clear: they came in as ordinary notes.</source>
         <translation>
-            <numerusform>%n개는 암호화하지 않고 내보낸 비밀 메모여서 보통 메모로 들어왔습니다.</numerusform>
+            <numerusform>%Ln개는 암호화하지 않고 내보낸 비밀 메모여서 보통 메모로 들어왔습니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n secret note(s) were left out: bring this export in again with their password or recovery key of that day.</source>
+        <source>%Ln secret note(s) were left out: bring this export in again with their password or recovery key of that day.</source>
         <translation>
-            <numerusform>비밀 메모 %n개는 빼고 가져왔습니다. 그날의 암호나 복구 키로 이 내보내기를 다시 가져오면 들어옵니다.</numerusform>
+            <numerusform>비밀 메모 %Ln개는 빼고 가져왔습니다. 그날의 암호나 복구 키로 이 내보내기를 다시 가져오면 들어옵니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -1789,9 +1789,9 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>같은 이름의 표시가 이미 있거나, 이름이 비어 있습니다.</translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) will lose the mark “%1”. This cannot be undone. The notes themselves stay as they are.</source>
+        <source>%Ln note(s) will lose the mark “%1”. This cannot be undone. The notes themselves stay as they are.</source>
         <translation>
-            <numerusform>메모 %n개에서 ‘%1’ 표시가 빠집니다. 이 작업은 되돌릴 수 없습니다. 메모 내용은 그대로 남습니다.</numerusform>
+            <numerusform>메모 %Ln개에서 ‘%1’ 표시가 빠집니다. 이 작업은 되돌릴 수 없습니다. 메모 내용은 그대로 남습니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -1932,9 +1932,9 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>%1에서 따로 쓰던 비밀 메모 암호</translation>
     </message>
     <message numerus="yes">
-        <source>%n secret note(s) on this computer are locked with a different password, so they don&apos;t go to your other computers. Enter it, and they&apos;ll switch to your current password and open everywhere.</source>
+        <source>%Ln secret note(s) on this computer are locked with a different password, so they don&apos;t go to your other computers. Enter it, and they&apos;ll switch to your current password and open everywhere.</source>
         <translation>
-            <numerusform>이 PC에서 따로 쓰던 비밀 메모 %n개는 다른 암호로 잠겨 있어 다른 PC로 가지 않습니다. 그 암호를 넣으면 지금 비밀 메모 암호로 바꿔 모든 PC에서 엽니다.</numerusform>
+            <numerusform>이 PC에서 따로 쓰던 비밀 메모 %Ln개는 다른 암호로 잠겨 있어 다른 PC로 가지 않습니다. 그 암호를 넣으면 지금 비밀 메모 암호로 바꿔 모든 PC에서 엽니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -1946,9 +1946,9 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>이 PC에서 따로 쓰던 비밀 메모 암호</translation>
     </message>
     <message numerus="yes">
-        <source>Your other computers&apos; secret notes are locked with their password. Enter it, and the %n secret note(s) here will switch to it and open everywhere. This computer will use that password from now on.</source>
+        <source>Your other computers&apos; secret notes are locked with their password. Enter it, and the %Ln secret note(s) here will switch to it and open everywhere. This computer will use that password from now on.</source>
         <translation>
-            <numerusform>다른 PC의 비밀 메모는 동기화하는 PC의 비밀 메모 암호로 잠겨 있습니다. 그 암호를 넣으면 이 PC의 비밀 메모 %n개도 그 암호로 바꿔 모든 PC에서 엽니다. 이제 이 PC에서도 그 암호를 씁니다.</numerusform>
+            <numerusform>다른 PC의 비밀 메모는 동기화하는 PC의 비밀 메모 암호로 잠겨 있습니다. 그 암호를 넣으면 이 PC의 비밀 메모 %Ln개도 그 암호로 바꿔 모든 PC에서 엽니다. 이제 이 PC에서도 그 암호를 씁니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -2306,9 +2306,9 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>휴지통이 비어 있습니다</translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) in the trash match too.</source>
+        <source>%Ln note(s) in the trash match too.</source>
         <translation>
-            <numerusform>휴지통에도 맞는 메모가 %n개 있습니다.</numerusform>
+            <numerusform>휴지통에도 맞는 메모가 %Ln개 있습니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -2481,9 +2481,9 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>따로 고친 글이 사본에 있습니다. 누르면 사본을 보여 줍니다.</translation>
     </message>
     <message numerus="yes">
-        <source>Text changed separately is in %n copies. Click to show them.</source>
+        <source>Text changed separately is in %Ln copies. Click to show them.</source>
         <translation>
-            <numerusform>따로 고친 글이 사본 %n개에 있습니다. 누르면 사본을 보여 줍니다.</numerusform>
+            <numerusform>따로 고친 글이 사본 %Ln개에 있습니다. 누르면 사본을 보여 줍니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -2664,15 +2664,15 @@ Search, the trash and your data (backups, export, notes from other apps) are in 
         <translation>새 복구 키는 비밀 메모까지 엽니다. 먼저 비밀 메모 암호를 입력하세요.</translation>
     </message>
     <message numerus="yes">
-        <source>This backup holds the earlier text of %n note(s) made secret since. Type the secret notes&apos; password to bring that text back, still secret. Without it, those notes stay as they are now.</source>
+        <source>This backup holds the earlier text of %Ln note(s) made secret since. Type the secret notes&apos; password to bring that text back, still secret. Without it, those notes stay as they are now.</source>
         <translation>
-            <numerusform>이 백업에는 그 뒤에 비밀 메모로 바꾼 메모 %n개의 예전 글이 있습니다. 비밀 메모 암호를 넣으면 그 글도 비밀 메모로 되돌립니다. 암호 없이 되돌리면 그 메모는 지금 그대로 둡니다.</numerusform>
+            <numerusform>이 백업에는 그 뒤에 비밀 메모로 바꾼 메모 %Ln개의 예전 글이 있습니다. 비밀 메모 암호를 넣으면 그 글도 비밀 메모로 되돌립니다. 암호 없이 되돌리면 그 메모는 지금 그대로 둡니다.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>Type the secret notes&apos; password of this computer: the %n secret note(s) brought in are locked with it.</source>
+        <source>Type the secret notes&apos; password of this computer: the %Ln secret note(s) brought in are locked with it.</source>
         <translation>
-            <numerusform>이 PC의 비밀 메모 암호를 넣으세요. 가져오는 비밀 메모 %n개를 그 암호로 잠급니다.</numerusform>
+            <numerusform>이 PC의 비밀 메모 암호를 넣으세요. 가져오는 비밀 메모 %Ln개를 그 암호로 잠급니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -2993,9 +2993,9 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>메모를 꺼내지 못했습니다(%1).</translation>
     </message>
     <message numerus="yes">
-        <source>Exported %n note(s) to the folder “%1”.</source>
+        <source>Exported %Ln note(s) to the folder “%1”.</source>
         <translation>
-            <numerusform>메모 %n개를 “%1” 폴더로 꺼냈습니다.</numerusform>
+            <numerusform>메모 %Ln개를 “%1” 폴더로 꺼냈습니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -3246,15 +3246,15 @@ It may be on a stick that is locked or read-only, or in a folder only an adminis
         <translation>%1 — 새 버전 Stickle이 만든 백업</translation>
     </message>
     <message numerus="yes">
-        <source>%1 — %n note(s), from before going back</source>
+        <source>%1 — %Ln note(s), from before going back</source>
         <translation>
-            <numerusform>%1 — 메모 %n개, 되돌리기 직전 상태</numerusform>
+            <numerusform>%1 — 메모 %Ln개, 되돌리기 직전 상태</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>%1 — %n note(s)</source>
+        <source>%1 — %Ln note(s)</source>
         <translation>
-            <numerusform>%1 — 메모 %n개</numerusform>
+            <numerusform>%1 — 메모 %Ln개</numerusform>
         </translation>
     </message>
     <message>
@@ -3297,9 +3297,9 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>비밀 메모 내보내기</translation>
     </message>
     <message numerus="yes">
-        <source>How should the %n secret note(s) be exported?</source>
+        <source>How should the %Ln secret note(s) be exported?</source>
         <translation>
-            <numerusform>비밀 메모 %n개를 어떻게 내보낼까요?</numerusform>
+            <numerusform>비밀 메모 %Ln개를 어떻게 내보낼까요?</numerusform>
         </translation>
     </message>
     <message>
@@ -4095,9 +4095,9 @@ Your notes as they are now are backed up first, so you can come back to them the
 <context>
     <name>SyncDisplay</name>
     <message numerus="yes">
-        <source>While this computer wasn&apos;t syncing, %n note(s) were deleted on your other computers, so they&apos;re in the trash here too.</source>
+        <source>While this computer wasn&apos;t syncing, %Ln note(s) were deleted on your other computers, so they&apos;re in the trash here too.</source>
         <translation>
-            <numerusform>동기화하지 않는 동안 다른 PC에서 지운 메모 %n개를 이 PC에서도 휴지통으로 옮겼습니다.</numerusform>
+            <numerusform>동기화하지 않는 동안 다른 PC에서 지운 메모 %Ln개를 이 PC에서도 휴지통으로 옮겼습니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -4109,9 +4109,9 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>이제 이 PC의 비밀 메모도 다른 PC와 같은 복구 키로 엽니다. 옛 복구 키는 버려도 됩니다.</translation>
     </message>
     <message numerus="yes">
-        <source>%n secret note(s) here now use the same password as your other computers.</source>
+        <source>%Ln secret note(s) here now use the same password as your other computers.</source>
         <translation>
-            <numerusform>이 PC의 비밀 메모 %n개를 다른 PC와 같은 암호로 맞췄습니다.</numerusform>
+            <numerusform>이 PC의 비밀 메모 %Ln개를 다른 PC와 같은 암호로 맞췄습니다.</numerusform>
         </translation>
     </message>
     <message>
@@ -4515,9 +4515,9 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>%1에 올리는 중 · 메모 %3개 중 %2개</translation>
     </message>
     <message numerus="yes">
-        <source>Offline · %n note(s) to upload</source>
+        <source>Offline · %Ln note(s) to upload</source>
         <translation>
-            <numerusform>네트워크 없음 · 올릴 메모 %n개</numerusform>
+            <numerusform>네트워크 없음 · 올릴 메모 %Ln개</numerusform>
         </translation>
     </message>
     <message>
@@ -4525,9 +4525,9 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>네트워크 없음</translation>
     </message>
     <message numerus="yes">
-        <source>%n note(s) to upload · trying again shortly</source>
+        <source>%Ln note(s) to upload · trying again shortly</source>
         <translation>
-            <numerusform>올릴 메모 %n개 · 곧 다시 올립니다</numerusform>
+            <numerusform>올릴 메모 %Ln개 · 곧 다시 올립니다</numerusform>
         </translation>
     </message>
 </context>
@@ -4653,9 +4653,9 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>Stickle: 메모를 잠시 숨김</translation>
     </message>
     <message numerus="yes">
-        <source>Stickle: %n note(s) hidden for a full-screen program</source>
+        <source>Stickle: %Ln note(s) hidden for a full-screen program</source>
         <translation>
-            <numerusform>Stickle: 전체 화면이라 메모 %n개를 숨김</numerusform>
+            <numerusform>Stickle: 전체 화면이라 메모 %Ln개를 숨김</numerusform>
         </translation>
     </message>
     <message>

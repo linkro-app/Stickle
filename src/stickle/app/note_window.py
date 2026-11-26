@@ -1734,7 +1734,7 @@ class NoteWindow(QWidget):
         elif self.copies:
             tag.set_conflict(
                 self.tr(
-                    "Text changed separately is in %n copies. Click to show them.",
+                    "Text changed separately is in %Ln copies. Click to show them.",
                     "",
                     self.copies,
                 )

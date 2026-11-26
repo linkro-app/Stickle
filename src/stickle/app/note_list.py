@@ -343,7 +343,7 @@ class NoteList(QWidget):
         self.empty_button.setEnabled(bool(trash))  # the whole trash, whatever is searched
         self.trash_row.setVisible(bool(trash_found))
         if trash_found:
-            text = self.tr("%n note(s) in the trash match too.", "", len(trash_found))
+            text = self.tr("%Ln note(s) in the trash match too.", "", len(trash_found))
             self.trash_found.setText(text)
             self.trash_button.setAccessibleDescription(text)
 

@@ -189,7 +189,7 @@ class EarlierVersionsDialog(QDialog):
             return self.tr("Before restoring")
         if version.came_from is None:
             return self.tr("Changed here")
-        name = self._device_name(version.came_from) or self.tr("another PC")
+        name = self._device_name(version.came_from) or self.tr("another computer")
         return self.tr("From %1").replace("%1", name)
 
     def _first_line(self, version: EarlierVersion) -> str | None:

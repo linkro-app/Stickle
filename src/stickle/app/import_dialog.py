@@ -197,10 +197,10 @@ class ImportDialog(QDialog):
             title = self.tr("Stickle export of %1").replace("%1", _day(export.exported_at))
             if read.new == 0 and read.result.notes:
                 return self.tr("%1 — every note brought in already").replace("%1", title)
-            return self.tr("%1 — %n new note(s)", "", read.new).replace("%1", title)
+            return self.tr("%1 — %Ln new note(s)", "", read.new).replace("%1", title)
         if read.new == 0 and read.result.notes:
             return self.tr("%1 — every note brought in already").replace("%1", read.source.title)
-        return self.tr("%1 — %n new note(s)", "", read.new).replace("%1", read.source.title)
+        return self.tr("%1 — %Ln new note(s)", "", read.new).replace("%1", read.source.title)
 
     def _refresh_rows(self) -> None:
         row = self.sources.currentRow()
@@ -240,7 +240,7 @@ class ImportDialog(QDialog):
             return
         lines = [
             self.tr(
-                "%n note(s) not brought in before. Each takes the nearest of Stickle's "
+                "%Ln note(s) not brought in before. Each takes the nearest of Stickle's "
                 "colours, and keeps its place and category where it had them.",
                 "",
                 read.new,
@@ -253,7 +253,7 @@ class ImportDialog(QDialog):
                 )
             )
         if result.unreadable:
-            lines.append(self.tr("%n note(s) could not be read.", "", result.unreadable))
+            lines.append(self.tr("%Ln note(s) could not be read.", "", result.unreadable))
         self.summary.setText("\n".join(lines))
         self.summary.show()
         for note in result.notes:
@@ -261,7 +261,7 @@ class ImportDialog(QDialog):
             item = QListWidgetItem(swatch_icon(note.color), title[:PREVIEW_TITLE])
             item.setData(Qt.ItemDataRole.AccessibleTextRole, title)
             self.preview.addItem(item)
-        self.bring_button.setText(self.tr("&Bring in %n note(s)", "", read.new))
+        self.bring_button.setText(self.tr("&Bring in %Ln note(s)", "", read.new))
         self.bring_button.setEnabled(read.new > 0)
 
     def _show_export(self, read: _Read, export: StickleExport) -> None:
@@ -270,7 +270,7 @@ class ImportDialog(QDialog):
         trash = sum(note.in_trash for note in export.notes)
         lines = [
             self.tr(
-                "%n note(s) not brought in before, with their colours, categories, marks"
+                "%Ln note(s) not brought in before, with their colours, categories, marks"
                 " and reminders. Settings, places on screen and passwords stay with the"
                 " computer they were made on.",
                 "",
@@ -278,12 +278,12 @@ class ImportDialog(QDialog):
             )
         ]
         if trash:
-            lines.append(self.tr("%n of them go into the trash, as they were.", "", trash))
+            lines.append(self.tr("%Ln of them go into the trash, as they were.", "", trash))
         waiting = self._access.secrets_waiting(export)
         if waiting:
             lines.append(
                 self.tr(
-                    "%n secret note(s) went out locked: they come in with the secret notes'"
+                    "%Ln secret note(s) went out locked: they come in with the secret notes'"
                     " password of that day, or the recovery key of that day.",
                     "",
                     waiting,
@@ -297,7 +297,7 @@ class ImportDialog(QDialog):
                 )
             )
         if export.unreadable:
-            lines.append(self.tr("%n note(s) could not be read.", "", export.unreadable))
+            lines.append(self.tr("%Ln note(s) could not be read.", "", export.unreadable))
         self.summary.setText("\n".join(lines))
         self.summary.show()
         for note, shown in zip(
@@ -309,7 +309,7 @@ class ImportDialog(QDialog):
             item = QListWidgetItem(swatch_icon(note.color), title[:PREVIEW_TITLE])
             item.setData(Qt.ItemDataRole.AccessibleTextRole, title)
             self.preview.addItem(item)
-        self.bring_button.setText(self.tr("&Bring in %n note(s)", "", read.new))
+        self.bring_button.setText(self.tr("&Bring in %Ln note(s)", "", read.new))
         self.bring_button.setEnabled(read.new > 0)
 
     def _dropped_name(self, what: str) -> str:
@@ -379,7 +379,7 @@ class ImportDialog(QDialog):
         self._show_chosen()
         self.outcome.setText(
             self.tr(
-                "%n note(s) brought in. They are on the desktop; hidden ones are listed "
+                "%Ln note(s) brought in. They are on the desktop; hidden ones are listed "
                 "in Stickle Manager.",
                 "",
                 len(brought.note_ids),
@@ -430,24 +430,24 @@ class ImportDialog(QDialog):
     def _export_outcome(self, brought: BroughtExport) -> list[str]:
         lines = [
             self.tr(
-                "%n note(s) brought in. They are on the desktop; hidden ones are listed "
+                "%Ln note(s) brought in. They are on the desktop; hidden ones are listed "
                 "in Stickle Manager.",
                 "",
                 len(brought.note_ids),
             )
         ]
         if brought.trashed:
-            lines.append(self.tr("%n note(s) went into the trash.", "", brought.trashed))
+            lines.append(self.tr("%Ln note(s) went into the trash.", "", brought.trashed))
         if brought.secret:
             lines.append(
                 self.tr(
-                    "%n secret note(s), locked with this computer's password.", "", brought.secret
+                    "%Ln secret note(s), locked with this computer's password.", "", brought.secret
                 )
             )
         if brought.was_secret:
             lines.append(
                 self.tr(
-                    "%n note(s) were secret notes exported in the clear: they came in as"
+                    "%Ln note(s) were secret notes exported in the clear: they came in as"
                     " ordinary notes.",
                     "",
                     brought.was_secret,
@@ -456,7 +456,7 @@ class ImportDialog(QDialog):
         if brought.secret_left:
             lines.append(
                 self.tr(
-                    "%n secret note(s) were left out: bring this export in again with their"
+                    "%Ln secret note(s) were left out: bring this export in again with their"
                     " password or recovery key of that day.",
                     "",
                     brought.secret_left,

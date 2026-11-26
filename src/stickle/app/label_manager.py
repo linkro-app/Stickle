@@ -259,7 +259,7 @@ class CategoryPage(QWidget):
                 self._notes.remove_category(category.id, with_notes=False)
             return
         question = self.tr(
-            "%n note(s) will lose the category “%1”. This cannot be undone. "
+            "%Ln note(s) will lose the category “%1”. This cannot be undone. "
             "The notes themselves stay as they are.",
             "",
             len(inside),
@@ -278,7 +278,7 @@ class CategoryPage(QWidget):
         hidden = sum(note.hidden for note in inside)
         locked = sum(note.locked for note in inside)
         question = self.tr(
-            "Move %n note(s) to the trash with the category “%1”? "
+            "Move %Ln note(s) to the trash with the category “%1”? "
             "They can be brought back from the trash for a year.",
             "",
             len(inside),
@@ -473,7 +473,7 @@ class MarkPage(QWidget):
         having = self._notes.notes_with_mark(mark.id)
         if having:
             question = self.tr(
-                "%n note(s) will lose the mark “%1”. This cannot be undone. "
+                "%Ln note(s) will lose the mark “%1”. This cannot be undone. "
                 "The notes themselves stay as they are.",
                 "",
                 len(having),

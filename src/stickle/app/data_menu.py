@@ -59,7 +59,7 @@ class DataMenu(QObject):
 
     def stayed_encrypted(self, notes: int) -> str:
         return self.tr(
-            "%n secret note(s) stayed encrypted with the secret notes' password: their"
+            "%Ln secret note(s) stayed encrypted with the secret notes' password: their"
             " titles can be read, and their text opens with that password.",
             "",
             notes,
@@ -67,7 +67,7 @@ class DataMenu(QObject):
 
     def exported(self, notes: int, folder: Path) -> str:
         return self.tr(
-            "%n note(s) exported to %1, each as a Markdown file, with everything in "
+            "%Ln note(s) exported to %1, each as a Markdown file, with everything in "
             "stickle-export.json. Notes in the trash are in its trash folder.\n\n"
             "These files are not encrypted: keep them somewhere safe.",
             "",

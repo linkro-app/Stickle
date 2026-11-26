@@ -511,14 +511,14 @@ class OpenSecretDialog(_PasswordWindow):
                 "The new recovery key opens secret notes too: type their password first."
             ),
             "restore": self.tr(
-                "This backup holds the earlier text of %n note(s) made secret since. Type"
+                "This backup holds the earlier text of %Ln note(s) made secret since. Type"
                 " the secret notes' password to bring that text back, still secret."
                 " Without it, those notes stay as they are now.",
                 "",
                 self._count,
             ),
             "import": self.tr(
-                "Type the secret notes' password of this computer: the %n secret note(s)"
+                "Type the secret notes' password of this computer: the %Ln secret note(s)"
                 " brought in are locked with it.",
                 "",
                 self._count,
@@ -772,7 +772,7 @@ class ExportedSecretsDialog(_PasswordWindow):
         self.setWindowTitle(self.tr("Bring in secret notes"))
         self.intro.setText(
             self.tr(
-                "%n secret note(s) went out locked. Type the secret notes' password of the"
+                "%Ln secret note(s) went out locked. Type the secret notes' password of the"
                 " day they were exported, or use the recovery key of that day.",
                 "",
                 self._count,
@@ -1045,7 +1045,7 @@ class SecretExportDialog(_PasswordWindow):
         super().retranslate()
         self.setWindowTitle(self.tr("Export secret notes"))
         self.intro.setText(
-            self.tr("How should the %n secret note(s) be exported?", "", self._count)
+            self.tr("How should the %Ln secret note(s) be exported?", "", self._count)
         )
         self.encrypted.setText(self.tr("&Encrypted, as they are"))
         self.encrypted_note.setText(
@@ -1155,7 +1155,7 @@ class MatchSecretDialog(_PasswordWindow):
             name = self.tr("The password %1 used for its secret notes").replace("%1", by)
         elif self.kind == "there":
             intro = self.tr(
-                "%n secret note(s) on this computer are locked with a different password, so"
+                "%Ln secret note(s) on this computer are locked with a different password, so"
                 " they don't go to your other computers. Enter it, and they'll switch to your"
                 " current password and open everywhere.",
                 "",
@@ -1167,7 +1167,7 @@ class MatchSecretDialog(_PasswordWindow):
             intro = (
                 self.tr(
                     "Your other computers' secret notes are locked with their password. Enter"
-                    " it, and the %n secret note(s) here will switch to it and open everywhere."
+                    " it, and the %Ln secret note(s) here will switch to it and open everywhere."
                     " This computer will use that password from now on.",
                     "",
                     self._count,

@@ -4,7 +4,7 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QTranslator
+from PySide6.QtCore import QCoreApplication, QLocale, QTranslator
 from pytestqt.qtbot import QtBot
 from update_translations import TS_DIR, compile_to, extract
 
@@ -41,15 +41,39 @@ def test_every_english_plural_has_a_singular_and_a_plural() -> None:
         assert all(counted) and all("(s)" not in form for form in forms), source
 
 
-def test_one_note_and_two_notes(qtbot: QtBot, tmp_path: Path) -> None:
-    qm = tmp_path / "stickle_en.qm"
-    compile_to(EN, qm)
+def counted(tmp_path: Path, language: str, numbers: tuple[int, ...]) -> list[str]:
+    """The finder's count of notes, in that language, as its own locale writes numbers."""
+    qm = tmp_path / f"stickle_{language}.qm"
+    compile_to(TS_DIR / f"stickle_{language}.ts", qm)
     translator = QTranslator()
     assert translator.load(str(qm))
     QCoreApplication.installTranslator(translator)
+    QLocale.setDefault(QLocale("en_US" if language == "en" else language))
     try:
-        one = QCoreApplication.translate("DesktopFinder", "%n note(s)", "", 1)
-        two = QCoreApplication.translate("DesktopFinder", "%n note(s)", "", 2)
+        return [
+            QCoreApplication.translate("DesktopFinder", "%Ln note(s)", "", number)
+            for number in numbers
+        ]
     finally:
         QCoreApplication.removeTranslator(translator)
-    assert (one, two) == ("1 note", "2 notes")
+        QLocale.setDefault(QLocale.system())
+
+
+def test_one_note_and_two_notes(qtbot: QtBot, tmp_path: Path) -> None:
+    assert counted(tmp_path, "en", (1, 2)) == ["1 note", "2 notes"]
+
+
+def test_a_count_of_notes_is_written_as_the_language_writes_numbers(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    assert counted(tmp_path, "en", (1234,)) == ["1,234 notes"]
+    assert counted(tmp_path, "ko", (1234,)) == ["메모 1,234개"]
+
+
+def test_every_count_of_notes_is_written_as_the_language_writes_numbers() -> None:
+    # A plain %n writes 1234: every note count goes as %Ln.
+    for (_context, source), _translation in plural_messages(EN).items():
+        if "note" in source and not any(
+            small in source for small in ("earlier versions", "reminder", "colour")
+        ):
+            assert "%Ln" in source, source

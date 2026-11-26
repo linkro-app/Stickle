@@ -432,7 +432,7 @@ class SyncDisplay(QObject):
 
     def _trashed_text(self) -> str:
         return self.tr(
-            "While this computer wasn't syncing, %n note(s) were deleted on your other"
+            "While this computer wasn't syncing, %Ln note(s) were deleted on your other"
             " computers, so they're in the trash here too.",
             "",
             self._trashed,
@@ -521,7 +521,7 @@ class SyncDisplay(QObject):
         matched = self._matched or {}
         count = matched.get("notes")
         text = self.tr(
-            "%n secret note(s) here now use the same password as your other computers.",
+            "%Ln secret note(s) here now use the same password as your other computers.",
             "",
             count if isinstance(count, int) else 0,
         )

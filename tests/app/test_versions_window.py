@@ -155,7 +155,7 @@ def test_a_text_from_a_computer_not_known_yet_says_another(
     dialog = EarlierVersionsDialog(VersionRepository(connection), note.id, "처음", "yellow")
     qtbot.addWidget(dialog)
 
-    assert rows(dialog)[0].split(" · ")[1] == "From another PC"
+    assert rows(dialog)[0].split(" · ")[1] == "From another computer"
 
 
 def test_going_back_from_the_notes_menu_is_a_new_edit_shown_in_the_note(

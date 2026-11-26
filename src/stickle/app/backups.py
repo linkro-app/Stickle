@@ -177,10 +177,10 @@ class RestoreDialog(QDialog):
         if contents.newer:
             return self.tr("%1 — made by a newer Stickle").replace("%1", moment)
         if backup.before_restore:
-            return self.tr("%1 — %n note(s), from before going back", "", contents.notes).replace(
+            return self.tr("%1 — %Ln note(s), from before going back", "", contents.notes).replace(
                 "%1", moment
             )
-        return self.tr("%1 — %n note(s)", "", contents.notes).replace("%1", moment)
+        return self.tr("%1 — %Ln note(s)", "", contents.notes).replace("%1", moment)
 
     def refresh(self) -> None:
         self.backups.clear()

@@ -370,8 +370,8 @@ class SyncStopped(QDialog):
             self._show_why(why)
 
     def _round_shown(self, ended: Ended) -> None:
-        if not self._taking:
-            return
+        if not self._taking or not ended.accepting:
+            return  # a round already going as the button was pressed: the next lets it in
         self._taking = False
         self._busy(False)
         why = ended.outcome.stopped
