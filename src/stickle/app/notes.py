@@ -2205,8 +2205,8 @@ class NoteManager(QObject):
                 # Nor is one with a reminder to ring: it is kept for that.
                 if window.secret or window.text.strip() or self._has_reminder(window.note_id):
                     self._repository.set_hidden(window.note_id, True)
-                else:
-                    self._repository.discard(window.note_id)
+                else:  # emptied: gone, as if deleted
+                    self._delete(window.note_id, window.text, window.secret)
             except NoteDeletedError, NoteNotFoundError:
                 pass  # in the trash, or gone, by sync already, nothing typed since
             except apsw.Error as error:
@@ -2237,10 +2237,12 @@ class NoteManager(QObject):
         return self._repository.get(note_id) if self._repository else None
 
     def _delete(self, note_id: str, text: str, secret: bool) -> None:
-        """Into the trash; with no text, for good (see NoteRepository.discard).
-        A secret note always goes into the trash: its text is not in text."""
+        """Into the trash; with no text, for good (see NoteRepository.discard),
+        unless it has earlier versions: the text it had before it was emptied
+        is one of them, there when it is brought back. A secret note always goes
+        into the trash: its text is not in text."""
         assert self._repository is not None
-        if secret or text.strip():
+        if secret or text.strip() or self.has_earlier(note_id):
             self._repository.delete(note_id)
         else:
             self._repository.discard(note_id)
