@@ -32,6 +32,7 @@ not stored.
 import logging
 import random
 from collections.abc import Callable, Collection, Iterable
+from contextlib import suppress
 from functools import partial
 from typing import TYPE_CHECKING, cast, override
 
@@ -382,8 +383,8 @@ class NoteManager(QObject):
 
     def prepare_to_quit(self) -> None:
         self._quitting = True
-        for window in self._windows:
-            self.flush(window, closing=True)
+        for window in list(self._windows):
+            self._flush_each(window, closing=True)
             self._end_edit(window)
         for window in self._windows:
             window.allow_close()
@@ -636,18 +637,27 @@ class NoteManager(QObject):
             return self._save_secret(window)
         text = window.text
         try:
-            if window.note_id is None:
-                if text.strip():
-                    self._store_new(window)
-                    self._edit_kept.add(window)  # its first text is this edit's
-            else:
-                # Not changed here: what sync took in meanwhile stays.
-                if text != self._saved_text(window):
-                    first = window not in self._edit_kept
-                    self._repository.update_body(window.note_id, text, keep_earlier=first)
-                    self._edit_kept.add(window)
+            try:
+                self._store_text(window, text)
+            except NoteDeletedError:
+                # Put in the trash elsewhere just before it was typed in: back out
+                # of it with what was typed (an edit wins over a deletion, as with
+                # one from elsewhere).
+                self._back_from_trash(window)
+                self._store_text(window, text)
+            except NoteNotFoundError:
+                # Gone (emptied from the trash elsewhere, made one with another
+                # note) just before it was typed in: what was typed, a new note.
+                self._let_go_of_gone(window)
+                self._store_text(window, text)
             self._saved[window] = text
-        except (apsw.Error, OSError, NoteIsSecretError) as error:
+        except (
+            apsw.Error,
+            OSError,
+            NoteIsSecretError,
+            NoteDeletedError,
+            NoteNotFoundError,
+        ) as error:
             # Secret where the window took it for ordinary: marked, never raised
             # (raised, it stopped the other notes being saved on quitting).
             log.error("could not save a note: %s", type(error).__name__)
@@ -660,6 +670,37 @@ class NoteManager(QObject):
             self.note_saved.emit()
         QTimer.singleShot(0, self, lambda: self._follow_edit(window))  # once it is not waiting
         return True
+
+    def _store_text(self, window: NoteWindow, text: str) -> None:
+        assert self._repository is not None
+        if window.note_id is None:
+            if text.strip():
+                self._store_new(window)
+                self._edit_kept.add(window)  # its first text is this edit's
+        # Not changed here: what sync took in meanwhile stays.
+        elif text != self._saved_text(window):
+            first = window not in self._edit_kept
+            self._repository.update_body(window.note_id, text, keep_earlier=first)
+            self._edit_kept.add(window)
+
+    def _back_from_trash(self, window: NoteWindow) -> None:
+        """The window's note out of the trash as it is, its category too."""
+        assert self._repository is not None and window.note_id is not None
+        note = self._repository.restore(window.note_id)
+        log.info("a note put in the trash elsewhere was typed in: back out of it")
+        self._show_labels(window, note.label, note.marks)
+        self.changed.emit()  # the trash, and the lists
+
+    def _let_go_of_gone(self, window: NoteWindow) -> None:
+        """The window's note gone from under it: the window, a note not stored
+        yet, for what it holds to be stored as a new one."""
+        log.info("a note gone elsewhere was typed in: stored as a new one")
+        self._end_edit(window)  # of the note gone
+        window.note_id = None
+        self._saved.pop(window, None)
+        self._edit_kept.discard(window)
+        # The new one's, once it is stored.
+        QTimer.singleShot(0, self, lambda: self._follow_edit(window))
 
     def _saved_text(self, window: NoteWindow) -> str | None:
         """The window's text as last stored: as it is in the database if this
@@ -683,6 +724,13 @@ class NoteManager(QObject):
         """Store a note for the first time, as it is now; its id."""
         assert self._repository is not None
         note_id = self._repository.create(window.text, window.color).id
+        self._stored_as(window, note_id)
+        return note_id
+
+    def _stored_as(self, window: NoteWindow, note_id: str) -> None:
+        """The window's note, the one of note_id just stored: what else the
+        window shows of it stored with it."""
+        assert self._repository is not None
         window.note_id = note_id
         self.note_created.emit()
         self.save_layout(window, force=True)
@@ -698,7 +746,6 @@ class NoteManager(QObject):
             self._repository.set_category(note_id, window.category.id)
         for mark in window.marks:
             self._repository.set_mark(note_id, mark.id, True)
-        return note_id
 
     def _save_secret(self, window: NoteWindow) -> bool:
         """An open secret note's text, encrypted; a locked one holds none to save."""
@@ -708,13 +755,21 @@ class NoteManager(QObject):
             return True
         text = window.text
         if text != self._stored_secret.get(window):
-            first = window not in self._edit_kept
             try:
-                sealed = seal_text(bytes(key), window.note_id, text)
-                self._repository.update_secret_body(
-                    window.note_id, sealed, first, self._key_numbers.get(window)
-                )
-            except (apsw.Error, OSError, NoteNotSecretError) as error:
+                try:
+                    self._store_secret_text(window, bytes(key), text)
+                except NoteDeletedError:  # as for an ordinary note (see save)
+                    self._back_from_trash(window)
+                    self._store_secret_text(window, bytes(key), text)
+                except NoteNotFoundError:
+                    self._store_secret_anew(window, bytes(key), text)
+            except (
+                apsw.Error,
+                OSError,
+                NoteNotSecretError,
+                NoteDeletedError,
+                NoteNotFoundError,
+            ) as error:
                 log.error("could not save a secret note: %s", type(error).__name__)
                 window.set_unsaved(True)
                 return False
@@ -726,6 +781,33 @@ class NoteManager(QObject):
             self.note_saved.emit()
         window.set_unsaved(False)
         return True
+
+    def _store_secret_text(self, window: NoteWindow, key: bytes, text: str) -> None:
+        assert self._repository is not None and window.note_id is not None
+        first = window not in self._edit_kept
+        sealed = seal_text(key, window.note_id, text)
+        self._repository.update_secret_body(
+            window.note_id, sealed, first, self._key_numbers.get(window)
+        )
+
+    def _store_secret_anew(self, window: NoteWindow, key: bytes, text: str) -> None:
+        """A secret note gone from under its window (see save): what it holds, a
+        new secret note of its title, sealed with the same key, never in the clear."""
+        assert self._repository is not None
+        note_id = self._repository.create("", window.color).id
+        try:
+            self._repository.make_secret(
+                note_id,
+                window.secret_title or "",
+                seal_text(key, note_id, text),
+                key_number=self._key_numbers.get(window),
+            )
+        except apsw.Error, OSError:
+            with suppress(apsw.Error):
+                self._repository.discard(note_id)  # tried again at the next save
+            raise
+        self._let_go_of_gone(window)
+        self._stored_as(window, note_id)
 
     def flush(self, window: NoteWindow, closing: bool = False) -> bool:
         """Save now, with the character being composed (see finish_composition),
@@ -936,8 +1018,17 @@ class NoteManager(QObject):
 
     def save_all(self) -> None:
         """Save every note that stays open (logout, sleep)."""
-        for window in self._windows:
-            self.flush(window)
+        for window in list(self._windows):
+            self._flush_each(window)
+
+    def _flush_each(self, window: NoteWindow, closing: bool = False) -> None:
+        """flush, for one note of all: whatever goes wrong with it, the others
+        are saved all the same, and it says it is not."""
+        try:
+            self.flush(window, closing)
+        except Exception as error:
+            log.error("could not save a note: %s", type(error).__name__)
+            window.set_unsaved(True)
 
     # Staying on top
 
@@ -2116,6 +2207,8 @@ class NoteManager(QObject):
                     self._repository.set_hidden(window.note_id, True)
                 else:
                     self._repository.discard(window.note_id)
+            except NoteDeletedError, NoteNotFoundError:
+                pass  # in the trash, or gone, by sync already, nothing typed since
             except apsw.Error as error:
                 log.error("could not hide a note: %s", type(error).__name__)
                 return
@@ -2158,6 +2251,8 @@ class NoteManager(QObject):
         if self._repository is not None and window.note_id is not None:
             try:
                 self._delete(window.note_id, window.text, window.secret)
+            except NoteDeletedError, NoteNotFoundError:
+                pass  # in the trash, or gone, by sync already, nothing typed since
             except apsw.Error as error:
                 log.error("could not delete a note: %s", type(error).__name__)
                 return
@@ -2548,6 +2643,20 @@ class NoteManager(QObject):
             self.changed.emit()
         self.note_saved.emit()  # lists showing titles
 
+    def let_go(self, note_ids: Iterable[str]) -> None:
+        """Notes this computer let go of as asked (only a cloud's notes kept):
+        the windows of those gone close, even one being edited (what was typed
+        was saved, and backed up, first); the rest as take_in has them."""
+        if self._repository is None:
+            return
+        note_ids = list(note_ids)
+        for note_id in note_ids:
+            window = self.window_for(note_id)
+            if window is not None and self._repository.get(note_id) is None:
+                self._autosaves[window].stop()
+                window.release()
+        self.take_in(note_ids)
+
     def _being_edited(self, window: NoteWindow) -> bool:
         """Its text being typed in (an empty note left without the keyboard is not
         being edited: it would stay so), or something of it waiting to be saved."""
@@ -2595,7 +2704,10 @@ class NoteManager(QObject):
         except apsw.Error as error:
             log.warning("could not read a note again: %s", type(error).__name__)
             return
-        if note is None or note.secret != window.secret:
+        if note is None or note.deleted:
+            self._gone_as_edit_begins(window)
+            return
+        if note.secret != window.secret:
             return
         if window.secret:
             stored, saved = self._opened_text(window, note), self._stored_secret.get(window)
@@ -2615,6 +2727,17 @@ class NoteManager(QObject):
             return  # typed on it already: saved as it is (as before sync was told)
         (self._stored_secret if window.secret else self._saved)[window] = stored
         self._edit_kept.discard(window)
+
+    def _gone_as_edit_begins(self, window: NoteWindow) -> None:
+        """The note put in the trash, or gone, by sync just before its edit
+        began: that taken in now if nothing is typed on it yet (its window
+        closes, as it would once sync said so); else what is typed is kept
+        (see save)."""
+        saved = self._stored_secret.get(window) if window.secret else self._saved_text(window)
+        if window.text != saved:
+            return
+        self._autosaves[window].stop()
+        window.release()
 
     def _opened_text(self, window: NoteWindow, note: Note) -> str | None:
         """An open secret note's text as stored, opened with the key its window
@@ -2657,9 +2780,15 @@ class NoteManager(QObject):
                     self._open_taken_in(note)
             return
         editing = self._being_edited(window)
-        if note is None or ((note.hidden or note.deleted) and not editing):
+        if (note is None or note.hidden or note.deleted) and not editing:
             self._autosaves[window].stop()
             window.release()
+            return
+        if note is None:
+            # Gone while edited: what is typed is kept as a new note as it is
+            # saved (see save); once the edit is over, that one shows, or with
+            # nothing typed the window closes.
+            self._take_after.add(window)
             return
         if note.secret != window.secret and not editing:
             # Made secret, or ordinary again, elsewhere: opened anew as it is now

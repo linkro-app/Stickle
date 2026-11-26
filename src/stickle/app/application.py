@@ -500,7 +500,7 @@ def connect_sync(
                 joined(connection, login.vault)
             sync_connection.keep(connection, login)
     if gone:
-        manager.take_in(gone)
+        manager.let_go(gone)
         if reminders is not None:
             reminders.take_in(gone)
     started = start_sync(

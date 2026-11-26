@@ -13,6 +13,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 from pytestqt.qtbot import QtBot
 from test_autosave import compose
+from test_gone_while_typed import edits_told
 from test_startup_dialogs import FAST, Backend, store_of
 
 from stickle.app import (
@@ -241,7 +242,7 @@ def test_a_secret_note_let_go_of_closes_its_window_one_still_there_stays(
     stays = secret_note(qtbot, manager, answers, "남는 비밀", first=False)
     assert gone.note_id is not None and stays.note_id is not None
     NoteRepository(connection).drop(gone.note_id)
-    manager.take_in([gone.note_id, stays.note_id])
+    manager.let_go([gone.note_id, stays.note_id])
     assert manager.window_for(gone.note_id) is None
     assert manager.window_for(stays.note_id) is stays and stays.secret
 
@@ -733,6 +734,75 @@ def test_typing_in_it_saves_encrypted(
     qtbot.waitUntil(lambda: opened_text(connection, unlock, window) == TEXT + " 추가")
     assert stored(connection, window).body == ""
     assert search(connection, "추가") == []
+
+
+@pytest.mark.parametrize("went", ["trash", "gone"])
+def test_typed_in_after_sync_took_it_away_what_was_typed_is_kept_encrypted(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+    went: str,
+) -> None:
+    # Put in the trash, or emptied from it, on another computer: shown here
+    # only once that round ends, typed in meanwhile.
+    window = secret_note(qtbot, manager, answers)
+    note_id = window.note_id
+    assert note_id is not None
+    window.edit()
+    repository = NoteRepository(connection)
+    repository.delete(note_id)
+    if went == "gone":
+        repository.take_in_emptied(note_id)
+    type_into(window, " 추가")
+    told = edits_told(manager, monkeypatch)
+
+    assert manager.flush(window)
+
+    assert opened_text(connection, unlock, window) == TEXT + " 추가"
+    note = stored(connection, window)
+    assert note.secret and not note.deleted and note.secret_title == "은행"
+    if went == "trash":
+        assert note.id == note_id
+    else:
+        assert note.id != note_id and repository.get(note_id) is None
+    assert search(connection, "추가") == []
+    assert not window.unsaved and manager.window_for(note.id) is window
+    if went == "gone":  # sync told: the edit is the new note's
+        qtbot.waitUntil(lambda: ("begin", note.id) in told, timeout=3000)
+        assert told[0] == ("end", note_id)
+
+
+def test_gone_its_text_not_stored_anew_it_leaves_nothing_and_is_tried_again(
+    qtbot: QtBot,
+    manager: NoteManager,
+    answers: Answers,
+    connection: apsw.Connection,
+    unlock: Unlock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = secret_note(qtbot, manager, answers)
+    note_id = window.note_id
+    assert note_id is not None
+    repository = NoteRepository(connection)
+    repository.delete(note_id)
+    repository.take_in_emptied(note_id)
+    type_into(window, " 추가")
+    make_secret = NoteRepository.make_secret
+
+    def failing(*_args: object, **_kwargs: object) -> Note:
+        raise apsw.IOError("disk")
+
+    monkeypatch.setattr(NoteRepository, "make_secret", failing)
+    assert not manager.flush(window)
+    assert window.unsaved and repository.visible() == []  # no empty note left behind
+
+    monkeypatch.setattr(NoteRepository, "make_secret", make_secret)
+    assert manager.flush(window)
+    assert opened_text(connection, unlock, window) == TEXT + " 추가"
+    assert not window.unsaved
 
 
 def test_locking_saves_first_then_holds_nothing_of_it(
