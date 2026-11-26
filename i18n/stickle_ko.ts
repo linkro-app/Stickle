@@ -4989,8 +4989,20 @@ Your notes as they are now are backed up first, so you can come back to them the
         <translation>주소 복사(&amp;C)</translation>
     </message>
     <message>
+        <source>Sign in &amp;again…</source>
+        <translation>다시 로그인(&amp;A)…</translation>
+    </message>
+    <message>
+        <source>You signed in as %1. Until now this computer synced with %2.</source>
+        <translation>%1 계정으로 로그인했습니다. 지금까지는 %2 계정과 동기화했습니다.</translation>
+    </message>
+    <message>
         <source>This certificate is for %1. Put that name in the address, and you won&apos;t be asked about the certificate again.</source>
         <translation>이 인증서는 %1용입니다. 주소에 그 이름을 넣으면 인증서를 다시 묻지 않습니다.</translation>
+    </message>
+    <message>
+        <source>&amp;Continue with this account</source>
+        <translation>이 계정으로 계속(&amp;C)</translation>
     </message>
     <message>
         <source>&amp;Sign in with your browser…</source>

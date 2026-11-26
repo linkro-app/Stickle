@@ -350,6 +350,10 @@ class TurnOnSync(QDialog):
         self._sign_in_address = ""
         self._token = _Token()
         self._account: str | None = None
+        self._other_account: str | None = None  # signed in again as, not the one synced with
+        self._synced_with: str | None = None
+        self._try_again = False  # the cloud not reached for now, signed in all the same
+        self._making = False  # the Stickle folder being made: not to be cancelled
         self._address: Address | None = None
         self._certificate: bytes | None = None  # trusted, for this address
         self._shown_certificate: bytes | None = None
@@ -537,6 +541,18 @@ class TurnOnSync(QDialog):
         layout.addWidget(self.sign_in_heading)
         layout.addWidget(self.sign_in_waiting)
         layout.addWidget(self.other_account_note)
+        # Signed in again as another account than the one synced with: on, or again.
+        self.other_account = _wrapped(page)
+        self.other_account.hide()
+        self.sign_in_again_button = QPushButton(page)
+        self.sign_in_again_button.setAutoDefault(False)
+        self.sign_in_again_button.hide()
+        self.sign_in_again_button.clicked.connect(self._sign_in_again)
+        again_row = QHBoxLayout()
+        again_row.addWidget(self.sign_in_again_button)
+        again_row.addStretch(1)
+        layout.addWidget(self.other_account)
+        layout.addLayout(again_row)
         layout.addSpacing(8)
         layout.addWidget(self.copy_line)
         layout.addLayout(row)
@@ -715,6 +731,13 @@ class TurnOnSync(QDialog):
         )
         self.copy_line.setText(self.tr("If no browser opened, copy the address into one."))
         self.copy_button.setText(self.tr("&Copy the address"))
+        self.sign_in_again_button.setText(self.tr("Sign in &again…"))
+        if self._other_account is not None and self._synced_with is not None:
+            self.other_account.setText(
+                self.tr("You signed in as %1. Until now this computer synced with %2.")
+                .replace("%1", self._other_account)
+                .replace("%2", self._synced_with)
+            )
         self.paste_line.setText(
             self.tr("Paste the code shown on the %1 page.").replace("%1", cloud_name(DROPBOX))
         )
@@ -853,10 +876,16 @@ class TurnOnSync(QDialog):
         self.next_button.setDefault(not asking)
         self.back_button.setDefault(asking)
         self.cancel_button.setText(self.tr("Close") if last else self.tr("Cancel"))
+        # Cancelled meanwhile, the folder would be there all the same, half known.
+        self.cancel_button.setEnabled(not self._making)
 
     def _next_text(self) -> str:
         page = self.pages.current()
         if page is self.sign_in_page:
+            if self._other_account is not None:
+                return self.tr("&Continue with this account")
+            if self._try_again:
+                return self.tr("&Try again")
             return self.tr("&Sign in with your browser…")
         if page is self.server_page:
             return self.tr("&Connect")
@@ -940,7 +969,10 @@ class TurnOnSync(QDialog):
             self.retranslate()  # what is said of the Stickle folder names the cloud
             self._show(self._cloud_page())
         elif page is self.sign_in_page:
-            self._sign_in()
+            if self._other_account is not None or self._try_again:
+                self._reach_cloud()  # signed in already: on with it
+            else:
+                self._sign_in()
         elif page is self.server_page:
             self._connect()
         elif page is self.certificate_page:
@@ -961,6 +993,7 @@ class TurnOnSync(QDialog):
     def _begin(self, work: Callable[[], object], then: Callable[..., None], busy: str) -> None:
         def ended(outcome: object) -> None:
             self._job = None
+            self._making = False
             self._update_buttons()
             self._clear_message()
             if isinstance(outcome, Exception):
@@ -983,6 +1016,7 @@ class TurnOnSync(QDialog):
         self._end_sign_in()
         self._close_target()
         self._clear_message()
+        self._try_again = False
         signing = app.sign_in(
             Pages(
                 site_language(),
@@ -1077,6 +1111,10 @@ class TurnOnSync(QDialog):
         elif isinstance(outcome, SignedIn):
             self._token.set(outcome.refresh_token)
             self._account = outcome.account
+            synced_with = None if self._again is None else self._again.user
+            if synced_with and outcome.account and outcome.account != synced_with:
+                self._ask_other_account(outcome.account, synced_with)
+                return
             self._reach_cloud()
 
     def _come_back(self) -> None:
@@ -1131,8 +1169,28 @@ class TurnOnSync(QDialog):
     def _unreachable_at(self, cloud: str) -> str:
         return self.tr("Couldn't reach %1. Check your network and try again.").replace("%1", cloud)
 
+    def _ask_other_account(self, signed_in: str, synced_with: str) -> None:
+        """Signed in again as another account: said, before its folder is looked at
+        (this computer alone would go to it, the others staying with the one before)."""
+        self._other_account, self._synced_with = signed_in, synced_with
+        self.retranslate()
+        self.other_account.show()
+        self.sign_in_again_button.show()
+        self._update_buttons()
+
+    def _let_other_account_go(self) -> None:
+        self._other_account = None
+        self.other_account.hide()
+        self.sign_in_again_button.hide()
+
+    def _sign_in_again(self) -> None:
+        self._let_other_account_go()
+        self._sign_in()
+
     def _reach_cloud(self) -> None:
         """The cloud looked at as signed in to: its Stickle folder, if there is one."""
+        self._let_other_account_go()
+        self._try_again = False
         app = self._app()
         if app is None:  # this build has Stickle registered with no one
             return
@@ -1284,8 +1342,12 @@ class TurnOnSync(QDialog):
             case NoAccessError():
                 self._fail(self._blocked())
             case TooBusyError():
+                self._try_again = True
+                self._update_buttons()
                 self._fail(self._too_busy())
             case _:
+                self._try_again = True  # signed in: what failed was reaching it
+                self._update_buttons()
                 self._fail(self._unreachable())
 
     def _unreachable(self) -> str:
@@ -1421,6 +1483,7 @@ class TurnOnSync(QDialog):
         if RECOVERY_KEY not in pairs:  # its key file no longer reads
             self._fail(self.tr("The recovery key could not be saved."))
             return
+        self._making = True
         self._begin(
             lambda: make(target, pairs, unfinished(target)),
             self._made,
@@ -1729,6 +1792,12 @@ class TurnOnSync(QDialog):
             self._target = None
 
     @override
+    @override
+    def reject(self) -> None:
+        if self._making:
+            return  # the folder being made: in a moment, and the window goes on
+        super().reject()
+
     def done(self, result: int, /) -> None:
         self._end_sign_in()
         if self._job is not None:  # what it is doing is let finish, and comes to nothing

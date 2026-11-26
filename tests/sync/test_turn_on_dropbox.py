@@ -7,9 +7,10 @@ import gc
 import http.client
 import re
 import socket
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -30,6 +31,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from pytestqt.qtbot import QtBot
 
+from stickle.app import turn_on_sync
 from stickle.app.recovery_key_dialog import RecoveryKeys
 from stickle.app.sync_setup import SyncSetup
 from stickle.app.syncing import Syncing
@@ -513,3 +515,112 @@ def test_a_build_without_stickle_registered_cannot_sign_in_again(
     )
     assert bench.window.pages.current() is bench.window.sign_in_page
     assert not bench.window.next_button.isEnabled()
+
+
+# Going on, as signed in
+
+
+def test_dropbox_down_for_a_moment_is_tried_again_without_signing_in_anew(
+    bench: Bench,
+) -> None:
+    # Signed in: the token is here, and what failed was only reaching Dropbox.
+    bench.box.answers += [Answer(500, body=b"down") for _ in range(6)]
+    bench.to_sign_in()
+    bench.signed_in()
+    bench.qtbot.waitUntil(
+        lambda: bench.window._job is None and bench.window._signing is None and bool(bench.said()),
+        timeout=MS,
+    )
+    assert bench.window.next_button.text() == "&Try again"
+    opened = len(bench.opened)
+    bench.box.answers.clear()  # Dropbox back
+
+    bench.press()
+
+    bench.page(bench.window.absent_page)
+    assert len(bench.opened) == opened  # no browser
+    assert bench.window.next_button.text() == "&Start"
+
+
+def test_signed_in_again_as_another_account_it_says_so_and_asks(
+    qtbot: QtBot, box: DropboxState, opened: list[str]
+) -> None:
+    vault = vault_there(box)
+    bench = make_bench(qtbot, box, opened, again=kept_login(box, vault), signed_out=True)
+    box.email = "another@example.com"  # the browser's account, not the one synced with
+    asked = len(box.asked)
+
+    bench.signed_in()
+
+    window = bench.window
+    qtbot.waitUntil(lambda: not window.other_account.isHidden(), timeout=MS)
+    assert window.other_account.text() == (
+        "You signed in as another@example.com. Until now this computer synced with"
+        " someone@example.com."
+    )
+    assert window.next_button.text() == "&Continue with this account"
+    assert window.sign_in_again_button.text() == "Sign in &again…"
+    assert window.pages.current() is window.sign_in_page
+    assert [each for each in box.asked[asked:] if "list_folder" in each.path] == []
+
+    bench.press()  # on with it: its folder looked at (here, the same folder)
+
+    qtbot.waitUntil(lambda: bool(bench.logins), timeout=MS)
+    login, _joining = bench.logins[0]
+    assert login.user == "another@example.com"
+
+
+def test_signed_in_again_as_another_account_it_may_sign_in_again(
+    qtbot: QtBot, box: DropboxState, opened: list[str]
+) -> None:
+    vault = vault_there(box)
+    bench = make_bench(qtbot, box, opened, again=kept_login(box, vault), signed_out=True)
+    box.email = "another@example.com"
+    bench.signed_in()
+    window = bench.window
+    qtbot.waitUntil(lambda: not window.other_account.isHidden(), timeout=MS)
+    before = len(bench.opened)
+
+    window.sign_in_again_button.click()
+
+    assert len(bench.opened) == before + 1  # the browser again
+    assert window.other_account.isHidden()
+
+
+def test_signed_in_again_as_the_same_account_it_goes_on(
+    qtbot: QtBot, box: DropboxState, opened: list[str]
+) -> None:
+    vault = vault_there(box)
+    bench = make_bench(qtbot, box, opened, again=kept_login(box, vault), signed_out=True)
+
+    bench.signed_in()
+
+    qtbot.waitUntil(lambda: bool(bench.logins), timeout=MS)  # nothing asked first
+    assert bench.logins[0][0].user == ACCOUNT
+
+
+def test_while_the_folder_is_made_it_cannot_be_cancelled(
+    bench: Bench, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Cancelled then, the folder would be there all the same.
+    made = threading.Event()
+    real_make = turn_on_sync.make
+
+    def held_make(*args: Any, **kwargs: Any) -> Vault:
+        made.wait(MS / 1000)
+        return real_make(*args, **kwargs)
+
+    monkeypatch.setattr(turn_on_sync, "make", held_make)
+    bench.to_sign_in()
+    bench.signed_in()
+    bench.page(bench.window.absent_page)
+    bench.qtbot.waitUntil(lambda: bench.window._job is None, timeout=MS)
+
+    bench.press()  # [Start]
+    assert not bench.window.cancel_button.isEnabled()
+    bench.window.reject()  # Esc, or the window closed
+    assert bench.window.isVisible()
+
+    made.set()
+    bench.page(bench.window.last_page)
+    assert bench.window.cancel_button.isEnabled()
