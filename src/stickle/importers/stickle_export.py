@@ -386,6 +386,13 @@ def _bring_reminder(connection: apsw.Connection, row: dict[str, object], note_id
         reminder_id = str(uuid.uuid4())
     columns = [c for c in REMINDER_COLUMNS if c in row and row[c] is not None]
     values = [row[c] for c in columns]
+    # The day it rings first, for a computer it goes to: as the export has it,
+    # else (one made before it was kept) the day it rings next, as the
+    # database's upgrade took it; none, for one dealt with for good.
+    first = row.get("first_day") or row.get("next_day")
+    if first is not None:
+        columns.append("first_day")
+        values.append(first)
     listed = ", ".join(("id", "note_id", "kind", *columns))
     marks = ", ".join("?" * (3 + len(columns)))
     connection.execute(

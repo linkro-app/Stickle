@@ -654,10 +654,18 @@ INSERT OR IGNORE INTO note_stamps (note_id, field, hlc)
     SELECT note_id, 'size', {_changed_at("updated_at")} FROM note_sizes;
 """
 
+V32 = """
+-- A note's own reminder brought in from a Stickle export before the day it
+-- first rings came with it: that day, as V18 took it.
+UPDATE reminders SET first_day = next_day
+    WHERE kind = 'note' AND first_day IS NULL AND next_day IS NOT NULL;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
     *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31),
+    V32,
 ]
 BACKUPS_KEPT = 3
 

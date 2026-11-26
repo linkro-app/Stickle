@@ -2,6 +2,8 @@
 those written in its text were dealt with, follow it to every device; one
 dealt with for a setting since changed counts for nothing there."""
 
+import json
+import secrets
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, time
 from pathlib import Path
@@ -14,7 +16,11 @@ from stickle.core.hlc import Hlc
 from stickle.core.reminders import Rule
 from stickle.core.text_reminders import due
 from stickle.data import sync_state
+from stickle.data.export import JSON_NAME, export_all
+from stickle.data.notes import NoteRepository
 from stickle.data.reminders import ReminderRepository
+from stickle.data.schema import open_store
+from stickle.importers.stickle_export import bring_in_export, read_export
 from stickle.sync.contents import Field
 from stickle.sync.format import NOTES, Json, item_path, open_envelope, seal
 from stickle.sync.note_file import NoteFile
@@ -97,6 +103,72 @@ def test_a_reminder_set_on_one_rings_on_the_others(devices: list[Reminding]) -> 
     settle(a, b)
 
     assert b.own(note) == ("2025-11-10", "09:00", "2025-11-10", None)
+
+
+def brought_in(device: Reminding, tmp_path: Path, made_by: str, dealt_with: bool = False) -> str:
+    """A note with its own reminder, brought in on device from a Stickle export
+    another computer made (by 0.6: without the day it rings first)."""
+    (tmp_path / "old").mkdir()
+    old = open_store(tmp_path / "old" / "notes.db", secrets.token_bytes(32))
+    try:
+        note = NoteRepository(old).create("옮겨 온 메모").id
+        reminders = ReminderRepository(old)
+        reminder = reminders.set(note, Rule(date(2099, 1, 2), NINE, SEOUL))
+        if dealt_with:
+            reminders.dealt_with(reminder.id)
+        (tmp_path / "out").mkdir()
+        folder = export_all(old, tmp_path / "out", "0.7.0").folder
+    finally:
+        old.close()
+    if made_by == "0.6":
+        document = json.loads((folder / JSON_NAME).read_text(encoding="utf-8"))
+        for row in document["tables"]["reminders"]:
+            del row["first_day"]
+        (folder / JSON_NAME).write_text(json.dumps(document), encoding="utf-8")
+    bring_in_export(read_export(folder), device.db)
+    return note
+
+
+@pytest.mark.parametrize("made_by", ["0.6", "0.7"])
+def test_one_brought_in_from_an_export_rings_on_every_device(
+    devices: list[Reminding], tmp_path: Path, made_by: str
+) -> None:
+    a, b, _ = devices
+    note = brought_in(a, tmp_path, made_by)
+
+    settle(a, b)
+
+    for device in (a, b):
+        assert device.own(note) == ("2099-01-02", "09:00", "2099-01-02", None)
+
+
+@pytest.mark.parametrize("made_by", ["0.6", "0.7"])
+def test_one_brought_in_dealt_with_for_good_rings_on_none(
+    devices: list[Reminding], tmp_path: Path, made_by: str
+) -> None:
+    a, b, _ = devices
+    note = brought_in(a, tmp_path, made_by, dealt_with=True)
+
+    settle(a, b)
+
+    for device in (a, b):
+        assert device.own(note) == ("2099-01-02", "09:00", None, None)
+
+
+def test_one_here_without_a_first_day_is_not_taken_for_dealt_with(
+    devices: list[Reminding], tmp_path: Path
+) -> None:
+    # Brought in as a version that left the day out did, after this one's upgrade.
+    a, b, _ = devices
+    note = brought_in(a, tmp_path, "0.6")
+    a.db.execute("UPDATE reminders SET first_day = NULL WHERE note_id = ?", (note,))
+    settle(a, b)
+
+    b.save_text(note, "옮겨 온 메모, 고침")  # taken in again here
+    settle(a, b)
+
+    assert a.notes.get(note).body == "옮겨 온 메모, 고침"  # pyright: ignore[reportOptionalMemberAccess]
+    assert a.own(note) == ("2099-01-02", "09:00", "2099-01-02", None)
 
 
 def test_dealt_with_or_snoozed_on_one_it_is_on_the_others(

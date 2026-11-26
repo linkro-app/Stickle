@@ -295,11 +295,14 @@ def _deal(connection: apsw.Connection, note_id: str, state: Field | None, rule: 
     if state is not None and isinstance(state.value, dict) and state.value.get(FOR) == rule:
         taken = _state(state.value)
     if taken is None:
+        # One here with no first day (brought in before that came with it) is
+        # not taken for dealt with for good: it rings on as it would.
         connection.execute(
-            "UPDATE reminders SET next_day = first_day, snoozed_until = NULL, acked_at = NULL,"
-            " acked_device = NULL WHERE note_id = ? AND kind = ? AND deleted_at IS NULL"
-            " AND NOT (next_day IS first_day AND snoozed_until IS NULL AND acked_at IS NULL"
-            " AND acked_device IS NULL)",
+            "UPDATE reminders SET next_day = coalesce(first_day, next_day), snoozed_until = NULL,"
+            " acked_at = NULL, acked_device = NULL"
+            " WHERE note_id = ? AND kind = ? AND deleted_at IS NULL"
+            " AND NOT (next_day IS coalesce(first_day, next_day) AND snoozed_until IS NULL"
+            " AND acked_at IS NULL AND acked_device IS NULL)",
             (note_id, NOTE),
         )
         return bool(connection.changes())

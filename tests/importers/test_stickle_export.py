@@ -400,6 +400,24 @@ def test_a_later_versions_export_is_read_for_what_is_known(
     assert len(NoteRepository(second).all()) == 4
 
 
+@pytest.mark.parametrize("made_by", ["0.6", "0.7"])
+def test_a_reminder_brought_in_has_the_day_it_rings_first(
+    tmp_path: Path, first: apsw.Connection, made_by: str
+) -> None:
+    folder = exported(first, tmp_path)
+    if made_by == "0.6":  # before that day was kept
+        document = document_of(folder)
+        for row in document["tables"]["reminders"]:
+            del row["first_day"]
+        (folder / JSON_NAME).write_text(json.dumps(document), encoding="utf-8")
+    second = computer(tmp_path, "second")
+
+    bring_in_export(read_export(folder), second)
+
+    rows = second.execute("SELECT first_day, next_day FROM reminders WHERE kind = 'note'")
+    assert rows.fetchall() == [("2099-01-02", "2099-01-02")]
+
+
 def test_an_early_export_with_few_columns_still_brings_its_notes(tmp_path: Path) -> None:
     folder = tmp_path / "Stickle export"
     folder.mkdir()

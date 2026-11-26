@@ -11,7 +11,7 @@ import pytest
 
 from stickle.core.hlc import Hlc
 from stickle.core.reminders import Rule
-from stickle.data import stamps
+from stickle.data import schema, stamps
 from stickle.data.notes import NoteRepository
 from stickle.data.reminders import ReminderRepository, text_field
 from stickle.data.schema import open_store
@@ -80,3 +80,41 @@ def test_a_time_written_anew_starts_afresh_one_followed_does_not(
     reminders.match_text(note.id, [at])
 
     assert stamps.of(connection, note.id) == {text_field("2025-11-10", "15:00"): HERE}
+
+
+def test_the_upgrade_gives_one_brought_in_without_it_the_day_it_rings_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "old.db"
+    monkeypatch.setattr(schema, "MIGRATIONS", schema.MIGRATIONS[:31])
+    connection = open_store(path, KEY)
+    rows = [  # id, kind, first_day, next_day
+        ("brought in", "note", None, "2099-01-02"),
+        ("dealt with for good", "note", None, None),
+        ("as set", "note", "2099-01-01", "2099-01-05"),
+        ("in its text", "text", None, "2099-01-02"),
+    ]
+    with connection:  # as version 31 keeps them
+        for reminder_id, kind, first_day, next_day in rows:
+            connection.execute(
+                "INSERT INTO reminders (id, note_id, kind, start_day, at_time, first_day,"
+                " next_day, created_at, updated_at) VALUES (?, 'n', ?, '2099-01-02', '09:00',"
+                " ?, ?, 'then', 'then')",
+                (reminder_id, kind, first_day, next_day),
+            )
+    connection.close()
+    monkeypatch.undo()
+
+    connection = open_store(path, KEY)
+    try:
+        upgraded = connection.execute(
+            "SELECT id, first_day, next_day FROM reminders ORDER BY id"
+        ).fetchall()
+    finally:
+        connection.close()
+    assert upgraded == [
+        ("as set", "2099-01-01", "2099-01-05"),
+        ("brought in", "2099-01-02", "2099-01-02"),
+        ("dealt with for good", None, None),
+        ("in its text", None, "2099-01-02"),
+    ]
