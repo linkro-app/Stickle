@@ -8,8 +8,9 @@ import apsw
 import pytest
 
 from stickle.core.layout import Place, Size
+from stickle.core.note import Note
 from stickle.data import sync_state
-from stickle.data.database import KEY_BYTES
+from stickle.data.database import KEY_BYTES, open_database
 from stickle.data.layouts import LayoutRepository
 from stickle.data.notes import KEEP_DAYS, NoteNotBlankError, NoteNotDeletedError, NoteRepository
 from stickle.data.schema import open_store, search_index_is_consistent
@@ -211,3 +212,39 @@ def test_syncing_its_deletion_records_are_left_to_sync_too(
     clock.now = "2028-01-02T09:00:01.000Z"
     repo.purge_expired(unsynced_only=True)
     assert [record[0] for record in repo.deletion_records()] == [synced.id]
+
+
+def test_emptying_as_sync_brings_one_back_empties_the_trash_as_it_is_then(
+    tmp_path: Path, clock: Clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Sync writes on a connection of its own: one note taken out of the trash by
+    # it between the trash being read and emptied stopped all of it, unsaid.
+    path = tmp_path / "notes.db"
+    db = open_store(path, KEY)
+    sync = open_database(path, KEY, wait_ms=50)
+    try:
+        repo = NoteRepository(db, clock)
+        back = repo.create("다른 PC가 꺼냄")
+        repo.delete(back.id)
+        repo.delete(repo.create("비울 것").id)
+        listed = repo.deleted
+        refused: list[str] = []
+
+        def meanwhile() -> list[Note]:
+            found = listed()
+            try:
+                with sync:
+                    NoteRepository(sync, clock).restore(back.id)
+            except apsw.BusyError:
+                refused.append(back.id)  # it waits its turn: after the emptying
+            return found
+
+        monkeypatch.setattr(repo, "deleted", meanwhile)
+
+        assert repo.empty_trash() == 2
+
+        assert refused == [back.id]
+        assert listed() == [] and repo.all() == []
+    finally:
+        sync.close()
+        db.close()

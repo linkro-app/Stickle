@@ -16,10 +16,29 @@ from typing import Any, override
 import apsw
 
 KEY_BYTES = 32
+# In local_counters while text replaced or removed may still be read in the
+# file or its log: cleared away at the next start (stickle.data.notes).
+OLD_TEXT_LEFT = "old_text_left"
 WAIT_MS = 3_000  # for another connection's write to end, before a write gives up
 
 _turns: dict[str, threading.Lock] = {}
 _turns_guard = threading.Lock()
+
+
+def fold_in_log(connection: apsw.Connection) -> bool:
+    """The log folded into the file and emptied, the pages freed there written
+    over (secure_delete is on): whether it was. Not while another connection
+    reads or writes (sync's), which keeps what it may still read: then it is
+    owed, done at the next start."""
+    busy = connection.pragma("wal_checkpoint", "TRUNCATE")
+    if isinstance(busy, tuple) and busy and busy[0]:
+        connection.execute(
+            "INSERT INTO local_counters (key, value) VALUES (?, 1)"
+            " ON CONFLICT (key) DO UPDATE SET value = 1",
+            (OLD_TEXT_LEFT,),
+        )
+        return False
+    return True
 
 
 class WrongKeyError(Exception):

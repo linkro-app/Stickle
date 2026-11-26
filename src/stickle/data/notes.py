@@ -20,6 +20,7 @@ from stickle.core.hlc import wall_millis
 from stickle.core.note import DEFAULT_COLOR, Conflict, Note, SealedText, content_hash
 from stickle.crypto.secret_notes import open_with_any, seal_text
 from stickle.data import record_stamps, stamps, sync_state, versions
+from stickle.data.database import OLD_TEXT_LEFT, fold_in_log
 from stickle.data.imports import hide_text_hashes
 from stickle.data.labels import become
 from stickle.data.record_stamps import CATEGORY, MARK
@@ -84,8 +85,6 @@ class NoteNotSecretError(ValueError):
 
 # Notes stay in the trash this long, and deletion records this long after emptying.
 KEEP_DAYS = 365
-# In local_counters while a note made secret may have left its old text behind.
-OLD_TEXT_LEFT = "old_text_left"
 
 
 def _note(row: apsw.SQLiteValues, marks: frozenset[str] = frozenset()) -> Note:
@@ -772,10 +771,11 @@ class NoteRepository:
     def forget_old_text(self) -> None:
         """Text replaced or removed leaves no trace a key to the database would
         read: freed pages are overwritten (secure_delete is on), the search
-        index is merged so its old entries go, and the log is folded in."""
+        index is merged so its old entries go, and the log is folded in. While
+        sync reads or writes, the log cannot be: it is owed (fold_in_log)."""
         self._db.execute("INSERT INTO notes_fts(notes_fts) VALUES ('optimize')")
-        self._db.execute("DELETE FROM local_counters WHERE key = ?", (OLD_TEXT_LEFT,))
-        self._db.pragma("wal_checkpoint", "TRUNCATE")
+        if fold_in_log(self._db):
+            self._db.execute("DELETE FROM local_counters WHERE key = ?", (OLD_TEXT_LEFT,))
 
     def forget_old_text_left(self) -> None:
         """At start: old text a note made secret left behind (its clearing away
@@ -1070,9 +1070,11 @@ class NoteRepository:
             self.purge(note_id)
 
     def empty_trash(self) -> int:
-        """Purge every deleted note, all or none; how many there were."""
-        notes = self.deleted()
+        """Purge every deleted note, all or none; how many there were. Listed
+        as the emptying begins: sync may not take one out meanwhile."""
+        notes: list[Note] = []
         with self._db:
+            notes = self.deleted()
             for note in notes:
                 self.purge(note.id)
         return len(notes)
@@ -1084,11 +1086,12 @@ class NoteRepository:
         cutoff = days_before(self._clock(), days)
         known = "SELECT note_id FROM sync_notes"
         where = "deleted_at IS NOT NULL AND deleted_at < ?"
-        expired = self._list(
-            f"{where} AND id NOT IN ({known})" if unsynced_only else where, "seq", (cutoff,)
-        )
         records = "DELETE FROM deletion_records WHERE purged_at < ?"
+        expired: list[Note] = []
         with self._db:
+            expired = self._list(
+                f"{where} AND id NOT IN ({known})" if unsynced_only else where, "seq", (cutoff,)
+            )
             for note in expired:
                 self.purge(note.id)
             self._db.execute(

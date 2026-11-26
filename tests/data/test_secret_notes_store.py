@@ -9,9 +9,11 @@ import apsw
 import pytest
 
 from stickle.crypto.secret_notes import open_text, seal_text
+from stickle.data.database import open_database
 from stickle.data.notes import NoteIsSecretError, NoteNotBlankError, NoteRepository
 from stickle.data.schema import open_store
 from stickle.data.search import search
+from stickle.data.versions import VersionRepository
 
 KEY = secrets.token_bytes(32)
 SECRET_KEY = secrets.token_bytes(32)
@@ -120,3 +122,65 @@ def test_found_by_its_title_while_secret_only(connection: apsw.Connection) -> No
 
     notes.make_ordinary(note.id, TEXT)
     assert search(connection, "통장") == []  # its title went with it
+
+
+def test_with_sync_reading_meanwhile_its_old_text_is_cleared_away_at_the_next_start(
+    tmp_path: Path,
+) -> None:
+    # Another connection reading (sync's round) keeps the log from being folded
+    # in: the clearing is then owed, not taken as done.
+    path = tmp_path / "notes.db"
+    connection = open_store(path, KEY)
+    other = open_database(path, KEY, wait_ms=50)
+    try:
+        notes = NoteRepository(connection)
+        note = notes.create(TEXT)
+        other.execute("BEGIN")
+        other.execute("SELECT count(*) FROM notes").fetchall()  # a round reading
+
+        notes.make_secret(note.id, "은행", seal_text(SECRET_KEY, note.id, TEXT))
+
+        assert owed(connection)
+        other.execute("COMMIT")
+        NoteRepository(connection).forget_old_text_left()  # the next start
+        assert not owed(connection)
+    finally:
+        other.close()
+        connection.close()
+
+
+def test_earlier_versions_taken_away_while_sync_reads_are_cleared_away_at_the_next_start(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "notes.db"
+    connection = open_store(path, KEY)
+    other = open_database(path, KEY, wait_ms=50)
+    try:
+        notes = NoteRepository(connection)
+        note = notes.create(TEXT)
+        notes.update_body(note.id, "새 글", keep_earlier=True)
+        versions = VersionRepository(connection)
+        other.execute("BEGIN")
+        other.execute("SELECT count(*) FROM notes").fetchall()
+
+        assert versions.delete_all(note.id) > 0
+
+        assert owed(connection)
+        other.execute("COMMIT")
+    finally:
+        other.close()
+        connection.close()
+
+
+def owed(connection: apsw.Connection) -> bool:
+    rows = connection.execute("SELECT 1 FROM local_counters WHERE key = 'old_text_left'")
+    return bool(rows.fetchall())
+
+
+def test_cleared_away_with_nothing_else_reading_nothing_is_owed(
+    connection: apsw.Connection,
+) -> None:
+    notes = NoteRepository(connection)
+    note = notes.create(TEXT)
+    notes.make_secret(note.id, "은행", seal_text(SECRET_KEY, note.id, TEXT))
+    assert not owed(connection)

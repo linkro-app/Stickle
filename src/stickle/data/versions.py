@@ -35,6 +35,7 @@ from stickle.crypto.secret_notes import (
     open_with_any,
     seal_text,
 )
+from stickle.data.database import fold_in_log
 
 KEEP_DAYS = 30
 KEEP_PER_NOTE = 50
@@ -366,5 +367,6 @@ class VersionRepository:
         return gone
 
     def _clear_away(self) -> None:
-        # The pages freed are overwritten (secure_delete is on); the log too.
-        self._db.pragma("wal_checkpoint", "TRUNCATE")
+        # The pages freed are overwritten (secure_delete is on); the log too,
+        # or at the next start while sync reads or writes.
+        fold_in_log(self._db)
