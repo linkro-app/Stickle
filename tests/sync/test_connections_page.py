@@ -1224,6 +1224,31 @@ def test_what_shows_how_sync_stands_is_told_as_it_goes_on_and_off(bed: Bed, qtbo
     assert followed == [None, started]
 
 
+def test_turning_it_off_and_on_is_logged_by_the_cloud_s_kind_only(
+    bed: Bed, qtbot: QtBot, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A report of a problem tells sync turned off from sync gone quiet: one
+    line each, saying the kind of cloud and nothing of where or whose."""
+    caplog.set_level(logging.INFO)
+    live = bed.first.live
+    assert live is not None
+    live.runner.finish(0.0)
+    disconnect_sync(bed.first.db, live, bed.first.pc.clocks)
+    pc = bed.first.pc
+    login = bed.login
+    pc.started.append(
+        connect_sync(pc.db, pc.path, DB_KEY, login, True, pc.clocks, pc.manager, None)
+    )
+
+    said = [each.getMessage() for each in caplog.records]
+    assert [line for line in said if line.startswith("sync: turned")] == [
+        "sync: turned off",
+        "sync: turned on (webdav)",
+    ]
+    for kept in (login.address, str(bed.server.port), login.vault, PASSWORD):
+        assert kept not in caplog.text
+
+
 def test_turned_on_again_the_page_is_a_new_one(bed: Bed, qtbot: QtBot) -> None:
     window = bed.first.page(qtbot)
     old = window.sync_panel

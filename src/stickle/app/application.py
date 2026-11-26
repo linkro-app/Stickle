@@ -503,9 +503,12 @@ def connect_sync(
         manager.take_in(gone)
         if reminders is not None:
             reminders.take_in(gone)
-    return start_sync(
+    started = start_sync(
         connection, store, key, login, clocks, manager, reminders, display, take_keys=take_keys
     )
+    # For a report of a problem: sync turned off is told from sync gone quiet.
+    log.info("sync: turned on (%s)", login.kind)
+    return started
 
 
 def start_sync(
@@ -577,6 +580,7 @@ def disconnect_sync(
     syncing.left()
     if display is not None:
         display.follow(None)
+    log.info("sync: turned off")
 
 
 def sync_lines(syncing: Syncing | None) -> Sequence[str]:
