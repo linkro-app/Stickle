@@ -250,7 +250,7 @@ def test_leaving_takes_the_device_off_then_signs_out(pc: Pc, box: DropboxState) 
     pc.syncing.leave()
     assert item_path(DEVICES, device) not in box.files
     assert box.revoked == 1 and FIRST_REFRESH not in box.refresh_tokens
-    assert not pc.watching()
+    assert until(lambda: not pc.watching())  # cut, not waited for: left() looks again
     pc.syncing.left()
 
 
