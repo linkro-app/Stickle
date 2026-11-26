@@ -1141,11 +1141,16 @@ class NoteManager(QObject):
 
     def _back_in_sight(self, window: NoteWindow) -> None:
         """A note out of sight for a while comes back, unless it is meant to
-        stay out of sight with the others (set aside, out of view)."""
+        stay out of sight with the others (set aside, out of view), or is on a
+        screen a full-screen program covers: then once that ends (sync brought
+        it meanwhile, as a reminder's note in come_forward)."""
         if not self._in_view(window):
             self._out_of_view.append(window)
         elif self._set_aside:
             self._set_aside.append(window)
+        elif _screen_of(window) in self._covered_screens:
+            self._covered.append(window)
+            self.covered_changed.emit()
         else:
             window.show()
 

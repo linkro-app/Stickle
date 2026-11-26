@@ -350,3 +350,19 @@ def test_under_wayland_the_settings_say_why_there_is_nothing(qtbot: QtBot, app: 
     assert not window.full_screen_box.isVisibleTo(page)
     assert not window.exceptions_button.isVisibleTo(page)
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def test_notes_sync_brings_meanwhile_stay_out_of_sight_until_it_ends(app: App) -> None:
+    # Made on another computer, shown again there: not over a slide show or a film.
+    shopping = next(w for w in app.manager.windows if w.text == "장보기")
+    app.manager.hide(shopping)
+    hidden_id = shopping.note_id or ""
+    app.manager.cover({screen()})
+    made = app.notes.create("다른 PC의 메모")
+    app.notes.set_hidden(hidden_id, False)
+
+    app.manager.take_in([made.id, hidden_id])
+
+    assert app.shown() == [] and app.manager.covered == 3
+    app.manager.cover(set())
+    assert app.shown() == ["다른 PC의 메모", *ALL]
