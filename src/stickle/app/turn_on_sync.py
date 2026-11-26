@@ -249,8 +249,13 @@ class _Pages(QWidget):
         return next(page for page in self._pages if not page.isHidden())
 
     def show_page(self, page: QWidget) -> None:
+        """The page shown hidden before the next one is: never two at once, for
+        the window would be made as tall as both (on Windows, with a warning)
+        and stay so, going back to a page before it."""
         for each in self._pages:
-            each.setVisible(each is page)
+            if each is not page:
+                each.setVisible(False)
+        page.setVisible(True)
 
 
 type _Reached = WebDav | OneDrive | Dropbox

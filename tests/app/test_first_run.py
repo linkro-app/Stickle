@@ -7,6 +7,7 @@ from pathlib import Path
 import apsw
 import pytest
 from pytestqt.qtbot import QtBot
+from qt_said import qt_said
 
 from stickle.app.first_run import FirstRunDialog, sample_note, welcome
 from stickle.app.i18n import Translations
@@ -252,6 +253,19 @@ def test_without_translations_to_switch_no_language_is_offered(qtbot: QtBot) -> 
     qtbot.addWidget(dialog)
 
     assert not dialog.language_box.isVisibleTo(dialog)
+
+
+def test_keeping_the_key_makes_done_the_default_without_a_warning(qtbot: QtBot) -> None:
+    with qt_said() as said:
+        dialog = FirstRunDialog(generate(), True, True)
+        qtbot.addWidget(dialog)
+        dialog.next_button.click()
+
+        dialog.recovery.kept.setChecked(True)
+        assert dialog.done_button.isDefault()
+        dialog.recovery.kept.setChecked(False)
+        assert not dialog.done_button.isDefault()
+    assert not [line for line in said if "setDefault" in line]
 
 
 def test_the_sample_note_speaks_the_interface_language(translations: Translations) -> None:

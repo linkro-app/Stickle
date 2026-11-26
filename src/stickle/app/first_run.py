@@ -233,8 +233,13 @@ class FirstRunDialog(QDialog):
         self.later_button.hide()
         self.done_button.setEnabled(False)
         self.recovery.kept.toggled.connect(self.done_button.setEnabled)
-        # Kept: Enter is Done, wherever the desktop puts Done and Later.
-        self.recovery.kept.toggled.connect(self.done_button.setDefault)
+
+        # Kept: Enter is Done, wherever the desktop puts Done and Later. Through
+        # a function of its own: setDefault is no slot, and Qt warns of it.
+        def default(kept: bool) -> None:
+            self.done_button.setDefault(kept)
+
+        self.recovery.kept.toggled.connect(default)
         self.done_button.clicked.connect(self.accept)
         self.later_button.clicked.connect(self.reject)
 

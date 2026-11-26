@@ -361,6 +361,22 @@ def test_it_goes_forward_and_back_through_the_first_steps(bench: Bench) -> None:
     assert window.pages.current() is window.intro_page
 
 
+def test_going_back_the_window_is_as_tall_as_the_page_it_shows(bench: Bench) -> None:
+    """Not as tall as the page it left as well: two pages are never shown at
+    once, not even while one is turned."""
+    window = bench.window
+    layout = window.layout()
+    assert layout is not None
+    bench.press()
+    bench.press()
+    assert window.pages.current() is window.server_page
+
+    for page in (window.choose_page, window.intro_page):
+        window.back_button.click()
+        assert window.pages.current() is page
+        assert window.height() == layout.totalHeightForWidth(window.width())
+
+
 def test_connecting_waits_for_all_three_fields(bench: Bench) -> None:
     bench.to_server_page()
     assert not bench.window.next_button.isEnabled()

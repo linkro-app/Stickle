@@ -9,6 +9,7 @@ from PySide6.QtGui import QGuiApplication, QKeyEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QMessageBox
 from pytestqt.qtbot import QtBot
+from qt_said import qt_said
 from test_startup_dialogs import (
     FAST,
     PASSWORD,
@@ -335,12 +336,14 @@ def test_the_recovery_key_window_waits_until_it_is_kept(qtbot: QtBot) -> None:
 
 
 def test_once_kept_enter_is_done_wherever_the_buttons_are(qtbot: QtBot) -> None:
-    dialog = RecoveryKeyDialog(generate())
-    qtbot.addWidget(dialog)
-    dialog.show()
-    qtbot.waitExposed(dialog)
-    dialog.panel.kept.setChecked(True)
+    with qt_said() as said:
+        dialog = RecoveryKeyDialog(generate())
+        qtbot.addWidget(dialog)
+        dialog.show()
+        qtbot.waitExposed(dialog)
+        dialog.panel.kept.setChecked(True)
     assert dialog.done_button.isDefault()
+    assert not [line for line in said if "setDefault" in line]  # Qt told without a warning
     dialog.panel.kept.setFocus()
     QTest.keyClick(dialog.panel.kept, Qt.Key.Key_Return)
     assert dialog.result() == QDialog.DialogCode.Accepted
