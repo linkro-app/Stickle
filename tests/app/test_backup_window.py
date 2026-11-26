@@ -648,3 +648,31 @@ def test_on_a_computer_that_syncs_a_failure_is_kept_to_say_at_the_next_start(
 
     assert not database.with_name("notes.db.restoring").exists()
     assert Settings(connection).get(GOING_BACK_FAILED)
+
+
+def test_going_back_says_which_key_the_backups_notes_were_sealed_with_before_sealing_more(
+    qtbot: QtBot, connection: apsw.Connection, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Else the notes sealed with the key of now are told as sealed with the one
+    # of then (stickle.data.backups.keep_key_state).
+    monkeypatch.setattr(application, "_restore_staged", False)
+    monkeypatch.setattr(application, "_sync_state_kept", False)
+    done: list[str] = []
+    for name in ("keep_key_state", "keep_secret_notes_secret"):
+        real = getattr(application, name)
+
+        def step(*args: Any, _real: Any = real, _name: str = name, **kwargs: Any) -> Any:
+            done.append(_name)
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(application, name, step)
+    notes = NoteRepository(connection)
+    chosen = backups.take(connection, database, FakeClock("2026-10-17T12:00:00.000Z"))
+    quits: list[bool] = []
+
+    assert go_back_to(
+        chosen, NoteManager(notes), connection, database, KEY, lambda: quits.append(True)
+    )
+
+    assert done == ["keep_key_state", "keep_secret_notes_secret"]
+    qtbot.waitUntil(lambda: quits == [True])

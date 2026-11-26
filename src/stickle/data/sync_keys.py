@@ -4,9 +4,9 @@ on this device is put in the vault, one changed there is taken here, and one
 changed on both is the later's.
 
 What is kept is no key: a digest of the pair (stickle.crypto.vault_keys.
-pair_digest), when it was set and by which device. This device's alone, never
-in an export; forgotten when the device joins the vault anew, so that it takes
-the vault's then.
+pair_digest), when it was set and by which device. This device's alone (in a
+full export with the other sync tables: digests, no key); forgotten when the
+device joins the vault anew, so that it takes the vault's then.
 """
 
 from dataclasses import dataclass

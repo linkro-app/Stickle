@@ -494,3 +494,35 @@ def test_no_log_tells_a_secret_note_or_a_key(
     assert SECRET not in caplog.text
     assert "은행" not in caplog.text
     assert not cloud_holds(a.cloud, SECRET)
+
+
+def test_a_note_plain_in_a_backup_from_before_is_sealed_there_with_the_key_of_now_and_says_so(
+    a: Device, c: Device
+) -> None:
+    # Its key's number told as the one of then, it would go nowhere until the
+    # first unlocking sealed it again.
+    plain = c.notes.create("백업 땐 평문").id
+    settle(a, c)
+    backup = backups.take(c.db, c.path)
+    own_number = number_of(c)
+    assert own_number is not None  # told apart from the key of now's (none)
+    own_key = key_of(c, OWN)
+    c.notes.make_secret(plain, "은행", seal_text(own_key, plain, "백업 땐 평문"))
+    matched(c, own_key, secret_notes.open_other_with_password(files(c), their_number(c), THEIRS))
+    now = key_of(c, THEIRS)
+
+    backups.stage_restore(c.path, backup)
+    # In this order, as going back does (stickle.app.application.go_back_to).
+    backups.keep_key_state(c.path, KEY, c.db)
+    backups.keep_secret_notes_secret(
+        c.path, KEY, backups.secret_notes_known(c.db), partial(seal_text, now)
+    )
+    staged = open_database(c.path.with_name(c.path.name + backups.RESTORING), KEY)
+    try:
+        came_back = NoteRepository(staged).get(plain)
+        assert came_back is not None and came_back.key_number is None  # the key of now
+        sealed = came_back.sealed_text
+        assert sealed is not None and open_sealed(now, plain, sealed) == "백업 땐 평문"
+    finally:
+        staged.close()
+    backups.cancel_restore(c.path)

@@ -11,6 +11,7 @@ refuses a database newer than itself.
 
 import hashlib
 import logging
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -595,7 +596,7 @@ V26 = """
 -- The recovery key's and the master password's pairs as this device and the
 -- vault last agreed on them (kind: as in keys/), what tells one changed on
 -- either side since: its digest (NULL: none of that kind), when it was set and
--- by which device. This device's alone, never in an export.
+-- by which device. This device's alone (in a full export: digests, no key).
 CREATE TABLE sync_keys (
     vault TEXT NOT NULL,
     kind TEXT NOT NULL,
@@ -733,7 +734,10 @@ def upgrade(path: Path, key: bytes, version: int) -> None:
 
 
 def backup(path: Path, version: int, clock: Clock = utc_now) -> Path:
-    """Copy the (encrypted) database aside, keeping the newest few copies."""
+    """Copy the (encrypted) database aside, keeping the newest few copies, and
+    of the older ones the latest of a version below all of theirs: an upgrade
+    stopped at the same step each start leaves the database a version on, and
+    its copies would push out the only one the app before opens."""
     folder = path.parent / "backups"
     folder.mkdir(exist_ok=True)
     # The time comes first so that names sort oldest to newest. (File times would not
@@ -742,9 +746,19 @@ def backup(path: Path, version: int, clock: Clock = utc_now) -> Path:
     target = folder / f"{path.stem}-{stamp}-v{version}.db"
     shutil.copyfile(path, target)
     copies = sorted(folder.glob(f"{path.stem}-*-v*.db"))
-    for old in copies[:-BACKUPS_KEPT]:
-        old.unlink()
+    older = copies[:-BACKUPS_KEPT]
+    lowest = min((_version_of(each) for each in copies[-BACKUPS_KEPT:]), default=0)
+    before = [each for each in older if _version_of(each) < lowest]
+    for old in older:
+        if not before or old != before[-1]:
+            old.unlink()
     return target
+
+
+def _version_of(copy: Path) -> int:
+    """The version a copy made by backup was at (0: its name does not say)."""
+    found = re.search(r"-v(\d+)\.db$", copy.name)
+    return int(found.group(1)) if found else 0
 
 
 def _sidecars(path: Path) -> list[Path]:

@@ -281,3 +281,26 @@ def test_backup_is_encrypted_and_opens_with_the_same_key(path: Path) -> None:
         plain.execute("SELECT count(*) FROM sqlite_schema").fetchall()
     plain.close()
     assert list(bodies(copy).values()) == ["회의록을 내일까지"]
+
+
+def test_upgrading_failing_again_and_again_keeps_the_copy_to_go_back_to_the_app_before(
+    path: Path,
+) -> None:
+    # An upgrade stopped at the same step each start leaves the database a
+    # version on: copies of that one would push out the only one the app
+    # before opens.
+    make_v1(path, ["회의록"])
+    clock = ticking_clock()
+    before = backup(path, 11, lambda: next(clock))
+    made = [backup(path, 20, lambda: next(clock)) for _ in range(BACKUPS_KEPT + 2)]
+
+    assert backups(path) == [before, *made[-BACKUPS_KEPT:]]
+
+
+def test_the_copy_kept_from_before_is_the_latest_older_than_those_kept(path: Path) -> None:
+    make_v1(path, ["회의록"])
+    clock = ticking_clock()
+    made = [backup(path, version, lambda: next(clock)) for version in (8, 11, 20, 31, 40, 52)]
+
+    # 31, 40 and 52 kept: of those older, 20 (the app before 31's), not 8 or 11.
+    assert backups(path) == made[2:]

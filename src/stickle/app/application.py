@@ -188,8 +188,10 @@ def go_back_to(
         taken = next((each.taken for each in backups(database) if each.path == backup), None)
         before = take(connection, database, clock, before_restore=True)
         stage_restore(database, backup)
-        kept = keep_secret_notes_secret(database, key, secret_notes_known(connection), seal)
+        # Its secret notes told as sealed with the key of then first: those
+        # sealed next, with the key of now, say so.
         keep_key_state(database, key, connection)
+        kept = keep_secret_notes_secret(database, key, secret_notes_known(connection), seal)
         if sync_connection.current(connection) is None:  # no sync to wait for
             keep_sync_state(database, key, connection, (clocks or Clocks()).millis())
             _sync_state_kept = True
