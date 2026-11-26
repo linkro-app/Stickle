@@ -15,6 +15,7 @@ this screen did not make it. Who did is told with it, the one it was made on.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import apsw
@@ -34,9 +35,14 @@ class Change:
 
 
 class ProtectionChanges:
-    def __init__(self, settings: Settings, clock: Clock = utc_now) -> None:
+    def __init__(
+        self, settings: Settings, clock: Clock = utc_now, made: Callable[[], None] = lambda: None
+    ) -> None:
+        """made: told of each change made here, once it is noted (for sync to
+        take it to the other computers at once)."""
         self._settings = settings
         self._clock = clock
+        self._made = made
 
     def _entries(self) -> list[dict[str, object]]:
         return [dict(entry) for entry in self._settings.get(PROTECTION_CHANGES)]
@@ -51,6 +57,7 @@ class ProtectionChanges:
         """A change just made: told later, not now."""
         assert what in CHANGE_KINDS
         self._keep([*self._entries(), {"what": what, "at": self._clock(), "told": False}])
+        self._made()
 
     def note_elsewhere(self, what: str, by: str | None, at: str | None) -> None:
         """A change made on another computer that syncs (by: its name, if known;

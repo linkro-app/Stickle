@@ -268,3 +268,39 @@ def test_folding_that_comes_while_the_note_is_dragged_waits_for_the_drop(
 
     window.geometry_settled.emit()  # dropped
     qtbot.waitUntil(lambda: window.collapsed, timeout=3000)
+
+
+def test_an_edit_over_before_its_round_said_it_held_asks_a_round_at_once(
+    qtbot: QtBot, manager: NoteManager, notes: NoteRepository
+) -> None:
+    # The round that held it took a few seconds; the edit ended meanwhile.
+    note_id = notes.create("회의 9시").id
+    window = opened(manager, note_id)
+    typing(window)
+    window.show_formatted()
+    qtbot.waitUntil(lambda: not edited(manager, note_id), timeout=3000)
+
+    with qtbot.waitSignal(manager.held_released, timeout=1000):
+        manager.show_held([note_id])
+    assert not window.held
+
+
+def test_a_note_held_whose_window_is_gone_asks_a_round_at_once(
+    qtbot: QtBot, manager: NoteManager, notes: NoteRepository
+) -> None:
+    note_id = notes.create("회의 9시").id
+
+    with qtbot.waitSignal(manager.held_released, timeout=1000):
+        manager.show_held([note_id])
+
+
+def test_a_note_still_being_edited_waits_for_its_edit(
+    qtbot: QtBot, manager: NoteManager, notes: NoteRepository
+) -> None:
+    note_id = notes.create("회의 9시").id
+    window = opened(manager, note_id)
+    typing(window)
+
+    with qtbot.assertNotEmitted(manager.held_released, wait=100):
+        manager.show_held([note_id])
+    assert window.held

@@ -620,6 +620,25 @@ def disconnect_sync(
     log.info("sync: turned off")
 
 
+def before_sleep(manager: NoteManager, syncing: Syncing | None) -> None:
+    """The computer about to sleep: what is typed saved, secret notes locked,
+    and what waits to go up sent now, in what time the system gives (else a
+    change made just before is only here, and edited elsewhere meanwhile, a
+    conflict copy as this one wakes)."""
+    log.info("saving before sleep")
+    manager.save_all()
+    manager.lock_secret_notes()
+    if syncing is not None:
+        syncing.hurry()
+
+
+def round_for_a_change(switch: SyncSwitch) -> None:
+    """What protects the notes changed here (a password, a recovery key): a
+    round at once, for the other computers to have it before it is typed there."""
+    if switch.syncing is not None:
+        switch.syncing.sync_now()
+
+
 def sync_lines(syncing: Syncing | None) -> Sequence[str]:
     """What a report of a problem says of sync: nothing if this device does not sync."""
     return () if syncing is None else syncing.feedback_lines()
@@ -1234,10 +1253,8 @@ def run(
             if switch.syncing is not None:
                 switch.syncing.hurry()  # in what time the system gives
 
-        def before_sleep() -> None:
-            log.info("saving before sleep")
-            manager.save_all()
-            manager.lock_secret_notes()
+        def going_to_sleep() -> None:
+            before_sleep(manager, switch.syncing)
 
         app.commitDataRequest.connect(before_session_end)
         close_filter = None
@@ -1263,7 +1280,7 @@ def run(
             if switch.syncing is not None:
                 switch.syncing.woke()
 
-        sleep_watch = watch_sleep(before_sleep, after_wake)
+        sleep_watch = watch_sleep(going_to_sleep, after_wake)
         log.info("sleep %s", "watched" if sleep_watch is not None else "not watched")
         unlock_watch: object | None = None
         tray_available = QSystemTrayIcon.isSystemTrayAvailable()
@@ -1304,7 +1321,7 @@ def run(
         )
         # Changes to what protects the notes, told at a start or an unlock (not when measuring).
         changes = (
-            ProtectionChanges(Settings(connection))
+            ProtectionChanges(Settings(connection), made=lambda: round_for_a_change(switch))
             if connection is not None and perf is None
             else None
         )

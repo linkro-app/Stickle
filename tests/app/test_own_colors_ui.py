@@ -200,9 +200,38 @@ def test_at_random_never_the_colour_used_just_before(
         window = manager.new_note()
         assert window.color != before
         seen.add(window.color)
+        window.editor.insertPlainText("메모")
+        manager.save(window)  # stored: its colour the one used just before the next
+        assert settings.get(LAST_USED_COLOR) == window.color
         window.release()
 
     assert SKY in seen and len(seen) > 6  # all of them, one's own too
+
+
+def test_at_random_a_new_note_closed_untouched_leaves_the_colour_used_as_it_was(
+    qtbot: QtBot, manager: NoteManager, connection: apsw.Connection
+) -> None:
+    # A setting that follows the user: written, it would bring a round everywhere.
+    manager.set_random_color(True)
+    settings = Settings(connection)
+    before = settings.get(LAST_USED_COLOR)
+
+    for _ in range(5):
+        manager.hide(manager.new_note())
+
+    assert settings.get(LAST_USED_COLOR) == before
+
+
+def test_without_random_a_new_note_stored_writes_no_colour_used(
+    qtbot: QtBot, manager: NoteManager, connection: apsw.Connection
+) -> None:
+    settings = Settings(connection)
+    before = settings.get(LAST_USED_COLOR)
+
+    for _ in range(3):
+        a_note(manager)
+
+    assert settings.get(LAST_USED_COLOR) == before
 
 
 def test_a_note_made_from_a_note_keeps_its_colour_even_at_random(

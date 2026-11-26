@@ -727,6 +727,7 @@ class NoteManager(QObject):
         assert self._repository is not None
         note_id = self._repository.create(window.text, window.color).id
         self._stored_as(window, note_id)
+        self._used(window.color)
         return note_id
 
     def _stored_as(self, window: NoteWindow, note_id: str) -> None:
@@ -1588,23 +1589,24 @@ class NoteManager(QObject):
         return spots[0]  # every step taken: the cascade goes on over them
 
     def _new_note_color(self) -> str:
-        """The colour last chosen; or, at random, any but the one used just before."""
+        """The colour last chosen; or, at random, any but the one used just before
+        (by the last new note stored: one opened and closed untouched uses none)."""
         if self._settings is None:
             return DEFAULT_COLOR
         if self._settings.get(RANDOM_COLOR):
             last = self._settings.get(LAST_USED_COLOR)
             order = self.color_order()
-            color = self._random.choice([c for c in order if c != last] or order)
-        else:
-            color = self._settings.get(DEFAULT_NOTE_COLOR)
-        self._used(color)
-        return color
+            return self._random.choice([c for c in order if c != last] or order)
+        return self._settings.get(DEFAULT_NOTE_COLOR)
 
     def _used(self, color: str) -> None:
+        """A new note stored in this colour: the next one at random takes another
+        (a setting that follows the user: written only with colours at random)."""
         if self._settings is None:
             return
         try:
-            self._settings.set(LAST_USED_COLOR, color)
+            if self._settings.get(RANDOM_COLOR):
+                self._settings.set(LAST_USED_COLOR, color)
         except apsw.Error as error:
             log.error("could not keep the colour used: %s", type(error).__name__)
 
@@ -2760,10 +2762,18 @@ class NoteManager(QObject):
                 log.error("could not show a note sync brought: %s", type(error).__name__)
 
     def show_held(self, note_ids: Collection[str]) -> None:
-        """These notes being edited, what came for them waits: their windows say so."""
-        for window in self._windows:
-            if window.note_id in note_ids and window in self._in_edit:
+        """These notes being edited, what came for them waits: their windows say
+        so. One whose edit is over already (it ended as that round went on), or
+        whose window is gone: a round at once, as when such an edit ends."""
+        over = False
+        for note_id in note_ids:
+            window = self.window_for(note_id)
+            if window is not None and window in self._in_edit:
                 window.set_held(True)
+            else:
+                over = True
+        if over:
+            self.held_released.emit()
 
     def _take_in(self, note_id: str) -> None:
         assert self._repository is not None
