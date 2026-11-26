@@ -525,6 +525,15 @@ def _before_plain(state: NoteState | None) -> bool:
     return head is not None and not head.body.deleted and not isinstance(head.body.text, Secret)
 
 
+def _untouched(state: NoteState | None, mine: NoteFile) -> bool:
+    """Whether the note's text here is the one this device last had from the
+    vault, unchanged since, and nothing of it is waiting to be put."""
+    if state is None or state.outbox is not None:
+        return False
+    seen = local.head_of(state)
+    return seen is not None and mine.body.id == seen.body.id
+
+
 def _boxes_here(
     secret_key: Callable[[], Mapping[str, object] | None] | None,
     taken: list[SecretFollow | SecretOther],
@@ -1134,7 +1143,14 @@ class _Round:
             if mine is None and cloud.note is None:
                 return None
             if mine is not None and cloud.note is not None:
-                merged = merge(place.keys, note_id, mine, cloud.note, _before_plain(state))
+                merged = merge(
+                    place.keys,
+                    note_id,
+                    mine,
+                    cloud.note,
+                    _before_plain(state),
+                    _untouched(state, mine),
+                )
             elif mine is not None:
                 merged = Merged(mine, Step.SEND)
             else:

@@ -189,12 +189,23 @@ def _made_secret(a: Version, b: Version, before_plain: bool) -> tuple[Version, V
 
 
 def merge(
-    keys: DataKeys, note_id: str, mine: NoteFile, cloud: NoteFile, before_plain: bool = False
+    keys: DataKeys,
+    note_id: str,
+    mine: NoteFile,
+    cloud: NoteFile,
+    before_plain: bool = False,
+    untouched: bool = False,
 ) -> Merged:
     """mine: the note as this device has it (its text at its head version);
     before_plain: its text was ordinary as this device last had it from the
-    vault, or put it there (where both lines went apart from)."""
+    vault, or put it there (where both lines went apart from); untouched: its
+    text is the one this device last had from the vault, unchanged since and
+    nothing of it waiting to be put."""
     step = decide(mine.body, cloud.body)
+    if step is Step.CONFLICT and untouched and cloud.body.generation > mine.body.generation:
+        # Further on than its history reaches back: what a longer one would
+        # tell, and nothing of this device's to keep.
+        step = Step.RECEIVE
     fields = merge_fields(mine.contents, cloud.contents)
     if step is Step.SAME:  # emptied on both, too: the fields merge alike
         return Merged(NoteFile(fields, _one_of(mine.body, cloud.body)), step)
