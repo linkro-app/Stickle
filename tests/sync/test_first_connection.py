@@ -456,3 +456,42 @@ def test_joining_is_not_stopped_for_a_big_change(two: tuple[FakeCloud, Device, D
     b.sync()
     assert b.holds == 0
     assert len(b.notes.all()) == 24  # each with a conflict copy
+
+
+# Back to a vault after what rounds kept of it for a while was let go of
+# (synced with another since, or disconnected): what each note was there, its
+# text too, is what is merged on (without it, an edit there came back undone)
+
+
+@pytest.mark.parametrize("kind", [DROPBOX, WEBDAV_WEAK], ids=lambda k: k.name)
+def test_back_to_a_vault_let_go_of_each_side_keeps_its_edit(
+    tmp_path: Path, kind: Kind, clock: Clock
+) -> None:
+    cloud = FakeCloud(kind)
+    a = Device("a", tmp_path, cloud, clock, whole=True)
+    b = Device("b", tmp_path, cloud, clock, whole=True)
+    try:
+        mine = a.notes.create("A가 쓴 메모").id
+        theirs = a.notes.create("B가 고칠 메모").id
+        same = a.notes.create("둘 다 그대로").id
+        a.sync()
+        b.sync()
+        with a.db:
+            sync_state.let_go_of_others(a.db, None)  # a disconnected
+        b.notes.update_body(theirs, "B가 고친 메모")
+        b.sync()
+        clock.tick()
+        a.notes.update_body(mine, "A가 고친 메모")
+
+        a.sync()
+        b.sync()
+
+        for device in (a, b):
+            texts = device.texts()
+            assert texts[mine] == "A가 고친 메모"
+            assert texts[theirs] == "B가 고친 메모"
+            assert texts[same] == "둘 다 그대로"
+            assert len(texts) == 3  # no copies
+    finally:
+        a.close()
+        b.close()

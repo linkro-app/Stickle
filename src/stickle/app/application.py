@@ -58,7 +58,7 @@ from stickle.core.layout import Place, Rect, place_of
 from stickle.crypto.keyfile import KeyFileError, WrongPasswordError
 from stickle.crypto.recovery import WrongRecoveryKeyError, pair_id
 from stickle.crypto.secret_notes import RESET, NotKeptForRecoveryKeyError, seal_text
-from stickle.data import sync_connection
+from stickle.data import sync_connection, sync_state
 from stickle.data.backups import (
     backups,
     cancel_restore,
@@ -639,11 +639,23 @@ def disconnect_sync(
     """Sync turned off while the app runs: nothing kept of how to reach the
     cloud, and this run going by this computer's clock again. display: told of it."""
     sync_connection.forget(connection)
+    if syncing.ended(0):  # nothing of it writes any more (else at the next start)
+        let_go_of_other_vaults(connection)
     clocks.cloud = None
     syncing.left()
     if display is not None:
         display.follow(None)
     log.info("sync: turned off")
+
+
+def let_go_of_other_vaults(connection: apsw.Connection) -> None:
+    """What is kept of the vaults this device does not sync with, let go of
+    (stickle.data.sync_state.let_go_of_others); else at the next start."""
+    try:
+        with connection:
+            sync_state.let_go_of_others(connection, sync_connection.vault_kept(connection))
+    except apsw.Error as error:
+        log.warning("sync: could not let go of other vaults: %s", type(error).__name__)
 
 
 def before_sleep(manager: NoteManager, syncing: Syncing | None) -> None:
@@ -1233,6 +1245,8 @@ def run(
                 return 0
             mark("notes-database")
         login = login_here(connection) if connection is not None and perf is None else None
+        if connection is not None and perf is None:
+            let_go_of_other_vaults(connection)  # one left as a round went on, too
         cloud = None
         if login is not None and connection is not None:
             from stickle.app.syncing import cloud_time  # only with sync on
@@ -1476,6 +1490,7 @@ def run(
                 keep_joined_recovery_key,
                 onedrive,
                 dropbox,
+                lambda: let_go_of_other_vaults(notes_db),
             )
         # Before any note opens: each offers to become a secret note.
         manager.secrets = secret_passwords(

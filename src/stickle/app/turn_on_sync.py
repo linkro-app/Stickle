@@ -354,6 +354,8 @@ class TurnOnSync(QDialog):
         self._synced_with: str | None = None
         self._try_again = False  # the cloud not reached for now, signed in all the same
         self._making = False  # the Stickle folder being made: not to be cancelled
+        self._looked_first = False  # a vault's notes fetched to show what merging makes
+        self._went_on = False  # connected
         self._address: Address | None = None
         self._certificate: bytes | None = None  # trusted, for this address
         self._shown_certificate: bytes | None = None
@@ -1566,6 +1568,7 @@ class TurnOnSync(QDialog):
         relay.moved.connect(self._moved_on)
         self._relay = relay
         self._preview = None
+        self._looked_first = True
         self._show(self.preview_page)
         self._begin(
             lambda: look(login, relay.moved.emit, self._token.set),
@@ -1667,6 +1670,7 @@ class TurnOnSync(QDialog):
             else:
                 self._fail(self._unreachable())
             return
+        self._went_on = True
         if self._again is not None and login.vault == self._again.vault:
             self.accept()  # the folder as it was: sync just goes on, and says so where it does
             return
@@ -1805,6 +1809,8 @@ class TurnOnSync(QDialog):
             self._job.drop(target.close if target is not None else lambda: None)
             self._job = None
         self._close_target()
+        if self._looked_first and not self._went_on:
+            self._setup.dropped()  # what was fetched of it (once a look still out ends: at start)
         forget_typed(self, self.way_in)
         super().done(result)
         # Used once: not kept, hidden, by the window it belongs to until that closes.

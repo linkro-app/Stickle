@@ -47,7 +47,13 @@ from test_turn_on import (
 from update_translations import TS_DIR, compile_to
 from webdav_server import HOST, Server, webdav
 
-from stickle.app.application import SyncSwitch, connect_sync, disconnect_sync, start_sync
+from stickle.app.application import (
+    SyncSwitch,
+    connect_sync,
+    disconnect_sync,
+    let_go_of_other_vaults,
+    start_sync,
+)
 from stickle.app.background import Job
 from stickle.app.i18n import Translations
 from stickle.app.settings_window import SettingsWindow
@@ -1555,3 +1561,42 @@ def test_on_a_real_server_it_shows_renames_leaves_and_comes_back(
         assert [o.name for o in others(second.db, made.vault, second.device)] == ["거실 PC"]
         first.end()
         second.end()
+
+
+# What rounds keep of a vault for a while
+
+
+def staged_in(db: apsw.Connection) -> list[str]:
+    return [str(row[0]) for row in db.execute("SELECT vault FROM sync_staged ORDER BY vault")]
+
+
+def stage(db: apsw.Connection, vault: str) -> None:
+    with db:
+        db.execute("INSERT INTO sync_staged (vault, path, data) VALUES (?, 'p', x'00')", (vault,))
+
+
+def test_turned_off_what_rounds_kept_for_a_while_is_let_go_of(bed: Bed, qtbot: QtBot) -> None:
+    live = bed.first.live
+    assert live is not None
+    live.runner.finish(0.0)
+    assert live.ended(MS / 1000)
+    db = bed.first.db
+    stage(db, bed.login.vault)
+    known = db.execute("SELECT count(*) FROM sync_notes").fetchall()
+
+    disconnect_sync(db, live, bed.first.pc.clocks)
+
+    assert staged_in(db) == []
+    assert db.execute("SELECT count(*) FROM sync_notes").fetchall() == known  # to go back on
+
+
+def test_what_other_vaults_kept_goes_and_the_one_synced_with_keeps_its_own(
+    bed: Bed, qtbot: QtBot
+) -> None:
+    db = bed.first.db
+    stage(db, "another vault")
+    stage(db, bed.login.vault)
+
+    let_go_of_other_vaults(db)  # as at start
+
+    assert staged_in(db) == [bed.login.vault]

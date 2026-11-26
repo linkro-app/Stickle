@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 
 import apsw
 
+from stickle.data import sync_state
+
 WEBDAV = "webdav"
 ONEDRIVE = "onedrive"
 DROPBOX = "dropbox"
@@ -65,8 +67,10 @@ def current(connection: apsw.Connection) -> Login | None:
 
 
 def keep(connection: apsw.Connection, login: Login) -> None:
-    """This one, in place of any other."""
+    """This one, in place of any other: what rounds kept of other vaults for a
+    while let go of (stickle.data.sync_state.let_go_of_others)."""
     with connection:
+        sync_state.let_go_of_others(connection, login.vault)
         connection.execute("DELETE FROM sync_connection")
         connection.execute(
             "INSERT INTO sync_connection"
@@ -117,6 +121,13 @@ def keep_cloud_offset(connection: apsw.Connection, offset: int) -> None:
         " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (OFFSET, offset),
     )
+
+
+def vault_kept(connection: apsw.Connection) -> str | None:
+    """The vault this device syncs with, if it does: as kept, however the rest
+    of the connection reads."""
+    rows = connection.execute("SELECT vault FROM sync_connection").fetchall()
+    return str(rows[0][0]) if rows else None
 
 
 def forget(connection: apsw.Connection) -> None:

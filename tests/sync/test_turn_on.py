@@ -197,6 +197,7 @@ class Looking:
     asked: list[Login] = field(default_factory=list[Login])
     cloud_only: list[Login] = field(default_factory=list[Login])
     no_backup: bool = False
+    dropped: int = 0  # times what was fetched for it was let go of
 
     def look(
         self,
@@ -257,12 +258,18 @@ def make_bench(
         lambda _left: None,
         None if looking is None else looking.look,
         None if looking is None else cloud_only,
+        dropped=lambda: dropped(looking),
     )
     window = TurnOnSync(setup, None, again, signed_out)
     if again is None:  # else it may close by itself, and goes once closed
         qtbot.addWidget(window)
     window.show()
     return Bench(window, qtbot, logins, syncing)
+
+
+def dropped(looking: Looking | None) -> None:
+    if looking is not None:
+        looking.dropped += 1
 
 
 def on_server(server: Server, place: str = "share") -> str:
@@ -925,10 +932,13 @@ def test_what_merging_would_make_is_shown_before_anything_is_kept(
 
 
 def test_merging_turns_sync_on_joining(qtbot: QtBot, keys: Keys, share: Path) -> None:
-    bench = opened_with_notes_here(qtbot, keys, share, Looking([A_LOOK]))
+    looking = Looking([A_LOOK])
+    bench = opened_with_notes_here(qtbot, keys, share, looking)
     bench.press()
     bench.page(bench.window.last_page)
     assert [joining for _, joining in bench.logins] == [True]
+    bench.window.cancel_button.click()  # Close
+    assert looking.dropped == 0  # what it fetched is the first round's
 
 
 def test_keeping_only_the_cloud_notes_is_asked_again_and_enter_goes_back(
@@ -974,6 +984,7 @@ def test_cancelled_while_it_shows_what_merging_would_make_nothing_is_kept(
     bench.window.cloud_only_button.click()
     bench.window.cancel_button.click()
     assert bench.logins == [] and looking.cloud_only == []
+    assert looking.dropped == 1  # what it fetched of that vault let go of
 
 
 @pytest.mark.parametrize(

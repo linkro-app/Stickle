@@ -11,7 +11,9 @@ clear after that. What is left of them, the versions and fields, is what the
 next version is made on. A secret note's text is kept as it is sealed.
 
 Each vault is kept apart: a device that synced with another vault before
-keeps what it knew of that one.
+keeps what it knew of that one, to merge on if it goes back to it, but for
+what rounds keep for a while (let_go_of_others). The text it last saw there
+stays: it is how a note is told unchanged here since (stickle.sync.local).
 """
 
 from collections.abc import Iterable
@@ -92,6 +94,19 @@ def forget_text(connection: apsw.Connection, note_id: str) -> None:
         " outbox = json_remove(outbox, '$.body.text', '$.body.secret') WHERE note_id = ?",
         (note_id,),
     )
+
+
+# What a round keeps of a vault for a while, made again by the next one.
+_FOR_A_WHILE = ("sync_staged", "sync_held", "sync_untold", "sync_left")
+
+
+def let_go_of_others(connection: apsw.Connection, vault: str | None) -> None:
+    """Of every vault but vault (None: of every vault, none synced with): what
+    rounds keep for a while, made again by the next one there (files fetched,
+    what a round stopped for, files put and not yet told of, files left). What
+    each note was there stays, to merge on if this device goes back to it."""
+    for table in _FOR_A_WHILE:
+        connection.execute(f"DELETE FROM {table} WHERE vault IS NOT ?", (vault,))
 
 
 def _ids(rows: Iterable[apsw.SQLiteValues]) -> list[str]:

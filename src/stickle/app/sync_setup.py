@@ -59,6 +59,8 @@ class SyncSetup:
     # window opens (None: it is not, and that cloud is not offered).
     onedrive: Callable[[], OneDriveApp | None] = lambda: None
     dropbox: Callable[[], DropboxApp | None] = lambda: None
+    # A vault looked at first and not gone on with: what was fetched of it let go of.
+    dropped: Callable[[], None] = lambda: None
 
 
 class SyncGuideLine(QWidget):
