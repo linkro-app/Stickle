@@ -1600,3 +1600,24 @@ def test_what_other_vaults_kept_goes_and_the_one_synced_with_keeps_its_own(
     let_go_of_other_vaults(db)  # as at start
 
     assert staged_in(db) == [bed.login.vault]
+
+
+def test_turned_off_the_texts_last_seen_there_are_put_away_and_taken_back_on_coming_back(
+    bed: Bed, qtbot: QtBot
+) -> None:
+    pc = bed.first.pc
+    pc.notes.create("끊기 전 글")
+    bed.first.round_over(qtbot)
+    db = bed.first.db
+    texts = "SELECT count(*) FROM sync_notes WHERE json_type(seen, '$.body.text') = 'text'"
+    digests = "SELECT count(*) FROM sync_notes WHERE text_digest IS NOT NULL"
+    assert db.execute(texts).fetchall() != [(0,)]
+    window = bed.first.page(qtbot)
+
+    disconnect(window, qtbot, bed.first)
+
+    qtbot.waitUntil(lambda: db.execute(texts).fetchall() == [(0,)], timeout=MS)  # none in the clear
+    assert db.execute(digests).fetchall() != [(0,)]
+    sync_connection.keep(db, bed.login)  # connected to it again
+    assert db.execute(digests).fetchall() == [(0,)]
+    assert db.execute(texts).fetchall() != [(0,)]  # unchanged here: as they were

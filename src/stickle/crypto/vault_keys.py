@@ -62,6 +62,7 @@ FIRST = 1
 ITEMS = b"stickle-items"  # the key that locks each item's envelope
 IDS = b"stickle-ids"  # the key that makes records' ids from their names
 CHECKS = b"stickle-keys"  # the key that makes the check values of keys/
+TEXTS = b"stickle-texts"  # the key that makes digests of texts put away here
 RECOVERY_KEY = "recovery_key"  # the recovery key's pair: its slot in the key file B
 MASTER_PASSWORD = "master_password"  # the master password's pair
 RECEIVERS = (RECOVERY_KEY, MASTER_PASSWORD)  # devices (0.8) and members (1.2) to come
@@ -131,6 +132,13 @@ class DataKeys:
             f"{kind}\0{name}".encode(), digest_size=16, key=self.lasting_key(IDS)
         ).digest()
         return str(uuid.UUID(bytes=digest, version=4))
+
+
+def text_digest(keys: DataKeys, note_id: str, text: str) -> str:
+    """A digest of a note's text, which only the vault's key makes: whether a
+    text is the one put away, and nothing else of it."""
+    made = f"{note_id}\0{text}".encode()
+    return hashlib.blake2b(made, digest_size=32, key=keys.lasting_key(TEXTS)).hexdigest()
 
 
 class AlteredReceiverError(Exception):

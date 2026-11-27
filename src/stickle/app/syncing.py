@@ -972,13 +972,28 @@ class Syncing(QObject):
 
     def left(self) -> None:
         """On the app's thread, last. A request still out (it takes no more
-        than its own time) keeps garbage collected here until it is back."""
+        than its own time) keeps garbage collected here until it is back; then
+        nothing of this sync writes any more, and its vault is put away."""
         if self.runner.running or self._still_watching():
             self._looking_again.start(LOOK_AGAIN_MS)
             return
         self._collector.stop()
         if not work_goes_on():
             gc.enable()
+        self._put_away()
+
+    def _put_away(self) -> None:
+        """The vault left: the texts last seen there put away, and what rounds
+        kept for a while let go of (stickle.data.sync_state) — unless this
+        device is connected to it again since. Else at the next connection."""
+        try:
+            with self._connection:
+                now = sync_connection.vault_kept(self._connection)
+                if now != self.login.vault:
+                    sync_state.put_texts_away(self._connection, self.login.vault, self.login.keys)
+                sync_state.let_go_of_others(self._connection, now)
+        except apsw.Error as error:
+            log.warning("sync: could not put the vault left away: %s", type(error).__name__)
 
     def finish(self, seconds: float) -> None:
         """Ends it; seconds: how long what is waiting to be put may take."""

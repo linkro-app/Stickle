@@ -21,7 +21,7 @@ from fake_cloud import (
     Request,
     Trouble,
 )
-from sync_bed import VAULT, Clock, Device, settle
+from sync_bed import KEYS, VAULT, Clock, Device, settle
 
 from stickle.core import made_notes
 from stickle.data import sync_state
@@ -492,6 +492,65 @@ def test_back_to_a_vault_let_go_of_each_side_keeps_its_edit(
             assert texts[theirs] == "B가 고친 메모"
             assert texts[same] == "둘 다 그대로"
             assert len(texts) == 3  # no copies
+    finally:
+        a.close()
+        b.close()
+
+
+def put_away(device: Device) -> None:
+    """The device leaves the vault, as when it is disconnected: its texts put away."""
+    with device.db:
+        sync_state.put_texts_away(device.db, VAULT, KEYS.keys)
+        sync_state.let_go_of_others(device.db, None)
+
+
+def back(device: Device) -> None:
+    """Connected to it again: what was not changed here since taken back."""
+    with device.db:
+        sync_state.take_texts_back(device.db, VAULT, KEYS.keys)
+
+
+@pytest.mark.parametrize("kind", [DROPBOX, WEBDAV_WEAK], ids=lambda k: k.name)
+@pytest.mark.parametrize("change", ["none", "text here", "colour here", "text there", "both"])
+def test_back_to_a_vault_whose_texts_were_put_away_it_merges_as_before(
+    tmp_path: Path, kind: Kind, clock: Clock, change: str
+) -> None:
+    cloud = FakeCloud(kind)
+    a = Device("a", tmp_path, cloud, clock, whole=True)
+    b = Device("b", tmp_path, cloud, clock, whole=True)
+    try:
+        note = a.notes.create("처음 글").id
+        a.sync()
+        b.sync()
+        put_away(a)
+        puts = sum(1 for line in cloud.log if line.split()[1:3] == ["a", "put"])
+        if change in ("text there", "both"):
+            b.notes.update_body(note, "저쪽에서 고침")
+            b.sync()
+        clock.tick()
+        if change in ("text here", "both"):
+            a.notes.update_body(note, "여기서 고침")
+        if change == "colour here":
+            a.notes.set_color(note, "pink")
+        back(a)
+
+        settle([a, b])
+
+        for device in (a, b):
+            texts = sorted(device.texts().values())
+            if change == "none":
+                assert texts == ["처음 글"]
+            elif change in ("text here", "colour here"):
+                assert texts == ["여기서 고침" if change == "text here" else "처음 글"]
+            elif change == "text there":
+                assert texts == ["저쪽에서 고침"]  # not undone by the text seen before
+            else:
+                assert texts == ["여기서 고침", "저쪽에서 고침"]  # one kept, one a copy
+        if change == "colour here":
+            got = b.notes.get(note)
+            assert got is not None and got.color == "pink"
+        if change == "none":
+            assert sum(1 for line in cloud.log if line.split()[1:3] == ["a", "put"]) == puts
     finally:
         a.close()
         b.close()

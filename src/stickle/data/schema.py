@@ -668,11 +668,18 @@ V33 = """
 CREATE INDEX sync_notes_by_note ON sync_notes (note_id);
 """
 
+V34 = """
+-- A vault this device no longer syncs with keeps what each note was there, not
+-- the text it last saw there: a digest of it, keyed by that vault's key, tells
+-- on coming back whether the note's text here is that one still.
+ALTER TABLE sync_notes ADD COLUMN text_digest TEXT;
+"""
+
 # MIGRATIONS[n] brings the database from version n to version n + 1.
 MIGRATIONS: list[str] = [
     *(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16),
     *(V17, V18, V19, V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31),
-    *(V32, V33),
+    *(V32, V33, V34),
 ]
 BACKUPS_KEPT = 3
 

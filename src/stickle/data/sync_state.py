@@ -16,10 +16,12 @@ what rounds keep for a while (let_go_of_others). The text it last saw there
 stays: it is how a note is told unchanged here since (stickle.sync.local).
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 import apsw
+
+from stickle.crypto.vault_keys import DataKeys, text_digest
 
 
 @dataclass(frozen=True)
@@ -98,7 +100,7 @@ def forget_text_of(
     """forget_text for each note the query notes (with values) gives the ids of."""
     connection.execute(
         "UPDATE sync_notes SET seen = json_remove(seen, '$.body.text', '$.body.secret'),"
-        " outbox = json_remove(outbox, '$.body.text', '$.body.secret')"
+        " outbox = json_remove(outbox, '$.body.text', '$.body.secret'), text_digest = NULL"
         f" WHERE note_id IN ({notes})",
         values,  # pyright: ignore[reportArgumentType]
     )
@@ -115,6 +117,50 @@ def let_go_of_others(connection: apsw.Connection, vault: str | None) -> None:
     each note was there stays, to merge on if this device goes back to it."""
     for table in _FOR_A_WHILE:
         connection.execute(f"DELETE FROM {table} WHERE vault IS NOT ?", (vault,))
+
+
+def put_texts_away(connection: apsw.Connection, vault: str, keys: Mapping[int, bytes]) -> None:
+    """vault left (keys: its data keys): the text each note had there as last
+    seen, in the clear, put away, a digest of it kept in its place. A file still
+    being put stays whole (put without its text, it would empty the note there).
+    Without a key, nothing: a digest could not tell the text back."""
+    if not keys:
+        return
+    digests = DataKeys(keys)
+    rows = connection.execute(
+        "SELECT note_id, json_extract(seen, '$.body.text') FROM sync_notes"
+        " WHERE vault = ? AND json_type(seen, '$.body.text') = 'text'",
+        (vault,),
+    ).fetchall()
+    for note_id, text in rows:
+        connection.execute(
+            "UPDATE sync_notes SET seen = json_remove(seen, '$.body.text'), text_digest = ?"
+            " WHERE vault = ? AND note_id = ?",
+            (text_digest(digests, str(note_id), str(text)), vault, note_id),
+        )
+
+
+def take_texts_back(connection: apsw.Connection, vault: str, keys: Mapping[int, bytes]) -> None:
+    """vault synced with again (keys: its data keys): each text put away taken
+    back where the note's text here is that one still, so that it is told as
+    not changed here; a note changed here since is made on the version seen."""
+    if not keys:
+        return
+    digests = DataKeys(keys)
+    rows = connection.execute(
+        "SELECT sync_notes.note_id, sync_notes.text_digest, notes.body FROM sync_notes"
+        " LEFT JOIN notes ON notes.id = sync_notes.note_id AND notes.secret_body IS NULL"
+        " WHERE sync_notes.vault = ? AND sync_notes.text_digest IS NOT NULL",
+        (vault,),
+    ).fetchall()
+    for note_id, digest, body in rows:
+        same = body is not None and text_digest(digests, str(note_id), str(body)) == digest
+        connection.execute(
+            "UPDATE sync_notes SET text_digest = NULL,"
+            " seen = CASE WHEN ? THEN json_set(seen, '$.body.text', ?) ELSE seen END"
+            " WHERE vault = ? AND note_id = ?",
+            (int(same), body if same else None, vault, note_id),
+        )
 
 
 def _ids(rows: Iterable[apsw.SQLiteValues]) -> list[str]:

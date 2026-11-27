@@ -684,10 +684,8 @@ def disconnect_sync(
     """Sync turned off while the app runs: nothing kept of how to reach the
     cloud, and this run going by this computer's clock again. display: told of it."""
     sync_connection.forget(connection)
-    if syncing.ended(0):  # nothing of it writes any more (else at the next start)
-        let_go_of_other_vaults(connection)
     clocks.cloud = None
-    syncing.left()
+    syncing.left()  # its vault put away once nothing of it writes any more
     if display is not None:
         display.follow(None)
     log.info("sync: turned off")

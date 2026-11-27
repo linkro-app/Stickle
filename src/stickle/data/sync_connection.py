@@ -67,10 +67,16 @@ def current(connection: apsw.Connection) -> Login | None:
 
 
 def keep(connection: apsw.Connection, login: Login) -> None:
-    """This one, in place of any other: what rounds kept of other vaults for a
-    while let go of (stickle.data.sync_state.let_go_of_others)."""
+    """This one, in place of any other: the texts of the one before put away,
+    what rounds kept of other vaults for a while let go of, and the texts of
+    this one taken back (stickle.data.sync_state)."""
     with connection:
+        before = connection.execute("SELECT vault, keys FROM sync_connection").fetchall()
+        for vault, keys in before:
+            if vault != login.vault:
+                sync_state.put_texts_away(connection, str(vault), _keys_of(str(keys)))
         sync_state.let_go_of_others(connection, login.vault)
+        sync_state.take_texts_back(connection, login.vault, login.keys)
         connection.execute("DELETE FROM sync_connection")
         connection.execute(
             "INSERT INTO sync_connection"
