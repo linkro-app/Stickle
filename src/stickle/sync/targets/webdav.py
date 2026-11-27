@@ -43,7 +43,6 @@ from stickle.sync.targets.base import (
     Absent,
     AsRead,
     CertificateError,
-    Changes,
     Condition,
     Entry,
     FullError,
@@ -435,12 +434,6 @@ class WebDav:
         answer = self._ask("DELETE", self._url(path), None, self._condition(condition))
         if answer.status not in _DELETED:
             raise _error(answer)
-
-    def changes(self, cursor: str | None) -> Iterator[Changes] | None:
-        return None
-
-    def wait_for_change(self, cursor: str, seconds: float) -> bool | None:
-        return None
 
     # Below them
 

@@ -54,15 +54,6 @@ class AsRead:
 type Condition = Absent | AsRead
 
 
-@dataclass(frozen=True)
-class Changes:
-    """One page of what changed since a cursor."""
-
-    changed: tuple[Entry, ...]  # made or written over
-    gone: tuple[str, ...]  # deleted (paths)
-    cursor: str  # where the next look starts: kept once the page is dealt with
-
-
 class Target(Protocol):
     @property
     def keeps_conditions(self) -> bool:
@@ -92,17 +83,6 @@ class Target(Protocol):
 
     def delete(self, path: str, condition: AsRead) -> None:
         """NotThereError if there is none; RefusedError if it changed since read."""
-        ...
-
-    def changes(self, cursor: str | None) -> Iterator[Changes] | None:
-        """What changed since cursor, a page at a time (None for a cursor: every
-        file, as made). None if the target cannot tell: sync compares lists.
-        CursorExpiredError if the cursor is too old: start again without one."""
-        ...
-
-    def wait_for_change(self, cursor: str, seconds: float) -> bool | None:
-        """Whether something changed since cursor, waiting up to seconds for it;
-        None if the target cannot wait (sync looks every so often instead)."""
         ...
 
 
@@ -207,4 +187,4 @@ class UnusableCertificateError(CertificateError):
 
 
 class CursorExpiredError(TargetError):
-    """The cursor is too old to follow (OneDrive's 410): start again without one."""
+    """The cursor is too old to follow (Dropbox's reset): take another."""

@@ -16,7 +16,6 @@ from typing import Protocol
 from stickle.sync.schedule import Schedule
 from stickle.sync.targets.base import (
     AsRead,
-    Changes,
     Condition,
     Entry,
     Read,
@@ -90,14 +89,6 @@ class Until:
     def delete(self, path: str, condition: AsRead) -> None:
         self._check()
         self._target.delete(path, condition)
-
-    def changes(self, cursor: str | None) -> Iterator[Changes] | None:
-        self._check()
-        return self._target.changes(cursor)
-
-    def wait_for_change(self, cursor: str, seconds: float) -> bool | None:
-        self._check()
-        return self._target.wait_for_change(cursor, seconds)
 
     def close(self) -> None:
         close = getattr(self._target, "close", None)

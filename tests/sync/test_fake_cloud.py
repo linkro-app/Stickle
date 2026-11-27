@@ -140,17 +140,12 @@ def test_the_folder_vanishes() -> None:
     target = cloud.target("laptop")
     target.put("vault.json", b"{}", Absent())
     target.put(NOTE, b"note", Absent())
-    pages = target.changes(None)
-    assert pages is not None
-    cursor = [page.cursor for page in pages][-1]
 
     cloud.vanish()
 
     with pytest.raises(NotThereError):
         target.get("vault.json")
-    after = target.changes(cursor)
-    assert after is not None
-    assert {path for page in after for path in page.gone} == {"vault.json", NOTE}
+    assert cloud.files() == {}
 
 
 def test_the_folder_goes_back_to_an_earlier_state_under_new_tags() -> None:
@@ -179,22 +174,6 @@ def test_another_vaults_file_in_its_place() -> None:
 
     read = target.get("vault.json")
     assert (read.data, read.tag != before) == (b'{"vault": "another"}', True)
-
-
-def test_onedrive_shows_changes_a_little_late() -> None:
-    cloud = FakeCloud(ONEDRIVE)
-    target = cloud.target("laptop")
-    pages = target.changes(None)
-    assert pages is not None
-    cursor = [page.cursor for page in pages][-1]
-    target.put(NOTE, b"note", Absent())
-
-    first = target.changes(cursor)
-    assert first is not None and [p.changed for p in first] == [()]
-    for _ in range(ONEDRIVE.changes_late):
-        target.get(NOTE)
-    again = target.changes(cursor)
-    assert again is not None and [e.path for p in again for e in p.changed] == [NOTE]
 
 
 def test_written_again_as_it_was_dropbox_keeps_its_rev_and_onedrive_does_not() -> None:
@@ -251,7 +230,7 @@ def test_described_for_a_failed_test() -> None:
     assert f"2 laptop get {NOTE}: UnavailableError" in text
 
 
-OPS = st.sampled_from(["list", "get", "put-new", "put-over", "delete", "changes", "wait"])
+OPS = st.sampled_from(["list", "get", "put-new", "put-over", "delete"])
 TROUBLES = st.sampled_from([None, *Trouble])
 
 
@@ -278,12 +257,8 @@ def test_whatever_goes_wrong_comes_up_as_one_of_syncs_errors(
                 target.put(path, b"new", Absent())
             elif op == "put-over":
                 target.put(path, b"over", AsRead(f'"{number}"'))
-            elif op == "delete":
-                target.delete(path, AsRead(f'"{number}"'))
-            elif op == "changes":
-                list(target.changes(None) or [])
             else:
-                target.wait_for_change(f"0:{number}", 1)
+                target.delete(path, AsRead(f'"{number}"'))
         except TargetError:
             pass  # any of sync's errors; anything else fails the test
 

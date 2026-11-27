@@ -27,8 +27,6 @@ from webdav_server import HOST, webdav
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
-    Changes,
-    CursorExpiredError,
     NotThereError,
     Read,
     RefusedError,
@@ -246,76 +244,3 @@ def test_written_again_as_it_was_the_tag_may_or_may_not_change(target: Target) -
     read = settled(target, NOTE)
     target.put(NOTE, b"1", AsRead(read.tag))
     comes_back(target, NOTE, b"1")
-
-
-def seen(pages: Iterator[Changes]) -> tuple[set[str], set[str], str]:
-    changed: set[str] = set()
-    gone: set[str] = set()
-    cursor = ""
-    for page in pages:
-        for entry in page.changed:
-            changed.add(entry.path)
-            gone.discard(entry.path)
-        for path in page.gone:
-            gone.add(path)
-            changed.discard(path)
-        cursor = page.cursor
-    return changed, gone, cursor
-
-
-def test_what_changed_since_a_cursor_comes_page_by_page(target: Target) -> None:
-    target.put("notes/kept.json", b"k", Absent())
-    target.put("notes/old.json", b"o", Absent())
-    first = target.changes(None)
-    if first is None:
-        assert target.wait_for_change("c0", 0) is None  # neither: sync compares lists
-        return
-    _changed, _gone, cursor = seen(first)
-    old = settled(target, "notes/old.json")
-    target.put("notes/new.json", b"n", Absent())
-    target.delete("notes/old.json", AsRead(old.tag))
-    for number in range(4):  # some clouds show changes a little later
-        target.put(f"records/{number}.json", b"r", Absent())
-
-    changed: set[str] = set()
-    gone: set[str] = set()
-    for _ in range(10):  # looked again until all is shown, as sync does
-        pages = target.changes(cursor)
-        assert pages is not None
-        more_changed, more_gone, cursor = seen(pages)
-        changed = (changed - more_gone) | more_changed
-        gone = (gone - more_changed) | more_gone
-        if len(changed) == 5:
-            break
-
-    assert changed == {"notes/new.json"} | {f"records/{n}.json" for n in range(4)}
-    assert gone == {"notes/old.json"}
-    pages = target.changes(cursor)
-    assert pages is not None and seen(pages)[:2] == (set(), set())  # nothing since
-
-
-def test_an_old_cursor_starts_over(cloud: FakeCloud, target: Target) -> None:
-    pages = target.changes(None)
-    if pages is None:
-        return
-    cursor = seen(pages)[2]
-    cloud.expire_cursors()  # a real cloud does this after some days
-    with pytest.raises(CursorExpiredError):
-        list(target.changes(cursor) or [])
-
-
-def test_waiting_tells_a_change_made_elsewhere(cloud: FakeCloud, target: Target) -> None:
-    pages = target.changes(None)
-    if pages is None:
-        return
-    cursor = seen(pages)[2]
-    answer = target.wait_for_change(cursor, 30)
-    if answer is None:
-        return  # no long poll: sync looks every so often
-    assert answer is False
-    cloud.target("desktop").put(NOTE, b"from the desktop", Absent())
-    for _ in range(5):
-        if target.wait_for_change(cursor, 30):
-            break
-    else:
-        raise AssertionError("the change was never told")

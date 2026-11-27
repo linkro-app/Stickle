@@ -52,7 +52,7 @@ import ssl
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Generator, Iterator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -62,7 +62,6 @@ from stickle.platform.tls import https_context
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
-    Changes,
     Condition,
     CursorExpiredError,
     Entry,
@@ -733,12 +732,6 @@ class Dropbox:
         if isinstance(error, NotThereError) and tag is not None and self._there(path):
             raise RefusedError()  # there, at another rev
         raise error
-
-    def changes(self, cursor: str | None) -> Iterator[Changes] | None:
-        return None  # as the others: what changed is told in devices/ (and see feed)
-
-    def wait_for_change(self, cursor: str, seconds: float) -> bool | None:
-        return None
 
     # Beside them
 

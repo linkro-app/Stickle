@@ -37,7 +37,7 @@ import http.client
 import json
 import ssl
 import time
-from collections.abc import Callable, Generator, Iterator
+from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from typing import cast
 from urllib.parse import SplitResult, quote, urlsplit
@@ -48,7 +48,6 @@ from stickle.platform.tls import https_context
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
-    Changes,
     Condition,
     Entry,
     FullError,
@@ -330,12 +329,6 @@ class OneDrive:
         answer = self._graph("DELETE", self._item(path), None, headers)
         if answer.status not in _DELETED:
             raise _error(answer)
-
-    def changes(self, cursor: str | None) -> Iterator[Changes] | None:
-        return None  # as WebDAV: what changed is told in devices/
-
-    def wait_for_change(self, cursor: str, seconds: float) -> bool | None:
-        return None
 
     # Below them
 

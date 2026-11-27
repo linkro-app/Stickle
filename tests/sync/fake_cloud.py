@@ -1,8 +1,8 @@
 """Clouds in memory, for sync's tests.
 
 Each answers as a real one does: Dropbox (a rev for each file, kept even when the
-same content is written again; conditions kept; a long poll), OneDrive (an eTag
-changed by any write; conditions kept; changes shown late) and WebDAV servers of
+same content is written again; conditions kept), OneDrive (an eTag changed by
+any write; conditions kept) and WebDAV servers of
 several kinds (as the one tried answers, or with no tags, weak tags, conditions
 ignored, or a file half there while it is written). The test says where things
 go wrong, request by request (Trouble), and does to the folder what the user
@@ -25,9 +25,7 @@ from typing import Literal
 from stickle.sync.targets.base import (
     Absent,
     AsRead,
-    Changes,
     Condition,
-    CursorExpiredError,
     Entry,
     FullError,
     NotThereError,
@@ -57,18 +55,14 @@ class Kind:
     tags: TagStyle
     keeps_conditions: bool = True
     same_content_new_tag: bool = True  # written again as it was: a new tag
-    follows: bool = False  # tells what changed since a cursor
-    waits: bool = False  # waits for a change (a long poll)
-    changes_late: int = 0  # requests before a change shows among the changes
-    page: int = 3  # changes on a page
     half_while_written: bool = False  # read right after a write: half of it, once
     # Written as read, a file deleted since is made again (wsgidav), not refused.
     makes_gone_as_read: bool = False
     tells_tag_of_write: bool = True  # a write's answer gives the file's new tag
 
 
-DROPBOX = Kind("dropbox", "rev", same_content_new_tag=False, follows=True, waits=True)
-ONEDRIVE = Kind("onedrive", "etag", follows=True, changes_late=2)
+DROPBOX = Kind("dropbox", "rev", same_content_new_tag=False)
+ONEDRIVE = Kind("onedrive", "etag")
 # As the WebDAV server tried answers (test_wsgidav_facts checks it does).
 WEBDAV = Kind("webdav", "seconds", makes_gone_as_read=True)
 WEBDAV_NO_TAGS = Kind("webdav-no-tags", "none", keeps_conditions=False)
@@ -96,16 +90,16 @@ class Trouble(Enum):
     LOST = auto()  # done, then its answer lost
     TOO_BUSY = auto()  # 429, nothing done
     HALF = auto()  # a read gets half the file
-    LATE = auto()  # a write shows in lists and changes only some requests later
+    LATE = auto()  # a write shows in lists only some requests later
 
 
-LATE_BY = 5  # requests a LATE write waits before lists and changes show it
+LATE_BY = 5  # requests a LATE write waits before lists show it
 
 
 @dataclass(frozen=True)
 class Request:
     device: str
-    op: str  # list, get, put, delete, changes, wait
+    op: str  # list, get, put, delete
     path: str
     number: int  # the cloud's count of requests, from 1
 
@@ -119,14 +113,6 @@ class _File:
     path_hash: str = ""  # a part of a "seconds" tag, as wsgidav's
 
 
-@dataclass(frozen=True)
-class _Event:
-    path: str
-    gone: bool
-    entry: Entry | None
-    shown_from: int  # the request from which changes show it
-
-
 @dataclass
 class FakeCloud:
     kind: Kind
@@ -137,7 +123,6 @@ class FakeCloud:
     bytes_read: int = 0  # what reads brought down
     log: list[str] = field(default_factory=list[str])
     _files: dict[str, _File] = field(default_factory=dict[str, _File])
-    _events: list[_Event] = field(default_factory=list[_Event])
     # The files after each write, by the request that made it (see go_back_to).
     _states: list[tuple[int, dict[str, _File]]] = field(
         default_factory=list[tuple[int, dict[str, _File]]]
@@ -145,7 +130,6 @@ class FakeCloud:
     _written: int = 0
     _expired: set[str] = field(default_factory=set[str])
     _signed_out: set[str] = field(default_factory=set[str])
-    _cursor_age: int = 0  # cursors of an earlier age no longer work (see expire_cursors)
     _halves: set[str] = field(default_factory=set[str])
     full: bool = False
 
@@ -160,10 +144,6 @@ class FakeCloud:
     def refuse_refresh(self, device: str) -> None:
         """The app's access withdrawn by the user: refreshing is turned down."""
         self._signed_out.add(device)
-
-    def expire_cursors(self) -> None:
-        """Every cursor given so far too old to follow, as a cloud does after days."""
-        self._cursor_age += 1
 
     def put_by_hand(self, path: str, data: bytes, long_ago: bool = False) -> None:
         """Written by something other than Stickle (or another vault's device);
@@ -294,9 +274,6 @@ class FakeCloud:
         path_hash = hashlib.md5(path.encode()).hexdigest()[:8]
         stored = _File(data, self._written, self.requests, shown, path_hash)
         self._files[path] = stored
-        self._events.append(
-            _Event(path, False, self._entry(path, stored), shown + self.kind.changes_late)
-        )
         self._states.append((self.requests, dict(self._files)))
         if self.kind.half_while_written:
             self._halves.add(path)
@@ -305,7 +282,6 @@ class FakeCloud:
     def _remove(self, path: str) -> None:
         del self._files[path]
         self._halves.discard(path)
-        self._events.append(_Event(path, True, None, self.requests + self.kind.changes_late))
         self._states.append((self.requests, dict(self._files)))
 
     def _check(self, path: str, condition: Condition) -> None:
@@ -359,49 +335,6 @@ class FakeCloud:
         self._check(path, condition)
         self._remove(path)
 
-    def _shown(self) -> int:
-        """How many events changes show now: in order, up to the first not shown yet."""
-        count = 0
-        for event in self._events:
-            if event.shown_from > self.requests:
-                break
-            count += 1
-        return count
-
-    def _cursor(self, at: int) -> str:
-        return f"{self._cursor_age}:{at}"
-
-    def _from(self, cursor: str) -> int:
-        """Where a cursor starts; CursorExpiredError if it is of an earlier age."""
-        age, _, at = cursor.partition(":")
-        if int(age) != self._cursor_age:
-            raise CursorExpiredError()
-        return int(at)
-
-    def page(self, cursor: str | None) -> tuple[Changes, bool]:
-        """One page of changes since cursor, and whether more follow now."""
-        if cursor is None:
-            entries = self._list_all()
-            return Changes(tuple(entries), (), self._cursor(self._shown())), False
-        start = self._from(cursor)
-        end = min(self._shown(), start + self.kind.page)
-        latest: dict[str, _Event] = {}
-        for event in self._events[start:end]:
-            latest[event.path] = event
-        changed = tuple(e.entry for e in latest.values() if e.entry is not None)
-        gone = tuple(e.path for e in latest.values() if e.gone)
-        return Changes(changed, gone, self._cursor(end)), end < self._shown()
-
-    def _list_all(self) -> list[Entry]:
-        return [
-            self._entry(path, stored)
-            for path, stored in sorted(self._files.items())
-            if stored.listed_from <= self.requests
-        ]
-
-    def changed_since(self, cursor: str) -> bool:
-        return self._shown() > self._from(cursor)
-
 
 @dataclass
 class FakeTarget:
@@ -437,33 +370,6 @@ class FakeTarget:
     def delete(self, path: str, condition: AsRead) -> None:
         self.cloud.request(
             self.device, "delete", path, lambda _t: self.cloud.deleting(path, condition)
-        )
-
-    def changes(self, cursor: str | None) -> Iterator[Changes] | None:
-        if not self.cloud.kind.follows:
-            return None
-        return self._pages(cursor)
-
-    def _pages(self, cursor: str | None) -> Iterator[Changes]:
-        more = True
-        while more:
-            page, more = self.cloud.request(
-                self.device,
-                "changes",
-                cursor or "",
-                lambda _t, c=cursor: self.cloud.page(c),
-            )
-            cursor = page.cursor
-            yield page
-
-    def wait_for_change(self, cursor: str, seconds: float) -> bool | None:
-        if not self.cloud.kind.waits:
-            return None
-        return self.cloud.request(
-            self.device,
-            "wait",
-            cursor,
-            lambda _t: self.cloud.changed_since(cursor),
         )
 
     def refresh(self) -> None:
