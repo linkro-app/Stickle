@@ -1018,19 +1018,37 @@ class NoteRepository:
                 " purged_at = excluded.purged_at",
                 (note_id, note.deleted_at, self._clock()),
             )
-            if note.secret:  # a backup's earlier text of it stays sealed (stickle.data.backups)
-                self._db.execute(
-                    "INSERT OR IGNORE INTO once_secret (note_id, recorded_at) VALUES (?, ?)",
-                    (note_id, self._clock()),
-                )
-            self._db.execute("DELETE FROM note_layouts WHERE note_id = ?", (note_id,))
-            self._db.execute("DELETE FROM note_sizes WHERE note_id = ?", (note_id,))
-            self._db.execute("DELETE FROM note_marks WHERE note_id = ?", (note_id,))
-            self._db.execute("DELETE FROM reminders WHERE note_id = ?", (note_id,))
-            versions.forget(self._db, note_id)
-            stamps.forget(self._db, note_id)
-            sync_state.forget_text(self._db, note_id)
-            self._db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+            self._remove("?", (note_id,))
+
+    def _remove(self, notes: str, values: tuple[object, ...] = ()) -> None:
+        """The notes the query notes (with values) gives the ids of gone, and all
+        that is theirs, their deletion records aside: what purge and drop_all
+        both remove. A secret one is remembered as once secret (a backup's
+        earlier text of it stays sealed: stickle.data.backups)."""
+        self._db.execute(
+            "INSERT OR IGNORE INTO once_secret (note_id, recorded_at)"
+            f" SELECT id, ? FROM notes WHERE id IN ({notes}) AND secret_body IS NOT NULL",
+            (self._clock(), *values),  # pyright: ignore[reportArgumentType]
+        )
+        for table in ("note_layouts", "note_sizes", "note_marks", "reminders"):
+            self._db.execute(f"DELETE FROM {table} WHERE note_id IN ({notes})", values)  # pyright: ignore[reportArgumentType]
+        versions.forget_of(self._db, notes, values)
+        stamps.forget_of(self._db, notes, values)
+        sync_state.forget_text_of(self._db, notes, values)
+        self._db.execute(f"DELETE FROM notes WHERE id IN ({notes})", values)  # pyright: ignore[reportArgumentType]
+
+    def drop_all(self) -> int:
+        """Every note removed for good, in the trash and secret ones too, as
+        drop removes each, in one go (each on its own grows slower the more
+        there are in one transaction); how many there were."""
+        count = 0
+        with self._db:
+            rows = self._db.execute("SELECT count(*) FROM notes").fetchall()
+            count = int(rows[0][0])  # pyright: ignore[reportArgumentType]
+            every = "SELECT id FROM notes"
+            self._db.execute(f"DELETE FROM deletion_records WHERE note_id IN ({every})")
+            self._remove(every)
+        return count
 
     def drop(self, note_id: str) -> None:
         """Remove a note for good that never left this device, without a trace:

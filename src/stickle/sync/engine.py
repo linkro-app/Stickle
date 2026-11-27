@@ -390,16 +390,14 @@ def cloud_only(
     their place), and the vault taken as joined; along: done in that same
     transaction. How many were removed."""
     back_up()
-    gone = notes.all()
     with writing(connection):
-        for note in gone:
-            notes.drop(note.id)
+        gone = notes.drop_all()
         sync_state.set_joining(connection, vault, True)
         sync_keys.forget(connection, vault)
         settings.let_go(connection)
         if along is not None:
             along()
-    return len(gone)
+    return gone
 
 
 def sync_notes(

@@ -89,10 +89,18 @@ def drop(connection: apsw.Connection, vault: str, note_id: str) -> None:
 
 def forget_text(connection: apsw.Connection, note_id: str) -> None:
     """The note's text out of what every vault's files here hold of it."""
+    forget_text_of(connection, "?", (note_id,))
+
+
+def forget_text_of(
+    connection: apsw.Connection, notes: str, values: tuple[object, ...] = ()
+) -> None:
+    """forget_text for each note the query notes (with values) gives the ids of."""
     connection.execute(
         "UPDATE sync_notes SET seen = json_remove(seen, '$.body.text', '$.body.secret'),"
-        " outbox = json_remove(outbox, '$.body.text', '$.body.secret') WHERE note_id = ?",
-        (note_id,),
+        " outbox = json_remove(outbox, '$.body.text', '$.body.secret')"
+        f" WHERE note_id IN ({notes})",
+        values,  # pyright: ignore[reportArgumentType]
     )
 
 

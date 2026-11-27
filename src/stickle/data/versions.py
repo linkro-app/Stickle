@@ -284,7 +284,12 @@ def open_all(db: apsw.Connection, note_id: str, open_: Callable[[SealedText], st
 
 def forget(db: apsw.Connection, note_id: str) -> None:
     """All of a note's earlier texts gone (the note emptied from the trash)."""
-    db.execute("DELETE FROM note_versions WHERE note_id = ?", (note_id,))
+    forget_of(db, "?", (note_id,))
+
+
+def forget_of(db: apsw.Connection, notes: str, values: tuple[object, ...] = ()) -> None:
+    """forget for each note the query notes (with values) gives the ids of."""
+    db.execute(f"DELETE FROM note_versions WHERE note_id IN ({notes})", values)  # pyright: ignore[reportArgumentType]
 
 
 def text_of(db: apsw.Connection, note_id: str, version_id: int) -> str | SealedText | None:

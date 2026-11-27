@@ -119,4 +119,9 @@ def touch(connection: apsw.Connection, note_id: str) -> int:
 
 
 def forget(connection: apsw.Connection, note_id: str) -> None:
-    connection.execute("DELETE FROM note_stamps WHERE note_id = ?", (note_id,))
+    forget_of(connection, "?", (note_id,))
+
+
+def forget_of(connection: apsw.Connection, notes: str, values: tuple[object, ...] = ()) -> None:
+    """forget for each note the query notes (with values) gives the ids of."""
+    connection.execute(f"DELETE FROM note_stamps WHERE note_id IN ({notes})", values)  # pyright: ignore[reportArgumentType]
