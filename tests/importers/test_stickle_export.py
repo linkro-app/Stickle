@@ -273,8 +273,11 @@ def test_a_secret_note_exported_locked_is_locked_again_with_the_key_here(tmp_pat
         "금고 번호 1234"
     )
     assert brought.secret == 1
-    assert "1234" not in json.dumps(
-        [list(map(str, row)) for row in second.execute("SELECT * FROM notes")]
+    # A word of its text, which no id, hash or time stored beside it can hold
+    # ("1234" was once in a random note id).
+    assert "번호" not in json.dumps(
+        [list(map(str, row)) for row in second.execute("SELECT * FROM notes")],
+        ensure_ascii=False,
     )
 
 
