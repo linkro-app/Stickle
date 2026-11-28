@@ -41,6 +41,7 @@ from stickle.app.recovery_key_dialog import (
     RecoveryKeyDialog,
     RecoveryKeys,
 )
+from stickle.app.sizing import grow_to_fit
 from stickle.app.times import local_time
 from stickle.app.typed import forget_typed
 from stickle.core.passwords import guessable
@@ -189,6 +190,7 @@ class _PasswordWindow(QDialog):
         self.message.setStyleSheet(error_style(self.message))
         self.message.setText(message)
         self.message.show()
+        grow_to_fit(self)  # else the wrapped text above loses lines to it
         field.setAccessibleDescription(message)
         field.setFocus()
         field.selectAll()
@@ -198,6 +200,7 @@ class _PasswordWindow(QDialog):
         self.message.setStyleSheet("")
         self.message.setText(self.tr("Checking…"))
         self.message.show()
+        grow_to_fit(self)
         QCoreApplication.processEvents()
 
     def add_rules(self) -> None:
