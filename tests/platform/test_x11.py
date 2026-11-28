@@ -115,3 +115,47 @@ def test_nothing_is_sent_when_the_states_are_there(monkeypatch: pytest.MonkeyPat
 
     assert server.asked == []
     assert server.states[0x400001] == [302, 301]
+
+
+class Recording:
+    """libxcb as the calls made to it: what each returns, None (no reply)."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def __getattr__(self, name: str) -> object:
+        def call(*_args: object) -> None:
+            self.calls.append(name)
+
+        return call
+
+
+def test_the_state_written_before_mapping_is_waited_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Qt reads the state on its own connection as it maps the window, and writes
+    # it back merged: read before the server had these, they were lost.
+    server = x11._Xcb.__new__(x11._Xcb)  # pyright: ignore[reportPrivateUsage]
+    library = Recording()
+    monkeypatch.setattr(server, "_xcb", library, raising=False)
+    monkeypatch.setattr(server, "_connection", None, raising=False)
+
+    server.set_atoms(0x400001, 300, [301, 302])
+
+    assert library.calls == [
+        "xcb_change_property",
+        "xcb_flush",
+        "xcb_get_property",
+        "xcb_get_property_reply",  # answered: the change before it was handled
+    ]
+
+
+def test_states_asked_for_only_once_mapped_are_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    server = FakeServer(states=[301])
+    monkeypatch.setattr(x11, "_xcb", server)
+
+    with caplog.at_level(logging.INFO):
+        x11.keep_off_taskbar(0x400001, mapped=True)
+        x11.keep_off_taskbar(0x400001, mapped=False)  # before mapping: as it should be
+
+    assert caplog.text.count("only once mapped") == 1

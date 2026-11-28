@@ -282,11 +282,18 @@ class _Xcb:
                 self._free(at)
 
     def set_atoms(self, window: int, prop: int, atoms: list[int]) -> None:
+        """Written, and waited for: once this returns, the server has it."""
         values = (ctypes.c_uint32 * len(atoms))(*atoms)
         self._xcb.xcb_change_property(
             self._connection, PROP_MODE_REPLACE, window, prop, ATOM, 32, len(atoms), values
         )
         self._xcb.xcb_flush(self._connection)
+        # Answered, a later request of this connection's shows the change was
+        # handled. Qt reads the state on a connection of its own as it maps the
+        # window, and writes it back merged with its own: read first, these were
+        # lost until asked for once mapped, and GNOME meanwhile told of a note
+        # "is ready", as it does of windows that show in the taskbar.
+        self.atoms(window, prop)
 
     def ask_window_manager(self, window: int, atoms: list[int]) -> None:
         """The way to change the state of a window that is already mapped."""
@@ -336,6 +343,7 @@ def keep_off_taskbar(window: int, mapped: bool) -> None:
     states = server.atoms(window, server.state)
     missing = [atom for atom in server.skip if atom not in states]
     if missing and mapped:
+        log.info("x11: left out of the taskbar only once mapped")
         server.ask_window_manager(window, missing)
     elif missing:
         server.set_atoms(window, server.state, states + missing)
