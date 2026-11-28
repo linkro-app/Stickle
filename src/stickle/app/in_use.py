@@ -41,8 +41,17 @@ def call_up(window: QWidget) -> None:
 
 
 class OnTopWhileInUse(QObject):
-    """Takes a window out of the top once the user has moved on from it and the
-    windows it opened; it is put there with set_stays_on_top as it is called up."""
+    """Takes a window out of the top once the user has been in it and moved on
+    from it and the windows it opened; it is put there with set_stays_on_top as
+    it is called up."""
+
+    # Whether the keyboard has been in it since it was last let go. Before that,
+    # the keyboard going elsewhere is not the user moving on from it: the keys
+    # at a glance, closing for the settings, had the window manager hand the
+    # keyboard back to their note first, which sent the settings below the
+    # pinned notes. On the class too: still read once the garbage collector
+    # has cleared this one's attributes.
+    _entered = False
 
     def __init__(self, window: QWidget) -> None:
         super().__init__(window)
@@ -63,14 +72,18 @@ class OnTopWhileInUse(QObject):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         window = self._window
         if watched is window:
-            # Not on activation: that can be reported before the window is in front.
             # Hidden for real: Ubuntu also said so as the window came up, still on screen.
-            if event.type() == QEvent.Type.Hide and not window.isVisible() and stays_on_top(window):
-                set_stays_on_top(window, False)
+            if event.type() == QEvent.Type.Hide and not window.isVisible():
+                self._entered = False
+                if stays_on_top(window):
+                    set_stays_on_top(window, False)
+            elif event.type() == QEvent.Type.WindowActivate:
+                self._entered = True
             elif event.type() == QEvent.Type.WindowDeactivate and stays_on_top(window):
                 self._let_go_soon()
             elif event.type() == QEvent.Type.Show and not event.spontaneous():
-                # Once shown: Qt may have put back an on-top state since changed.
+                # Once shown, not on activation (that can be reported before the
+                # window is in front): Qt may have put back an on-top state since changed.
                 QTimer.singleShot(0, self, self._keep)
         return False
 
@@ -102,7 +115,11 @@ class OnTopWhileInUse(QObject):
         widget = file_dialogs.asking_for() or QApplication.activeWindow()
         while widget is not None:
             if widget is self._window:
+                self._entered = True  # in one of its windows, if not in it
                 return
             widget = _opener(widget)
+        if not self._entered:
+            return
+        self._entered = False
         set_stays_on_top(self._window, False)
         self._keep()  # left for the window it belongs to, which is still above

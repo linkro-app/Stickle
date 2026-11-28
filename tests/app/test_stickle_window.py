@@ -270,6 +270,31 @@ def test_from_the_tray_the_settings_stay_above_pinned_notes_until_left(
     settings.close()
 
 
+def test_a_called_up_window_is_left_only_once_the_keyboard_has_been_in_it(
+    qtbot: QtBot, app: App
+) -> None:
+    # The keys at a glance close for the settings, and the window manager hands
+    # the keyboard back to their note before the settings have it: that is not
+    # the user moving on from them (a pinned note covered them on Ubuntu).
+    note = open_note(app, "핀 메모")
+    window = QWidget()
+    qtbot.addWidget(window)
+    in_use.OnTopWhileInUse(window)
+    in_use.call_up(window)  # not shown yet: off screen, showing hands it the keyboard
+    move_to(qtbot, note)
+    assert stays_on_top(window)
+
+    window.show()
+    move_to(qtbot, window)
+    move_to(qtbot, note)
+    assert not stays_on_top(window)
+
+    # Called up again, it waits for the keyboard anew.
+    in_use.call_up(window)
+    move_to(qtbot, open_note(app, "다른 메모"))
+    assert stays_on_top(window)
+
+
 def test_from_the_tray_about_stays_above_pinned_notes_until_left(qtbot: QtBot, app: App) -> None:
     note = open_note(app, "핀 메모")
     app.tray.about_action.trigger()
@@ -486,6 +511,7 @@ def test_it_keeps_its_close_button_once_no_longer_on_top(qtbot: QtBot, app: App)
     # without the close button hint came back with its X greyed out.
     app.window.open()
     on_top = app.window.windowFlags()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is app.window)
     move_to(qtbot, None)
 
     assert not stays_on_top(app.window)
